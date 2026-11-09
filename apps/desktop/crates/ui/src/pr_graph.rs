@@ -302,6 +302,7 @@ fn flip(list: &mut Vec<OverlaySection>, section: OverlaySection) {
 
 impl Render for GraphDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "GraphDialog").entered();
         let sections = pr_graph::overlay_sections(&self.graph);
         if sections.is_empty() {
             return div()

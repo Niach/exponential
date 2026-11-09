@@ -1622,6 +1622,7 @@ impl Focusable for IssueDraftView {
 
 impl Render for IssueDraftView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueDraftView").entered();
         let base = v_flex()
             .size_full()
             .track_focus(&self.focus_handle)

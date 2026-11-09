@@ -1421,6 +1421,7 @@ impl GeneralPane {
 
 impl Render for GeneralPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "GeneralPane").entered();
         let Some(team) = active_team(cx, &self.nav) else {
             return v_flex().child(crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::UI_TEAM),

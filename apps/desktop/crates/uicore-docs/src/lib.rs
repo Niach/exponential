@@ -29,6 +29,7 @@ pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../
 impl Doc {
     /// The parsed document (the sources are checked by the tests).
     pub fn json(&self) -> Value {
+        let _span = tracing::debug_span!("uicore_docs.parse", doc = self.name).entered();
         serde_json::from_str(self.source).expect("a factory document parses")
     }
 }

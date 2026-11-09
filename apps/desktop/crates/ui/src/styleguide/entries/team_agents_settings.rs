@@ -124,6 +124,7 @@ fn row_value(id: &'static str, icon: Option<Icon>, value: impl Into<SharedString
 
 impl Render for AgentSettingsDemo {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AgentSettingsDemo").entered();
         let muted = cx.theme().muted_foreground;
         let icon_picker = crate::board_form::icon_picker(
             "sg-agent-settings",

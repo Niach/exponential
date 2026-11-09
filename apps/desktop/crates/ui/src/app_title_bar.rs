@@ -188,6 +188,7 @@ mod tests {
 
     impl Render for Bar {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Bar").entered();
             let window_menu = self.window_menu.clone();
             let content_menu = self.content_menu.clone();
             // Stands in for a tab chip's `.context_menu()`: a right-press

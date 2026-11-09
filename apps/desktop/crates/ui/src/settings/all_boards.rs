@@ -452,6 +452,7 @@ fn document(ink: &Ink) -> Value {
 
 impl Render for AllBoardsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AllBoardsPane").entered();
         let team = self.team_id(cx);
         if let Some(team_id) = &team {
             self.ensure_loaded(team_id, cx);
