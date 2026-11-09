@@ -5,7 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
-- Select `triggerVariant: row` (#EXP-1629): the label inside the trigger, the `value` part trailing, the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: `end`, 260 px); the open list scrolls to the chosen option (never the page); item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
+- Select `triggerVariant: row` (#EXP-1629): the trigger is the `label`, a spacer, the `value` (at most `selectRowValueMaxWidth`, truncated) and the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: hung off the VALUE, `start`, 262 px, `selectRowPopupOffset` under it, `selectRowPopupMargin` from the window's edges); every Select opens at the TOP with the cursor on the first enabled option (the search field focused when searchable), no longer scrolled to the chosen one; the list's bottom `fade` (`searchListFade`) while options sit below; the search glyph in `mutedForeground`; item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
+- Recipes (#EXP-1629): `backgroundClip: padding-box` paints a part's fill inside its border, `$shadow.popover` resolves like every shadow, and an Avatar's picture paints its `image` recipe fill (the exponential theme's `secondary`) under its ring.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 
 ## 0.20.0 (2026-11-08)

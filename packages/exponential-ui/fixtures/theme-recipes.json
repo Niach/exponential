@@ -6896,14 +6896,16 @@
             "default": {
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "borderRadius": 9999
+              "borderRadius": 9999,
+              "backgroundColor": "#262626"
             }
           },
           "dark": {
             "default": {
               "borderWidth": 1,
               "borderColor": "#ffffff1a",
-              "borderRadius": 9999
+              "borderRadius": 9999,
+              "backgroundColor": "#262626"
             }
           }
         },
@@ -6928,14 +6930,16 @@
             "default": {
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "borderRadius": 9999
+              "borderRadius": 9999,
+              "backgroundColor": "#262626"
             }
           },
           "dark": {
             "default": {
               "borderWidth": 1,
               "borderColor": "#ffffff1a",
-              "borderRadius": 9999
+              "borderRadius": 9999,
+              "backgroundColor": "#262626"
             }
           }
         }
@@ -47769,11 +47773,27 @@
               "backgroundColor": "#ffffff",
               "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5",
+              "borderColor": "#ffffff19",
               "borderRadius": 10,
-              "boxShadow": [],
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 15,
+                  "spread": -3,
+                  "color": "#0000001a"
+                },
+                {
+                  "x": 0,
+                  "y": 4,
+                  "blur": 6,
+                  "spread": -4,
+                  "color": "#0000001a"
+                }
+              ],
               "padding": 3.5,
-              "gap": 3.5
+              "gap": 3.5,
+              "backgroundClip": "padding-box"
             }
           },
           "dark": {
@@ -47781,11 +47801,27 @@
               "backgroundColor": "#252525",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a",
+              "borderColor": "#ffffff19",
               "borderRadius": 10,
-              "boxShadow": [],
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 15,
+                  "spread": -3,
+                  "color": "#0000001a"
+                },
+                {
+                  "x": 0,
+                  "y": 4,
+                  "blur": 6,
+                  "spread": -4,
+                  "color": "#0000001a"
+                }
+              ],
               "padding": 3.5,
-              "gap": 3.5
+              "gap": 3.5,
+              "backgroundClip": "padding-box"
             }
           }
         },
@@ -47835,11 +47871,27 @@
               "backgroundColor": "#ffffff",
               "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5",
+              "borderColor": "#ffffff19",
               "borderRadius": 10,
-              "boxShadow": [],
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 15,
+                  "spread": -3,
+                  "color": "#0000001a"
+                },
+                {
+                  "x": 0,
+                  "y": 4,
+                  "blur": 6,
+                  "spread": -4,
+                  "color": "#0000001a"
+                }
+              ],
               "padding": 3.5,
-              "gap": 3.5
+              "gap": 3.5,
+              "backgroundClip": "padding-box"
             }
           },
           "dark": {
@@ -47847,11 +47899,27 @@
               "backgroundColor": "#252525",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a",
+              "borderColor": "#ffffff19",
               "borderRadius": 10,
-              "boxShadow": [],
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 10,
+                  "blur": 15,
+                  "spread": -3,
+                  "color": "#0000001a"
+                },
+                {
+                  "x": 0,
+                  "y": 4,
+                  "blur": 6,
+                  "spread": -4,
+                  "color": "#0000001a"
+                }
+              ],
               "padding": 3.5,
-              "gap": 3.5
+              "gap": 3.5,
+              "backgroundClip": "padding-box"
             }
           }
         }
@@ -48859,39 +48927,39 @@
           "light": {
             "default": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7
             },
             "hover": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#171717",
               "gap": 7,
               "backgroundColor": "#f5f5f5"
             },
             "disabled": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7,
               "opacity": 0.5
             },
             "selected": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7,
               "backgroundColor": "#00000000"
@@ -48900,39 +48968,39 @@
           "dark": {
             "default": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7
             },
             "hover": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7,
               "backgroundColor": "#ffffff1c"
             },
             "disabled": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7,
               "opacity": 0.5
             },
             "selected": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7,
               "backgroundColor": "#00000000"
@@ -49027,39 +49095,39 @@
           "light": {
             "default": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7
             },
             "hover": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#7c2d12",
               "gap": 7,
               "backgroundColor": "#ffedd5"
             },
             "disabled": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7,
               "opacity": 0.5
             },
             "selected": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#0a0a0a",
               "gap": 7,
               "backgroundColor": "#00000000"
@@ -49068,39 +49136,39 @@
           "dark": {
             "default": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7
             },
             "hover": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fed7aa",
               "gap": 7,
               "backgroundColor": "#431407"
             },
             "disabled": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7,
               "opacity": 0.5
             },
             "selected": {
               "height": 32,
-              "paddingHorizontal": 7,
+              "paddingHorizontal": 8,
               "borderRadius": 10,
               "fontSize": 12.25,
-              "lineHeight": 17.5,
+              "lineHeight": 17,
               "color": "#fafafa",
               "gap": 7,
               "backgroundColor": "#00000000"
@@ -49628,6 +49696,74 @@
               "width": 14,
               "height": 14,
               "opacity": 0.7
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Select",
+      "part": "fade",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "field"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#171717"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#252525"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#2a1b4d"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#ffffff"
+            }
+          },
+          "dark": {
+            "default": {
+              "height": 24,
+              "backgroundColor": "#252525"
             }
           }
         }

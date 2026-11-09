@@ -42,9 +42,10 @@ describe(`select: variants`, () => {
   }
 })
 
-// #EXP-1629: the open popup (the row's end-aligned 260 px, an explicit
-// align + popupWidth, the cursor on the chosen option as `hover`, the
-// chosen one `selected` with the check), the same on both. The serialised
+// #EXP-1629: the open popup (the row's start-aligned 262 px under its
+// value, an explicit align + popupWidth, the cursor on the FIRST enabled
+// option as `hover` (a fresh pick), the chosen one `selected` with the
+// check), the same on both. The serialised
 // open DOM differs in what jsdom cannot model (focus-scope aria-hidden), so
 // this compares the popup's contract, not the whole tree.
 describe(`select: open popup`, () => {
@@ -83,20 +84,20 @@ describe(`select: open popup`, () => {
   const cases: [Record<string, unknown>, string, string, string][] = [
     [{}, `start`, ``, `var(--radix-select-trigger-width)`],
     [{ searchable: true }, `start`, ``, `var(--radix-popover-trigger-width)`],
-    [{ triggerVariant: `row` }, `end`, `260px`, ``],
-    [{ triggerVariant: `row`, searchable: true }, `end`, `260px`, ``],
+    [{ triggerVariant: `row` }, `start`, `262px`, ``],
+    [{ triggerVariant: `row`, searchable: true }, `start`, `262px`, ``],
     [{ triggerVariant: `row`, align: `center`, popupWidth: 300 }, `center`, `300px`, ``],
     [{ searchable: true, align: `end`, popupWidth: 200 }, `end`, `200px`, ``],
   ]
   for (const [variant, align, width, minWidth] of cases)
-    it(`${JSON.stringify(variant)}: ${align}, ${width || minWidth}, the cursor on the chosen option`, async () => {
+    it(`${JSON.stringify(variant)}: ${align}, ${width || minWidth}, the cursor on the first option`, async () => {
       const { react, solid } = await both({ tree: sel({ ...variant, value: `sprint` }), theme: `exponential`, mode: `dark` })
       expect(solid).toEqual(react)
-      expect(react).toEqual({ align, width, minWidth, items: [[null, false], [`selected hover`, true], [`disabled`, false]] })
+      expect(react).toEqual({ align, width, minWidth, items: [[`hover`, false], [`selected`, true], [`disabled`, false]] })
     })
-  it(`multiple: chosen = selected + check, the cursor alone = hover`, async () => {
+  it(`multiple: chosen = selected + check, the cursor (the first option) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
-    expect(react.items).toEqual([[null, false], [`selected hover`, true], [`disabled`, false]])
+    expect(react.items).toEqual([[`hover`, false], [`selected`, true], [`disabled`, false]])
   })
 })

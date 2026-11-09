@@ -140,6 +140,20 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
         }
     }
     if (!node.isLeaf) {
+        // #EXP-1629: a `row` Select's trigger is ONE TalkBack node (its
+        // parts are not stops): the label, the shown value, a dropdown.
+        if (node.isSelectRowTrigger) {
+            val index = node.index
+            val owner = model.ownerProps(index)
+            val disabledNow = model.isDisabled(index)
+            val text = node.props.str("text")
+            return clearAndSetSemantics {
+                contentDescription = a.label ?: owner.str("label").ifEmpty { owner.str("placeholder") }
+                stateDescription = text
+                role = Role.DropdownList
+                if (disabledNow) disabled() else onClick { model.press(index); true }
+            }
+        }
         if (node.pressable) {
             val label = named(a.label ?: model.combinedLabel(node.index), a.description)
             val index = node.index

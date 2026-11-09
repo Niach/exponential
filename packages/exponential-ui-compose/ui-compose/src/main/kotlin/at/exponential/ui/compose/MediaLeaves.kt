@@ -374,7 +374,8 @@ internal fun IconLeaf(cx: LeafContext) {
 
 /**
  * `Avatar` (fixtures/avatar.json, #EXP-1629): the picture when `src` loads,
- * wearing the `Avatar/image` ring; else the initials of `name`, tinted from
+ * wearing the `Avatar/image` ring over its fill (the whole round box,
+ * #EXP-1629); else the initials of `name`, tinted from
  * `seed` (a user id: the palette hue at 20% under the letters in the hue) or,
  * with no seed, in the `Avatar/fallback` recipe's colours. The letters take
  * the fallback recipe's size and weight.
@@ -402,6 +403,7 @@ internal fun AvatarLeaf(cx: LeafContext) {
             ring = ring?.borderColor?.takeIf { ring.borderWidth > 0f },
             ringWidth = (ring?.borderWidth ?: 0f).dp,
             picture = picture?.let { bmp -> { Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
+            pictureFill = ring?.background,
         )
     }
 }

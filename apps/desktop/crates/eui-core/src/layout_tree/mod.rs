@@ -334,6 +334,9 @@ pub struct LocalState {
     /// valid while the data model's version holds: a scroll step over a
     /// 100,000-item list never re-keys it.
     pub key_cache: HashMap<String, (u64, std::sync::Arc<Vec<String>>)>,
+    /// #EXP-1629: the open Selects whose list has options below its
+    /// visible end (the last pass's; its bottom `fade` shows).
+    pub select_fade: std::collections::HashSet<String>,
 }
 
 pub struct BuildContext<'a> {

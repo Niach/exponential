@@ -97,7 +97,7 @@ import at.exponential.ui.theme.TransformOp
  */
 internal fun selfHandling(n: NodeInfo): Boolean {
     if (n.isTextField) return true
-    return n.isPickerTrigger ||
+    return (n.isPickerTrigger && !n.isSelectRowTrigger) ||
         (n.component == "Slider" && n.part == "track") ||
         n.component == "Segmented" ||
         (n.component == "Box" && n.part == "indicator") ||
@@ -371,6 +371,14 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
                 LeafContent(LeafContext(model, node, size, style, inheritedInk(model.ink(index)), model.textStyle(index).forPart(node.ownerComponent ?: node.macroName, node.part, node.id)))
             } else {
                 ContainerContent(index, node, model, style, size)
+            }
+        }
+        // #EXP-1629: a `row` Select's popup hangs off its VALUE part.
+        if (node.ownerComponent == "Select" && (node.part == "value" || node.part == "placeholder")) {
+            val trigger = node.parent?.let(model::node)
+            if (trigger != null && trigger.isSelectRowTrigger && model.nativePicker(trigger)) {
+                val t = trigger.index
+                SelectPopup(LeafContext(model, trigger, model.frame(t).size, model.boxStyle(t), model.ink(t), model.textStyle(t)))
             }
         }
         // An invisible box swallows the pointer over its whole area, so the

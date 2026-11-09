@@ -76,6 +76,22 @@
             "spread": -12,
             "color": "#00000014"
           }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 10,
+            "blur": 15,
+            "spread": -3,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -4,
+            "color": "#0000001a"
+          }
         ]
       }
     },
@@ -149,6 +165,22 @@
             "blur": 48,
             "spread": -12,
             "color": "#00000066"
+          }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 10,
+            "blur": 15,
+            "spread": -3,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -4,
+            "color": "#0000001a"
           }
         ]
       }
@@ -819,7 +851,9 @@
             "padding": 3.5,
             "gap": 3.5,
             "borderRadius": "$radius.md",
-            "boxShadow": "$shadow.none"
+            "boxShadow": "$shadow.popover",
+            "backgroundClip": "padding-box",
+            "borderColor": "#ffffff19"
           }
         }
       ],
@@ -855,10 +889,10 @@
             "triggerVariant": "row"
           },
           "style": {
-            "paddingHorizontal": 7,
+            "paddingHorizontal": 8,
             "gap": 7,
             "fontSize": 12.25,
-            "lineHeight": 17.5
+            "lineHeight": 17
           }
         },
         {
@@ -888,6 +922,15 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        }
+      ]
+    },
+    "Avatar": {
+      "image": [
+        {
+          "style": {
+            "backgroundColor": "#262626"
           }
         }
       ]

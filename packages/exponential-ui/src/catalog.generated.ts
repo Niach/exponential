@@ -160,7 +160,7 @@ export const TOKEN_NAMES = {
   "type.weight": ["regular","medium","semibold","bold"],
   "type.family": ["sans","mono","serif"],
   "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl"],
-  "shadow": ["none","sm","md","lg","xl"],
+  "shadow": ["none","sm","md","lg","xl","popover"],
   "opacity": ["primary","secondary","tertiary","quaternary","disabled"],
   "border": ["none","hairline","thick"],
   "motion": ["fast","standard","slow"],

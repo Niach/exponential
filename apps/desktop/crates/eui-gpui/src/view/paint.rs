@@ -311,8 +311,15 @@ impl SurfaceView {
         }
         // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
         let pulses = leaf && n.component == "Skeleton";
-        el = el.when_some(style.bg.filter(|_| !pulses), |d, bg| d.bg(bg));
+        let inset_bg = style.padding_box && style.has_border();
+        el = el.when_some(style.bg.filter(|_| !pulses && !inset_bg), |d, bg| d.bg(bg));
         el = rounded(el, radii);
+        // #EXP-1629: a padding-box fill sits inside the border overlay.
+        if let Some(bg) = style.bg.filter(|_| !pulses && inset_bg) {
+            let [t, r, b, l] = style.border;
+            let inner = [radii[0] - t.max(l), radii[1] - t.max(r), radii[2] - b.max(r), radii[3] - b.max(l)].map(|x| x.max(0.0));
+            el = el.child(rounded(div().absolute().top(px(t)).left(px(l)).w(px((w - l - r).max(0.0))).h(px((h - t - b).max(0.0))).bg(bg), inner));
+        }
         if !style.shadows.is_empty() {
             el = el.shadow(style.shadows.clone());
         }

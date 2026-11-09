@@ -71,6 +71,24 @@ internal fun boxRoundRect(style: PaintStyle, sizeDp: Size, px: Size, density: Fl
     )
 }
 
+/**
+ * #EXP-1629: the PADDING box of a box (px): [boxRoundRect] inset by the
+ * border's side widths, each corner's radii shrunk by its two sides (CSS
+ * `background-clip: padding-box`).
+ */
+internal fun paddingRoundRect(style: PaintStyle, sizeDp: Size, px: Size, density: Float): RoundRect {
+    val outer = boxRoundRect(style, sizeDp, px, density)
+    val (t, r, b, l) = style.sides.map { it * density }
+    fun corner(c: CornerRadius, x: Float, y: Float) = CornerRadius(max(0f, c.x - x), max(0f, c.y - y))
+    return RoundRect(
+        left = l, top = t, right = max(l, px.width - r), bottom = max(t, px.height - b),
+        topLeftCornerRadius = corner(outer.topLeftCornerRadius, l, t),
+        topRightCornerRadius = corner(outer.topRightCornerRadius, r, t),
+        bottomRightCornerRadius = corner(outer.bottomRightCornerRadius, r, b),
+        bottomLeftCornerRadius = corner(outer.bottomLeftCornerRadius, l, b),
+    )
+}
+
 /** The node's clip shape: its rounded box (per-corner radii, CSS clamping). */
 internal class BoxShape(private val style: PaintStyle, private val sizeDp: Size) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
@@ -140,7 +158,10 @@ fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): 
         m = m.drawBehind {
             val rr = boxRoundRect(style, size, this.size, density)
             for (layer in style.shadows) drawShadowLayer(layer, rr)
-            val path = Path().apply { addRoundRect(rr) }
+            // #EXP-1629: `padding-box`: the fill stops at the border, a
+            // translucent border blends over what is behind the box.
+            val fill = if (style.clipToPadding && style.hasBorder) paddingRoundRect(style, size, this.size, density) else rr
+            val path = Path().apply { addRoundRect(fill) }
             style.background?.let { bg -> drawPath(path, bg) }
             style.gradient?.let { g -> drawPath(path, gradientBrush(g, this.size)) }
         }
@@ -152,6 +173,22 @@ fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): 
         }
     }
     return m
+}
+
+/**
+ * #EXP-1629: a box laid out by Compose (a native popup), painted from
+ * [style] at whatever size it lands: the shadows, the background (inside
+ * the border under `padding-box`) and the border, as [paintedBox] does.
+ */
+internal fun Modifier.paintedSurface(style: PaintStyle): Modifier = drawBehind {
+    val dp = Size(size.width / density, size.height / density)
+    val rr = boxRoundRect(style, dp, size, density)
+    for (layer in style.shadows) drawShadowLayer(layer, rr)
+    val fill = if (style.clipToPadding && style.hasBorder) paddingRoundRect(style, dp, size, density) else rr
+    style.background?.let { bg -> drawPath(Path().apply { addRoundRect(fill) }, bg) }
+}.drawWithContent {
+    drawContent()
+    if (style.hasBorder) drawBorder(style, Size(size.width / density, size.height / density))
 }
 
 /** The border inside the box: a uniform rounded stroke, else each side as a band (one colour). */

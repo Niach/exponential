@@ -411,7 +411,11 @@ impl Builder<'_, '_> {
             let search = self.part_in(root, &owner, "search", "Select", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"placeholder": self.string("search"), "value": query, "icon": super::builtin_icon("Select.search")}), "");
             self.nodes[search as usize].pressable = true;
         }
-        let list = self.part_in(root, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
+        // #EXP-1629: the list sits in a relative `body` that carries the
+        // bottom `fade` while more options sit below (SearchList's).
+        let body = self.part_in(root, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "position": "relative", "flexShrink": 1, "minHeight": 0}), json!({}), "");
+        self.nodes[body as usize].part_query = None;
+        let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
         self.nodes[list as usize].part_query = None;
         let needle = query.to_lowercase();
         let mut shown_any = false;
@@ -443,6 +447,9 @@ impl Builder<'_, '_> {
         if !shown_any {
             let empty = owner.props.get("emptyText").map(js).unwrap_or_else(|| self.string("noResults"));
             self.text_part(list, &owner, "empty", &empty, "muted", "");
+        }
+        if self.ctx.local.select_fade.contains(&owner.id) {
+            self.part_in(body, &owner, "fade", "Box", NodeKind::Container, json!({"position": "absolute", "left": 0, "right": 0, "bottom": 0, "height": crate::layout::SEARCH_LIST_FADE}), json!({}), "");
         }
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).

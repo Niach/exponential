@@ -40,6 +40,8 @@ pub(super) struct PassState {
     refits: u32,
     /// Round 8: `@container` refits this pass.
     container_refits: u32,
+    /// #EXP-1629: Select fade refits this pass.
+    fade_refits: u32,
     missing: Vec<usize>,
     heights: Vec<HeightRequest>,
 }
@@ -143,6 +145,7 @@ impl Surface {
             }
         }
         self.restyle();
+        self.reveal_select_choices();
     }
 
     /// Every live measured leaf without a (current) memo entry.
@@ -246,14 +249,13 @@ impl Surface {
         // EXP-1676: only a FINISHED pass (real heights, never a round's
         // guesses) fixes an open Dialog's held bottom; a closed one drops it.
         self.dialog_holds = std::mem::take(&mut self.dialog_holds_next);
-        self.reveal_select_choices(&frames);
         self.output(frames, placed, bounded_h, state.rounds, state.upcalls, layout_ns)
     }
 
     /// #EXP-1629: a Select that just opened starts its list at the TOP (the
     /// IDE's picker: every opening is a fresh pick, the cursor on the first
     /// option); the user's scroll is theirs while it stays open.
-    fn reveal_select_choices(&mut self, _frames: &[Frame]) {
+    fn reveal_select_choices(&mut self) {
         let mut open = HashSet::new();
         for spec in self.layers.iter().filter(|l| l.kind == "Select") {
             open.insert(spec.owner.clone());
@@ -273,7 +275,7 @@ impl Surface {
     /// pass as resumable STEPS for a host that must not be called back
     /// while the surface is locked (the FFI).
     pub fn layout(&mut self, measure: &mut dyn Measure) -> LayoutOutput {
-        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() };
+        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, fade_refits: 0, missing: Vec::new(), heights: Vec::new() };
         self.prepare(measure.measure_id());
         loop {
             state.rounds += 1;
@@ -285,7 +287,7 @@ impl Surface {
                 self.apply_intrinsics(&missing, &answers);
             }
             let (frames, placed, pending) = self.compute_all();
-            if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
+            if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state) || self.refit_select_fades(&frames, &mut state)) {
                 continue;
             }
             if pending.is_empty() || state.rounds >= 3 {
@@ -314,6 +316,35 @@ impl Surface {
                 break;
             }
         }
+        self.restyle();
+        true
+    }
+
+    /// #EXP-1629: an open Select's bottom `fade` shows while options sit
+    /// below its list's visible end (the IDE picker's `has_more_below`);
+    /// when that flips the tree rebuilds and lays out again (once a pass).
+    fn refit_select_fades(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
+        if state.fade_refits >= 1 {
+            return false;
+        }
+        let mut next = HashSet::new();
+        for spec in self.layers.iter().filter(|l| l.kind == "Select") {
+            let Some(list) = spec.scroll_body else { continue };
+            let Some(f) = frames.get(list as usize).copied() else { continue };
+            let content = self.engine.layout(list).content_size.height.max(f.h);
+            let offset = self.local.scroll.get(&self.scroll_key(list)).map_or(0.0, |s| s.1).clamp(0.0, (content - f.h).max(0.0));
+            if content > f.h + 0.5 && offset + f.h < content - 1.0 {
+                next.insert(spec.owner.clone());
+            }
+        }
+        if next == self.local.select_fade {
+            return false;
+        }
+        self.local.select_fade = next;
+        state.fade_refits += 1;
+        state.rounds = state.rounds.saturating_sub(1);
+        self.rebuild();
+        self.subtree_pending.clear();
         self.restyle();
         true
     }
@@ -366,7 +397,7 @@ impl Surface {
     /// without holding the surface.
     pub fn layout_begin(&mut self, measure_id: u64) -> LayoutStep {
         self.prepare(measure_id);
-        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() });
+        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, fade_refits: 0, missing: Vec::new(), heights: Vec::new() });
         self.step_round()
     }
 
@@ -385,7 +416,7 @@ impl Surface {
     fn step_compute(&mut self) -> LayoutStep {
         let (frames, placed, pending) = self.compute_all();
         let Some(mut state) = self.step_state.take() else { return LayoutStep::Idle };
-        if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
+        if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state) || self.refit_select_fades(&frames, &mut state)) {
             self.step_state = Some(state);
             return self.step_round();
         }

@@ -722,8 +722,10 @@ pub fn avatar(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
         // The IDE's gpui-component Avatar: the border takes its width out of
         // the box and the picture sits inside it, so a translucent
         // `$color.border` reads as a hairline over the ground, not over the
-        // picture's edge.
+        // picture's edge. #EXP-1629: the `image` fill sits under both, the
+        // whole round box (its `secondary`: the ring blends over it).
         return out
+            .when_some(ring.bg, |d, bg| d.bg(bg))
             .when(bw > 0.0, |d| d.border(px(bw)).border_color(ring.border_color.unwrap_or(gpui::transparent_black())))
             .child(img(ImageSource::Render(data)).size_full().rounded_full().object_fit(ObjectFit::Cover))
             .into_any_element();

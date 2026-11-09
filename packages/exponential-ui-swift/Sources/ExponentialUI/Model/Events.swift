@@ -356,6 +356,14 @@ extension SurfaceModel {
             let selected = candidates.first { i in node(i).map { $0.selected && !$0.isTextField } ?? false }
             let first = candidates.first { i in !(node(i)?.isTextField ?? true) }
             target = (autoTarget ?? selected ?? first).flatMap { node($0)?.id }
+            // #EXP-1629: a Select opens as the IDE's picker: the cursor on
+            // the FIRST enabled option, focus in its search field (if any),
+            // else on that option.
+            if node(id: top.owner)?.component == "Select" {
+                let field = candidates.first { i in node(i).map { $0.ownerComponent == "Select" && $0.part == "search" } ?? false }
+                let option = selectItems(top.owner).first { !isDisabled($0) }
+                target = (field ?? option).flatMap { node($0)?.id }
+            }
         } else if let o = closed.last {
             let inside = focusedId.flatMap { node(id: $0) }.map { $0.layer > 0 } ?? true
             if inside { target = layerReturn[o] }
