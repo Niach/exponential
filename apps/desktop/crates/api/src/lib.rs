@@ -153,6 +153,21 @@ impl TokenProvider for StaticToken {
     }
 }
 
+/// The `EXP_DATA_DIR` override, when one is set. Empty = unset (so
+/// `EXP_DATA_DIR=` is how a wrapper says "use the real dir"). Callers that
+/// touch something per-USER rather than per-data-dir (the CLI's launchd/
+/// systemd service) check it so an override never reaches the default dir's
+/// daemon.
+pub fn data_dir_override() -> Option<PathBuf> {
+    data_dir_override_from(std::env::var_os("EXP_DATA_DIR"))
+}
+
+/// Pure half of [`data_dir_override`] (unit-tested without touching the
+/// process environment).
+pub fn data_dir_override_from(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    value.filter(|dir| !dir.is_empty()).map(PathBuf::from)
+}
+
 /// The per-user application data dir (§5.4): `~/Library/Application
 /// Support/at.exponential/` on macOS, `$XDG_DATA_HOME/exponential/` (default
 /// `~/.local/share/exponential/`) on Linux. Holds `accounts.json`, the
@@ -165,15 +180,17 @@ impl TokenProvider for StaticToken {
 /// builds). Production keeps the historical path, so existing installs keep
 /// their data.
 ///
-/// DEV-ONLY override (§11.4 headless verification, same family as
-/// `EXP_DEV_SERVER`/`EXP_DEV_SCREEN`): `EXP_DATA_DIR` moves the whole dir to
-/// a throwaway path. Screenshot/capture runs bootstrap a session with
-/// `EXP_DEV_SERVER`+`EXP_DEV_TOKEN`, which PERSISTS that account into
-/// `accounts.json` — pointed at the real install's dir that silently rewrites
-/// the developer's signed-in state. Never document for users.
+/// Override ([`data_dir_override`]): `EXP_DATA_DIR` moves the whole dir to
+/// another path (§11.4 headless verification, same family as
+/// `EXP_DEV_SERVER`/`EXP_DEV_SCREEN`). Screenshot/capture runs bootstrap a
+/// session with `EXP_DEV_SERVER`+`EXP_DEV_TOKEN`, which PERSISTS that account
+/// into `accounts.json` — pointed at the real install's dir that silently
+/// rewrites the developer's signed-in state. The CLI lists it in `--help`: a
+/// second, fully separate CLI identity (accounts, tokens, settings, daemon
+/// pidfile + socket) on one machine.
 pub fn default_data_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("EXP_DATA_DIR").filter(|dir| !dir.is_empty()) {
-        return PathBuf::from(dir);
+    if let Some(dir) = data_dir_override() {
+        return dir;
     }
     let base = dirs::data_dir()
         .or_else(dirs::home_dir)
@@ -226,4 +243,19 @@ pub fn account_db_path(data_dir: &std::path::Path, account_id: &str) -> PathBuf 
         let _ = std::fs::remove_file(dir.join(stale));
     }
     dir.join("sync-v2.sqlite")
+}
+
+#[cfg(test)]
+mod data_dir_tests {
+    use super::*;
+
+    #[test]
+    fn exp_data_dir_overrides_and_empty_means_unset() {
+        assert_eq!(
+            data_dir_override_from(Some("/tmp/x".into())),
+            Some(PathBuf::from("/tmp/x"))
+        );
+        assert_eq!(data_dir_override_from(Some("".into())), None);
+        assert_eq!(data_dir_override_from(None), None);
+    }
 }

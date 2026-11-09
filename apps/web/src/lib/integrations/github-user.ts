@@ -4,6 +4,7 @@ import { db } from "@/db/connection"
 import { accounts } from "@/db/auth-schema"
 import { auth } from "@/lib/auth"
 import { getAuthenticatedGithubUser } from "@/lib/integrations/github-app"
+import type { GithubProfile as BetterAuthGithubProfile } from "better-auth/social-providers"
 
 // SLOP-7: the user's GitHub connection IS their Better Auth `github` account
 // row (the App's OAuth client, `linkSocial` for Google/Apple/code accounts).
@@ -15,6 +16,8 @@ import { getAuthenticatedGithubUser } from "@/lib/integrations/github-app"
 export const GITHUB_PROVIDER_ID = `github`
 
 export interface GithubAccountRow {
+  /** The local `accounts` row id (better-auth 1.7 selects accounts by it). */
+  id: string
   /** GitHub's numeric account id, as Better Auth stores it (a string). */
   accountId: string
   createdAt: Date
@@ -25,7 +28,7 @@ export async function githubAccountForUser(
   userId: string
 ): Promise<GithubAccountRow | null> {
   const [row] = await db
-    .select({ accountId: accounts.accountId, createdAt: accounts.createdAt })
+    .select({ id: accounts.id, accountId: accounts.accountId, createdAt: accounts.createdAt })
     .from(accounts)
     .where(
       and(eq(accounts.userId, userId), eq(accounts.providerId, GITHUB_PROVIDER_ID))
@@ -131,12 +134,13 @@ interface GithubEmail {
  * through: the primary verified address wins, else no email (sign-in then
  * fails with `email_not_found`; linking needs none). When the address list is
  * unreadable (`emails` null), the profile's public email stands: GitHub only
- * lets a verified address be public. */
+ * lets a verified address be public. The account's identity (GitHub's
+ * numeric id) is NOT here: better-auth 1.7 takes it from the raw profile
+ * (`data`, the provider's `accountSubject`). */
 export function githubUserInfo(
   profile: GithubProfile,
   emails: GithubEmail[] | null
 ): {
-  id: string
   name: string
   email: string | null
   image?: string
@@ -149,7 +153,6 @@ export function githubUserInfo(
     email = profile.email
   }
   return {
-    id: String(profile.id),
     name: profile.name || profile.login || ``,
     email,
     image: profile.avatar_url,
@@ -177,7 +180,8 @@ export async function fetchGithubUserInfo(token: { accessToken?: string }) {
       : null
   return {
     user: githubUserInfo(profile, Array.isArray(emails) ? emails : null),
-    data: profile as unknown as Record<string, unknown>,
+    // The raw profile: better-auth 1.7 keys the account on its `id`.
+    data: profile as unknown as BetterAuthGithubProfile,
   }
 }
 
@@ -211,7 +215,7 @@ async function resolveGithubUserToken(
   if (!account) return { state: `none` }
   try {
     const tokens = await auth.api.getAccessToken({
-      body: { providerId: GITHUB_PROVIDER_ID, userId },
+      body: { accountId: account.id, userId },
     })
     const token = tokens?.accessToken
     if (!token) return { state: `dead` }

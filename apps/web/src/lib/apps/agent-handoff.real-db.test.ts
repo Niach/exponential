@@ -115,11 +115,19 @@ afterAll(async () => {
   if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
 })
 
+// The file's first case pays its cold start (the dynamic imports the automation run
+// reaches, the first pooled connections): under 2 s alone, past vitest's 5 s
+// default when the full suite saturates the CPU. Only the budget grows.
+const COLD_CASE_MS = 20_000
+
 describe.skipIf(!ready.ok)(`agent hand-off (real db)`, () => {
   it(`an automation hands the record to the agent as the sponsor; the agent's own write never re-fires it`, async () => {
     const w = await world()
     const created = await upsertRecord(w.member, { id: w.appId }, { kind: `request`, data: { title: `Leave` } })
     await upsertRecord(w.member, { id: w.appId }, { kind: `request`, data: { title: `Leave 2` }, recordId: created.id })
+    // The hand-off's audit row lands after the agent's start: under load the
+    // record's other rows can be the first two, so wait for it by name.
+    await until(async () => (await calls(w.appId)).filter((c) => c.clientId === `automation:route`), 1)
     const done = await until(() => calls(w.appId), 2)
     expect(done.find((c) => c.clientId === `automation:route`)).toMatchObject({ userId: w.owner, tool: `agent:triage-bot`, status: `ok` })
     const session = await conversation(w.agentId, w.owner)
@@ -137,7 +145,7 @@ describe.skipIf(!ready.ok)(`agent hand-off (real db)`, () => {
     const routes = (await calls(w.appId)).filter((c) => c.clientId === `automation:route`)
     expect(routes).toHaveLength(1)
     expect(after.filter((c) => c.clientId === `automation:log_update`)).toHaveLength(2)
-  })
+  }, COLD_CASE_MS)
 
   it(`the handoff action runs an exposed hand-off as the member, "via <app>", under the per-app cap`, async () => {
     const w = await world()

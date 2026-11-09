@@ -60,7 +60,7 @@ import {
   mcpCalls,
   mcpServers,
   messages,
-  oauthApplications,
+  oauthClients,
   conversations,
   notifications,
   boards,
@@ -1915,13 +1915,13 @@ async function seedMcpActivity(ctx: { teamId: string; demoId: string; mira: stri
     { id: `demo-mcp-claude-code`, name: `Claude Code` },
     { id: `demo-mcp-cursor`, name: `Cursor` },
   ]
-  await db.insert(oauthApplications).values(
+  await db.insert(oauthClients).values(
     clients.map(({ id, name }) => ({
       id,
       name,
       clientId: id,
-      redirectUrls: `http://localhost/callback`,
-      type: `public`,
+      redirectUris: [`http://localhost/callback`],
+      tokenEndpointAuthMethod: `none`,
       userId: ctx.demoId,
       createdAt: daysAgo(10),
       updatedAt: daysAgo(10),

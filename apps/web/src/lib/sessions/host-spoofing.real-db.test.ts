@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, boards, deviceFirstSeen, deviceKeys, deviceRemovals, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
-import { inRollback, probeRealDb } from "@/test/real-db"
+import { inRollback, probeRealDb, shadowTables } from "@/test/real-db"
 import { deviceKeyMessage } from "@/lib/device-keys"
 import { inSession } from "@/lib/sessions/messages"
 
@@ -802,29 +802,18 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
       .filter((statement) => statement.includes(`INSERT INTO "device_first_seen"`))
   const firstSeenIn = async (tx: { execute: typeof db.execute }, deviceId: string) =>
     (await tx.execute(sql`SELECT user_id FROM device_first_seen WHERE device_id = ${deviceId}`)).rows[0]?.user_id
-  // The migrations rewrite every first-seen row while other real-db files
-  // register devices in parallel: take the table first, so they queue
-  // behind this rolled-back transaction instead of deadlocking with it.
-  const lockFirstSeen = (tx: { execute: typeof db.execute }) =>
-    tx.execute(sql`LOCK TABLE device_first_seen IN EXCLUSIVE MODE`)
-  // 0213 also reads and locks sessions/devices rows other files write, so
-  // Postgres can still pick this rolled-back replay as a deadlock victim
-  // (40P01): it holds nothing worth keeping, so it simply runs again.
-  async function retryingDeadlock(run: () => Promise<void>) {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await run()
-      } catch (error) {
-        const code = (error as { code?: string; cause?: { code?: string } }).code ?? (error as { cause?: { code?: string } }).cause?.code
-        if (code !== `40P01` || attempt >= 5) throw error
-      }
-    }
-  }
+  // The migrations rewrite every first-seen row, read every device, pin and
+  // session, and FK-check users while the other real-DB files register
+  // devices and delete their users in parallel: replayed on the shared
+  // tables they deadlocked those files' cleanup. Every statement of theirs
+  // works per device id, so they run on temp copies of this id's rows.
+  const ownDevice = (tx: { execute: typeof db.execute }, deviceId: string) =>
+    shadowTables(tx as never, [`device_first_seen`, `devices`, `device_removals`, `device_keys`, `sessions`], sql`device_id = ${deviceId}`)
   /** 0206's backfill on a world from before it (no first-seen row), then 0213. */
   async function backfill(deviceId: string) {
     const out = { after0206: undefined as unknown, after0213: undefined as unknown, mismatch: true }
-    await retryingDeadlock(() => inRollback(async (tx) => {
-      await lockFirstSeen(tx)
+    await inRollback(async (tx) => {
+      await ownDevice(tx, deviceId)
       await tx.execute(sql`DELETE FROM device_first_seen WHERE device_id = ${deviceId}`)
       for (const statement of migration(`0206_feed159_device_first_seen.sql`)) await tx.execute(sql.raw(statement))
       out.after0206 = await firstSeenIn(tx, deviceId)
@@ -834,7 +823,7 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
       out.mismatch = (await deviceFirstSeenFindings(tx as never)).some(
         (finding) => finding.deviceId === deviceId && finding.kind === `mismatch`
       )
-    }))
+    })
     await db
       .insert(deviceFirstSeen)
       .values({ deviceId, userId: out.after0213 as string })
@@ -844,11 +833,11 @@ describe.skipIf(!ready.ok)(`FEED-165: 0213 makes the earliest evidence first-see
   /** 0213 alone on the world as it stands (rolled back). */
   async function only0213(deviceId: string) {
     let after: unknown
-    await retryingDeadlock(() => inRollback(async (tx) => {
-      await lockFirstSeen(tx)
+    await inRollback(async (tx) => {
+      await ownDevice(tx, deviceId)
       for (const statement of migration(`0213_feed165_device_first_seen_earliest_evidence.sql`)) await tx.execute(sql.raw(statement))
       after = await firstSeenIn(tx, deviceId)
-    }))
+    })
     return after
   }
   /** The box owner on an old client, then a squat of the id; a team. */
