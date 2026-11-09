@@ -85,7 +85,7 @@
         "foreground": "#fafafa",
         "card": "#ffffff0f",
         "cardForeground": "#fafafa",
-        "popover": "#171717",
+        "popover": "#252525",
         "popoverForeground": "#fafafa",
         "primary": "#e5e5e5",
         "primaryForeground": "#171717",
@@ -732,6 +732,68 @@
             "backgroundColor": "$color.card",
             "borderColor": "$color.input",
             "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "triggerVariant": "row"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        }
+      ],
+      "content": [
+        {
+          "style": {
+            "padding": "$spacing.xs",
+            "borderRadius": "$radius.lg",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "search": [
+        {
+          "style": {
+            "height": 40
+          }
+        }
+      ],
+      "item": [
+        {
+          "style": {
+            "height": "$control.row",
+            "borderRadius": "$radius.md"
+          }
+        },
+        {
+          "when": {
+            "state": "selected",
+            "multiple": false
+          },
+          "style": {
+            "backgroundColor": "#00000000",
+            "color": "$color.popoverForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "multiple": false
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover",
+            "multiple": true
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
           }
         }
       ]

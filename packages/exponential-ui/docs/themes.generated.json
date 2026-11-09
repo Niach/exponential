@@ -276,7 +276,7 @@
           },
           "exponential": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           },
           "playful": {
             "light": "#ffffff",
@@ -284,7 +284,7 @@
           },
           "orange": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           }
         }
       },
@@ -3583,12 +3583,15 @@
         "item",
         "check",
         "empty",
-        "error"
+        "error",
+        "value",
+        "chevron"
       ],
       "props": [
         "multiple",
         "searchable",
-        "disabled"
+        "disabled",
+        "triggerVariant"
       ]
     },
     {

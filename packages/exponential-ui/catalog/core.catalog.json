@@ -364,6 +364,10 @@
       "never",
       "auto",
       "always"
+    ],
+    "selectTrigger": [
+      "field",
+      "row"
     ]
   },
   "defs": {
@@ -1376,6 +1380,7 @@
     "Select.trigger": "ui-selector",
     "Select.search": "search",
     "Select.check": "ui-check",
+    "Select.chevron": "ui-chevron-right",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -5256,6 +5261,21 @@
           "type": "string",
           "default": "$string.noResults",
           "description": "Shown when the search matches nothing."
+        },
+        "triggerVariant": {
+          "type": "enum",
+          "enum": "selectTrigger",
+          "default": "field",
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign",
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        "popupWidth": {
+          "type": "number",
+          "description": "Popup width in px (`row`: 260)."
         },
         "disabled": {
           "type": "boolean",

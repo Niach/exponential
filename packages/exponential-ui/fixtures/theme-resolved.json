@@ -3305,6 +3305,20 @@
               "style": {
                 "borderColor": "$color.destructive"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
             }
           ],
           "label": [
@@ -3314,6 +3328,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -3428,6 +3450,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "value": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
               }
             }
           ]
@@ -7816,7 +7864,7 @@
             "foreground": "#fafafa",
             "card": "#ffffff0f",
             "cardForeground": "#fafafa",
-            "popover": "#171717",
+            "popover": "#252525",
             "popoverForeground": "#fafafa",
             "primary": "#e5e5e5",
             "primaryForeground": "#171717",
@@ -11526,10 +11574,33 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary"
               }
             }
           ],
@@ -11540,6 +11611,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -11560,6 +11639,13 @@
                 "borderRadius": "$radius.md",
                 "boxShadow": "$shadow.md",
                 "padding": "$spacing.xs"
+              }
+            },
+            {
+              "style": {
+                "padding": "$spacing.xs",
+                "borderRadius": "$radius.lg",
+                "borderColor": "$color.border"
               }
             }
           ],
@@ -11600,6 +11686,41 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "style": {
+                "height": "$control.row",
+                "borderRadius": "$radius.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected",
+                "multiple": false
+              },
+              "style": {
+                "backgroundColor": "#00000000",
+                "color": "$color.popoverForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "multiple": false
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "multiple": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "check": [
@@ -11620,6 +11741,11 @@
                 "color": "$color.foreground",
                 "borderBottomWidth": "$border.hairline",
                 "borderColor": "$color.border"
+              }
+            },
+            {
+              "style": {
+                "height": 40
               }
             }
           ],
@@ -11654,6 +11780,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "value": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
               }
             }
           ]
@@ -19748,6 +19900,20 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full",
                 "borderWidth": "$border.thick",
@@ -19763,6 +19929,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -19882,6 +20056,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "value": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
               }
             }
           ]
@@ -24600,7 +24800,7 @@
             "foreground": "#fafafa",
             "card": "#ffffff0f",
             "cardForeground": "#fafafa",
-            "popover": "#171717",
+            "popover": "#252525",
             "popoverForeground": "#fafafa",
             "primary": "#fb923c",
             "primaryForeground": "#431407",
@@ -28310,10 +28510,33 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 44,
+                "paddingHorizontal": "$spacing.lg",
+                "gap": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "triggerVariant": "row"
+              },
+              "style": {
+                "backgroundColor": "$color.secondary"
               }
             }
           ],
@@ -28324,6 +28547,14 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontWeight": "$type.weight.medium",
                 "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontWeight": "$type.weight.regular"
               }
             }
           ],
@@ -28344,6 +28575,13 @@
                 "borderRadius": "$radius.md",
                 "boxShadow": "$shadow.md",
                 "padding": "$spacing.xs"
+              }
+            },
+            {
+              "style": {
+                "padding": "$spacing.xs",
+                "borderRadius": "$radius.lg",
+                "borderColor": "$color.border"
               }
             }
           ],
@@ -28384,6 +28622,41 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "style": {
+                "height": "$control.row",
+                "borderRadius": "$radius.md"
+              }
+            },
+            {
+              "when": {
+                "state": "selected",
+                "multiple": false
+              },
+              "style": {
+                "backgroundColor": "#00000000",
+                "color": "$color.popoverForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "multiple": false
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover",
+                "multiple": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "check": [
@@ -28404,6 +28677,11 @@
                 "color": "$color.foreground",
                 "borderBottomWidth": "$border.hairline",
                 "borderColor": "$color.border"
+              }
+            },
+            {
+              "style": {
+                "height": 40
               }
             }
           ],
@@ -28438,6 +28716,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "value": [
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            }
+          ],
+          "chevron": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "opacity": 0.7
               }
             }
           ]

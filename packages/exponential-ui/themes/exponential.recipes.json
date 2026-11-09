@@ -15,7 +15,7 @@
     },
     "Input": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "Textarea": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
-    "Select": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
+    "Select": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } }, { "when": { "state": "hover", "triggerVariant": "row" }, "style": { "backgroundColor": "$color.secondary" } } ], "content": [ { "style": { "padding": "$spacing.xs", "borderRadius": "$radius.lg", "borderColor": "$color.border" } } ], "search": [ { "style": { "height": 40 } } ], "item": [ { "style": { "height": "$control.row", "borderRadius": "$radius.md" } }, { "when": { "state": "selected", "multiple": false }, "style": { "backgroundColor": "#00000000", "color": "$color.popoverForeground" } }, { "when": { "state": "hover", "multiple": false }, "style": { "backgroundColor": "$color.accent", "color": "$color.accentForeground" } }, { "when": { "state": "hover", "multiple": true }, "style": { "backgroundColor": "$color.accent" } } ] },
     "DatePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "Composer": { "root": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border", "boxShadow": "$shadow.none" } } ] },
     "Tabs": {

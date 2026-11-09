@@ -2254,6 +2254,15 @@
         "emptyText": {
           "description": "Shown when the search matches nothing."
         },
+        "triggerVariant": {
+          "description": "`row` = a Group row: label, value, chevron."
+        },
+        "align": {
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        "popupWidth": {
+          "description": "Popup width in px (`row`: 260)."
+        },
         "disabled": {
           "description": "Shows it inert."
         },
