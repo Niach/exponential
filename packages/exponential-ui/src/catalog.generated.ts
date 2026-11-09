@@ -152,7 +152,7 @@ export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],

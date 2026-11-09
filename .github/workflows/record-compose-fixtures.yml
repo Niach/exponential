@@ -68,6 +68,8 @@ name: record-compose-fixtures
 # the seeded avatars.
 # EXP-1629 (2026-11-09, #2441 after the KeyRecorder merge): re-recorded for
 # the new Kbd look and KbdGroup (`Kbd.png`, `KbdGroup.png`, `components.json`).
+# EDE-65 (2026-11-09): re-recorded for the exponential theme's IDE MessageBubble
+# (kitchen-sink-exponential.png + -orange.png: the bubbles' box, fill and stroke).
 on:
   workflow_dispatch: {}
   push:

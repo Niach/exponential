@@ -143,6 +143,9 @@
                 },
                 "link": {
                   "$ref": "#/$defs/hex"
+                },
+                "borderStrong": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -277,6 +280,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "link": {
+                  "$ref": "#/$defs/hex"
+                },
+                "borderStrong": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -420,6 +426,9 @@
                 },
                 "link": {
                   "$ref": "#/$defs/hex"
+                },
+                "borderStrong": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -554,6 +563,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "link": {
+                  "$ref": "#/$defs/hex"
+                },
+                "borderStrong": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -78241,6 +78253,32 @@
             {
               "type": "string",
               "pattern": "^\\$(spacing)\\.[a-zA-Z0-9]+$"
+            }
+          ]
+        },
+        "borderTopLeftRadius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$(radius|spacing)\\.[a-zA-Z0-9]+$"
+            }
+          ]
+        },
+        "maxWidth": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$(control|spacing)\\.[a-zA-Z0-9]+$"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?%$"
             }
           ]
         },

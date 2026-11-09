@@ -71967,15 +71967,25 @@
               "backgroundColor": "#f5f5f5",
               "color": "#171717",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#d4d4d4",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0f",
+              "backgroundColor": "#ffffff1c",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1f",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           }
         },
@@ -72000,18 +72010,28 @@
         "orange": {
           "light": {
             "default": {
-              "backgroundColor": "#f5f5f5",
-              "color": "#171717",
+              "backgroundColor": "#ffedd5",
+              "color": "#7c2d12",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#d4d4d4",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0f",
-              "color": "#fafafa",
+              "backgroundColor": "#431407",
+              "color": "#fed7aa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1f",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           }
         }
@@ -72040,12 +72060,14 @@
         "exponential": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#737373",
+              "fontSize": 10
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#a1a1a1",
+              "fontSize": 10
             }
           }
         },
@@ -72064,12 +72086,14 @@
         "orange": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#737373",
+              "fontSize": 10
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#a1a1a1",
+              "fontSize": 10
             }
           }
         }
@@ -72165,15 +72189,25 @@
               "backgroundColor": "#ffffff",
               "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#e5e5e5",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0f",
+              "backgroundColor": "#252525",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1a",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           }
         },
@@ -72201,15 +72235,25 @@
               "backgroundColor": "#ffffff",
               "color": "#0a0a0a",
               "borderWidth": 1,
-              "borderColor": "#e5e5e5"
+              "borderColor": "#e5e5e5",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           },
           "dark": {
             "default": {
-              "backgroundColor": "#ffffff0f",
+              "backgroundColor": "#252525",
               "color": "#fafafa",
               "borderWidth": 1,
-              "borderColor": "#ffffff1a"
+              "borderColor": "#ffffff1a",
+              "borderRadius": 16,
+              "borderTopLeftRadius": 16,
+              "paddingHorizontal": 14,
+              "paddingVertical": 10,
+              "maxWidth": "62%"
             }
           }
         }

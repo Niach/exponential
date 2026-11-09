@@ -101,6 +101,11 @@ export function composeExponential(): ThemeSource {
   if (links.length < 2) throw new Error(`styles.css lacks the light + dark --link`)
   light.link = links[0]!
   dark.link = links[1]!
+  // #EDE-65: the stronger stroke (an outgoing bubble's edge) is the IDE's
+  // glass STROKE_STRONG in dark; light takes the next neutral step past
+  // `border` (#e5e5e5 → neutral-300), as the dark pair steps 10% → 12%.
+  dark.borderStrong = hex(design.glass.strokeStrong)
+  light.borderStrong = `#d4d4d4`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -213,6 +218,9 @@ export function themeSchema(): Record<string, unknown> {
     gap: numOrToken([`spacing`]),
     marginTop: numOrToken([`spacing`]),
     marginBottom: numOrToken([`spacing`]),
+    // #EDE-65: MessageBubble/bubble's leading corner and width cap.
+    borderTopLeftRadius: numOrToken([`radius`, `spacing`]),
+    maxWidth: { anyOf: [...numOrToken([`control`, `spacing`]).anyOf, { type: `string`, pattern: `^[0-9]+(\\.[0-9]+)?%$` }] },
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),
     minWidth: numOrToken([`control`, `spacing`]),
