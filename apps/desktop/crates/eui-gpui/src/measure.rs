@@ -860,7 +860,7 @@ impl<'a> GpuiMeasure<'a> {
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
         let parsed = markdown::parse_for(self.fonts.host.as_ref(), text, self.cx);
-        let options = self.fonts.host.markdown_options(self.cx);
+        let options = self.fonts.host.markdown_options_for(text, self.cx);
         // #VAPP-258: the host's hooks, asked as the painter asks them (chips
         // change widths, attachments and sized images change heights).
         let blocks = markdown::hosted(self.fonts.host.as_ref(), &parsed, self.cx).unwrap_or(parsed);

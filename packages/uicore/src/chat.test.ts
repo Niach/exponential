@@ -6,7 +6,7 @@ describe(`chat.json`, () => {
   test(`covers every face and row kind`, () => {
     expect(fixture.cases.length).toBeGreaterThanOrEqual(15)
     const kinds = new Set(fixture.cases.flatMap((c) => c.expected.rows.map((r) => r.kind)))
-    expect([...kinds].sort()).toEqual([`agent`, `card`, `line`, `picture`, `pill`, `question`, `user`])
+    expect([...kinds].sort()).toEqual([`agent`, `card`, `host`, `line`, `picture`, `pill`, `question`, `user`])
   })
   for (const c of fixture.cases) {
     test(c.name, () => {

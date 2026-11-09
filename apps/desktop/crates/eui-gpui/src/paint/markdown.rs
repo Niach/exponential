@@ -336,7 +336,7 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
 /// Markdown options (#VAPP-258 step 5: hard breaks, a streamed prefix).
 pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str, cx: &App) -> Vec<Block> {
     let urls = host.url_policy();
-    let options = host.markdown_options(cx);
+    let options = host.markdown_options_for(text, cx);
     resolve_urls(parse_with(text, options.hard_breaks, options.streaming), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
 }
 
@@ -2773,6 +2773,24 @@ impl gpui::Element for LazyMdBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-65 lane O: a host showing many Markdowns answers its options per
+    /// text: only the reply still streaming holds its unfinished tail back
+    /// (the measurer and the painter both parse through [`parse_for`]).
+    #[gpui::test]
+    fn the_streaming_option_is_the_hosts_answer_for_that_text(cx: &mut gpui::TestAppContext) {
+        struct Host;
+        impl crate::host::HostPlugin for Host {
+            fn markdown_options_for(&self, text: &str, cx: &App) -> crate::host::MarkdownOptions {
+                crate::host::MarkdownOptions { streaming: text.starts_with("Say"), ..self.markdown_options(cx) }
+            }
+        }
+        let shown = |blocks: Vec<Block>| blocks.iter().flat_map(|b| b.inlines.iter().map(|i| i.text.clone())).collect::<String>();
+        cx.update(|cx| {
+            assert_eq!(shown(parse_for(&Host, "Say **bo", cx)), "Say bo", "the live reply holds its open mark back");
+            assert_eq!(shown(parse_for(&Host, "Done **bo", cx)), "Done **bo", "a settled text reads whole");
+        });
+    }
 
     /// `fixtures/markdown-text-links.json`: a Markdown's text asks the host's text links.
     #[test]

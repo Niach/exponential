@@ -45,6 +45,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             name: if author == "user" { name(author_id.as_deref()) } else { None },
             time: at(id),
             queued: *queued,
+            group: None,
         },
         SessionChatRow::Session { id, card } => ChatRowInput::Card {
             id: id.clone(),

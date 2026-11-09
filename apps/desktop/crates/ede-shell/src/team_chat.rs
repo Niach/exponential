@@ -244,6 +244,7 @@ pub fn demo_input() -> ChatInput {
         name: (author == "user").then(|| "Dana Reyes".to_string()),
         time: time.into(),
         queued: false,
+        group: None,
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },

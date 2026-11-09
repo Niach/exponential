@@ -284,6 +284,10 @@ impl<S: 'static> HostPlugin for BindingHost<S> {
         self.inner.host_leaf(component_id, window, cx)
     }
 
+    fn host_leaf_prepaint(&self, component_id: &str, width: f32, window: &mut gpui::Window, cx: &mut App) -> bool {
+        self.inner.host_leaf_prepaint(component_id, width, window, cx)
+    }
+
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
         self.inner.on_function_call(event, cx)
     }
@@ -365,6 +369,10 @@ impl<S: 'static> HostPlugin for BindingHost<S> {
 
     fn markdown_options(&self, cx: &App) -> MarkdownOptions {
         self.inner.markdown_options(cx)
+    }
+
+    fn markdown_options_for(&self, text: &str, cx: &App) -> MarkdownOptions {
+        self.inner.markdown_options_for(text, cx)
     }
 
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {

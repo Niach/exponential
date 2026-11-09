@@ -1,0 +1,864 @@
+//! #EDE-65 lane O: the Chat tab's transcript IS the shared chat document
+//! (`apps/ede/ui/chat.json`, `uicore_model::chat`), mounted in place like
+//! the sidebar region (`shell_regions.rs`). A person's prompt and the
+//! agent's narration are the document's own genUI `MessageBubble`s (side,
+//! author, the sender's avatar, the press that opens a session); every other
+//! row (tool runs, the edits card, asks, subagents, workflow and
+//! conversation cards, Working…) stays the IDE's to paint: a `host` row, an
+//! Embed this module claims by its painted id (`chat_row_host.<key>`) and
+//! fills with the session view's own row ([`SteerSessionView::chat_host_row`]).
+//! The composer, THE Dock, the strips and the header are the IDE's, around
+//! it. The document's rows: the paging sentinel first (painting it pulls the
+//! older transcript in), the list's rows, the tail spacer last (THE Dock's
+//! band under the newest row).
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use domain::transcript_grouping::{cross_session_input, TranscriptRowLayout, TranscriptSender, TranscriptSide};
+use eui_core::host::{MediaOptions, MediaRequest, TextLink, UrlPolicy};
+use eui_core::theme::Mode;
+use eui_gpui::host::{HostPlugin, MarkdownAttachment, MarkdownOptions};
+use eui_gpui::view::SurfaceView;
+use gpui::{
+    div, px, relative, size, AnyElement, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, Entity, GlobalElementId, Hsla,
+    InspectorElementId, IntoElement, LayoutId, ParentElement as _, Pixels, SharedString, Style, Styled as _, WeakEntity, Window,
+};
+use serde_json::{json, Value};
+use uicore_model::chat::{ChatGroup, ChatInput, ChatRowInput};
+
+use crate::markdown::{AppMarkdownHost, DocumentProse};
+use crate::steer_viewer::SteerSessionView;
+
+/// The document's transcript list.
+pub(crate) const SCROLL: &str = "chat_scroll";
+/// The document's host row (an Embed): `chat_row_host.<key>` once painted.
+pub(crate) const HOST_NODE: &str = "chat_row_host";
+/// What the IDE draws itself: the eDE home, the header, the composer.
+pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_footer"];
+/// The paging sentinel's row id (the old list's top padding, `pt_2`).
+pub(crate) const PAGE_ROW: &str = "page";
+const PAGE_HEIGHT: f32 = 8.;
+/// The tail spacer's row id (THE Dock's band under the newest row).
+pub(crate) const TAIL_ROW: &str = "tail";
+/// A host row's height before it was ever measured.
+const ESTIMATE: f32 = 40.;
+/// A sender's avatar, painted by the host: `ide:sender:<row key>`.
+pub(crate) const SENDER_ICON: &str = "ide:sender:";
+/// A bubble's link: the session a press opens.
+pub(crate) const SESSION_SCHEME: &str = "exp-session";
+
+/// The document's row key of a list row (its [`steer::FeedItemId`]).
+pub(crate) fn row_key(id: steer::FeedItemId) -> String {
+    format!("r{id}")
+}
+
+/// A host row's painted id.
+pub(crate) fn host_id(key: &str) -> String {
+    format!("{HOST_NODE}.{key}")
+}
+
+// ---------------------------------------------------------------------------
+// The mapping (pure)
+// ---------------------------------------------------------------------------
+
+/// What one transcript list row says, as far as the document cares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowContent<'a> {
+    /// A person's prompt (not a divider, not a catalog command): its raw text.
+    Prompt(&'a str),
+    /// The agent's narration.
+    Narration(&'a str),
+    /// Anything the IDE paints itself.
+    Other,
+}
+
+/// One list row as the mapping reads it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RowFacts<'a> {
+    pub key: &'a str,
+    pub content: RowContent<'a>,
+    /// Its transcript-grouping layout (#EXP-1736).
+    pub layout: Option<&'a TranscriptRowLayout>,
+    /// The ladder gap above it, px.
+    pub gap: f32,
+    /// Conversation cards ride it (anchored to its calls, or the head cards
+    /// over the first row): it stays the IDE's row.
+    pub cards: bool,
+}
+
+/// A prompt the document's bubble shows as the IDE did: no picture
+/// markers, no file chips, short enough that the IDE never folded it.
+pub(crate) fn prompt_is_plain(text: &str) -> bool {
+    let parsed = steer::parse_steer_message(text);
+    parsed.files.is_empty() && parsed.attachment_ids.is_empty() && !crate::steer_viewer::clampable(text)
+}
+
+/// The document's gap spacers (3, 8, 12, 16 px): the nearest one.
+fn spacer(gap: f32) -> u32 {
+    if gap <= 0.5 {
+        return 0;
+    }
+    [3u32, 8, 12, 16].into_iter().min_by(|a, b| (*a as f32 - gap).abs().total_cmp(&(*b as f32 - gap).abs())).unwrap_or(16)
+}
+
+/// One list row as the document's row: a bubble for a plain prompt or the
+/// agent's narration (no cards beside it), else a host row.
+pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
+    let host = || ChatRowInput::Host { id: facts.key.to_string() };
+    if facts.cards {
+        return host();
+    }
+    let own = match facts.content {
+        RowContent::Prompt(text) if prompt_is_plain(text) => facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own),
+        RowContent::Narration(_) => false,
+        _ => return host(),
+    };
+    let body = match facts.content {
+        // A session's input (`Message from …`) reads as its body alone.
+        RowContent::Prompt(text) if !own => cross_session_input(text).map_or_else(|| text.to_string(), |parsed| parsed.body),
+        RowContent::Prompt(text) | RowContent::Narration(text) => text.to_string(),
+        RowContent::Other => unreachable!("a host row above"),
+    };
+    let sender = facts.layout.and_then(|layout| layout.sender.as_ref());
+    let other = facts.layout.is_some_and(|layout| layout.side == TranscriptSide::Other);
+    ChatRowInput::Message {
+        id: facts.key.to_string(),
+        author: if own { "user" } else { "agent" }.to_string(),
+        body,
+        name: facts.layout.filter(|layout| layout.name).and(sender).map(TranscriptSender::display_name),
+        time: String::new(),
+        queued: false,
+        group: Some(ChatGroup {
+            side: Some(if own { "out" } else { "in" }.to_string()),
+            avatar: (other && facts.layout.is_some_and(|layout| layout.avatar) && sender.is_some()).then(|| format!("{SENDER_ICON}{}", facts.key)),
+            indent: other,
+            link: sender.and_then(|sender| sender.link.as_ref()).map(|session| format!("{SESSION_SCHEME}:{session}")),
+            gap: spacer(facts.gap),
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The host's state
+// ---------------------------------------------------------------------------
+
+/// What a host row is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostRow {
+    /// List row `ix` of the session view, its [`crate::transcript_rows::RowKey`] fingerprint.
+    List { ix: usize, fingerprint: u64 },
+    Page,
+    Tail,
+}
+
+#[derive(Default)]
+struct HostState {
+    steer: Option<WeakEntity<SteerSessionView>>,
+    view: Option<WeakEntity<SurfaceView>>,
+    /// Painted id → the row.
+    rows: HashMap<String, HostRow>,
+    /// Painted id → its last measured height.
+    heights: HashMap<String, f32>,
+    /// Painted id → the fingerprint and width it was measured at.
+    measured_at: HashMap<String, (u64, f32)>,
+    /// Avatar icon name → the sender (and a member's picture).
+    senders: HashMap<String, (TranscriptSender, Option<Arc<gpui::Image>>)>,
+    /// The tail spacer's height.
+    tail: f32,
+    /// The rows' width as they last painted.
+    width: Option<f32>,
+    /// #VAPP-258: the live reply's prepared text (the last narration while
+    /// the run is live): its Markdown streams (genUI holds the unfinished
+    /// tail back), as `render_narration` did.
+    streaming: Option<String>,
+    /// Painted ids [`TranscriptHost::host_leaf`] filled (tests).
+    #[cfg(test)]
+    painted: Vec<String>,
+    /// Rows painted in a frame not their measured height: `(id, frame,
+    /// measured)` (tests).
+    #[cfg(test)]
+    misfits: Vec<(String, f32, f32)>,
+}
+
+impl HostState {
+    fn height(&self, id: &str) -> f32 {
+        match self.rows.get(id) {
+            Some(HostRow::Page) => PAGE_HEIGHT,
+            Some(HostRow::Tail) => self.tail,
+            Some(HostRow::List { .. }) => self.heights.get(id).copied().unwrap_or(ESTIMATE),
+            None => 0.,
+        }
+    }
+
+    /// A row measured at `width`: whether the document must lay out again
+    /// (the height it was answered differs).
+    fn measured(&mut self, id: &str, fingerprint: u64, width: f32, height: f32) -> bool {
+        let answered = self.height(id);
+        self.width = Some(width);
+        self.heights.insert(id.to_string(), height);
+        self.measured_at.insert(id.to_string(), (fingerprint, width));
+        (answered - height).abs() > 0.5
+    }
+
+    fn fresh(&self, id: &str, fingerprint: u64, width: f32) -> bool {
+        self.measured_at.get(id).is_some_and(|(at, w)| *at == fingerprint && (w - width).abs() < 0.5)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The transcript
+// ---------------------------------------------------------------------------
+
+/// What a push of the rows needs besides them.
+pub(crate) struct ChatPush {
+    pub session_id: String,
+    pub prose: DocumentProse,
+    /// List row `ix`'s painted host id → the row (the bubbles' rows absent).
+    pub host_rows: HashMap<String, HostRow>,
+    /// Avatar icon name → its sender (+ picture).
+    pub senders: HashMap<String, (TranscriptSender, Option<Arc<gpui::Image>>)>,
+    /// The live reply's row key (its bubble's Markdown streams).
+    pub streaming: Option<String>,
+}
+
+/// The Chat tab's transcript: the mounted document, the host rows, the
+/// FOLLOW (the old gpui list's `FollowMode::Tail`), paging and jumps.
+pub(crate) struct ChatTranscript {
+    view: Option<Entity<SurfaceView>>,
+    md: Option<Rc<AppMarkdownHost>>,
+    state: Rc<RefCell<HostState>>,
+    shown: Option<Value>,
+    /// The rows changed since the last push.
+    pub(crate) dirty: bool,
+    /// The store revision the bubbles' prose was prepared at.
+    revision: u64,
+    /// The document's row count (sentinel + list + tail).
+    count: usize,
+    /// The live reply's row key at the last push.
+    streaming_key: Option<String>,
+    /// The document's list follows its newest row (as of this frame's
+    /// render; the document holds it, [`SurfaceView::keep_list_place`]).
+    follow: bool,
+    to_end: bool,
+    scroll_to: Option<(u32, &'static str)>,
+}
+
+impl Default for ChatTranscript {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatTranscript {
+    /// A session tab opens on its newest rows and follows them.
+    pub(crate) fn new() -> Self {
+        Self {
+            view: None,
+            md: None,
+            state: Rc::new(RefCell::new(HostState::default())),
+            shown: None,
+            dirty: true,
+            revision: u64::MAX,
+            count: 0,
+            streaming_key: None,
+            follow: true,
+            to_end: true,
+            scroll_to: None,
+        }
+    }
+
+    /// The document's view, once mounted.
+    pub(crate) fn view(&self) -> Option<&Entity<SurfaceView>> {
+        self.view.as_ref()
+    }
+
+    /// The store revision the bubbles were prepared at.
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Mounts the document for `steer` (once).
+    pub(crate) fn mount(&mut self, steer: WeakEntity<SteerSessionView>, team_id: Option<String>, window: &mut Window, cx: &mut App) {
+        if self.view.is_some() {
+            return;
+        }
+        let md = Rc::new(AppMarkdownHost::for_document(team_id, cx));
+        let host = Rc::new(TranscriptHost { state: self.state.clone(), md: md.clone() });
+        let doc = document();
+        let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
+        let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
+        // The FOLLOW and the reader's place (paging, rows measured above
+        // them) are the document's, settled in the frame it lays out; the
+        // paging sentinel is never the reader's row.
+        view.update(cx, |view, cx| view.keep_list_place(SCROLL, true, 1, cx));
+        {
+            let mut state = self.state.borrow_mut();
+            state.steer = Some(steer);
+            state.view = Some(view.downgrade());
+        }
+        self.view = Some(view);
+        self.md = Some(md);
+        self.dirty = true;
+    }
+
+    /// The rows the document draws: `rows` = the list's (the sentinel and
+    /// the tail spacer are added here). A new or changed host row measures
+    /// where the document is about to paint it (`host_leaf_prepaint`).
+    pub(crate) fn push(&mut self, rows: Vec<ChatRowInput>, push: ChatPush, cx: &mut App) {
+        let (Some(view), Some(md)) = (self.view.clone(), self.md.clone()) else { return };
+        self.dirty = false;
+        self.revision = crate::markdown::store_revision(cx);
+        let mut rows = rows;
+        // The bubbles' prose, as the steer feed's MarkdownView prepared it.
+        let bodies: Vec<String> = rows
+            .iter()
+            .filter_map(|row| match row {
+                ChatRowInput::Message { body, .. } => Some(body.clone()),
+                _ => None,
+            })
+            .collect();
+        let mut prepared = md.prepare_document(&bodies, push.prose, cx).into_iter();
+        let mut streaming = None;
+        for row in &mut rows {
+            if let ChatRowInput::Message { id, body, .. } = row {
+                *body = prepared.next().unwrap_or_default();
+                if push.streaming.as_deref() == Some(id.as_str()) {
+                    streaming = Some(body.clone());
+                }
+            }
+        }
+        self.streaming_key = push.streaming;
+        // The reply that stopped streaming (or started) lays out again under
+        // its new options (its text may be the same).
+        let restream = {
+            let mut state = self.state.borrow_mut();
+            (state.streaming != streaming).then(|| [std::mem::replace(&mut state.streaming, streaming.clone()), streaming])
+        };
+        let mut all = Vec::with_capacity(rows.len() + 2);
+        all.push(ChatRowInput::Host { id: PAGE_ROW.into() });
+        all.extend(rows);
+        all.push(ChatRowInput::Host { id: TAIL_ROW.into() });
+        self.count = all.len();
+        // Paging: older rows come in ABOVE the reader's row; the document
+        // keeps that row where it is on screen (its kept place).
+        // The host rows: a changed one lays out again.
+        let mut changed = Vec::new();
+        {
+            let mut state = self.state.borrow_mut();
+            for (id, row) in &push.host_rows {
+                let HostRow::List { fingerprint, .. } = *row else { continue };
+                if matches!(state.rows.get(id), Some(HostRow::List { fingerprint: old, .. }) if *old != fingerprint) {
+                    changed.push(id.clone());
+                }
+            }
+            let mut rows = push.host_rows;
+            rows.insert(host_id(PAGE_ROW), HostRow::Page);
+            rows.insert(host_id(TAIL_ROW), HostRow::Tail);
+            state.heights.retain(|id, _| rows.contains_key(id));
+            state.measured_at.retain(|id, _| rows.contains_key(id));
+            state.rows = rows;
+            state.senders = push.senders;
+        }
+        let input = ChatInput { session_id: Some(push.session_id), bubbles: true, slash_commands: true, rows: all, ..ChatInput::default() };
+        let value = serde_json::to_value(uicore_model::chat::chat_view(&input)).unwrap_or_default();
+        if self.shown.as_ref() != Some(&value) {
+            self.shown = Some(value.clone());
+            view.update(cx, |view, cx| {
+                let _ = view.set_data("/chatting", Some(value), cx);
+            });
+        }
+        if !changed.is_empty() {
+            view.update(cx, |view, cx| {
+                for id in &changed {
+                    view.host_leaf_resized(id, cx);
+                }
+            });
+        }
+        if let Some(texts) = restream {
+            view.update(cx, |view, cx| {
+                for text in texts.iter().flatten() {
+                    view.markdown_options_changed(text, cx);
+                }
+            });
+        }
+    }
+
+    /// The live reply's row key as last pushed.
+    pub(crate) fn streaming_key(&self) -> Option<&str> {
+        self.streaming_key.as_deref()
+    }
+
+    /// THE Dock's band under the newest row.
+    pub(crate) fn set_tail(&mut self, height: f32, cx: &mut App) {
+        let moved = {
+            let mut state = self.state.borrow_mut();
+            let moved = (state.tail - height).abs() > 0.5;
+            state.tail = height;
+            moved
+        };
+        if moved {
+            if let Some(view) = &self.view {
+                let id = host_id(TAIL_ROW);
+                view.update(cx, |view, cx| view.host_leaf_resized(&id, cx));
+            }
+        }
+    }
+
+    /// Every host row measures again (something under every row moved).
+    pub(crate) fn remeasure_all(&mut self, cx: &mut App) {
+        let ids: Vec<String> = {
+            let mut state = self.state.borrow_mut();
+            state.measured_at.clear();
+            state.rows.keys().cloned().collect()
+        };
+        if let Some(view) = &self.view {
+            view.update(cx, |view, cx| {
+                for id in &ids {
+                    view.host_leaf_resized(id, cx);
+                }
+            });
+        }
+    }
+
+    // -- FOLLOW ------------------------------------------------------------
+
+    /// The list follows its newest rows.
+    pub(crate) fn following(&self) -> bool {
+        self.follow
+    }
+
+    /// Back to the newest row, following it.
+    pub(crate) fn scroll_to_end(&mut self) {
+        self.follow = true;
+        self.to_end = true;
+        self.scroll_to = None;
+    }
+
+    /// List row `ix` scrolled to `align` (the reader stops following).
+    pub(crate) fn reveal(&mut self, ix: usize, align: &'static str) {
+        self.follow = false;
+        self.to_end = false;
+        self.scroll_to = Some((ix as u32 + 1, align));
+    }
+
+    /// `(offset, viewport, content)` of the list, as last laid out.
+    fn extent(&self, cx: &App) -> Option<(f32, f32, f32)> {
+        self.view.as_ref()?.read(cx).scroll_extent(SCROLL)
+    }
+
+    /// How far the list sits above its bottom; `None` before a layout.
+    pub(crate) fn distance_from_bottom(&self, cx: &App) -> Option<f32> {
+        let (offset, viewport, content) = self.extent(cx)?;
+        Some(((content - viewport).max(0.) - offset).max(0.))
+    }
+
+    /// The reader is within `transcript.followSlack` of the bottom (or the
+    /// list follows already): the chats' FOLLOW rule.
+    pub(crate) fn near_tail(&self, cx: &App) -> bool {
+        self.follow || self.distance_from_bottom(cx).is_none_or(|d| d <= domain::chats::CHATS.transcript.follow_slack)
+    }
+
+    /// Rows arrived: a reader inside the slack is still on the tail.
+    pub(crate) fn arrival(&mut self, cx: &App) {
+        if !self.follow && self.near_tail(cx) {
+            self.scroll_to_end();
+        }
+    }
+
+    /// The list left its top.
+    pub(crate) fn scrolled(&self, cx: &App) -> bool {
+        self.extent(cx).is_some_and(|(offset, _, _)| offset > 0.)
+    }
+
+    /// Before the document lays out this frame: the scroll this frame asks
+    /// for (a row revealed, back to the newest), then what the document's
+    /// list does (it follows the newest row until the reader scrolls up,
+    /// and again once they reach it; it settles in the frame it lays out).
+    /// Returns the extent it read.
+    pub(crate) fn sync_scroll(&mut self, cx: &mut App) -> Option<(f32, f32, f32)> {
+        let view = self.view.clone()?;
+        if let Some((index, align)) = self.scroll_to.take() {
+            view.update(cx, |view, cx| {
+                view.keep_list_place(SCROLL, false, 1, cx);
+                view.scroll_to_index(SCROLL, index, Some(align), cx);
+            });
+        } else if std::mem::take(&mut self.to_end) {
+            view.update(cx, |view, cx| view.keep_list_place(SCROLL, true, 1, cx));
+        }
+        self.follow = view.read(cx).list_follows(SCROLL).unwrap_or(true);
+        self.extent(cx)
+    }
+
+    /// The document filling the feed's box, and a probe that asks the
+    /// session view for one more frame when the document's settling changed
+    /// what this frame drew from (the FOLLOW, the list leaving its top, the
+    /// first layout).
+    pub(crate) fn element(&self, before: Option<(f32, f32, f32)>, steer: gpui::EntityId) -> Option<AnyElement> {
+        let view = self.view.clone()?;
+        let follow = self.follow;
+        let probe_view = view.clone();
+        let probe = gpui::canvas(
+            move |_, _, cx| {
+                let view = probe_view.read(cx);
+                let now = view.scroll_extent(SCROLL);
+                let follows = view.list_follows(SCROLL).unwrap_or(true);
+                let top = |extent: Option<(f32, f32, f32)>| extent.is_some_and(|(offset, _, _)| offset > 0.);
+                if follows != follow || (before.is_none() && now.is_some()) || top(before) != top(now) {
+                    cx.defer(move |cx| cx.notify(steer));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0();
+        Some(div().relative().flex_1().min_h_0().w_full().child(uicore_gpui::inline::region(&view)).child(probe).into_any_element())
+    }
+
+    /// Test aid: the host rows the document had the host paint.
+    #[cfg(test)]
+    pub(crate) fn painted(&self) -> Vec<String> {
+        self.state.borrow().painted.clone()
+    }
+
+    /// Test aid: the host rows painted in a frame other than their measured
+    /// height (`id`, frame, measured).
+    #[cfg(test)]
+    pub(crate) fn misfits(&self) -> Vec<(String, f32, f32)> {
+        self.state.borrow().misfits.clone()
+    }
+
+    /// Test aid: a host row's measured height.
+    #[cfg(test)]
+    pub(crate) fn host_height(&self, id: &str) -> Option<f32> {
+        self.state.borrow().heights.get(id).copied()
+    }
+}
+
+/// The chat document as the Chat tab draws it: the rows alone (the IDE's
+/// header, composer and Dock around them), no frame of its own, the rows in
+/// the IDE's reading column (the list itself spans the pane: its scrollbar
+/// sits at the pane's edge), the gaps the rows' own.
+pub(crate) fn document() -> uicore_gpui::inline::Document {
+    let mut doc = uicore_gpui::inline::document(uicore_docs::doc("chat").expect("the factory chat"));
+    uicore_gpui::inline::without(&mut doc, PRUNED);
+    for key in ["borderWidth", "borderColor", "borderRadius"] {
+        uicore_gpui::inline::set_style(&mut doc, "chat", key, Value::Null);
+    }
+    uicore_gpui::inline::set_prop(&mut doc, SCROLL, "style", json!({"flexGrow": 1, "minHeight": 0, "width": "100%", "overflowY": "auto"}));
+    uicore_gpui::inline::set_prop(
+        &mut doc,
+        "chat_row",
+        "style",
+        json!({
+            "width": "100%",
+            "maxWidth": crate::work_header::CHAT_COLUMN_W,
+            "alignSelf": "center",
+            "paddingLeft": crate::work_header::WORK_GUTTER,
+            "paddingRight": crate::work_header::WORK_GUTTER,
+        }),
+    );
+    doc
+}
+
+// ---------------------------------------------------------------------------
+// The host
+// ---------------------------------------------------------------------------
+
+/// The document's host: the IDE's rows and avatars, the steer feed's prose.
+struct TranscriptHost {
+    state: Rc<RefCell<HostState>>,
+    md: Rc<AppMarkdownHost>,
+}
+
+impl HostPlugin for TranscriptHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.md.icon(name)
+    }
+
+    fn icon_element(&self, name: &str, _size: f32, _color: Hsla, cx: &App) -> Option<AnyElement> {
+        name.strip_prefix(SENDER_ICON)?;
+        let state = self.state.borrow();
+        let (sender, image) = state.senders.get(name)?;
+        Some(crate::session_chat::sender_avatar_of(sender, image.clone(), cx))
+    }
+
+    fn host_leaf_height(&self, component_id: &str, width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
+        component_id.strip_prefix(HOST_NODE)?.strip_prefix('.')?;
+        let state = self.state.borrow();
+        let _ = width;
+        Some(state.height(component_id))
+    }
+
+    /// The row measured where the document is about to paint it (prepaint,
+    /// outside its layout) when it changed or was never measured at this
+    /// width: the document lays out around its real height in this frame.
+    fn host_leaf_prepaint(&self, component_id: &str, width: f32, window: &mut Window, cx: &mut App) -> bool {
+        let (ix, fingerprint, steer) = {
+            let state = self.state.borrow();
+            let Some(HostRow::List { ix, fingerprint }) = state.rows.get(component_id).copied() else { return false };
+            if state.fresh(component_id, fingerprint, width) {
+                return false;
+            }
+            (ix, fingerprint, state.steer.clone().and_then(|steer| steer.upgrade()))
+        };
+        let Some(steer) = steer else { return false };
+        let element = steer.update(cx, |this, cx| this.chat_host_row(ix, window, cx));
+        let height = measure(element, width, window, cx);
+        self.state.borrow_mut().measured(component_id, fingerprint, width, height)
+    }
+
+    fn host_leaf(&self, component_id: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        component_id.strip_prefix(HOST_NODE)?.strip_prefix('.')?;
+        let (row, steer) = {
+            let mut state = self.state.borrow_mut();
+            #[cfg(test)]
+            state.painted.push(component_id.to_string());
+            #[cfg(not(test))]
+            let _ = &mut state;
+            (state.rows.get(component_id).copied(), state.steer.clone().and_then(|steer| steer.upgrade()))
+        };
+        let Some(steer) = steer else { return Some(div().into_any_element()) };
+        match row {
+            Some(HostRow::Page) => {
+                steer.update(cx, |this, cx| this.chat_page_painted(cx));
+                Some(div().into_any_element())
+            }
+            Some(HostRow::List { ix, fingerprint }) => {
+                let child = steer.update(cx, |this, cx| this.chat_host_row(ix, window, cx));
+                let (state, id) = (self.state.clone(), component_id.to_string());
+                let on_height: OnHeight = Box::new(move |width, framed, height, cx| {
+                    let (resize, view) = {
+                        let mut state = state.borrow_mut();
+                        #[cfg(test)]
+                        if (framed - height).abs() > 0.5 {
+                            state.misfits.push((id.clone(), framed, height));
+                        }
+                        #[cfg(not(test))]
+                        let _ = framed;
+                        (state.measured(&id, fingerprint, width, height), state.view.clone())
+                    };
+                    if resize {
+                        cx.defer(move |cx| {
+                            if let Some(view) = view.and_then(|view| view.upgrade()) {
+                                view.update(cx, |view, cx| view.host_leaf_resized(&id, cx));
+                            }
+                        });
+                    }
+                });
+                Some(MeasuredRow { child, on_height: Some(on_height) }.into_any_element())
+            }
+            _ => Some(div().into_any_element()),
+        }
+    }
+
+    fn open_url(&self, url: &str, cx: &mut App) {
+        if let Some(session) = url.strip_prefix(SESSION_SCHEME).and_then(|rest| rest.strip_prefix(':')) {
+            let session = session.to_string();
+            crate::navigation::on_active_window(cx, move |window, cx| crate::navigation::open_session_link(&session, window, cx));
+            return;
+        }
+        self.md.open_url(url, cx)
+    }
+
+    fn url_policy(&self) -> Option<UrlPolicy> {
+        let mut policy = self.md.url_policy().unwrap_or_default();
+        policy.schemes.get_or_insert_with(Vec::new).push(SESSION_SCHEME.to_string());
+        Some(policy)
+    }
+
+    fn media_options(&self) -> MediaOptions {
+        self.md.media_options()
+    }
+
+    fn media_request(&self, src: &str) -> Option<MediaRequest> {
+        self.md.media_request(src)
+    }
+
+    fn text_links(&self, text: &str, cx: &App) -> Option<Vec<TextLink>> {
+        self.md.text_links(text, cx)
+    }
+
+    fn image_size(&self, src: &str, cx: &App) -> Option<(f32, f32)> {
+        self.md.image_size(src, cx)
+    }
+
+    fn image_pressable(&self, cx: &App) -> bool {
+        self.md.image_pressable(cx)
+    }
+
+    fn on_image_press(&self, src: &str, window: &mut Window, cx: &mut App) {
+        self.md.on_image_press(src, window, cx)
+    }
+
+    fn attachment(&self, href: &str, cx: &App) -> Option<MarkdownAttachment> {
+        self.md.attachment(href, cx)
+    }
+
+    fn markdown_hooks_version(&self, text: &str, cx: &App) -> Option<u64> {
+        self.md.markdown_hooks_version(text, cx)
+    }
+
+    fn markdown_window_selection(&self, cx: &App) -> bool {
+        self.md.markdown_window_selection(cx)
+    }
+
+    fn chip_icon(&self, name: &str, size: f32, color: Hsla) -> Option<AnyElement> {
+        self.md.chip_icon(name, size, color)
+    }
+
+    fn markdown_options(&self, cx: &App) -> MarkdownOptions {
+        self.md.markdown_options(cx)
+    }
+
+    /// #VAPP-258: the live reply streams (its unfinished tail held back);
+    /// every other bubble reads whole.
+    fn markdown_options_for(&self, text: &str, cx: &App) -> MarkdownOptions {
+        let streaming = self.state.borrow().streaming.as_deref() == Some(text);
+        MarkdownOptions { streaming, ..self.md.markdown_options(cx) }
+    }
+
+    fn pick_files(&self, request: &eui_gpui::host::FilePickRequest, cx: &mut App) -> bool {
+        self.md.pick_files(request, cx)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A host row measured where it paints
+// ---------------------------------------------------------------------------
+
+/// `(width, the frame's height, the measured height)`.
+type OnHeight = Box<dyn FnOnce(f32, f32, f32, &mut App)>;
+
+/// The session view's row filling the frame the document gave it: laid out
+/// at the frame's width (gpui `list`'s measure), its height reported (a new
+/// one lays the document out again), clipped to the frame until it does.
+struct MeasuredRow {
+    child: AnyElement,
+    on_height: Option<OnHeight>,
+}
+
+impl IntoElement for MeasuredRow {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for MeasuredRow {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = relative(1.).into();
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+        let measured = self.child.layout_as_root(size(AvailableSpace::Definite(bounds.size.width), AvailableSpace::MinContent), window, cx);
+        if let Some(on_height) = self.on_height.take() {
+            on_height(f32::from(bounds.size.width), f32::from(bounds.size.height), f32::from(measured.height), cx);
+        }
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            self.child.prepaint_at(bounds.origin, window, cx);
+        });
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+        window.with_content_mask(Some(ContentMask { bounds }), |window| self.child.paint(window, cx));
+    }
+}
+
+/// A host row laid out at `width` now (the measure [`MeasuredRow`] takes).
+pub(crate) fn measure(mut element: AnyElement, width: f32, window: &mut Window, cx: &mut App) -> f32 {
+    f32::from(element.layout_as_root(size(AvailableSpace::Definite(px(width)), AvailableSpace::MinContent), window, cx).height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain::transcript_grouping::SenderKind;
+
+    fn layout(side: TranscriptSide, sender: Option<TranscriptSender>, avatar: bool, name: bool) -> TranscriptRowLayout {
+        TranscriptRowLayout { id: "x".into(), side, sender, avatar, name, gap: 0. }
+    }
+
+    fn facts<'a>(content: RowContent<'a>, layout: Option<&'a TranscriptRowLayout>, gap: f32, cards: bool) -> RowFacts<'a> {
+        RowFacts { key: "r7", content, layout, gap, cards }
+    }
+
+    #[test]
+    fn a_plain_prompt_is_the_viewers_own_bubble() {
+        let own = layout(TranscriptSide::Own, None, false, false);
+        let ChatRowInput::Message { id, author, body, name, group, .. } = chat_row(&facts(RowContent::Prompt("Ship it"), Some(&own), 16., false)) else { panic!("a bubble") };
+        assert_eq!((id.as_str(), author.as_str(), body.as_str(), name), ("r7", "user", "Ship it", None));
+        let group = group.expect("grouped");
+        assert_eq!((group.side.as_deref(), group.avatar, group.indent, group.link, group.gap), (Some("out"), None, false, None, 16));
+    }
+
+    #[test]
+    fn narration_sits_under_its_senders_avatar_with_its_name() {
+        let agent = TranscriptSender { kind: SenderKind::Agent, id: "ag1".into(), name: "Bro".into(), link: None };
+        let first = layout(TranscriptSide::Other, Some(agent.clone()), true, true);
+        let ChatRowInput::Message { author, body, name, group, .. } = chat_row(&facts(RowContent::Narration("Done."), Some(&first), 12., false)) else { panic!("a bubble") };
+        assert_eq!((author.as_str(), body.as_str(), name.as_deref()), ("agent", "Done.", Some("Bro")));
+        let group = group.expect("grouped");
+        assert_eq!((group.side.as_deref(), group.avatar.as_deref(), group.indent, group.gap), (Some("in"), Some("ide:sender:r7"), true, 12));
+        // A later row of the group: the avatar's spacer, no name.
+        let later = layout(TranscriptSide::Other, Some(agent), false, false);
+        let ChatRowInput::Message { name, group, .. } = chat_row(&facts(RowContent::Narration("More."), Some(&later), 3., false)) else { panic!("a bubble") };
+        let group = group.expect("grouped");
+        assert_eq!((name, group.avatar, group.indent, group.gap), (None, None, true, 3));
+    }
+
+    #[test]
+    fn a_session_input_is_that_sessions_linked_bubble() {
+        let session = TranscriptSender { kind: SenderKind::Session, id: "s2".into(), name: "Fix login".into(), link: Some("s2".into()) };
+        let other = layout(TranscriptSide::Other, Some(session), true, true);
+        let text = "Message from Fix login (session s2): All green.";
+        let ChatRowInput::Message { author, body, name, group, .. } = chat_row(&facts(RowContent::Prompt(text), Some(&other), 8., false)) else { panic!("a bubble") };
+        assert_eq!((author.as_str(), body.as_str()), ("agent", "All green."));
+        assert!(name.is_some_and(|name| name.starts_with("Fix login")));
+        assert_eq!(group.and_then(|group| group.link).as_deref(), Some("exp-session:s2"));
+    }
+
+    #[test]
+    fn everything_else_is_a_host_row() {
+        let host = |row: ChatRowInput| matches!(row, ChatRowInput::Host { id } if id == "r7");
+        assert!(host(chat_row(&facts(RowContent::Other, None, 12., false))));
+        // Cards ride the row: the IDE paints it with them.
+        assert!(host(chat_row(&facts(RowContent::Narration("Posted a plan."), None, 12., true))));
+        // A folded prompt, a picture, a file: the IDE's bubble.
+        let long = "word ".repeat(400);
+        assert!(host(chat_row(&facts(RowContent::Prompt(&long), None, 12., false))));
+        let picture = steer::build_steer_image_message("Look", &["a1".to_string()]);
+        assert!(host(chat_row(&facts(RowContent::Prompt(&picture), None, 12., false))));
+    }
+
+    #[test]
+    fn a_gap_lands_on_the_documents_spacers() {
+        assert_eq!([0., 3., 8., 12., 16., 10.5, 20.].map(spacer), [0, 3, 8, 12, 16, 12, 16]);
+    }
+
+    #[test]
+    fn the_document_prunes_only_nodes_it_has() {
+        let doc = uicore_docs::doc("chat").expect("the chat");
+        for id in PRUNED.iter().chain(&[SCROLL, HOST_NODE, "chat_row", "chat"]) {
+            assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
+        }
+        let _ = document();
+    }
+}

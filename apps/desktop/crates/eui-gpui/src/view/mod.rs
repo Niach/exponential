@@ -15,6 +15,7 @@
 pub(crate) mod embed;
 mod events;
 mod input;
+mod keep;
 mod key_recorder;
 mod composer_keys;
 mod composer_paste;
@@ -240,7 +241,8 @@ pub(crate) struct ToastTimer {
 }
 
 /// Parsed markdown per Markdown leaf (by slot), keyed by its text.
-type MarkdownCache = HashMap<u32, (String, Rc<Vec<Block>>)>;
+/// Node → the text and `streaming` its blocks were parsed with.
+type MarkdownCache = HashMap<u32, (String, bool, Rc<Vec<Block>>)>;
 
 /// What a closing layer last painted, renumbered into its own small slot
 /// space (`0..n`, root first) so nothing of the live caches (which a
@@ -349,6 +351,15 @@ pub struct SurfaceView {
     interaction: HashMap<String, Interaction>,
     states_dirty: HashSet<String>,
     pressed: Option<String>,
+    /// #EDE-65 lane O: a press that landed on the host's window-selectable
+    /// text (gpui-base's `TextSelectionLayer`): where it went down. The
+    /// innermost pressable claims it WITHOUT stopping it (the window's
+    /// selection begins under it too); an outer pressable of the same press
+    /// leaves it. Cleared by the next pointer up.
+    text_press: Option<gpui::Point<Pixels>>,
+    /// #EDE-65 lane O: the Lists that keep the reader's place
+    /// ([`Self::keep_list_place`]), by id.
+    keeps: HashMap<String, keep::KeepPlace>,
     root_focus: FocusHandle,
     focus_handles: HashMap<String, FocusHandle>,
     focused: Option<u32>,
@@ -619,6 +630,8 @@ impl SurfaceView {
             interaction: HashMap::new(),
             states_dirty: HashSet::new(),
             pressed: None,
+            text_press: None,
+            keeps: HashMap::new(),
             root_focus: cx.focus_handle(),
             focus_handles: HashMap::new(),
             focused: None,
@@ -1009,6 +1022,17 @@ impl SurfaceView {
     /// The layout node index of a component id.
     pub fn index_of(&self, id: &str) -> Option<u32> {
         self.cache.index_of(id).or_else(|| self.surface.index_of(id))
+    }
+
+    /// #EDE-65 lane O: the scroll container `id` as the last pass laid it
+    /// out: `(offset_y, viewport_height, content_height)` (`None` before
+    /// its first pass, or when it is no scroll container). A host that
+    /// follows a list's tail reads it.
+    pub fn scroll_extent(&self, id: &str) -> Option<(f32, f32, f32)> {
+        let index = self.index_of(id)?;
+        let scroll = self.scrolls.get(&index)?;
+        let frame = self.frames.get(index as usize)?;
+        Some((scroll.offset_y, frame.h, scroll.content_height))
     }
 
     /// Run one layout pass now (render does this every frame).
@@ -1704,6 +1728,9 @@ impl SurfaceView {
         if self.layers_lifted() != self.pass_lifted {
             self.pass(window, cx);
         }
+        // #EDE-65 lane O: the host's rows measured and the kept lists held
+        // in place before anything paints.
+        self.settle(window, cx);
         self.check_key_recorder_focus(window, cx);
         let now = self.clock();
         self.motion.now = Some(now);
@@ -1735,6 +1762,7 @@ impl SurfaceView {
             // drops a Markdown selection (a press in Markdown starts anew).
             .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
                 this.keyboard = false;
+                this.text_press = None;
                 if this.md_selection.take().is_some_and(|s| !s.is_empty()) {
                     cx.notify();
                 }

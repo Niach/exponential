@@ -818,7 +818,19 @@ impl SurfaceView {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
-                        cx.stop_propagation();
+                        // #EDE-65 lane O: a press on the host's window-selectable
+                        // text is the text's too: the pressable takes it without
+                        // stopping it, so the window's selection begins under it
+                        // (a gpui `on_click` over selectable text, as the IDE's
+                        // own views do); an outer pressable leaves it.
+                        if ev.click_count == 1 && this.host_window_selection(cx) && gpui_base::TextSelection::is_selectable_at(ev.position, window, cx) {
+                            if this.text_press == Some(ev.position) {
+                                return;
+                            }
+                            this.text_press = Some(ev.position);
+                        } else {
+                            cx.stop_propagation();
+                        }
                         if strip_tab {
                             this.tab_drag_down(&down, f32::from(ev.position.x));
                         }
@@ -828,13 +840,24 @@ impl SurfaceView {
                 .on_mouse_up(
                     MouseButton::Left,
                     cx.listener(move |this, _, window, cx| {
+                        // A sweep across the text selected it: no press.
+                        if this.text_press.take().is_some() && this.pressed.as_deref() == Some(up.as_str()) && gpui_base::TextSelection::has_selection(window, cx) {
+                            this.press_cancel(&up, cx);
+                            return;
+                        }
                         if this.pressed.as_deref() == Some(up.as_str()) {
                             cx.stop_propagation();
                         }
                         this.press_up(&up, window, cx)
                     }),
                 )
-                .on_mouse_up_out(MouseButton::Left, cx.listener(move |this, _, _, cx| this.press_cancel(&out, cx)));
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        this.text_press = None;
+                        this.press_cancel(&out, cx)
+                    }),
+                );
         }
         el
     }
@@ -1297,21 +1320,22 @@ impl SurfaceView {
                 return div().absolute().left(px(x)).top(px(y)).w(px(w)).child(el).into_any_element();
             }
         }
+        // #VAPP-258 step 5: the host's options (the chat rhythm, selection;
+        // #EDE-65 lane O: per text, the streaming reply's own).
+        let options = self.host.markdown_options_for(&text, cx);
         let blocks = {
             let mut cache = self.markdown.borrow_mut();
             match cache.get(&index) {
-                Some((t, b)) if *t == text => b.clone(),
+                Some((t, streaming, b)) if *t == text && *streaming == options.streaming => b.clone(),
                 _ => {
                     let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text, cx));
-                    cache.insert(index, (text.clone(), b.clone()));
+                    cache.insert(index, (text.clone(), options.streaming, b.clone()));
                     b
                 }
             }
         };
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
-        let options = self.host.markdown_options(cx);
         let viewport = f32::from(window.viewport_size().height);
         // #VAPP-258: an unchanged paint reuses the laid-out blocks
         // ([`crate::paint::markdown_memo`]) when the host versions its answers.

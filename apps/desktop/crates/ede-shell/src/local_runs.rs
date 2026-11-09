@@ -238,6 +238,7 @@ pub fn demo_input() -> ChatInput {
         name: (author == "user").then(|| "Danny".to_string()),
         time: time.into(),
         queued: false,
+        group: None,
     };
     ChatInput {
         session_id: Some("demo".into()),
