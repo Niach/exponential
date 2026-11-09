@@ -66619,7 +66619,16 @@
         "id": "message_bubble",
         "component": "Box",
         "props": {
-          "pressable": true,
+          "pressable": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/href"
+              },
+              "then": true,
+              "else": false
+            }
+          },
           "href": {
             "@path": "/href"
           }
@@ -66750,7 +66759,23 @@
           }
         },
         "accessibility": {
-          "role": "button",
+          "role": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/href"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              },
+              "then": "button",
+              "else": "group"
+            }
+          },
           "label": "18:00"
         }
       },
@@ -66906,7 +66931,7 @@
             "id": "message_bubble",
             "component": "Box",
             "props": {
-              "pressable": true,
+              "pressable": false,
               "href": ""
             },
             "children": [
@@ -67027,7 +67052,7 @@
               "minWidth": 0
             },
             "accessibility": {
-              "role": "button",
+              "role": "group",
               "label": "18:00"
             },
             "recipe": {
@@ -67047,7 +67072,7 @@
             "id": "message_bubble",
             "component": "Box",
             "props": {
-              "pressable": true
+              "pressable": false
             },
             "children": [
               {
@@ -67167,7 +67192,7 @@
               "minWidth": 0
             },
             "accessibility": {
-              "role": "button",
+              "role": "group",
               "label": "18:00"
             },
             "recipe": {
@@ -115720,6 +115745,1318 @@
               "part": "root",
               "props": {
                 "tone": "primary"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MessageBubble/href:bound-resolves",
+      "input": {
+        "id": "bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Merged.",
+          "href": {
+            "@path": "/href"
+          }
+        }
+      },
+      "expanded": {
+        "id": "bubble",
+        "component": "Box",
+        "props": {
+          "pressable": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/href"
+              },
+              "then": true,
+              "else": false
+            }
+          },
+          "href": {
+            "@path": "/href"
+          }
+        },
+        "children": [
+          {
+            "id": "bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Merged."
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": 6
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "in"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-start",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "in"
+          }
+        },
+        "accessibility": {
+          "role": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/href"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              },
+              "then": "button",
+              "else": "group"
+            }
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "href": "https://exponential.at"
+          },
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": "https://exponential.at"
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "button"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "href": null
+          },
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": false,
+              "href": null
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "href": ""
+          },
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": false,
+              "href": ""
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "group"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MessageBubble/href:literal",
+      "input": {
+        "id": "bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Merged.",
+          "href": "https://exponential.at"
+        }
+      },
+      "expanded": {
+        "id": "bubble",
+        "component": "Box",
+        "props": {
+          "pressable": true,
+          "href": "https://exponential.at"
+        },
+        "children": [
+          {
+            "id": "bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Merged."
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": 6
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "in"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-start",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "in"
+          }
+        },
+        "accessibility": {
+          "role": "button"
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {},
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": "https://exponential.at"
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "accessibility": {
+              "role": "button"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MessageBubble/press:no-href",
+      "input": {
+        "id": "bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Merged."
+        },
+        "on": {
+          "press": {
+            "event": {
+              "name": "open"
+            }
+          }
+        }
+      },
+      "expanded": {
+        "id": "bubble",
+        "component": "Box",
+        "props": {
+          "pressable": true
+        },
+        "children": [
+          {
+            "id": "bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Merged."
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": 6
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "in"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-start",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "in"
+          }
+        },
+        "accessibility": {
+          "role": "button"
+        },
+        "on": {
+          "press": {
+            "event": {
+              "name": "open"
+            }
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {},
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "open"
+                }
+              }
+            },
+            "accessibility": {
+              "role": "button"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "MessageBubble/press:bound-href",
+      "input": {
+        "id": "bubble",
+        "component": "MessageBubble",
+        "props": {
+          "text": "Merged.",
+          "href": {
+            "@path": "/href"
+          }
+        },
+        "on": {
+          "press": {
+            "event": {
+              "name": "open"
+            }
+          }
+        }
+      },
+      "expanded": {
+        "id": "bubble",
+        "component": "Box",
+        "props": {
+          "pressable": true,
+          "href": {
+            "@path": "/href"
+          }
+        },
+        "children": [
+          {
+            "id": "bubble.bubble",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "bubble.bubble.text",
+                "component": "Markdown",
+                "props": {
+                  "text": "Merged."
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "text",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "maxWidth": "80%",
+              "minWidth": 0,
+              "paddingHorizontal": "$spacing.md",
+              "paddingVertical": "$spacing.sm",
+              "borderRadius": "$radius.xl",
+              "borderTopLeftRadius": 6
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "bubble",
+              "props": {
+                "side": "in"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "justifyContent": "flex-start",
+          "gap": "$spacing.sm",
+          "width": "100%",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "MessageBubble",
+          "part": "root",
+          "props": {
+            "side": "in"
+          }
+        },
+        "accessibility": {
+          "role": "button"
+        },
+        "on": {
+          "press": {
+            "event": {
+              "name": "open"
+            }
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "href": null
+          },
+          "bound": {
+            "id": "bubble",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": null
+            },
+            "children": [
+              {
+                "id": "bubble.bubble",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "bubble.bubble.text",
+                    "component": "Markdown",
+                    "props": {
+                      "text": "Merged."
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "MessageBubble",
+                      "part": "text",
+                      "props": {
+                        "side": "in"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "maxWidth": "80%",
+                  "minWidth": 0,
+                  "paddingHorizontal": "$spacing.md",
+                  "paddingVertical": "$spacing.sm",
+                  "borderRadius": "$radius.xl",
+                  "borderTopLeftRadius": 6
+                },
+                "recipe": {
+                  "macro": "MessageBubble",
+                  "part": "bubble",
+                  "props": {
+                    "side": "in"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "justifyContent": "flex-start",
+              "gap": "$spacing.sm",
+              "width": "100%",
+              "minWidth": 0
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "open"
+                }
+              }
+            },
+            "accessibility": {
+              "role": "button"
+            },
+            "recipe": {
+              "macro": "MessageBubble",
+              "part": "root",
+              "props": {
+                "side": "in"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Row/href:bound-resolves",
+      "input": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "Docs",
+          "href": {
+            "@path": "/href"
+          }
+        }
+      },
+      "expanded": {
+        "id": "row",
+        "component": "Box",
+        "props": {
+          "pressable": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@path": "/href"
+              },
+              "then": true,
+              "else": false
+            }
+          },
+          "href": {
+            "@path": "/href"
+          }
+        },
+        "children": [
+          {
+            "id": "row.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "row.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "Docs",
+                  "variant": "body",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "title",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "body",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": "$control.row",
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": "$radius.md"
+        },
+        "recipe": {
+          "macro": "Row",
+          "part": "root",
+          "props": {
+            "selected": false,
+            "density": "default",
+            "surface": "flat",
+            "depth": 0
+          }
+        },
+        "accessibility": {
+          "role": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/href"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              },
+              "then": "button",
+              "else": "none"
+            }
+          },
+          "selected": {
+            "@call": "cond",
+            "args": {
+              "if": {
+                "@call": "cond",
+                "args": {
+                  "if": {
+                    "@path": "/href"
+                  },
+                  "then": true,
+                  "else": false
+                }
+              },
+              "then": false
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "id": "row",
+          "message": "props.href: expected a string",
+          "code": "VALIDATION_FAILED",
+          "path": "/components/row/href"
+        }
+      ],
+      "datasets": [
+        {
+          "data": {
+            "href": "https://exponential.at"
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": true,
+              "href": "https://exponential.at"
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Docs",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "button",
+              "selected": false
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "href": null
+          },
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": false,
+              "href": null
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Docs",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "row",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "row.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "row.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Docs",
+                      "variant": "body",
+                      "lines": 1
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "title",
+                      "props": {
+                        "selected": false,
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "Row",
+                  "part": "body",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "minHeight": "$control.row",
+              "paddingHorizontal": "$spacing.md",
+              "borderRadius": "$radius.md"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "root",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
               }
             }
           },

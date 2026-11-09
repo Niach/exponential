@@ -1801,6 +1801,34 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `download`, component: `Progress`, props: { value: { "@path": `/done` }, valueText: { "@path": `/rate` }, detail: { "@path": `/files` } } },
     datasets: [{ done: 41, rate: `41 MB/s · 12 min`, files: `3 of 8 files` }, { done: 0 }],
   },
+  // #EDE-65: a bubble is pressable only while its href RESOLVES to a
+  // non-empty value (a URL, not null, "" or missing) or it has an on.press;
+  // a literal href always is. Row follows the same rule.
+  {
+    name: `MessageBubble/href:bound-resolves`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: { "@path": `/href` } } },
+    datasets: [{ href: `https://exponential.at` }, { href: null }, { href: `` }, {}],
+  },
+  {
+    name: `MessageBubble/href:literal`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: `https://exponential.at` } },
+    datasets: [{}],
+  },
+  {
+    name: `MessageBubble/press:no-href`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.` }, on: { press: { event: { name: `open` } } } },
+    datasets: [{}],
+  },
+  {
+    name: `MessageBubble/press:bound-href`,
+    input: { id: `bubble`, component: `MessageBubble`, props: { text: `Merged.`, href: { "@path": `/href` } }, on: { press: { event: { name: `open` } } } },
+    datasets: [{ href: null }],
+  },
+  {
+    name: `Row/href:bound-resolves`,
+    input: { id: `row`, component: `Row`, props: { title: `Docs`, href: { "@path": `/href` } } },
+    datasets: [{ href: `https://exponential.at` }, { href: null }, {}],
+  },
 ]
 
 function bindExtraCases() {
