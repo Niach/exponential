@@ -75,6 +75,8 @@ name: record-compose-fixtures
 # IDE's metrics (40.82 px, 14 px padding, 12.25 type, 14 px chevron).
 # EXP-1629 (2026-11-09): again for the row Select's IDE popup (value anchor,
 # backgroundClip, the popover shadow, the list fade) and the Avatar picture fill.
+# EXP-1629 (2026-11-09): again for the row Select's value button (the IDE's
+# multi picker: chosen rows wash + stroke, no check) and the specimen's Apps row.
 on:
   workflow_dispatch: {}
   push:
