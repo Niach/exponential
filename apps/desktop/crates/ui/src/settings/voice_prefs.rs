@@ -270,9 +270,17 @@ fn options(state: &Voice, cx: &App) -> Options {
     let (devices, agents, agent_rows) = choices(state, cx);
     let device_name = settings.voice_device_id.as_deref().map(|id| label_of(&devices, Some(id), &VOICE.copy.ellipsis));
     let (capability, live) = audio(state, &settings, cx);
+    // #NEW-96: a stored device or agent not (yet) synced here is an option
+    // with no label, so the row trails nothing (never its raw id).
+    let unsynced = |mut list: Vec<(String, String)>, id: Option<&str>| {
+        if let Some(id) = id.filter(|id| !list.iter().any(|(value, _)| value == id)) {
+            list.push((id.to_string(), String::new()));
+        }
+        list
+    };
     Options {
-        devices: pairs(&devices),
-        agents: pairs(&agents),
+        devices: unsynced(pairs(&devices), settings.voice_device_id.as_deref()),
+        agents: unsynced(pairs(&agents), settings.agent_id.as_deref()),
         // Every language carries its GPU note (#NEW-74), in the row and in the menu.
         languages: VOICE.languages.iter().map(|entry| (entry.value.clone(), language_label(&entry.value, device_name.as_deref()))).collect(),
         auto_stop: etalk::meeting::auto_stop_options().into_iter().map(|option| (option.value.to_string(), option.label)).collect(),
