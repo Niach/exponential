@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 703, "#EXP-1629: + KeyRecorder ×3 (example, recording=true|false); FEED-202: + Table/totals ×2, RecordTable/search + totals ×2; FEED-200: + Tabs/swipeable ×2; #EXP-1736: + MessageBubble/href, pressable ×2; #FEED-201: + Card/pressable, StatTile/pressable ×2; FEED-205: + Chart/valueFormat=currency, Chart/rows+valueFormat=compact; + Window; round 8: + Canvas ×6, Checkbox/indeterminate ×3, Progress valueText-only + detail, Stepper/collapse ×3 + ×2; VAPP-276: + Popover/align, Menu/side + align; #VAPP-285: + Tree; #VAPP-284: + Row/open=true|false; VAPP-277: + Sidebar/rail; VAPP-280: + SettingsRow; VAPP-279: + Tabs/variant ×2; VAPP-282: + DatePicker/inline; VAPP-286: + Slider/showValue; VAPP-217: + RecordForm, RecordTable; EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size; VAPP-286: + Slider/showValue");
+    assert_eq!(cases.len(), 709, "#EXP-1629: + Avatar/size=xl, + KeyRecorder ×3 (example, recording=true|false), Select/triggerVariant ×2, align ×3; FEED-202: + Table/totals ×2, RecordTable/search + totals ×2; FEED-200: + Tabs/swipeable ×2; #EXP-1736: + MessageBubble/href, pressable ×2; #FEED-201: + Card/pressable, StatTile/pressable ×2; FEED-205: + Chart/valueFormat=currency, Chart/rows+valueFormat=compact; + Window; round 8: + Canvas ×6, Checkbox/indeterminate ×3, Progress valueText-only + detail, Stepper/collapse ×3 + ×2; VAPP-276: + Popover/align, Menu/side + align; #VAPP-285: + Tree; #VAPP-284: + Row/open=true|false; VAPP-277: + Sidebar/rail; VAPP-280: + SettingsRow; VAPP-279: + Tabs/variant ×2; VAPP-282: + DatePicker/inline; VAPP-286: + Slider/showValue; VAPP-217: + RecordForm, RecordTable; EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size; VAPP-286: + Slider/showValue");
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);
@@ -208,7 +208,7 @@ fn catalog_macros_every_macros_events_route_to_a_part_or_stay_on_the_root() {
     with_handler.props.get_or_insert_with(Default::default).insert("actionLabel".into(), json!("Retry"));
     let root = reduce_nested(&with_handler, &core()).root;
     assert!(root.on.is_none());
-    let action = root.children.iter().find(|n| n.id == "empty-state.action").expect("empty-state.action");
+    let action = root.children.iter().find(|n| n.id == "empty_state.action").expect("empty_state.action");
     assert_eq!(action.on.as_ref().unwrap()["press"], json!({"event": {"name": "retry"}}));
 
     let pagination = find("Pagination/example");

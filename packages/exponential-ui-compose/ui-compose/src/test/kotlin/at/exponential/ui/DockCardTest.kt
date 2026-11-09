@@ -79,18 +79,18 @@ class DockCardTest {
         val (m, painted) = render(specimen(), OverlayPresentation.Painted)
         assertTrue(m.nodes.none { it.component == "Unknown" })
         for (part in listOf("trigger", "trigger.icon", "trigger.body.header.label", "trigger.body.header.caption", "trigger.body.header.meta", "trigger.body.row.title", "trigger.body.row.chevron")) {
-            assertTrue("c0-dock-card.$part painted", m.idx("c0-dock-card.$part") in painted)
+            assertTrue("c0_dock_card.$part painted", m.idx("c0_dock_card.$part") in painted)
         }
         val drawer = m.layers.single()
         assertEquals("Drawer", drawer.kind)
         assertTrue(drawer.isModal)
-        for (id in listOf("c0-p", "c0-footer", "c0-no", "c0-yes")) {
+        for (id in listOf("c0_p", "c0_footer", "c0_no", "c0_yes")) {
             val n = m.node(m.idx(id))!!
             assertEquals("$id in the sheet's layer", drawer.layer, n.layer)
             assertTrue("$id painted", n.index in painted)
         }
         // The footer sits under the body.
-        assertTrue(m.frame(m.idx("c0-yes")).top >= m.frame(m.idx("c0-p")).bottom)
+        assertTrue(m.frame(m.idx("c0_yes")).top >= m.frame(m.idx("c0_p")).bottom)
     }
 
     @Test

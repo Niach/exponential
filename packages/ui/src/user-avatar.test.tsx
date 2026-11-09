@@ -47,9 +47,9 @@ describe(`UserAvatar`, () => {
     const { container } = render(
       <UserAvatar user={{ id: `u1`, email: `ada@lovelace.dev` }} />
     )
-    // `getInitials` splits on spaces, so an address yields its first letter —
-    // a hued "A", which is still that person, not a shrug.
-    expect(fallback(container).textContent).toBe(`A`)
+    // #EXP-1629: the cross-client rule reads the address's local part, so
+    // `ada@` is a hued "AD", the same letters on every client.
+    expect(fallback(container).textContent).toBe(`AD`)
   })
 
   it(`paints the person's hue off their id and degrades without a user`, () => {

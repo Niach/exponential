@@ -389,6 +389,9 @@ class SurfaceModel(
     /** The trigger id that opened each layer owner (focus returns there). */
     val layerReturn = HashMap<String, String>()
 
+    /** #EXP-1629: each open Select popup's cursor (owner id → the `item` carrying its ONE `hover`). */
+    internal val selectCursors = HashMap<String, String>()
+
     /** The overlay owner dismissed in the last 300 ms (its trigger's own tap must not reopen it). */
     var justDismissed: String? = null
         internal set

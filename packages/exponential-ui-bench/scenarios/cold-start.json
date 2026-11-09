@@ -181,6 +181,7 @@
               "component": "Avatar",
               "props": {
                 "name": "Alex Chen",
+                "seed": "demo-alex",
                 "size": "default"
               }
             },
@@ -2334,7 +2335,8 @@
                       "id": "hover_card_avatar",
                       "component": "Avatar",
                       "props": {
-                        "name": "Alex Chen"
+                        "name": "Alex Chen",
+                        "seed": "demo-alex"
                       }
                     },
                     {
@@ -3219,6 +3221,29 @@
               }
             ]
           }
+        },
+        {
+          "id": "window",
+          "component": "Window",
+          "props": {
+            "title": "exponential.at"
+          },
+          "style": {
+            "height": 140
+          },
+          "children": [
+            {
+              "id": "window_body",
+              "component": "Text",
+              "props": {
+                "text": "One child fills the body.",
+                "variant": "muted"
+              },
+              "style": {
+                "padding": "$spacing.lg"
+              }
+            }
+          ]
         }
       ]
     }

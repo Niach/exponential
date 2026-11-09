@@ -201,7 +201,9 @@ export const STATE_SELECTORS: Record<string, string[]> = {
   disabled: [`:disabled`, `[data-disabled]`, `[aria-disabled="true"]`, `[data-xs~="disabled"]`],
   checked: [`[data-state="checked"]`, `[data-xs~="checked"]`],
   open: [`[data-state="open"]`, `[data-xs~="open"]`],
-  selected: [`[data-state="active"]`, `[data-state="on"]`, `[data-highlighted]`, `[data-xs~="selected"]`],
+  // #EXP-1629: a Select item's `data-highlighted` is the CURSOR (its
+  // painter reports it as `hover`); `selected` there = chosen only.
+  selected: [`[data-state="active"]`, `[data-state="on"]`, `[data-highlighted]:where(:not(.xui-Select-item))`, `[data-xs~="selected"]`],
   // Round 1: a field whose checks failed; a drop zone a drag hovers.
   invalid: [`[aria-invalid="true"]`, `[data-xs~="invalid"]`],
   dragover: [`[data-dragover]`, `[data-xs~="dragover"]`],

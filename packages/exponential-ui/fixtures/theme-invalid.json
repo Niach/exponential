@@ -918,6 +918,10 @@
           "message": "missing value for $control.toast"
         },
         {
+          "path": "tokens.control.avatarXl",
+          "message": "missing value for $control.avatarXl"
+        },
+        {
           "path": "modes.light.shadow.none",
           "message": "missing value for $shadow.none"
         },

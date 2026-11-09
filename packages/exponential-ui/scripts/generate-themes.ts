@@ -67,6 +67,13 @@ function hex(value: string): `#${string}` {
   return h
 }
 
+/** `top` (`#rrggbbaa`) composited source-over onto the opaque `bottom`. */
+function over(bottom: `#${string}`, top: `#${string}`): `#${string}` {
+  const channel = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)
+  const alpha = top.length === 9 ? channel(top, 3) / 255 : 1
+  return `#${[0, 1, 2].map((i) => Math.round(channel(top, i) * alpha + channel(bottom, i) * (1 - alpha)).toString(16).padStart(2, `0`)).join(``)}`
+}
+
 export function composeExponential(): ThemeSource {
   const design = JSON.parse(readFileSync(join(repoRoot, `packages/design-tokens/tokens.json`), `utf8`)) as DesignTokens
   const css = readFileSync(join(repoRoot, `packages/ui/src/styles.css`), `utf8`)
@@ -84,6 +91,9 @@ export function composeExponential(): ThemeSource {
   dark.secondary = hex(design.glass.fillRow)
   dark.accent = hex(design.glass.fillActive)
   dark.border = hex(design.glass.strokeCard)
+  // #EXP-1629: every floating surface is the app's `--color-card-opaque`
+  // (the glass card over the opaque popover; the IDE theme's `popover`).
+  dark.popover = over(hex(dark.popover!), hex(design.glass.fillCard))
   dark.input = hex(design.palette.input)
   // #VAPP-258: a link's ink is the app's `--link` (light palette first, then
   // dark, as styles.css declares them).
@@ -139,7 +149,7 @@ export function composeExponential(): ThemeSource {
         pill: s.controlSm, badge: 20, chip: s.controlSm,
         toggle: s.controlMd, switch: 20, checkbox: 16, slider: 16,
         progress: 8, meter: 8,
-        avatarSm: 24, avatarMd: 32, avatarLg: 40,
+        avatarSm: 24, avatarMd: 32, avatarLg: 40, avatarXl: 48,
         iconSm: 16, iconMd: 20, iconLg: 24,
         hairline: 1,
         appBar: 48, tabBar: 56, toast: 56,

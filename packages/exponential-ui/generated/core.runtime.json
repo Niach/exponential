@@ -111,6 +111,12 @@
       "default",
       "lg"
     ],
+    "avatarSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -362,6 +368,10 @@
       "never",
       "auto",
       "always"
+    ],
+    "selectTrigger": [
+      "field",
+      "row"
     ]
   },
   "defs": {
@@ -1229,6 +1239,7 @@
     "Select.trigger": "ui-selector",
     "Select.search": "search",
     "Select.check": "ui-check",
+    "Select.chevron": "ui-chevron-right",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -2057,11 +2068,12 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "avatarSize",
           "default": "default"
         },
         "seed": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         }
       }
     },
@@ -3106,6 +3118,10 @@
           "type": "url",
           "bindable": true
         },
+        "seed": {
+          "type": "string",
+          "bindable": true
+        },
         "state": {
           "type": "enum",
           "enum": "callState",
@@ -4038,6 +4054,18 @@
         "emptyText": {
           "type": "string",
           "default": "$string.noResults"
+        },
+        "triggerVariant": {
+          "type": "enum",
+          "enum": "selectTrigger",
+          "default": "field"
+        },
+        "align": {
+          "type": "enum",
+          "enum": "overlayAlign"
+        },
+        "popupWidth": {
+          "type": "number"
         },
         "disabled": {
           "type": "boolean",

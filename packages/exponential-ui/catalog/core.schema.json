@@ -3846,7 +3846,7 @@
         },
         "name": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Person's name; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -3857,14 +3857,15 @@
           "enum": [
             "sm",
             "default",
-            "lg"
+            "lg",
+            "xl"
           ],
           "description": "Diameter class.",
           "default": "default"
         },
         "seed": {
-          "type": "string",
-          "description": "Hashes the fallback hue; default the name."
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "A user id: the palette hue; none = muted."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -9602,6 +9603,10 @@
           "format": "uri-reference",
           "description": "Picture URL."
         },
+        "seed": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Their id: the avatar hue."
+        },
         "state": {
           "oneOf": [
             {
@@ -13064,6 +13069,26 @@
           "type": "string",
           "description": "Shown when the search matches nothing.",
           "default": "$string.noResults"
+        },
+        "triggerVariant": {
+          "enum": [
+            "field",
+            "row"
+          ],
+          "description": "`row` = a Group row: label, value, chevron.",
+          "default": "field"
+        },
+        "align": {
+          "enum": [
+            "start",
+            "center",
+            "end"
+          ],
+          "description": "Popup alignment (`row`: `end`)."
+        },
+        "popupWidth": {
+          "type": "number",
+          "description": "Popup width in px (`row`: 260)."
         },
         "disabled": {
           "type": "boolean",
@@ -22204,7 +22229,8 @@
               "hairline",
               "appBar",
               "tabBar",
-              "toast"
+              "toast",
+              "avatarXl"
             ]
           }
         },

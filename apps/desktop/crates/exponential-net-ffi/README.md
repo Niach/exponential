@@ -1,6 +1,6 @@
 # `exponential-net-ffi`: P2P for Swift and Kotlin
 
-The UniFFI 0.31 facade over [`enet-core`](../enet-core) for iOS,
+The UniFFI 0.32 facade over [`enet-core`](../enet-core) for iOS,
 macOS and Android: an xcframework / an Android `.so` plus the generated
 bindings. License: MIT OR Apache-2.0.
 

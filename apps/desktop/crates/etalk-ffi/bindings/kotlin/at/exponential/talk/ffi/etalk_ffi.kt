@@ -101,6 +101,43 @@ internal open class ForeignBytes : Structure() {
 
     class ByValue : ForeignBytes(), Structure.ByValue
 }
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Only `lower` is valid — zero-copy byte buffers only flow foreign -> Rust,
+// and only in argument position. `lift`, `read`, `write`, and
+// `allocationSize` have no sound implementation here and all panic at
+// runtime. The `FfiConverter` interface is implemented so that the
+// compiler enforces the full method set (rather than relying on eyeball).
+//
+// The provided `ByteBuffer` MUST be direct — only direct buffers have a
+// stable native address that JNA can expose via `getDirectBufferPointer`.
+// The returned `ForeignBytes.ByValue` is only valid for the duration of
+// the FFI call; the Rust side treats it as a borrow.
+internal object FfiConverterByRefBytes : FfiConverter<java.nio.ByteBuffer, ForeignBytes.ByValue> {
+    override fun lower(value: java.nio.ByteBuffer): ForeignBytes.ByValue {
+        require(value.isDirect) { "UniFFI zero-copy &[u8] requires a direct ByteBuffer. Use ByteBuffer.allocateDirect()." }
+        val remaining = value.remaining()
+        val fb = ForeignBytes.ByValue()
+        fb.len = remaining
+        // Zero-length direct buffers: skip getDirectBufferPointer (platform-variable behavior)
+        // and pass null. The Rust side treats (null, 0) as &[].
+        fb.data = if (remaining == 0) null else com.sun.jna.Native.getDirectBufferPointer(value)
+        return fb
+    }
+
+    override fun lift(value: ForeignBytes.ByValue): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+
+    override fun read(buf: java.nio.ByteBuffer): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun write(value: java.nio.ByteBuffer, buf: java.nio.ByteBuffer): Unit =
+        error("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun allocationSize(value: java.nio.ByteBuffer): ULong =
+        error("ByRef bytes have no RustBuffer allocation size: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+}
 /**
  * The FfiConverter interface handles converter types to and from the FFI
  *
@@ -637,56 +674,58 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "etalk_ffi"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_etalk_ffi_checksum_func_call_answer_ms(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_constants(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_event_of_wire(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_greeting(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_idle(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_ring_ms(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_ring_random(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_ring_tone_on(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_spec_json(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_speech_of(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_step(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_timer(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_unavailable(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_view(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_call_wire_event(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_func_codec_backend(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkdecoder_decode(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkdecoder_decode_fec(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkdecoder_frame_samples(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkencoder_encode(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkencoder_frame_samples(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_method_talkuplink_push(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_constructor_talkdecoder_new(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_constructor_talkencoder_new(
-    ): Short
+    ): Int
     external fun uniffi_etalk_ffi_checksum_constructor_talkuplink_new(
-    ): Short
+    ): Int
     external fun ffi_etalk_ffi_uniffi_contract_version(
     ): Int
 
@@ -705,6 +744,8 @@ internal object UniffiLib {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "etalk_ffi"))
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_etalk_ffi_fn_clone_talkdecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_etalk_ffi_fn_free_talkdecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -782,7 +823,7 @@ internal object UniffiLib {
     external fun ffi_etalk_ffi_rust_future_free_u8(`handle`: Long,
     ): Unit
     external fun ffi_etalk_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
+    ): Int
     external fun ffi_etalk_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
     external fun ffi_etalk_ffi_rust_future_cancel_i8(`handle`: Long,
@@ -798,7 +839,7 @@ internal object UniffiLib {
     external fun ffi_etalk_ffi_rust_future_free_u16(`handle`: Long,
     ): Unit
     external fun ffi_etalk_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Short
+    ): Int
     external fun ffi_etalk_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
     external fun ffi_etalk_ffi_rust_future_cancel_i16(`handle`: Long,
@@ -889,10 +930,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -1048,6 +1089,10 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
         return value.toUByte()
     }
 
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
     override fun read(buf: ByteBuffer): UByte {
         return lift(buf.get())
     }
@@ -1068,6 +1113,10 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
  */
 public object FfiConverterUShort: FfiConverter<UShort, Short> {
     override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    fun lift(value: Int): UShort {
         return value.toUShort()
     }
 
@@ -1498,6 +1547,7 @@ open class TalkDecoder: Disposable, AutoCloseable, TalkDecoderInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_constructor_talkdecoder_new(
     
+        
         FfiConverterUInt.lower(`rate`),_status)
 }
     )
@@ -1507,6 +1557,11 @@ open class TalkDecoder: Disposable, AutoCloseable, TalkDecoderInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -1583,6 +1638,7 @@ open class TalkDecoder: Disposable, AutoCloseable, TalkDecoderInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_method_talkdecoder_decode(
         it,
+        
         FfiConverterByteArray.lower(`packet`),_status)
 }
     }
@@ -1601,6 +1657,7 @@ open class TalkDecoder: Disposable, AutoCloseable, TalkDecoderInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_method_talkdecoder_decode_fec(
         it,
+        
         FfiConverterByteArray.lower(`packet`),_status)
 }
     }
@@ -1809,7 +1866,10 @@ open class TalkEncoder: Disposable, AutoCloseable, TalkEncoderInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_constructor_talkencoder_new(
     
-        FfiConverterUInt.lower(`rate`),FfiConverterInt.lower(`bitrate`),FfiConverterOptionalInt.lower(`lossPercent`),_status)
+        
+        FfiConverterUInt.lower(`rate`),
+        FfiConverterInt.lower(`bitrate`),
+        FfiConverterOptionalInt.lower(`lossPercent`),_status)
 }
     )
 
@@ -1818,6 +1878,11 @@ open class TalkEncoder: Disposable, AutoCloseable, TalkEncoderInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -1894,6 +1959,7 @@ open class TalkEncoder: Disposable, AutoCloseable, TalkEncoderInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_method_talkencoder_encode(
         it,
+        
         FfiConverterSequenceShort.lower(`pcm`),_status)
 }
     }
@@ -2098,6 +2164,7 @@ open class TalkUplink: Disposable, AutoCloseable, TalkUplinkInterface
     uniffiRustCallWithError(TalkException) { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_constructor_talkuplink_new(
     
+        
         FfiConverterUInt.lower(`rate`),_status)
 }
     )
@@ -2107,6 +2174,11 @@ open class TalkUplink: Disposable, AutoCloseable, TalkUplinkInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -2182,7 +2254,9 @@ open class TalkUplink: Disposable, AutoCloseable, TalkUplinkInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_method_talkuplink_push(
         it,
-        FfiConverterUShort.lower(`seq`),FfiConverterByteArray.lower(`packet`),_status)
+        
+        FfiConverterUShort.lower(`seq`),
+        FfiConverterByteArray.lower(`packet`),_status)
 }
     }
     )
@@ -2859,7 +2933,7 @@ public object FfiConverterTypeTalkCallEvent : FfiConverterRustBuffer<TalkCallEve
         }
     }
 
-    override fun allocationSize(value: TalkCallEvent) = when(value) {
+    override fun allocationSize(value: TalkCallEvent): ULong = when(value) {
         is TalkCallEvent.Start -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -3507,7 +3581,9 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_answer_ms(
     
-        FfiConverterDouble.lower(`random`),FfiConverterOptionalULong.lower(`readyMs`),_status)
+        
+        FfiConverterDouble.lower(`random`),
+        FfiConverterOptionalULong.lower(`readyMs`),_status)
 }
     )
     }
@@ -3531,6 +3607,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_event_of_wire(
     
+        
         FfiConverterString.lower(`json`),_status)
 }
     )
@@ -3544,6 +3621,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_greeting(
     
+        
         FfiConverterOptionalString.lower(`language`),_status)
 }
     )
@@ -3571,6 +3649,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_ring_ms(
     
+        
         FfiConverterDouble.lower(`random`),_status)
 }
     )
@@ -3597,6 +3676,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_ring_tone_on(
     
+        
         FfiConverterLong.lower(`ms`),_status)
 }
     )
@@ -3623,6 +3703,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_speech_of(
     
+        
         FfiConverterOptionalString.lower(`state`),_status)
 }
     )
@@ -3636,7 +3717,9 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_step(
     
-        FfiConverterTypeTalkCallState.lower(`state`),FfiConverterTypeTalkCallEvent.lower(`event`),_status)
+        
+        FfiConverterTypeTalkCallState.lower(`state`),
+        FfiConverterTypeTalkCallEvent.lower(`event`),_status)
 }
     )
     }
@@ -3649,6 +3732,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_timer(
     
+        
         FfiConverterULong.lower(`ms`),_status)
 }
     )
@@ -3662,6 +3746,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_unavailable(
     
+        
         FfiConverterTypeTalkCallAvailabilityInput.lower(`input`),_status)
 }
     )
@@ -3675,7 +3760,9 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_view(
     
-        FfiConverterTypeTalkCallState.lower(`state`),FfiConverterTypeTalkCallPlatform.lower(`platform`),_status)
+        
+        FfiConverterTypeTalkCallState.lower(`state`),
+        FfiConverterTypeTalkCallPlatform.lower(`platform`),_status)
 }
     )
     }
@@ -3689,6 +3776,7 @@ public object FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer<Lis
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_etalk_ffi_fn_func_call_wire_event(
     
+        
         FfiConverterTypeTalkCallEvent.lower(`event`),_status)
 }
     )

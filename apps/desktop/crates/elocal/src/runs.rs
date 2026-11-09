@@ -622,7 +622,7 @@ impl LocalRuns {
             system.push(' ');
             system.push_str(note);
         }
-        let brief = Brief::new(sid, text).cwd(cwd).system_append(&system);
+        let brief = Brief::new(sid, &localize_attachments(&self.desktop, text)).cwd(cwd).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         let (runner, missing) = self.runner_for(session_id);
         if let Some(missing) = missing {
@@ -710,7 +710,7 @@ impl LocalRuns {
                 // A message into a live run goes to the CLI as the next prompt.
                 if let Some(live) = self.live.lock().expect("live").get(id) {
                     if !text.trim().is_empty() {
-                        live.run.send(&text);
+                        live.run.send(&localize_attachments(&self.desktop, &text));
                     }
                 }
             }
@@ -813,6 +813,52 @@ impl LocalRuns {
 /// The noun subset over the desktop's store, as the server's tools are named.
 struct LocalTools {
     desktop: Arc<LocalDesktop>,
+}
+
+/// The folder a desktop's agents read their messages' attachments from.
+pub const AGENT_FILES_DIR: &str = "agent-files";
+
+/// #EDE-65 lane L: a CLI cannot GET `/api/attachments/{id}` (the server's
+/// devices download them first, `.exp-steer-images`), so every attachment a
+/// message names is copied out of the blob store to
+/// `<desktop>/agent-files/<id>/<filename>` and that path replaces its URL.
+/// An id the desktop holds no bytes for keeps its URL.
+pub fn localize_attachments(desktop: &LocalDesktop, text: &str) -> String {
+    const URL: &str = "/api/attachments/";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(URL) {
+        let tail = &rest[at + URL.len()..];
+        let len = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).unwrap_or(tail.len());
+        let id = &tail[..len];
+        out.push_str(&rest[..at]);
+        match (!id.is_empty()).then(|| agent_file(desktop, id)).flatten() {
+            Some(path) => out.push_str(&path.to_string_lossy()),
+            None => {
+                out.push_str(URL);
+                out.push_str(id);
+            }
+        }
+        rest = &tail[len..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One attachment's bytes on disk under its filename (written once).
+fn agent_file(desktop: &LocalDesktop, id: &str) -> Option<PathBuf> {
+    let (bytes, _) = desktop.blobs.get(id)?;
+    let row = desktop.store.row("attachments", id).ok().flatten();
+    let name = row.as_ref().and_then(|r| r.get("filename")).and_then(Value::as_str).filter(|n| !n.is_empty());
+    // Only the last path component: a stored name never escapes the folder.
+    let name = name.and_then(|n| std::path::Path::new(n).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| id.to_string());
+    let dir = desktop.dir.join(AGENT_FILES_DIR).join(id);
+    let path = dir.join(name);
+    if !path.is_file() {
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::write(&path, bytes).ok()?;
+    }
+    Some(path)
 }
 
 /// The noun subset as a provider of its own (#VAPP-273: an app's `action`
@@ -1013,6 +1059,23 @@ mod tests {
         assert_eq!(out["structuredContent"]["by"], json!("run-1"));
         let out = merged.call(&caller, "exponential_boards", json!({"op": "list"}));
         assert!(out["structuredContent"].is_array());
+    }
+
+    /// #EDE-65 lane L: a sent image reaches the CLI as a file on disk under
+    /// its name, in place of its URL; an id without bytes keeps its URL.
+    #[test]
+    fn a_message_s_attachments_reach_the_agent_as_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = desktops.open_desktop(desktops.current().unwrap()).unwrap();
+        let row = desktop.executor.attachment_create("shot.png", "image/png", b"PNG!", None).unwrap();
+        let id = row["id"].as_str().unwrap().to_string();
+        let text = format!("look\n\n![shot.png](/api/attachments/{id})\n[x](/api/attachments/missing-1)");
+        let local = localize_attachments(&desktop, &text);
+        let path = desktop.dir.join(AGENT_FILES_DIR).join(&id).join("shot.png");
+        assert_eq!(local, format!("look\n\n![shot.png]({})\n[x](/api/attachments/missing-1)", path.display()));
+        assert_eq!(std::fs::read(&path).unwrap(), b"PNG!");
+        assert_eq!(localize_attachments(&desktop, "no files"), "no files");
     }
 
     #[test]

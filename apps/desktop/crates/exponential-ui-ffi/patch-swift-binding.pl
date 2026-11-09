@@ -5,7 +5,7 @@
 # a fresh buffer (61% of the SwiftUI template-10k profile). The patched
 # readers load in place from the buffer, with the same bounds checks. Rust
 # strings are always valid UTF-8, so `String(decoding:)` (no validation
-# failure path) lifts them like `String(bytes:encoding:)!` did.
+# failure path), what uniffi 0.32's own reader uses after its byte copy.
 # A uniffi upgrade that changes the generated text fails here loudly
 # instead of silently dropping the patch.
 #   perl patch-swift-binding.pl <ExponentialUIFFI.swift>
@@ -48,7 +48,8 @@ OLD
 NEW
   [ 'FfiConverterString.read', <<'OLD', <<'NEW' ],
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        // See `lift` above for why we avoid Foundation's NSString-backed decoder here.
+        return String(decoding: try readBytes(&buf, count: Int(len)), as: UTF8.self)
 OLD
         let len: Int32 = try readInt(&buf)
         let range = buf.offset..<(buf.offset + Int(len))

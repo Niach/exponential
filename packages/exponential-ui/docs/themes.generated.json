@@ -276,7 +276,7 @@
           },
           "exponential": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           },
           "playful": {
             "light": "#ffffff",
@@ -284,7 +284,7 @@
           },
           "orange": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           }
         }
       },
@@ -1588,6 +1588,16 @@
           "exponential": 56,
           "playful": 64,
           "orange": 56
+        }
+      },
+      {
+        "name": "avatarXl",
+        "ref": "$control.avatarXl",
+        "values": {
+          "neutral": 48,
+          "exponential": 48,
+          "playful": 48,
+          "orange": 48
         }
       }
     ],
@@ -3583,12 +3593,15 @@
         "item",
         "check",
         "empty",
-        "error"
+        "error",
+        "value",
+        "chevron"
       ],
       "props": [
         "multiple",
         "searchable",
-        "disabled"
+        "disabled",
+        "triggerVariant"
       ]
     },
     {

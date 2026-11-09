@@ -661,7 +661,7 @@
         },
         "slots": {
           "state": {
-            "id": "state-cell",
+            "id": "state_cell",
             "component": "Badge",
             "props": {
               "text": {
@@ -726,7 +726,7 @@
         },
         "slots": {
           "status": {
-            "id": "status-cell",
+            "id": "status_cell",
             "component": "Badge",
             "props": {
               "text": {
@@ -1541,14 +1541,14 @@
                 "component": "Stack",
                 "children": [
                   {
-                    "id": "row-a",
+                    "id": "row_a",
                     "component": "Text",
                     "props": {
                       "text": "a"
                     }
                   },
                   {
-                    "id": "row-b",
+                    "id": "row_b",
                     "component": "Text",
                     "props": {
                       "text": "b"
@@ -2499,7 +2499,7 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2510,7 +2510,7 @@
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2572,7 +2572,7 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2583,7 +2583,7 @@
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2642,7 +2642,7 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2653,7 +2653,7 @@
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2708,7 +2708,7 @@
                 },
                 "slots": {
                   "trigger": {
-                    "id": "pop-trigger",
+                    "id": "pop_trigger",
                     "component": "Button",
                     "props": {
                       "label": "Filters"
@@ -2731,7 +2731,7 @@
                     },
                     "children": [
                       {
-                        "id": "f-title",
+                        "id": "f_title",
                         "component": "Input",
                         "props": {
                           "name": "title",
@@ -2742,7 +2742,7 @@
                         }
                       },
                       {
-                        "id": "f-go",
+                        "id": "f_go",
                         "component": "Button",
                         "props": {
                           "label": "Create",
@@ -2807,7 +2807,7 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2818,7 +2818,7 @@
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2878,7 +2878,7 @@
                 },
                 "children": [
                   {
-                    "id": "f-title",
+                    "id": "f_title",
                     "component": "Input",
                     "props": {
                       "name": "title",
@@ -2889,7 +2889,7 @@
                     }
                   },
                   {
-                    "id": "f-go",
+                    "id": "f_go",
                     "component": "Button",
                     "props": {
                       "label": "Create",
@@ -2939,7 +2939,7 @@
             },
             "children": [
               {
-                "id": "f-title",
+                "id": "f_title",
                 "component": "Input",
                 "props": {
                   "name": "title",
@@ -2950,7 +2950,7 @@
                 }
               },
               {
-                "id": "f-go",
+                "id": "f_go",
                 "component": "Button",
                 "props": {
                   "label": "Create",

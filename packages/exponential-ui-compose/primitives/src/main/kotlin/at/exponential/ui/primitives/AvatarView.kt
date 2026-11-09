@@ -1,7 +1,10 @@
 package at.exponential.ui.primitives
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,37 +26,55 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
 
 /**
- * The avatar fallback rule every Exponential UI renderer shares: two
- * initials, tinted from a seed (React `seedHue`, gpui `seed_hue`, Swift
- * `AvatarFallback`: `h = h * 31 + utf16unit` as a wrapping UInt32, mod 360).
+ * The avatar fallback rule every Exponential UI renderer shares
+ * (packages/exponential-ui/fixtures/avatar.json, #EXP-1629), the app's own
+ * (design-tokens `avatar`, EXP-698 r4): a seed (a user id) picks
+ * `PALETTE[fnv1a32(utf8(seed)) % 8]`; the disc fills with that hue at
+ * [FILL_ALPHA] and the initials draw in it at full alpha, no stroke. No seed
+ * = the caller's muted colours.
  */
 object AvatarFallback {
-    /** The first letters of the first two whitespace-separated words, uppercased. */
-    fun initials(name: String): String =
-        name.split(Regex("\\s+"))
-            .filter { it.isNotEmpty() }
-            .take(2)
-            .joinToString("") { it.substring(0, it.offsetByCodePoints(0, 1)).uppercase() }
+    /** design-tokens `avatar` in ITS order (append-only, never reorder: the index is what the hash lands on). */
+    val PALETTE: List<String> = listOf("#F87171", "#FB923C", "#FACC15", "#4ADE80", "#2DD4BF", "#60A5FA", "#A78BFA", "#F472B6")
 
-    /** The seed's hue in degrees, 0..359. */
-    fun seedHue(seed: String): Double {
-        var h = 0u
-        for (unit in seed) {
-            h = h * 31u + unit.code.toUInt()
-        }
-        return (h % 360u).toDouble()
+    /** The hue's alpha in the fill. */
+    const val FILL_ALPHA: Float = 0.2f
+
+    /** [PALETTE] as colours. */
+    val palette: List<Color> = PALETTE.map { requireNotNull(parseHexColor(it)) }
+
+    /**
+     * The initials of [name]: an email reduces to its local part, the rest
+     * splits on space . _ - +; two or more parts give their first letters,
+     * one part its first two characters (code points); uppercased; nothing = `?`.
+     */
+    fun initials(name: String?): String {
+        val base = name.orEmpty().trim()
+        val at = base.indexOf('@')
+        val local = if (at >= 0) base.substring(0, at) else base
+        val parts = local.split(' ', '.', '_', '-', '+').filter { it.isNotBlank() }
+        val picked = if (parts.size >= 2) firstCodePoints(parts[0], 1) + firstCodePoints(parts[1], 1) else firstCodePoints(local, 2)
+        return if (picked.isEmpty()) "?" else picked.uppercase()
     }
 
-    /** The fill (hsl h,0.7,0.55 at 0.22 alpha) and the letter colour (hsl h,0.6, dark ? 0.72 : 0.38) for [seed]. */
-    fun tint(seed: String, dark: Boolean): AvatarTint {
-        val hue = seedHue(seed)
-        return AvatarTint(
-            fill = Rgba.hsl(hue, 0.7, 0.55, 0.22).color,
-            ink = Rgba.hsl(hue, 0.6, if (dark) 0.72 else 0.38).color,
-        )
+    private fun firstCodePoints(s: String, n: Int): String =
+        s.substring(0, s.offsetByCodePoints(0, minOf(n, s.codePointCount(0, s.length))))
+
+    /** FNV-1a 32-bit over the seed's UTF-8 bytes, modulo the palette size. */
+    fun hueIndex(seed: String): Int {
+        var hash = 0x811C9DC5u
+        for (byte in seed.toByteArray(Charsets.UTF_8)) {
+            hash = (hash xor (byte.toUInt() and 0xFFu)) * 0x01000193u
+        }
+        return (hash % PALETTE.size.toUInt()).toInt()
+    }
+
+    /** The seed's tint: the hue at [FILL_ALPHA] under the letters in the hue. */
+    fun tint(seed: String): AvatarTint {
+        val hue = palette[hueIndex(seed)]
+        return AvatarTint(fill = hue.copy(alpha = FILL_ALPHA), ink = hue)
     }
 }
 
@@ -61,12 +82,14 @@ object AvatarFallback {
 data class AvatarTint(val fill: Color, val ink: Color)
 
 /**
- * A round avatar: [picture] when given, else tinted initials. [fill]/[ink]
- * override the seed tint (an empty seed falls back to the tokens' `muted`
- * and `foreground`); [initials] draws those letters verbatim; [fontSize]
- * defaults to 40% of [size]; [cornerRadius] clips a rounded square instead
- * of a circle. The letters sit on a line box trimmed to the glyph, so they
- * centre optically. [textStyle] is the base the letters merge onto.
+ * A round avatar: [picture] when given (wearing a [ringWidth] [ring] when
+ * one is given, the `Avatar/image` hairline), else the initials on the
+ * [seed]'s tint; no seed (null or empty) paints the tokens' `muted` and
+ * `mutedForeground`. [fill]/[ink] override either; [initials] draws those
+ * letters verbatim; [fontSize] defaults to half of [size]; [cornerRadius]
+ * clips a rounded square instead of a circle. The letters sit on a line box
+ * trimmed to the glyph, so they centre optically. [textStyle] is the base
+ * the letters merge onto.
  */
 @Composable
 fun AvatarView(
@@ -74,35 +97,43 @@ fun AvatarView(
     modifier: Modifier = Modifier,
     seed: String? = null,
     size: Dp = 32.dp,
-    dark: Boolean = true,
     fill: Color? = null,
     ink: Color? = null,
     fontSize: TextUnit = TextUnit.Unspecified,
-    fontWeight: FontWeight = FontWeight.Medium,
+    fontWeight: FontWeight = FontWeight.Normal,
     initials: String? = null,
     cornerRadius: Dp? = null,
     textStyle: TextStyle? = null,
     contentDescription: String? = name,
+    ring: Color? = null,
+    ringWidth: Dp = 1.dp,
     picture: (@Composable () -> Unit)? = null,
 ) {
     val tokens = LocalPrimitiveTokens.current
-    val key = seed ?: name
+    val key = seed.orEmpty()
     val shape = if (cornerRadius != null) RoundedCornerShape(cornerRadius) else CircleShape
     Box(
         modifier = modifier
             .size(size)
             .clip(shape)
+            .then(if (picture != null && ring != null && ringWidth > 0.dp) Modifier.border(ringWidth, ring, shape) else Modifier)
             .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         if (picture != null) {
-            picture()
+            // The IDE's gpui-component Avatar: the picture sits inside the
+            // ring, so a translucent ring reads as a hairline over the ground.
+            if (ring != null && ringWidth > 0.dp) {
+                Box(Modifier.fillMaxSize().padding(ringWidth).clip(shape), contentAlignment = Alignment.Center) { picture() }
+            } else {
+                picture()
+            }
         } else {
-            val tint = remember(key) { AvatarFallback.tint(key, dark) }
-            val letters = initials ?: AvatarFallback.initials(name).ifEmpty { "?" }
-            val bg = fill ?: if (key.isEmpty()) tokens.muted else tint.fill
-            val fg = ink ?: if (key.isEmpty()) tokens.foreground else tint.ink
-            val sizeSp = if (fontSize.isSpecified) fontSize else (size.value * 0.4f).roundToInt().sp
+            val tint = remember(key) { if (key.isEmpty()) null else AvatarFallback.tint(key) }
+            val letters = initials ?: AvatarFallback.initials(name)
+            val bg = fill ?: tint?.fill ?: tokens.muted
+            val fg = ink ?: tint?.ink ?: tokens.mutedForeground
+            val sizeSp = if (fontSize.isSpecified) fontSize else (size.value / 2f).sp
             Box(Modifier.size(size).background(bg, shape), contentAlignment = Alignment.Center) {
                 BasicText(
                     letters,

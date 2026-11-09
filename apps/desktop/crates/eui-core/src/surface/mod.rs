@@ -560,6 +560,9 @@ pub struct Surface {
     /// #EXP-1739: overlays a finished pass found lost, closed at the start of
     /// the next one (never mid-output: the pass's delta must stand).
     lost_overlays: Vec<String>,
+    /// #EXP-1629: the open Selects whose list already scrolled to the first
+    /// chosen option (once per opening).
+    select_revealed: HashSet<String>,
     lists: Vec<ListSpec>,
     toasts: Vec<ToastSpec>,
     node_state: Vec<NodeState>,
@@ -687,6 +690,7 @@ impl Surface {
             anchor_ids: HashSet::new(),
             anchor_frames: HashMap::new(),
             lost_overlays: Vec::new(),
+            select_revealed: HashSet::new(),
             lists: Vec::new(),
             toasts: Vec::new(),
             node_state: Vec::new(),

@@ -12,6 +12,6 @@ pub(crate) const ID: &str = "record-table";
 pub(crate) const OWNER: &str = "VAPP-217";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-record-table", "specimen-record-table").expect("the RecordTable specimen");
+    let tree = specimen_node("exponential-ui-record-table", "specimen_record_table").expect("the RecordTable specimen");
     div().w_full().child(styleguide_surface("sg-record-table", tree, window, cx))
 }

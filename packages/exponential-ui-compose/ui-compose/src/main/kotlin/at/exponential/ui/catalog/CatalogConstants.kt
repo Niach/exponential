@@ -34,6 +34,8 @@ object CatalogConstants {
     val SKELETON_OPACITY_LOW: Float = named("skeletonOpacityLow")
     val SKELETON_OPACITY_HIGH: Float = named("skeletonOpacityHigh")
     val SKELETON_REDUCED_OPACITY: Float = named("skeletonReducedOpacity")
+    /** #EXP-1629: a `row` Select's popup width (dp) when `popupWidth` is unset. */
+    val SELECT_ROW_POPUP_WIDTH: Float = named("selectRowPopupWidth")
 
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons

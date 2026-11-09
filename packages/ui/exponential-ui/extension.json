@@ -47,13 +47,14 @@
         "priority": { "type": "enum", "values": ["none", "low", "medium", "high", "urgent"], "default": "none", "description": "The priority icon to paint." },
         "labels": { "type": "array", "items": { "type": "object", "shape": "option" }, "description": "Label chips after the title (value = the label colour)." },
         "assigneeName": { "type": "string", "description": "The assignee's name for the trailing avatar." },
+        "assigneeId": { "type": "string", "description": "The assignee's user id: the avatar hue." },
         "assigneeImage": { "type": "url", "description": "The assignee's picture." },
         "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent issue; the core draws the tree guides." },
         "blocked": { "type": "boolean", "default": false, "description": "Shows the blocked-by glyph." },
         "selected": { "type": "boolean", "default": false, "description": "Draws it as the active row." }
       },
       "events": ["press"],
-      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "status": { "icon": "status-in-progress" }, "priority": "high", "labels": [{ "label": "bug", "value": "#EF4444" }], "assigneeName": "Ada Lovelace" }
+      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "status": { "icon": "status-in-progress" }, "priority": "high", "labels": [{ "label": "bug", "value": "#EF4444" }], "assigneeName": "Ada Lovelace", "assigneeId": "demo-ada" }
     },
     "IssueGroupBand": {
       "kind": "macro", "group": "list", "lite": true, "children": "many",
@@ -287,7 +288,7 @@
               { "part": "blocked", "component": "Icon", "$if": "props.blocked", "props": { "name": "relation-blocked-by", "size": "sm", "tone": "danger" } },
               { "part": "priority", "component": "Icon", "$if": { "$not": { "$eq": ["{props.priority|none}", "none"] } }, "props": { "name": "priority-{props.priority}", "size": "sm", "tone": "neutral" } },
               { "part": "label", "component": "Chip", "$each": "props.labels", "$as": "item", "props": { "label": "{item.label}", "dot": "{item.value}", "shape": "pill" } },
-              { "part": "assignee", "component": "Avatar", "$if": "props.assigneeName", "props": { "name": "{props.assigneeName}", "src": "{props.assigneeImage}", "size": "sm" } }
+              { "part": "assignee", "component": "Avatar", "$if": "props.assigneeName", "props": { "name": "{props.assigneeName}", "seed": "{props.assigneeId}", "src": "{props.assigneeImage}", "size": "sm" } }
             ]
           }
         },

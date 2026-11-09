@@ -179,7 +179,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(640.0)).h(px(360.0)).child(styleguide_surface_in("sg-ede-ground", ground, None, Some(json!({"shell": sample_shell()})), window, cx)))
         .child(div().w(px(56.0)).h(px(560.0)).child(styleguide_surface_in("sg-ede-rail", sidebar, None, Some(json!({"shell": sample_shell()})), window, cx)))
         .child(div().w(px(1008.0)).child(styleguide_surface_in("sg-ede-taskbar", taskbar, None, Some(taskbar_data), window, cx)))
-        .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-start-menu", start_menu, None, Some(json!({"user": {"name": "Danny", "host": "ubuntu-wayland"}, "shell": sample_shell()})), window, cx)))
+        .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-start-menu", start_menu, None, Some(json!({"user": {"login": "danny", "name": "Danny", "host": "ubuntu-wayland"}, "shell": sample_shell()})), window, cx)))
         .child(div().w(px(720.0)).child(styleguide_surface_in("sg-ede-chat", chat, None, Some(json!({"chat": {"draft": ""}})), window, cx)))
         .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-expo", expo, None, Some(expo_data), window, cx)))
         .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-scale", scale, None, Some(scale_data), window, cx)))

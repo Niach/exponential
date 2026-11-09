@@ -1254,7 +1254,7 @@ private func commentAvatarView(
         UserAvatar(user: user, id: authorId, size: size)
     } else {
         let name = commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
-        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)
+        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: comment.authorId ?? name, size: size)
     }
 }
 

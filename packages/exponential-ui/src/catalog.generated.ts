@@ -42,6 +42,7 @@ export const ENUMS = {
   validateOn: ["change","blur","submit"],
   alertType: ["info","success","warning","error"],
   controlSize: ["sm","default","lg"],
+  avatarSize: ["sm","default","lg","xl"],
   spinnerSize: ["xs","sm","default","lg"],
   tabClosable: ["none","hover","always"],
   tabsVariant: ["pill","strip"],
@@ -85,6 +86,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
+  selectTrigger: ["field","row"],
 } as const
 export type VariantValue = (typeof ENUMS)["variant"][number]
 export type SizeValue = (typeof ENUMS)["size"][number]
@@ -102,6 +104,7 @@ export type InputTypeValue = (typeof ENUMS)["inputType"][number]
 export type ValidateOnValue = (typeof ENUMS)["validateOn"][number]
 export type AlertTypeValue = (typeof ENUMS)["alertType"][number]
 export type ControlSizeValue = (typeof ENUMS)["controlSize"][number]
+export type AvatarSizeValue = (typeof ENUMS)["avatarSize"][number]
 export type SpinnerSizeValue = (typeof ENUMS)["spinnerSize"][number]
 export type TabClosableValue = (typeof ENUMS)["tabClosable"][number]
 export type TabsVariantValue = (typeof ENUMS)["tabsVariant"][number]
@@ -145,6 +148,7 @@ export type MotionDirectionValue = (typeof ENUMS)["motionDirection"][number]
 export type MotionFitValue = (typeof ENUMS)["motionFit"][number]
 export type CalendarViewValue = (typeof ENUMS)["calendarView"][number]
 export type StepperCollapseValue = (typeof ENUMS)["stepperCollapse"][number]
+export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
@@ -155,7 +159,7 @@ export const TOKEN_NAMES = {
   "type.lineHeight": ["xs","sm","base","lg","xl","xl2","xl3"],
   "type.weight": ["regular","medium","semibold","bold"],
   "type.family": ["sans","mono","serif"],
-  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast"],
+  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl"],
   "shadow": ["none","sm","md","lg","xl"],
   "opacity": ["primary","secondary","tertiary","quaternary","disabled"],
   "border": ["none","hairline","thick"],
@@ -233,7 +237,7 @@ export interface ComponentProps {
   Icon: { name: IconName | Dynamic; size?: ControlSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
   AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
-  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: ControlSizeValue; seed?: string }
+  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: AvatarSizeValue; seed?: string | Dynamic }
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
   Mosaic: { pictures: Shapes["picture"][]; label?: string }
@@ -266,7 +270,7 @@ export interface ComponentProps {
   Spinner: { size?: SpinnerSizeValue; label?: string }
   Skeleton: { width?: string; height?: string; rounded?: boolean; rows?: number; rowHeight?: number; dot?: boolean }
   VoiceWave: { activity?: VoiceWaveActivityValue | Dynamic; variant?: VoiceWaveVariantValue; level?: number | Dynamic; bands?: number[] | Dynamic; size?: VoiceWaveSizeValue; label?: string }
-  CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
+  CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; seed?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
   Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean; totals?: boolean }
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; rows?: Record<string, unknown>[] | Dynamic; categoryField?: string; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; valueFormat?: Shapes["valueFormat"]; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
@@ -287,7 +291,7 @@ export interface ComponentProps {
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic; icon?: IconName; endLabel?: string | Dynamic; showValue?: boolean }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
-  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }

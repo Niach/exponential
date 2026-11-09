@@ -46,7 +46,7 @@ import java.io.File
  * graphics (xhdpi), one PNG per catalog COMPONENT (its first
  * `catalog-components.json` case, exponential theme, dark, 366 dp inside a
  * 12 dp page margin of a 390 dp window) and the kitchen sink at 390 dp under
- * every built-in theme (dark, painted overlays): the images the report
+ * every built-in theme (dark, painted overlays, mdpi: #EXP-1753): the images the report
  * compares with the React reference. `src/test/snapshots/images/` is the
  * lock: a missing PNG is recorded, an existing one is VERIFIED (Roborazzi,
  * 0.5% changed-pixel tolerance; the diff lands under
@@ -175,12 +175,17 @@ class ComponentSnapshotImagesTest {
         capture("kitchen-sink-$theme.png")
     }
 
+    // #EXP-1753: mdpi, not xhdpi. The kitchen sink is ~11k dp tall, and
+    // Robolectric's native canvas draws nothing past y = 16384 px (2^14) of
+    // the capture: at xhdpi (~22k px) the responsive card was cut mid-content
+    // (Compose 1.10 and 1.11 at different layer edges). At mdpi the whole
+    // sink stays under the limit; the layout is the same in dp.
     @Test
-    @Config(qualifiers = "w390dp-h12000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h12000dp-mdpi")
     fun kitchenSinkExponential() = kitchenSink("exponential")
 
     @Test
-    @Config(qualifiers = "w390dp-h12000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h12000dp-mdpi")
     fun kitchenSinkThemes() {
         for (theme in at.exponential.ui.ffi.builtinThemeIds()) if (theme != "exponential") kitchenSinkTheme(theme)
     }

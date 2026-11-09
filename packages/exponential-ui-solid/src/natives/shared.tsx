@@ -139,7 +139,8 @@ export function Hidden(props: { children: JSX.Element }): JSX.Element {
 
 /** The glyph of an owned part (`CodeBlock.copy`, `Table.sortIcon.asc`),
  *  through the host's registry first, then the renderer's fallbacks. */
-export function BuiltinIcon(props: { slot: string; class?: string; size?: number }): JSX.Element {
+export function BuiltinIcon(props: { slot: string; class?: string; size?: number; part?: Attrs }): JSX.Element {
   const ctx = useSurfaceContext()
-  return <IconGlyph icons={ctx.host.icons} name={builtinIconName(props.slot)} class={props.class} width={props.size} height={props.size} data-slot={props.slot} />
+  // #EXP-1629: `part` = the glyph IS a recipe part (Select/chevron).
+  return <IconGlyph icons={ctx.host.icons} name={builtinIconName(props.slot)} class={props.class} width={props.size} height={props.size} data-slot={props.slot} {...((props.part ?? {}) as Record<string, string>)} />
 }
