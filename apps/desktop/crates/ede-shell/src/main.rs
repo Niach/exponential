@@ -1937,6 +1937,18 @@ fn chat_setup_start(shell: &SharedShell, cx: &mut App) {
     chatting_changed(shell, cx);
 }
 
+/// EXP-1513: the demo's setup step for a capture (`EDE_SHELL_DEMO_SETUP` =
+/// idle, installing, signingIn or failed); unset = the real chat.
+fn demo_setup() -> Option<cli_setup::Step> {
+    match std::env::var("EDE_SHELL_DEMO_SETUP").ok()?.as_str() {
+        "idle" => Some(cli_setup::Step::Idle),
+        "installing" => Some(cli_setup::Step::Installing),
+        "signingIn" => Some(cli_setup::Step::SigningIn { url: None }),
+        "failed" => Some(cli_setup::Step::Failed("Anthropic's installer exited with status 1.".into())),
+        _ => None,
+    }
+}
+
 /// A setup step arrived. `Ready` restarts the desktop's agent so its runner
 /// finds the CLI; `Ready` and `Failed` end the setup.
 fn chat_setup_step(shell: &SharedShell, step: cli_setup::Step, cx: &mut App) {
@@ -3164,12 +3176,19 @@ fn main() {
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         // The goldens: the sample conversation (Local, or a demo team's).
         let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
+        // EXP-1513: `EDE_SHELL_DEMO_SETUP` = a Local desktop without a CLI at that setup step.
+        let setup = demo_setup().filter(|_| demo && !on_team);
         let chat = match (demo, on_team) {
-            (true, false) => local_runs::demo_input(),
+            (true, false) if setup.is_none() => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
-        feed.set("/chatting", chat::chatting(&uicore_model::chat::chat_view(&chat)));
+        let mut chatting = chat::chatting(&uicore_model::chat::chat_view(&chat));
+        if let Some(step) = &setup {
+            chatting["noCli"] = json!(true);
+            chatting["setup"] = step.to_value();
+        }
+        feed.set("/chatting", chatting);
         feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
