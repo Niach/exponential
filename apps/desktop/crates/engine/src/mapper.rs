@@ -80,7 +80,7 @@ impl From<MapperConfig> for eagent::engine::MapperConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallContent, ToolCallId,
         ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
     };

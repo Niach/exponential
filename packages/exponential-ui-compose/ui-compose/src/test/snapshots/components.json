@@ -867,6 +867,22 @@
       }
     ]
   },
+  "Avatar\/size=xl" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
   "Badge\/example" : {
     "height" : 20,
     "nodes" : [

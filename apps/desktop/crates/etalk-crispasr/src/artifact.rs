@@ -199,7 +199,7 @@ pub fn ensure(dir: &Path, artifact: &Artifact, mut progress: impl FnMut(u64)) ->
 }
 
 fn download(artifact: &Artifact, part: &Path, progress: &mut impl FnMut(u64)) -> Result<(), Error> {
-    let client = reqwest::blocking::Client::builder()
+    let client = exp_http::blocking()
         .timeout(None)
         .connect_timeout(std::time::Duration::from_secs(30))
         .build()

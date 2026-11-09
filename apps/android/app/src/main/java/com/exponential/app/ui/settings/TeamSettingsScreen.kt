@@ -951,7 +951,7 @@ private fun MembersSection(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
+                UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp, userId = row.member.userId)
                 Column(modifier = Modifier.weight(1f)) {
                     // P82/P83: name · muted "(you)" · the role pill WITH its
                     // role glyph right after the name (web members-section).

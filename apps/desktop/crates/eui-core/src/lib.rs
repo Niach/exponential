@@ -77,6 +77,7 @@ pub(crate) mod stack;
 
 pub mod a11y;
 pub mod animation;
+pub mod avatar;
 pub mod basic_map;
 pub mod bench;
 pub mod catalog;

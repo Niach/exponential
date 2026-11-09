@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { render } from "@solidjs/testing-library"
 import { avatarFallbackHue } from "@exponential_app/eui/web/primitives"
+import fixture from "@exponential_app/eui/fixtures/avatar.json"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 
 describe(`Avatar`, () => {
@@ -36,5 +37,18 @@ describe(`Avatar`, () => {
     const fallback = container.querySelector(`[data-slot="avatar-fallback"]`) as HTMLElement
     expect(fallback.className).not.toContain(`bg-muted`)
     expect(fallback.style.color).toBe(avatarFallbackHue(`user-42`))
+  })
+
+  it(`a userId lands on the fixture's hue (#EXP-1629 fixtures/avatar.json)`, () => {
+    for (const [userId, index] of fixture.hues as [string, number][]) {
+      const { container, unmount } = render(() => (
+        <Avatar>
+          <AvatarFallback userId={userId}>AB</AvatarFallback>
+        </Avatar>
+      ))
+      const fallback = container.querySelector(`[data-slot="avatar-fallback"]`) as HTMLElement
+      expect(fallback.style.color).toBe(`var(--avatar-${index})`)
+      unmount()
+    }
   })
 })

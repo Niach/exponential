@@ -149,7 +149,7 @@ export function composeExponential(): ThemeSource {
         pill: s.controlSm, badge: 20, chip: s.controlSm,
         toggle: s.controlMd, switch: 20, checkbox: 16, slider: 16,
         progress: 8, meter: 8,
-        avatarSm: 24, avatarMd: 32, avatarLg: 40,
+        avatarSm: 24, avatarMd: 32, avatarLg: 40, avatarXl: 48,
         iconSm: 16, iconMd: 20, iconLg: 24,
         hairline: 1,
         appBar: 48, tabBar: 56, toast: 56,

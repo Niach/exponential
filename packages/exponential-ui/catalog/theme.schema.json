@@ -830,6 +830,9 @@
             },
             "toast": {
               "type": "number"
+            },
+            "avatarXl": {
+              "type": "number"
             }
           }
         },

@@ -187,7 +187,7 @@ pub fn connect(url: &str, vault: Arc<dyn Vault>, key: &str, client_name: &str, t
         }
         Ok(manager)
     })?;
-    let http = reqwest::Client::builder()
+    let http = crate::runtime::http_client()
         .connect_timeout(Duration::from_secs(10))
         .build()
         .map_err(|err| ClientError::Transport(format!("{url}: {err}")))?;
