@@ -10942,7 +10942,7 @@
     },
     {
       "name": "nodemailer",
-      "version": "9.1.1",
+      "version": "10.3.1",
       "declared": "MIT-0",
       "licenses": [
         "MIT-0"

@@ -14554,7 +14554,7 @@ MIT-0
 
 Applies to the following component:
 
-  nodemailer 9.1.1
+  nodemailer 10.3.1
     Copyright (c) 2011-2023 Andris Reinman
 
 ..............................................................................
