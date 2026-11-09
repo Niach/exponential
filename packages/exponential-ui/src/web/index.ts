@@ -71,3 +71,5 @@ export { treeKeyTarget } from "./tree-keys"
 // #EXP-1629: the KeyRecorder field's DOM capture (React + Solid Box).
 export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMousePayload, isKeyRecorderField } from "./key-recorder"
 export type { KeyRecorderPayload } from "./key-recorder"
+// #EDE-65 lane M: Embed's sandboxed host plugin + box (React + Solid).
+export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"

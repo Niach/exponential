@@ -87,6 +87,7 @@ pub mod data;
 pub mod cel;
 pub mod dates;
 pub mod direction;
+pub mod embed;
 pub mod engine;
 pub mod expr;
 pub mod extension;

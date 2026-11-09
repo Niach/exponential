@@ -36,7 +36,7 @@ describe(`embed.json hosts`, () => {
     })
   }
   test(`the catalog: one data prop, one event`, () => {
-    const def = coreCatalog.components.Embed as { kind: string; props: Record<string, { type: string; shape?: string; bindable?: boolean }>; events: string[] }
+    const def = coreCatalog.components.Embed as unknown as { kind: string; props: Record<string, { type: string; shape?: string; bindable?: boolean }>; events: string[] }
     expect(def.kind).toBe(`native`)
     expect(Object.keys(def.props)).toEqual([`surface`])
     expect(def.props.surface).toMatchObject({ type: `object`, bindable: true })

@@ -56,7 +56,8 @@
         "record-form",
         "record-table",
         "settings-row",
-        "key-recorder"
+        "key-recorder",
+        "embed"
       ]
     },
     {
@@ -159,6 +160,7 @@
     "record-table": "VAPP-217",
     "settings-row": "VAPP-280",
     "key-recorder": "EXP-1629",
+    "embed": "EDE-65",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",
     "zoomable-image": "EXP-1586",

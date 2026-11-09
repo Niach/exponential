@@ -210,6 +210,8 @@ public final class SurfaceModel {
     /// 4 B, a node its props JSON + 64 B of fixed fields, a visual 96 B, a
     /// text style 48 B.
     @ObservationIgnored public static var benchCounters: BenchCounters?
+    /// #EDE-65: the mounted cards of the Embed nodes, by node id (`Model/Embed.swift`).
+    @ObservationIgnored var embeds: [String: EmbedMount] = [:]
     /// Conformance: called with every node index a `NodeView` paints.
     @ObservationIgnored var paintProbe: ((Int) -> Void)?
     /// The text field that has focus.
@@ -425,7 +427,9 @@ public final class SurfaceModel {
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 }, markdownBlocks: { [unowned self] text in
                     MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
-                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil, fontScale: textScale)
+                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil, fontScale: textScale, embedSize: { [unowned self] id, props, wrap in
+                    MainActor.assumeIsolated { self.embedSize(id: id, props: props, wrap: wrap) }
+                })
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }
@@ -594,6 +598,7 @@ public final class SurfaceModel {
         pruneFields()
         pruneInteraction()
         prunePaintFailures()
+        pruneEmbeds()
     }
 
     /// The resolved visuals and text styles: every slot (`nil`) or the

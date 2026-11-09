@@ -383,6 +383,9 @@ class SurfaceModel(
     internal val motionDrivers = HashMap<String, at.exponential.ui.compose.MotionDriver>()
     internal val fieldsMap = HashMap<String, FieldState>()
 
+    /** #EDE-65: each painted Embed's nested surface by its component id ([embed]; fixtures/embed.json). */
+    internal val embeds = HashMap<String, EmbedSlot>()
+
     /** The host-owned text fields by node id (`writeGeneration` = reload the view's value). */
     val fields: Map<String, FieldState> get() = fieldsMap
 
@@ -899,6 +902,7 @@ class SurfaceModel(
             passAgain = false
         }
         layersChanged()
+        pruneEmbeds()
         reportUnknowns()
         echoFields()
         syncToasts()
@@ -939,7 +943,7 @@ class SurfaceModel(
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
             out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }) { mediaRequest(it) != null }.let {
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }, embedSize = { cid, value, wrap -> embedSize(cid, value, wrap) }) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
                 }

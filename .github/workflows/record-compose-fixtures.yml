@@ -48,6 +48,10 @@ name: record-compose-fixtures
 # EXP-1629 (2026-11-09): re-recorded for the core catalog's KeyRecorder
 # (`KeyRecorder.png`, pending in ComponentSnapshotImagesTest until then;
 # not in the kitchen sink, so its goldens come back unchanged).
+# EDE-65 (2026-11-09): re-recorded for the core catalog's Embed (the
+# `Embed/example` case of the Compose snapshot `components.json` and
+# `Embed.png`, pending in ComponentSnapshotImagesTest until then; not in the
+# kitchen sink, so its goldens come back unchanged).
 on:
   workflow_dispatch: {}
   push:
