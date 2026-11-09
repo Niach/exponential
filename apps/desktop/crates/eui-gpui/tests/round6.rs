@@ -211,13 +211,13 @@ fn the_outline_specimen_paints_rows_with_the_active_bar_and_selects_on_press(cx:
     let (view, log, cx) = surface(cx, tree);
     let unknown = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.component == "Unknown").count());
     assert_eq!(unknown, 0);
-    let rows: Vec<String> = (0..3).map(|i| format!("c0-outline.row.{i}")).collect();
+    let rows: Vec<String> = (0..3).map(|i| format!("c0_outline.row.{i}")).collect();
     for r in &rows {
         assert!(near(frame(&view, cx, r).h, 32.0), "{r}: $control.rowCompact");
         painted(&view, cx, r);
     }
-    let bars: Vec<String> = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.id.starts_with("c0-outline.") && n.id.ends_with(".bar")).map(|n| n.id.clone()).collect());
-    assert_eq!(bars, vec!["c0-outline.row.1.bar".to_string()], "one bar, on the active row");
+    let bars: Vec<String> = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.id.starts_with("c0_outline.") && n.id.ends_with(".bar")).map(|n| n.id.clone()).collect());
+    assert_eq!(bars, vec!["c0_outline.row.1.bar".to_string()], "one bar, on the active row");
     let (bar, active) = (frame(&view, cx, &bars[0]), frame(&view, cx, &rows[1]));
     assert!(near(bar.w, 2.0) && near(bar.x, active.x) && near(bar.y, active.y) && near(bar.h, active.h), "2 px at the start edge, full height: {bar:?} in {active:?}");
     painted(&view, cx, &bars[0]);
@@ -239,13 +239,13 @@ fn the_mosaic_specimen_paints_tiles_and_the_more_overlay_and_selects_on_press(cx
     let (view, log, cx) = surface(cx, tree);
     let unknown = view.read_with(cx, |v, _| v.placed_nodes().iter().filter(|n| !n.removed && n.component == "Unknown").count());
     assert_eq!(unknown, 0);
-    let root = frame(&view, cx, "c0-mosaic");
+    let root = frame(&view, cx, "c0_mosaic");
     assert!(root.w > 0.0 && near(root.w / root.h, 1.6), "aspectRatio 1.6: {root:?}");
-    let (lead, side, top, bottom) = (frame(&view, cx, "c0-mosaic.lead"), frame(&view, cx, "c0-mosaic.side"), frame(&view, cx, "c0-mosaic.side.top"), frame(&view, cx, "c0-mosaic.side.bottom"));
+    let (lead, side, top, bottom) = (frame(&view, cx, "c0_mosaic.lead"), frame(&view, cx, "c0_mosaic.side"), frame(&view, cx, "c0_mosaic.side.top"), frame(&view, cx, "c0_mosaic.side.bottom"));
     assert!(near(lead.w, root.w * 0.6) && near(lead.h, root.h), "the lead = flexBasis 60 %, full height: {lead:?}");
     assert!(near(side.x, lead.x + lead.w + 10.0) && near(side.x + side.w, root.x + root.w), "the side column after a 10 px gap: {side:?}");
     assert!(near(top.h, bottom.h) && near(bottom.y, top.y + top.h + 10.0), "two equal halves, 10 px apart: {top:?} {bottom:?}");
-    for tile in ["c0-mosaic.lead", "c0-mosaic.side.top", "c0-mosaic.side.bottom"] {
+    for tile in ["c0_mosaic.lead", "c0_mosaic.side.top", "c0_mosaic.side.bottom"] {
         let (t, img) = (frame(&view, cx, tile), frame(&view, cx, &format!("{tile}.image")));
         // Absolute inset 0 inside the hairline border: the picture fills the tile.
         assert!(near(img.x, t.x + 1.0) && near(img.y, t.y + 1.0) && near(img.w, t.w - 2.0) && near(img.h, t.h - 2.0), "{tile}: the picture covers the tile: {img:?} in {t:?}");
@@ -258,30 +258,30 @@ fn the_mosaic_specimen_paints_tiles_and_the_more_overlay_and_selects_on_press(cx
         assert_eq!(fit, Some(json!("cover")), "{tile}");
         assert!(view.read_with(cx, |v, _| v.accessible_info(&format!("{tile}.image"))).is_none(), "{tile}: the picture is hidden from AT");
     }
-    let lead_info = view.read_with(cx, |v, _| v.accessible_info("c0-mosaic.lead")).expect("a button");
+    let lead_info = view.read_with(cx, |v, _| v.accessible_info("c0_mosaic.lead")).expect("a button");
     assert_eq!((lead_info.role, lead_info.label.as_deref()), (gpui::Role::Button, Some("Editor")), "a tile = a button named by its alt");
-    let more_info = view.read_with(cx, |v, _| v.accessible_info("c0-mosaic.side.bottom")).expect("a button");
+    let more_info = view.read_with(cx, |v, _| v.accessible_info("c0_mosaic.side.bottom")).expect("a button");
     assert_eq!(more_info.label.as_deref(), Some("Data, 1 more"), "$string.morePicturesLabel");
     // The `+N` overlay: absolute inset 0 over the bottom tile, the scrim, the label centred.
-    let (more, label) = (frame(&view, cx, "c0-mosaic.side.bottom.more"), frame(&view, cx, "c0-mosaic.side.bottom.more.moreLabel"));
+    let (more, label) = (frame(&view, cx, "c0_mosaic.side.bottom.more"), frame(&view, cx, "c0_mosaic.side.bottom.more.moreLabel"));
     assert!(near(more.w, bottom.w - 2.0) && near(more.h, bottom.h - 2.0), "inset 0: {more:?}");
     assert!(near(label.x + label.w / 2.0, more.x + more.w / 2.0) && near(label.y + label.h / 2.0, more.y + more.h / 2.0), "the count centred: {label:?} in {more:?}");
-    assert_eq!(style(&view, cx, "c0-mosaic.side.bottom.more").bg.map(hex).as_deref(), Some("#0000008c"));
-    assert_eq!(text_of(&view, cx, "c0-mosaic.side.bottom.more.moreLabel"), "+1");
-    assert!(view.read_with(cx, |v, _| v.accessible_info("c0-mosaic.side.bottom.more")).is_none(), "the overlay is hidden from AT");
+    assert_eq!(style(&view, cx, "c0_mosaic.side.bottom.more").bg.map(hex).as_deref(), Some("#0000008c"));
+    assert_eq!(text_of(&view, cx, "c0_mosaic.side.bottom.more.moreLabel"), "+1");
+    assert!(view.read_with(cx, |v, _| v.accessible_info("c0_mosaic.side.bottom.more")).is_none(), "the overlay is hidden from AT");
     // Hover: the tile fades to 0.92.
-    assert!(style(&view, cx, "c0-mosaic.side.top").opacity.is_none_or(|o| o >= 0.99));
-    let b = painted(&view, cx, "c0-mosaic.side.top");
+    assert!(style(&view, cx, "c0_mosaic.side.top").opacity.is_none_or(|o| o >= 0.99));
+    let b = painted(&view, cx, "c0_mosaic.side.top");
     cx.simulate_mouse_move(b.center(), None, Modifiers::default());
     draw(cx);
     view.update(cx, |v, cx| v.advance_clock(std::time::Duration::from_secs(1), cx));
     draw(cx);
-    let hovered = style(&view, cx, "c0-mosaic.side.top").opacity;
+    let hovered = style(&view, cx, "c0_mosaic.side.top").opacity;
     assert!(hovered.is_some_and(|o| (o - 0.92).abs() < 0.01), "hover opacity 0.92: {hovered:?}");
     // Press → select {index}.
     cx.simulate_click(b.center(), Modifiers::default());
     draw(cx);
-    let b = painted(&view, cx, "c0-mosaic.side.bottom");
+    let b = painted(&view, cx, "c0_mosaic.side.bottom");
     cx.simulate_click(b.center(), Modifiers::default());
     draw(cx);
     let fired: Vec<(String, Value)> = log.actions.borrow().iter().map(|a| (a.name.clone(), a.context.clone())).collect();
@@ -293,15 +293,15 @@ fn the_mosaic_specimen_paints_tiles_and_the_more_overlay_and_selects_on_press(cx
 fn the_outline_reads_as_navigation_with_link_rows(cx: &mut TestAppContext) {
     let (view, _log, cx) = surface(cx, specimen("exponential-ui-outline"));
     let info = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.accessible_info(id));
-    let root = info(&view, cx, "c0-outline").expect("navigation");
+    let root = info(&view, cx, "c0_outline").expect("navigation");
     assert_eq!((root.role, root.label.as_deref()), (gpui::Role::Navigation, Some("Outline")));
-    let row = info(&view, cx, "c0-outline.row.1").expect("a link");
+    let row = info(&view, cx, "c0_outline.row.1").expect("a link");
     assert_eq!(row.role, gpui::Role::Link);
     assert!(row.label.as_deref().is_some_and(|l| l.starts_with("Part A: editor-first creation")), "{:?}", row.label);
-    assert!(info(&view, cx, "c0-outline.caption").is_none(), "the caption is hidden from AT");
-    assert!(info(&view, cx, "c0-outline.row.1.count").is_none(), "the count is hidden from AT");
-    assert_eq!(text_of(&view, cx, "c0-outline.row.1.count"), "· 5");
-    assert!(!view.read_with(cx, |v, _| v.placed_nodes().iter().any(|n| n.id == "c0-outline.row.0.count")), "no count = no count text");
+    assert!(info(&view, cx, "c0_outline.caption").is_none(), "the caption is hidden from AT");
+    assert!(info(&view, cx, "c0_outline.row.1.count").is_none(), "the count is hidden from AT");
+    assert_eq!(text_of(&view, cx, "c0_outline.row.1.count"), "· 5");
+    assert!(!view.read_with(cx, |v, _| v.placed_nodes().iter().any(|n| n.id == "c0_outline.row.0.count")), "no count = no count text");
 }
 
 /// The current thumbnail scrolls into view inside the STRIP (round 6 §3):

@@ -117,25 +117,25 @@ final class Round1NativesTests: XCTestCase {
         try m.setNested(json: try XCTUnwrap(spec["node"]).json)
         let painted = paint(m)
         XCTAssertNil(m.nodes.first { $0.component == "Unknown" })
-        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.trigger" })
+        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.trigger" })
         XCTAssertTrue(painted.contains(trigger.index), "the collapsed card paints")
         XCTAssertEqual(trigger.layer, 0)
         let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" }, "the open card's sheet is a Drawer layer")
-        XCTAssertEqual(drawer.owner, "c0-dock-card.sheet")
+        XCTAssertEqual(drawer.owner, "c0_dock_card.sheet")
         XCTAssertEqual(drawer.position, "bottom")
         // The `footer` slot lands in the Drawer's own footer part.
-        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.sheet.footer" })
+        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.sheet.footer" })
         XCTAssertEqual(footerPart.part, "footer")
-        XCTAssertEqual(m.nodes.first { $0.id == "c0-footer" }?.parent, footerPart.index)
+        XCTAssertEqual(m.nodes.first { $0.id == "c0_footer" }?.parent, footerPart.index)
         XCTAssertTrue(drawer.modal)
-        for id in ["c0-p", "c0-no", "c0-yes"] {
+        for id in ["c0_p", "c0_no", "c0_yes"] {
             let n = try XCTUnwrap(m.nodes.first { $0.id == id }, id)
             XCTAssertGreaterThan(n.layer, 0, "\(id) rides the sheet")
             XCTAssertTrue(painted.contains(n.index), "\(id) paints")
         }
         // The footer sits under the body inside the sheet.
-        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0-p" })
-        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0-yes" })
+        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0_p" })
+        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0_yes" })
         XCTAssertGreaterThan(m.frame(yes.index).minY, m.frame(body.index).minY)
         XCTAssertGreaterThanOrEqual(m.frame(yes.index).minY, drawer.frame.minY)
     }
