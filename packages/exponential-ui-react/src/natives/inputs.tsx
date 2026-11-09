@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, hostPath, switchTravel } from "@exponential_app/eui/web"
+import { boundPath, composerMenuKey, hostPath, switchTravel } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue, useWriteEpoch } from "../inputs"
@@ -541,6 +541,16 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
           void emit(`change`, { value: e.target.value }, { value: e.target.value })
         }}
         onKeyDown={(e) => {
+          // #EDE-65: an IME composition's keys are the IME's; menuKeys hands the
+          // arrows, Enter, Tab and Escape to the host's menu.
+          if (e.nativeEvent.isComposing) return
+          const menuKey = bool(props.menuKeys) ? composerMenuKey(e.nativeEvent) : undefined
+          if (menuKey) {
+            e.preventDefault()
+            e.stopPropagation()
+            void emit(`key`, { key: menuKey })
+            return
+          }
           if (e.key === `Enter` && !e.shiftKey) {
             e.preventDefault()
             submit()

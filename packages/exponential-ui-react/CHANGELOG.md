@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Embed (#EDE-65): a nested genUI surface painted in place, sandboxed: its own data model, its own surface id (`embedSurfaceId`, so inner ids never meet the host's), the host's theme, mode, strings, locale and presentation hooks only (`embedHost`); every inner event fires the Embed's `action` with `{name, context}`, an inner host function is denied, a bad `surface` paints the `embedInvalid` error Alert, a deep change of the surface remounts the card.
+- Composer `menuKeys` (#EDE-65): while it is on, Up, Down, Enter, Tab and Escape without a modifier fire `key` {key} (prevented and stopped); an IME composition's keys stay the IME's (its Enter never submits).
 - Select `triggerVariant: row` (#EXP-1629): the label inside the trigger, the `value` part trailing, the `Select.chevron` glyph as the `chevron` part (the field trigger names both parts too); `align` + `popupWidth` on the popup (row: `end`, 260 px); the open list scrolls to the chosen option (never the page); item `hover` = the cursor (Radix's highlighted item too), `selected` = chosen only. Snapshots re-recorded.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 

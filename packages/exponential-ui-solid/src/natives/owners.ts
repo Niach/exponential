@@ -3,7 +3,7 @@
 // records in THIS key order (React's), so the fan-out lanes never edit one
 // shared file; natives.test.ts checks every file paints only what it owns.
 
-export const NATIVE_ORDER: readonly string[] = [`Box`, `List`, `Resizable`, `Text`, `Markdown`, `CodeBlock`, `Image`, `ZoomableImage`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `QrCode`, `Carousel`, `Tabs`, `Segmented`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, `Toast`, `Ring`, `Spinner`, `Skeleton`, `VoiceWave`, `Motion`, `Canvas`, `Table`, `Chart`, `Button`, `Link`, `Toggle`, `Form`, `Input`, `Textarea`, `NumberField`, `Checkbox`, `Radio`, `ChoiceTiles`, `Switch`, `Slider`, `Select`, `SearchList`, `ChipInput`, `DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, `QrScanner`, `Composer`, `TreeGuides`, `Unknown`]
+export const NATIVE_ORDER: readonly string[] = [`Box`, `List`, `Resizable`, `Text`, `Markdown`, `CodeBlock`, `Image`, `ZoomableImage`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `QrCode`, `Carousel`, `Tabs`, `Segmented`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, `Toast`, `Ring`, `Spinner`, `Skeleton`, `VoiceWave`, `Motion`, `Canvas`, `Embed`, `Table`, `Chart`, `Button`, `Link`, `Toggle`, `Form`, `Input`, `Textarea`, `NumberField`, `Checkbox`, `Radio`, `ChoiceTiles`, `Switch`, `Slider`, `Select`, `SearchList`, `ChipInput`, `DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, `QrScanner`, `Composer`, `TreeGuides`, `Unknown`]
 
 export const OWNERS: Readonly<Record<string, readonly string[]>> = {
   layout: [`Box`, `List`, `Unknown`],
@@ -28,4 +28,5 @@ export const OWNERS: Readonly<Record<string, readonly string[]>> = {
   "zoomable-image": [`ZoomableImage`],
   "motion": [`Motion`],
   "canvas": [`Canvas`],
+  "embed": [`Embed`],
 }

@@ -99,6 +99,9 @@ fun IssueComments(
     // loaded once by the issue screen's ViewModel and shared with the comment list)
     // — the name a reporter's comment carries; null = "Anonymous visitor".
     reporterName: String? = null,
+    // #EXP-1754: the submission's `reporterEmail`, the reporter avatar's hue
+    // key when there is no name (`avatarHueKey`).
+    reporterEmail: String? = null,
     // SLOP-4: a member may delete a reporter's comment (moderation); nobody
     // edits one.
     canModerate: Boolean = false,
@@ -316,6 +319,7 @@ fun IssueComments(
                                     )
                                 },
                                 reporterName = reporterName,
+                                reporterEmail = reporterEmail,
                                 canModerate = canModerate,
                                 agents = state.agents,
                                 appNames = state.appNames,

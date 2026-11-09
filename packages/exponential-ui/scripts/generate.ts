@@ -971,10 +971,12 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
-  // #EXP-1629 (fixtures/avatar.json): no seed = the muted fallback, an
+  // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
+  // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.
   Avatar: [
-    { label: `seed · none`, node: { id: `muted`, component: `Avatar`, props: { name: `Jane Doe`, size: `default` } } },
+    { label: `seed · none`, node: { id: `by_name`, component: `Avatar`, props: { name: `Jane Reporter`, size: `default` } } },
+    { label: `name · empty`, node: { id: `muted`, component: `Avatar`, props: { name: ``, size: `default` } } },
     { label: `name · an email`, node: { id: `email`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas`, size: `default` } } },
     { label: `src · a picture`, node: { id: `picture`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: AVATAR_PICTURE } } },
   ],
@@ -1053,6 +1055,13 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   ],
   // #EXP-1629: the shortcut recorder in its five states (the IDE's Push to
   // talk row: a binding, none, recording, a held modifier, an inline error).
+  // #EDE-65: Embed in the chat's three uses: an agent's result card (its own
+  // data), a question card that replies, and a bad surface's error box.
+  Embed: [
+    { label: `result card · own data`, node: { id: `result`, component: `Embed`, props: { surface: { root: { id: `stack`, component: `Stack`, props: { gap: `sm` }, children: [{ id: `row`, component: `Row`, props: { title: `Tests`, subtitle: { "@path": `/suite` } }, slots: { trailing: { id: `badge`, component: `Badge`, props: { text: `Green`, variant: `secondary` } } } }, { id: `stats`, component: `Grid`, props: { columns: 2, gap: `sm` }, children: [{ id: `passed`, component: `StatTile`, props: { label: `Passed`, value: { "@path": `/passed` } } }, { id: `took`, component: `StatTile`, props: { label: `Took`, value: `4m 12s` } }] }] }, data: { suite: `web unit ×4 shards`, passed: `2,730` } } } } },
+    { label: `question card · reply`, node: { id: `question`, component: `Embed`, props: { surface: { root: { id: `stack`, component: `Stack`, props: { gap: `sm` }, children: [{ id: `q`, component: `Text`, props: { text: `Ship the Embed PR now?` } }, { id: `actions`, component: `Toolbar`, children: [{ id: `no`, component: `Button`, props: { label: `Not yet`, variant: `outline` }, on: { press: { event: { name: `reply`, context: { text: `Not yet` } } } } }, { id: `yes`, component: `Button`, props: { label: `Ship it` }, on: { press: { event: { name: `reply`, context: { text: `Ship it` } } } } }] }] } } }, on: { action: { event: { name: `card` } } } } },
+    { label: `bad surface · error box`, node: { id: `broken`, component: `Embed`, props: { surface: { root: { id: `x` } } } } },
+  ],
   KeyRecorder: [
     { label: `value`, node: { id: `ptt`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [`Ctrl`, `Space`] } } },
     { label: `empty`, node: { id: `ptt-none`, component: `KeyRecorder`, props: { label: `Push to talk`, value: [] } } },

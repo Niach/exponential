@@ -5496,8 +5496,8 @@
         "file": "shots/issue-comments/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 63878,
-        "sha256": "1c1fa799b3cd88c4be10e21917910129da98da5f4bf2fe294ac757097b092c10"
+        "bytes": 61780,
+        "sha256": "3503f4544b4d2e1cabe26d2f860316b9cb283b54802f4fd5e01644279858593b"
       },
       "desktop": {
         "file": "shots/issue-comments/desktop.webp",
@@ -5630,6 +5630,43 @@
         "height": 1800,
         "bytes": 46626,
         "sha256": "4305c8615e6f6cbb318304c868ef4c77ddb3573455ec9e2a9f20218b48ac50ee"
+      }
+    },
+    "issue-reporter-comments": {
+      "android": {
+        "file": "shots/issue-reporter-comments/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 42770,
+        "sha256": "16e3067c5a1747ed1a9534553ec2006d2cb1f4ae21dafc87054a7deb01d13d10"
+      },
+      "desktop": {
+        "file": "shots/issue-reporter-comments/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 65684,
+        "sha256": "52fc9c14dea405c7effdd8b47f1c687d7bebf2f1c2f79fd5cea636abe2c1adaa"
+      },
+      "ios": {
+        "file": "shots/issue-reporter-comments/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 43434,
+        "sha256": "95c134d63f00fb5f8373175f7dca56559d1179721e7a0f3e0814f2ccdca93695"
+      },
+      "web": {
+        "file": "shots/issue-reporter-comments/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 62824,
+        "sha256": "83184ce5edffc5ce5bbf4dec7d7b54af931006572e6416d06fc2e843a4a40fa1"
+      },
+      "web-mobile": {
+        "file": "shots/issue-reporter-comments/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 69620,
+        "sha256": "a2d1222947f524009404f927c3cafbfade685ef8c2c632b2beb2672481bc5cb5"
       }
     },
     "machine-settings": {

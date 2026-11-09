@@ -87,6 +87,7 @@ import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
 import { entry as kbdGroup } from "./kbd-group.tsx"
 import { entry as keyRecorder } from "./key-recorder.tsx"
+import { entry as embed } from "./embed.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as windowFrame } from "./window.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
@@ -149,6 +150,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   settingsRow,
   kbdGroup,
   keyRecorder,
+  embed,
   composerDialog,
   issueContextMenu,
   sessionRow,

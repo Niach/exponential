@@ -10,7 +10,7 @@ import type { HostPlugin } from "../host"
 import { NodeView, mergeStyle, withClass } from "../node-view"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import { mediaClock } from "@exponential_app/eui/web"
-import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarInitials } from "@exponential_app/eui/web/primitives"
+import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 
 /** The media box's intrinsic width (catalog/layout.json
  *  `mediaIntrinsicWidth`: max-content 320, min-content 0 — a compressible
@@ -178,11 +178,13 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   return <AudioFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} title={str(props.title)} durationMs={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
 }
 
-/** #EXP-1629 (fixtures/avatar.json): a seed (a user id) picks
- *  `AVATAR_PALETTE[fnv1a32(seed) % 8]`, the hue at 20% behind initials in
- *  it, the app's own avatar; no seed = the recipe's muted fallback. */
-export function avatarTint(seed: string): { backgroundColor: string; color: string } | undefined {
-  return seed ? avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(seed)]!) : undefined
+/** #EXP-1629 (fixtures/avatar.json): the hue key (#EXP-1754: the seed, a
+ *  user id, else the trimmed name, which may be an email) picks
+ *  `AVATAR_PALETTE[fnv1a32(key) % 8]`, the hue at 20% behind initials in
+ *  it, the app's own avatar; no key = the recipe's muted fallback. */
+export function avatarTint(seed: string, name?: string): { backgroundColor: string; color: string } | undefined {
+  const key = avatarHueKey(seed, name)
+  return key === undefined ? undefined : avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(key)]!)
 }
 
 export function AvatarNative({ node, props, rootProps }: NativeProps) {
@@ -191,7 +193,7 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   const name = str(props.name)
   const src = str(props.src)
   const url = useMediaSrc(ctx.host, src)
-  const tint = avatarTint(str(props.seed))
+  const tint = avatarTint(str(props.seed), name)
   return (
     <AvatarPrimitive.Root {...(rootProps as Record<string, unknown>)} aria-label={name || undefined} role="img">
       {src ? <AvatarPrimitive.Image {...(part(`image`) as Record<string, string>)} src={url} alt={name} /> : null}

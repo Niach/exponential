@@ -138,6 +138,10 @@ impl DescriptionEditor for WysiwygSeamEditor {
             .update(cx, |editor, cx| editor.set_scroll_handle(handle, cx));
     }
 
+    fn mount_all(&self, cx: &mut App) {
+        self.editor.update(cx, |editor, cx| editor.mount_all(cx));
+    }
+
     fn is_dirty(&self, cx: &App) -> bool {
         self.editor.read(cx).is_dirty(cx)
     }

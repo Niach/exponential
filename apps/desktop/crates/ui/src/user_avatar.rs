@@ -137,6 +137,26 @@ pub fn avatar_hue_index(user_id: &str) -> usize {
     hash as usize % theme::tokens::avatar::HUES.len()
 }
 
+/// #EXP-1754 (`packages/exponential-ui/fixtures/avatar.json` `keys`, web
+/// `avatarHueKey`): what an avatar's hue is keyed on: the person's id, else
+/// their name, else their email (trimmed; blank counts as absent). `None` =
+/// no key: the muted disc. A widget reporter (no id) keys on their NAME, else
+/// their EMAIL; shown copy ("Anonymous visitor") is never a key.
+pub fn avatar_hue_key<'a>(
+    id: Option<&'a str>,
+    name: Option<&'a str>,
+    email: Option<&'a str>,
+) -> Option<&'a str> {
+    if let Some(id) = id.filter(|id| !id.trim().is_empty()) {
+        return Some(id);
+    }
+    [name, email]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|label| !label.is_empty())
+}
+
 /// The box an avatar occupies at each rung — gpui-component's own
 /// `avatar::avatar_size` ladder, which is `pub(super)` upstream and therefore
 /// unreachable; the image path (`Avatar`) still sizes itself through it, so
@@ -203,28 +223,30 @@ fn initials(label: &str) -> String {
 
 /// The unified user avatar: the profile picture when its bytes have landed,
 /// the hue-hashed initials otherwise (EXP-698 — [`avatar_hue_index`] over the
-/// USER ID, the fill at 20% of that hue, the initials at full, no stroke).
-/// `label` is the display name with the email fallback — never empty.
+/// hue KEY, the fill at 20% of that hue, the initials at full, no stroke).
+/// `hue_key` is [`avatar_hue_key`]'s answer (a member's id); blank = no key =
+/// the muted disc (#EXP-1754, web `bg-muted text-muted-foreground`). `label`
+/// is the display name with the email fallback — never empty.
 ///
 /// The fallback is drawn HERE rather than by `Avatar`'s own: upstream derives
 /// its colour from a hash of the INITIALS against the theme blue's hue wheel
 /// and exposes no setter, so the only way onto the cross-client palette is to
 /// paint the disc ourselves. `Avatar` still owns the `src` path.
 pub fn user_avatar(
-    user_id: &str,
+    hue_key: &str,
     label: &str,
     image_url: Option<&str>,
     size: gpui_component::Size,
     cx: &mut App,
 ) -> gpui::AnyElement {
-    avatar_element(user_id, label, cached_avatar_image(cx, image_url), size)
+    avatar_element(hue_key, label, cached_avatar_image(cx, image_url), size)
 }
 
 /// [`user_avatar`] for a caller that already holds the decoded bytes (the
 /// rail's account button resolves them ONCE and renders the avatar twice, at
 /// two sizes).
 pub fn avatar_element(
-    user_id: &str,
+    hue_key: &str,
     label: &str,
     image: Option<Arc<gpui::Image>>,
     size: gpui_component::Size,
@@ -235,13 +257,29 @@ pub fn avatar_element(
             .with_size(size)
             .src(image)
             .into_any_element(),
-        None => initials_avatar(user_id, label, size).into_any_element(),
+        None => initials_avatar(hue_key, label, size).into_any_element(),
     }
 }
 
-/// The picture-less avatar: initials on the user's contract hue.
-fn initials_avatar(user_id: &str, label: &str, size: gpui_component::Size) -> Div {
-    let hue = theme::tokens::avatar::HUES[avatar_hue_index(user_id)].to_hsla();
+/// The fallback's (fill, initials) colours: the key's contract hue at 20% and
+/// full, or the muted pair when there is no key (#EXP-1754).
+fn fallback_colors(hue_key: &str) -> (gpui::Hsla, gpui::Hsla) {
+    match avatar_hue_key(Some(hue_key), None, None) {
+        Some(key) => {
+            let hue = theme::tokens::avatar::HUES[avatar_hue_index(key)].to_hsla();
+            (hue.opacity(0.2), hue)
+        }
+        None => (
+            theme::tokens::MUTED.to_hsla(),
+            theme::tokens::MUTED_FOREGROUND.to_hsla(),
+        ),
+    }
+}
+
+/// The picture-less avatar: initials on the key's contract hue, or on the
+/// muted disc without a key.
+fn initials_avatar(hue_key: &str, label: &str, size: gpui_component::Size) -> Div {
+    let (fill, ink) = fallback_colors(hue_key);
     div()
         .flex_shrink_0()
         .size(avatar_box(size))
@@ -250,8 +288,8 @@ fn initials_avatar(user_id: &str, label: &str, size: gpui_component::Size) -> Di
         .flex()
         .items_center()
         .justify_center()
-        .bg(hue.opacity(0.2))
-        .text_color(hue)
+        .bg(fill)
+        .text_color(ink)
         .child(avatar_text(div(), size).child(initials(label)))
 }
 
@@ -457,7 +495,40 @@ pub fn first_name(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{avatar_hue_index, first_name, initials};
+    use super::{avatar_hue_index, avatar_hue_key, fallback_colors, first_name, initials};
+
+    /// #EXP-1754: the hue KEY rule replays the shared fixture's `keys` cases
+    /// (id, else name, else email, trimmed; nothing = the muted disc), each
+    /// landing on its pinned hue.
+    #[test]
+    fn avatar_hue_key_replays_the_fixture_keys() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/exponential-ui/fixtures/avatar.json"
+        ))
+        .unwrap();
+        let cases = fixture["keys"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let label = case["case"].as_str().unwrap();
+            let field = |name: &str| case.get(name).and_then(|value| value.as_str());
+            let key = avatar_hue_key(field("id"), field("name"), field("email"));
+            assert_eq!(key, case["key"].as_str(), "{label}");
+            assert_eq!(key.map(avatar_hue_index), case["hue"].as_u64().map(|hue| hue as usize), "{label}");
+            // The painter: a blank key is the muted disc, never palette slot 5.
+            let (fill, ink) = fallback_colors(key.unwrap_or_default());
+            match key {
+                Some(key) => {
+                    let hue = theme::tokens::avatar::HUES[avatar_hue_index(key)].to_hsla();
+                    assert_eq!((fill, ink), (hue.opacity(0.2), hue), "{label}");
+                }
+                None => assert_eq!(
+                    (fill, ink),
+                    (theme::tokens::MUTED.to_hsla(), theme::tokens::MUTED_FOREGROUND.to_hsla()),
+                    "{label}"
+                ),
+            }
+        }
+    }
 
     /// EXP-698: the hue hash is a CROSS-CLIENT contract — the same person
     /// wears the same colour on web, iOS, Android and here. These vectors are

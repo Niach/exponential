@@ -4470,12 +4470,18 @@
         "busy": {
           "type": "boolean",
           "default": false
+        },
+        "menuKeys": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         }
       },
       "events": [
         "submit",
         "change",
-        "stop"
+        "stop",
+        "key"
       ]
     },
     "Row": {
@@ -4834,6 +4840,22 @@
         "press",
         "move",
         "leave"
+      ]
+    },
+    "Embed": {
+      "kind": "native",
+      "group": "layout",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "surface": {
+          "type": "object",
+          "required": true,
+          "bindable": true
+        }
+      },
+      "events": [
+        "action"
       ]
     },
     "Calendar": {

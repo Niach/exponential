@@ -319,6 +319,7 @@ export function IssueTimeline({
   // SLOP-4: a reporter comment (no author) edits for nobody and deletes for
   // any member — moderation of a stranger's words.
   const reporterName = submission?.reporterName ?? null
+  const reporterEmail = submission?.reporterEmail ?? null
   const cardProps = (comment: Comment): CommentCardProps => {
     const who = issueActor(
       { actorAgentId: comment.authorAgentId, actorUserId: comment.authorId },
@@ -334,6 +335,7 @@ export function IssueTimeline({
         comment.source === `reporter` ||
         (comment.authorId !== null && comment.authorId === currentUserId),
       reporterName,
+      reporterEmail,
       editing: editingCommentId === comment.id,
       users,
       onCancelEdit: () => setEditingCommentId(null),

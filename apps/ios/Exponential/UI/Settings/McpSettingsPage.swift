@@ -399,7 +399,7 @@ struct McpSettingsPage: View {
         let avatar = UserAvatar(
             image: member.image,
             initials: memberInitials(forDisplayName: member.name),
-            hueKey: member.userId,
+            hueKey: avatarHueKey(id: member.userId, name: member.name, email: member.email),
             size: 20
         )
         if canEdit {

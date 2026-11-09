@@ -264,11 +264,15 @@ impl AccountPane {
             .map(SharedString::from);
         let image_url = crate::queries::active_user(cx).and_then(|user| user.image);
         // EXP-698: the hue key is the USER ID, so a picture-less account wears
-        // the same colour here as in every member list.
-        let user_id = account
-            .as_ref()
-            .map(|account| account.user_id.clone())
-            .unwrap_or_default();
+        // the same colour here as in every member list; #EXP-1754: no
+        // account = no key = the muted disc.
+        let user_id = crate::user_avatar::avatar_hue_key(
+            account.as_ref().map(|account| account.user_id.as_str()),
+            name.as_deref(),
+            email.as_deref(),
+        )
+        .unwrap_or_default()
+        .to_string();
 
         // Web parity (`account-overview.tsx`): no card — the 48px picture
         // leading, the name over the address.

@@ -48,6 +48,15 @@ name: record-compose-fixtures
 # EXP-1629 (2026-11-09): re-recorded for the core catalog's KeyRecorder
 # (`KeyRecorder.png`, pending in ComponentSnapshotImagesTest until then;
 # not in the kitchen sink, so its goldens come back unchanged).
+# EDE-65 (2026-11-09): re-recorded for the core catalog's Embed (the
+# `Embed/example` case of the Compose snapshot `components.json` and
+# `Embed.png`, pending in ComponentSnapshotImagesTest until then; not in the
+# kitchen sink, so its goldens come back unchanged).
+# EDE-65 (2026-11-09): re-recorded for the core catalog's Embed (the
+# Compose snapshot `components.json` + `Embed.png`; not in the kitchen sink).
+# EDE-65 (2026-11-09): re-recorded for the fixed measure's Embed (its card
+# laid out at the Embed's width: `Embed/example` at the Approve button's
+# height, not 0).
 # EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by
 # seed, half-size regular initials, the picture ring): `Avatar.png`, the
 # kitchen-sink goldens (seeded avatars), the CallSurface avatar.
