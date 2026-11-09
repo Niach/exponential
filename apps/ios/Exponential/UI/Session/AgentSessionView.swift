@@ -1142,8 +1142,8 @@ struct AgentSessionView: View {
     /// the agent's message; a person's prompt = the viewer's own, unless
     /// it parses as a session input (`crossSessionInput`: that session's
     /// message); tool / thought / subagent / edits runs = `trace`;
-    /// everything else (cards, pills, errors) and the tool-posted cards
-    /// = `full`. ONE origin rule (data first): the S-3 `origin` from the
+    /// everything else (cards, pills, errors, a `Workflow` call's Work
+    /// card) and the tool-posted cards = `full`. ONE origin rule (data first): the S-3 `origin` from the
     /// synced rows + `fromStart` (the window holds the feed's first row)
     /// go to the grouping, which reads the first prompt as the origin's.
     private func feedGrouping(
@@ -1179,7 +1179,13 @@ struct AgentSessionView: View {
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
                         )
                     }
-                case .tool, .thought, .subagent:
+                case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _):
+                    // EXP-1750: a `Workflow` call draws as THE Work card,
+                    // a full row (web, desktop, Android alike).
+                    if model.workflow(for: callId) == nil {
+                        item = TranscriptGrouping.Item(id: id, kind: .trace)
+                    }
+                case .thought, .subagent:
                     item = TranscriptGrouping.Item(id: id, kind: .trace)
                 default:
                     break

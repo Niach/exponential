@@ -3,6 +3,7 @@ import { createRouter as createTanstackRouter } from "@tanstack/react-router"
 // Import the generated route tree
 import { routeTree } from "./routeTree.gen"
 import { getFirstTouch } from "@/lib/conversion/first-touch"
+import { captureClientError } from "@/lib/observability/client"
 
 import "./styles.css"
 
@@ -16,5 +17,8 @@ export function getRouter() {
     routeTree,
     defaultPreload: `viewport`,
     scrollRestoration: true,
+    // #LOGS-2: every error a route's boundary catches is reported (a no-op
+    // until diagnostics are on; lib/observability/client.ts).
+    defaultOnCatch: (error) => captureClientError(error),
   })
 }

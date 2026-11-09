@@ -31,6 +31,11 @@
 // Nitro at build time (the stock preset imports them the same way).
 // @ts-expect-error — virtual module resolved by Nitro at build time.
 import "#nitro/virtual/polyfills"
+// #LOGS-2: diagnostics FIRST (a no-op unless GLITCHTIP_INTERNAL_URL +
+// SENTRY_DSN_SERVER are set): @sentry/bun instruments Bun.serve, which srvx
+// calls below.
+import "@/lib/observability/server"
+import { captureException } from "@sentry/bun"
 import { serve } from "srvx/bun"
 import wsAdapter from "crossws/adapters/bun"
 import { useNitroApp } from "nitro/app"
@@ -167,6 +172,11 @@ const cert = process.env.NITRO_SSL_CERT
 const key = process.env.NITRO_SSL_KEY
 
 const nitroApp = useNitroApp()
+// #LOGS-2: an error a route handler threw (h3 turns it into a 500) still
+// reaches diagnostics. Server functions report theirs in start.tsx.
+nitroApp.hooks?.hook(`error`, (error) => {
+  captureException(error)
+})
 const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
 
 // The header set itself (CSP, HSTS, …) and its per-deploy variations live in
@@ -307,8 +317,8 @@ const server = serve({
   tls: cert && key ? { cert, key } : undefined,
   fetch: _fetch,
   // srvx's graceful shutdown closes the listener on SIGTERM but leaves the
-  // process alive (the schedulers keep the loop busy): exit on the signal
-  // like before.
+  // process alive (the schedulers keep the loop busy): the handler below
+  // owns the signals instead.
   gracefulShutdown: false,
   bun: {
     idleTimeout: 255,
@@ -319,6 +329,22 @@ const server = serve({
 
 setupCloseHooks(server)
 trapUnhandledErrors()
+
+// In the image bun is PID 1, which gets no default SIGTERM action: without a
+// handler `docker stop` waits out its timeout and SIGKILLs. Stop accepting,
+// give in-flight requests a short drain (Electric long-polls would hold a
+// full drain for ~20s), then exit; a second signal exits at once. The image
+// smoke and `smoke-server.ts --boot` fail a stop slower than 5s.
+const SHUTDOWN_DRAIN_MS = 3_000
+let shuttingDown = false
+for (const signal of [`SIGTERM`, `SIGINT`] as const) {
+  process.on(signal, () => {
+    if (shuttingDown) process.exit(0)
+    shuttingDown = true
+    setTimeout(() => process.exit(0), SHUTDOWN_DRAIN_MS).unref()
+    void Promise.resolve(server.close()).finally(() => process.exit(0))
+  })
+}
 
 if (import.meta._tasks) {
   startScheduleRunner({ waitUntil: server.waitUntil })

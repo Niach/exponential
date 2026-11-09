@@ -16,7 +16,7 @@
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
     "@types/bun": "latest",
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "zod": "^4.0.14"
   }
 }

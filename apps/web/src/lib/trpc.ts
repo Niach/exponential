@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server"
+import { captureException, getIsolationScope, startSpan } from "@sentry/core"
 import { auth } from "@/lib/auth"
 import { db } from "@/db/connection"
 import { sql } from "drizzle-orm"
@@ -28,8 +29,37 @@ export type Context = {
 const t = initTRPC.context<Context>().create()
 
 export const router = t.router
-export const procedure = t.procedure
 export const middleware = t.middleware
+
+// #LOGS-2: every procedure is a span (`trpc/<path>`, inputs never attached)
+// and an UNEXPECTED error it throws is reported — a TRPCError the procedure
+// chose (UNAUTHORIZED, NOT_FOUND, BAD_REQUEST …) is an answer, not a fault.
+// The request's diagnostics user is the caller's id only. A no-op while
+// diagnostics are off.
+export function isReportableTrpcError(error: unknown): boolean {
+  return !(error instanceof TRPCError) || error.code === `INTERNAL_SERVER_ERROR`
+}
+
+const observed = t.middleware(async ({ ctx, path, type, next }) => {
+  const userId = ctx.session?.user?.id
+  if (userId) getIsolationScope().setUser({ id: userId })
+  return startSpan(
+    {
+      name: `trpc/${path}`,
+      op: `rpc`,
+      attributes: { "rpc.system": `trpc`, "trpc.procedure_type": type },
+    },
+    async () => {
+      const result = await next()
+      if (!result.ok && isReportableTrpcError(result.error)) {
+        captureException(result.error.cause ?? result.error)
+      }
+      return result
+    }
+  )
+})
+
+export const procedure = t.procedure.use(observed)
 
 export const isAuthed = middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
