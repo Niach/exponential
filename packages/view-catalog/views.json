@@ -6772,6 +6772,9 @@
       "android": {
         "shot": "exponential-ui-key-recorder",
         "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
       }
     },
     {
