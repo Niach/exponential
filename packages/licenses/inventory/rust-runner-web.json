@@ -69,7 +69,7 @@
     },
     {
       "name": "futures-core",
-      "version": "0.3.32",
+      "version": "0.3.34",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -90,7 +90,7 @@
     },
     {
       "name": "futures-task",
-      "version": "0.3.32",
+      "version": "0.3.34",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -111,7 +111,7 @@
     },
     {
       "name": "futures-util",
-      "version": "0.3.32",
+      "version": "0.3.34",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -149,7 +149,7 @@
     },
     {
       "name": "js-sys",
-      "version": "0.3.103",
+      "version": "0.3.107",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -207,23 +207,6 @@
           "spdx": "MIT",
           "source": "LICENSE",
           "body": "MIT License\n\nCopyright 2013-2014 RAD Game Tools and Valve Software\nCopyright 2010-2014 Rich Geldreich and Tenacious Software LLC\nCopyright (c) 2017 Frommi\nCopyright (c) 2017-2024 oyvindln\n\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
-        }
-      ]
-    },
-    {
-      "name": "once_cell",
-      "version": "1.21.4",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/matklad/once_cell",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Permission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
         }
       ]
     },
@@ -385,23 +368,6 @@
     },
     {
       "name": "syn",
-      "version": "2.0.118",
-      "declared": "MIT OR Apache-2.0",
-      "licenses": [
-        "MIT"
-      ],
-      "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/dtolnay/syn",
-      "texts": [
-        {
-          "spdx": "MIT",
-          "source": "LICENSE-MIT",
-          "body": "Permission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.\n"
-        }
-      ]
-    },
-    {
-      "name": "syn",
       "version": "3.0.4",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
@@ -465,7 +431,7 @@
     },
     {
       "name": "wasm-bindgen",
-      "version": "0.2.126",
+      "version": "0.2.130",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -485,7 +451,7 @@
     },
     {
       "name": "wasm-bindgen-macro",
-      "version": "0.2.126",
+      "version": "0.2.130",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
@@ -505,13 +471,13 @@
     },
     {
       "name": "wasm-bindgen-macro-support",
-      "version": "0.2.126",
+      "version": "0.2.130",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"
       ],
       "election": "MIT elected from `MIT OR Apache-2.0`",
-      "homepage": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro-support",
+      "homepage": "https://github.com/wasm-bindgen/wasm-bindgen/tree/main/crates/macro-support",
       "copyright": [
         "Copyright (c) 2014 Alex Crichton"
       ],
@@ -525,7 +491,7 @@
     },
     {
       "name": "wasm-bindgen-shared",
-      "version": "0.2.126",
+      "version": "0.2.130",
       "declared": "MIT OR Apache-2.0",
       "licenses": [
         "MIT"

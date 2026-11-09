@@ -21,6 +21,11 @@ embed-resource = "3"
 # `.desktop` app id, and uses a separate data dir so a staging build can
 # coexist with a production one without sharing saved accounts.
 staging = ["ui/staging", "api/staging"]
+# #LOGS-2: shipped builds collect frame timings for the lag diagnostics
+# (gpui's per-frame bookkeeping is noise next to a frame's budget; recording
+# itself still waits for Send diagnostics or EXP_FRAME_STATS).
+default = ["frame-stats"]
+frame-stats = ["ui/frame-stats"]
 
 [dependencies]
 ui = { path = "../ui" }

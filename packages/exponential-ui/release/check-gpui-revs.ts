@@ -1,109 +1,112 @@
-// EXP-1429: the gpui revision policy, gated. One zed rev and one
-// gpui-component rev, written in five places that must agree:
+// EXP-1429: the gpui version policy, gated. One gpui-pre snapshot and one
+// gpui-component release (both crates.io, exact `=` requirements), written in
+// the places that must agree:
 //   apps/desktop/Cargo.toml + Cargo.lock        (the workspace the painter builds in)
 //   apps/desktop/crates/app/tests/pinned_revs.rs (the cargo-side lock gate)
 //   apps/desktop/crates/eui-gpui/README.md (the consumer policy table)
 //   packages/exponential-ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
+//   samples/exponential-ui/gpui/Cargo.toml + Cargo.lock (the sample app)
 //   (eDE's shell, apps/desktop/crates/ede-shell, is a member of the desktop workspace since #EDE-51)
 //   apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx (the install snippet on exponential.at)
-// plus the rust toolchain of both,
-// and every consumer carries the ztracing [patch]. Text only, no cargo: it runs
-// in the test.yml gate.
+// plus the rust toolchain of the workspace and the guide app. No zed or
+// gpui-kit git source may come back (a second gpui package id splits every
+// gpui type). Text only, no cargo: it runs in the test.yml gate.
 //
 //   bun packages/exponential-ui/release/check-gpui-revs.ts
 
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 const REPO = resolve(import.meta.dir, `..`, `..`, `..`)
-const ZED = `https://github.com/zed-industries/zed`
-const COMPONENT = `https://github.com/longbridge/gpui-component`
-const SHA = /^[0-9a-f]{40}$/
+const VERSION = /^\d+\.\d+\.\d+$/
+const GIT_UPSTREAMS = [`github.com/zed-industries/zed`, `github.com/longbridge/gpui-`]
+const KIT_PACKAGES = [`gpui-component`, `gpui-base`, `gpui-kit-assets`, `gpui-component-macros`]
+// The snapshot's reqwest fork keeps reqwest's own version line (=0.12.15).
+const isPre = (name: string) => (name === `gpui-pre` || name.startsWith(`gpui-pre-`)) && name !== `gpui-pre-reqwest`
 
 const errors: string[] = []
 const read = (path: string) => readFileSync(join(REPO, path), `utf8`)
 const fail = (path: string, message: string) => errors.push(`${path}: ${message}`)
 
-// The README's policy table is the source of truth: `| zed … | \`<sha>\` |`.
+// The README's policy table is the source of truth: `| gpui-pre | \`0.3.11\` |`.
 const README = `apps/desktop/crates/eui-gpui/README.md`
-function tableRev(name: string): string {
+function tableVersion(name: string): string {
   const row = read(README)
     .split(`\n`)
     .find((l) => l.startsWith(`| ${name} `))
-  const rev = row?.match(/`([0-9a-f]{40})`/)?.[1]
-  if (!rev) {
-    fail(README, `no "| ${name} … | \`<40-hex rev>\` |" row in the gpui revision table`)
+  const version = row?.match(/`(\d+\.\d+\.\d+)`/)?.[1]
+  if (!version) {
+    fail(README, `no "| ${name} … | \`<x.y.z>\` |" row in the gpui revision table`)
     return ``
   }
-  return rev
+  return version
 }
-const zedRev = tableRev(`zed`)
-const componentRev = tableRev(`gpui-component`)
+const gpuiPre = tableVersion(`gpui-pre`)
+const component = tableVersion(`gpui-component`)
 
-// Every git source of either upstream in a lock sits on the pin.
+// Every gpui-pre package in a lock sits on the snapshot, every gpui-kit
+// package on the release, and no upstream comes from git.
 function checkLock(path: string) {
-  let zed = 0
-  let component = 0
-  for (const line of read(path).split(`\n`)) {
-    const source = line.match(/^source = "git\+([^"]+)"$/)?.[1]
-    if (!source) continue
-    if (source.startsWith(`${ZED}#`) || source.startsWith(`${ZED}?`)) {
-      zed++
-      if (source !== `${ZED}#${zedRev}`) fail(path, `zed source off the pin: ${source}`)
-    } else if (source.startsWith(`${COMPONENT}?`) || source.startsWith(`${COMPONENT}#`)) {
-      component++
-      if (source !== `${COMPONENT}?rev=${componentRev}#${componentRev}`) fail(path, `gpui-component source off the pin: ${source}`)
+  let pre = 0
+  let kit = 0
+  for (const block of read(path).split(`[[package]]`).slice(1)) {
+    const field = (key: string) => block.match(new RegExp(`^${key} = "([^"]+)"$`, `m`))?.[1]
+    const name = field(`name`)
+    const version = field(`version`)
+    const source = field(`source`) ?? ``
+    if (!name || !version) continue
+    if (GIT_UPSTREAMS.some((u) => source.includes(u))) fail(path, `${name} comes from git (${source}); gpui is pinned to crates.io`)
+    if (isPre(name)) {
+      pre++
+      if (version !== gpuiPre) fail(path, `${name} ${version} is off the gpui-pre pin ${gpuiPre}`)
+    } else if (KIT_PACKAGES.includes(name)) {
+      kit++
+      if (version !== component) fail(path, `${name} ${version} is off the gpui-component pin ${component}`)
     }
   }
-  if (!zed) fail(path, `no zed git source`)
-  if (!component) fail(path, `no gpui-component git source`)
+  if (!pre) fail(path, `no gpui-pre package`)
+  if (!kit) fail(path, `no gpui-component package`)
 }
 
-// Manifests: every gpui-component dep names the rev, zed deps float (the lock
-// pins them; a rev there splits gpui into two package ids), and the ztracing
-// shims patch zed.
+// Manifests: every gpui-pre requirement is `=<snapshot>`, every gpui-kit
+// requirement `=<release>`, and no zed or gpui-kit git dependency.
 function checkManifest(path: string) {
-  const text = read(path)
-  const lines = text.split(`\n`).filter((l) => !l.trimStart().startsWith(`#`))
-  let component = 0
+  const lines = read(path)
+    .split(`\n`)
+    .filter((l) => !l.trimStart().startsWith(`#`))
+  let seen = 0
   for (const line of lines) {
-    if (line.includes(`git = "${COMPONENT}"`)) {
-      component++
-      const rev = line.match(/rev = "([0-9a-f]+)"/)?.[1]
-      if (rev !== componentRev) fail(path, `gpui-component dep not at ${componentRev}: ${line.trim()}`)
-    }
-    if (line.includes(`git = "${ZED}"`) && /\b(rev|tag|branch) = /.test(line)) {
-      fail(path, `zed dep pins in the manifest (the Cargo.lock is the pin): ${line.trim()}`)
-    }
+    if (GIT_UPSTREAMS.some((u) => line.includes(u))) fail(path, `git dependency on a gpui upstream: ${line.trim()}`)
+    const pkg = line.match(/package = "([^"]+)"/)?.[1] ?? line.match(/^([a-z][a-z0-9_-]*)\s*=/)?.[1]
+    if (!pkg) continue
+    const req = line.match(/version = "([^"]+)"/)?.[1] ?? line.match(/^[a-z][a-z0-9_-]*\s*=\s*"([^"]+)"/)?.[1]
+    const want = isPre(pkg) ? gpuiPre : KIT_PACKAGES.includes(pkg) ? component : undefined
+    if (!want || !req) continue
+    seen++
+    if (req !== `=${want}`) fail(path, `${pkg} requires "${req}", not the pin "=${want}"`)
   }
-  if (!component) fail(path, `no gpui-component dependency`)
-  const patch = text.split(`[patch."${ZED}"]`)[1]?.split(/\n\[/)[0] ?? ``
-  for (const shim of [`ztracing`, `ztracing_macro`]) {
-    if (!new RegExp(`^${shim} = `, `m`).test(patch)) fail(path, `no ${shim} entry under [patch."${ZED}"]`)
-  }
+  if (!seen) fail(path, `no gpui-pre or gpui-component dependency`)
 }
 
-// Any other place that spells a rev out in full.
-function checkMentions(path: string, required: { zed: boolean; component: boolean }) {
+// Any other place that spells the versions out.
+function checkMentions(path: string) {
   const text = read(path)
-  for (const [name, rev, needed] of [
-    [`zed`, zedRev, required.zed],
-    [`gpui-component`, componentRev, required.component],
-  ] as const) {
-    if (needed && !text.includes(rev)) fail(path, `does not name the ${name} pin ${rev}`)
-  }
+  if (!text.includes(gpuiPre)) fail(path, `does not name the gpui-pre pin ${gpuiPre}`)
+  if (!text.includes(component)) fail(path, `does not name the gpui-component pin ${component}`)
 }
 
-if (SHA.test(zedRev) && SHA.test(componentRev)) {
+if (VERSION.test(gpuiPre) && VERSION.test(component)) {
   checkManifest(`apps/desktop/Cargo.toml`)
   checkLock(`apps/desktop/Cargo.lock`)
-  checkManifest(`packages/exponential-ui/guides/gpui/Cargo.toml`)
-  checkLock(`packages/exponential-ui/guides/gpui/Cargo.lock`)
-  checkMentions(`apps/desktop/crates/app/tests/pinned_revs.rs`, { zed: true, component: true })
-  checkMentions(`apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx`, { zed: true, component: true })
+  for (const app of [`packages/exponential-ui/guides/gpui`, `samples/exponential-ui/gpui`]) {
+    checkManifest(`${app}/Cargo.toml`)
+    if (existsSync(join(REPO, app, `Cargo.lock`))) checkLock(`${app}/Cargo.lock`)
+  }
+  checkMentions(`apps/desktop/crates/app/tests/pinned_revs.rs`)
+  checkMentions(`apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx`)
 }
 
-// The compiler the pinned gpui needs: `| rust | \`1.96.0\` |`.
+// The compiler the pinned gpui needs: `| rust | \`1.98.1\` |`.
 const rust = read(README)
   .split(`\n`)
   .find((l) => l.startsWith(`| rust `))
@@ -117,7 +120,7 @@ else
 
 if (errors.length) {
   for (const e of errors) console.error(`::error::${e}`)
-  console.error(`\ngpui revisions drifted. The policy and the bump recipe: ${README} ("gpui revisions").`)
+  console.error(`\ngpui versions drifted. The policy and the bump recipe: ${README} ("gpui revisions").`)
   process.exit(1)
 }
-console.log(`gpui pins agree: zed ${zedRev.slice(0, 8)}, gpui-component ${componentRev.slice(0, 8)}, rust ${rust}`)
+console.log(`gpui pins agree: gpui-pre ${gpuiPre}, gpui-component ${component}, rust ${rust}`)

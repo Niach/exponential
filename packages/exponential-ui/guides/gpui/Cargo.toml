@@ -9,24 +9,17 @@ publish = false
 [workspace]
 
 [dependencies]
-# The SDK. The painter is not on crates.io (gpui + gpui-component are git
-# dependencies) and wants the core at its own revision, so an app takes both
-# from the release tag on github.com/Niach/exponential (`tag = "eui-v0.20.0"`).
-# Path dependencies stand in for it here. The gpui pins below follow the
-# painter README's "gpui revisions" (gated by check-gpui-revs.ts).
+# The SDK. The painter wants the core at its own revision, so an app takes
+# both from the release tag on github.com/Niach/exponential
+# (`tag = "eui-v0.20.0"`). Path dependencies stand in for it here. The gpui
+# pins below follow the painter README's "gpui revisions" (gated by
+# check-gpui-revs.ts): the exact gpui-pre snapshot gpui-component pins.
 eui-core = { path = "../../../../apps/desktop/crates/eui-core" }
 eui-gpui = { path = "../../../../apps/desktop/crates/eui-gpui" }
-# gpui + gpui-component at the SDK's revisions (Cargo.lock pins zed's commit).
-gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
-
-# zed's ztracing is GPL-3.0-or-later; any app linking gpui at this revision
-# swaps in the SDK's no-op shims.
-[patch."https://github.com/zed-industries/zed"]
-ztracing = { path = "../../../../apps/desktop/crates/ztracing" }
-ztracing_macro = { path = "../../../../apps/desktop/crates/ztracing_macro" }
+gpui = { package = "gpui-pre", version = "=0.3.11" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+gpui-component = "=0.9.0"
+gpui-component-assets = { package = "gpui-kit-assets", version = "=0.9.0" }
 
 [profile.dev.package."*"]
 debug = false

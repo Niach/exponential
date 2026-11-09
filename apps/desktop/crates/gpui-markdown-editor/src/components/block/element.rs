@@ -1705,7 +1705,7 @@ impl Element for BlockTextElement {
             // held (matching the gesture that opens the link); a plain hover keeps
             // the text cursor. The editor root repaints on follow-modifier
             // toggles, so this re-evaluates even when the pointer stays still.
-            if window.modifiers().secondary() {
+            if window.modifiers().secondary(cx) {
                 window.set_cursor_style(CursorStyle::PointingHand, &prepaint.hitbox);
             }
         }
@@ -1981,7 +1981,7 @@ mod tests {
         // Cmd/Ctrl+click follows the link instead: the caret is left untouched
         // and no drag-selection begins.
         block.update(cx, |block, _cx| block.selected_range = 0..0);
-        event.modifiers = Modifiers::secondary_key();
+        event.modifiers = cx.update(|_, app| Modifiers::secondary_key(app));
         cx.update(|window, app| {
             block.update(app, |block, cx| block.on_mouse_down(&event, window, cx));
         });

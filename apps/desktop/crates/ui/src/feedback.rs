@@ -32,7 +32,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Bounds,
+    canvas, deferred, div, point, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Bounds,
     ContentMask, Div, ElementId, Global, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Pixels, SharedString, Styled, Window,
 };
@@ -722,8 +722,16 @@ impl Blocking {
     }
 
     /// The overlay to paint over a window root, if a wait is in flight.
+    ///
+    /// Deferred one above the toasts, so it still paints over them and
+    /// gpui-component's sheets and dialogs (which `Root` mounts after the
+    /// window content).
     pub(crate) fn overlay(cx: &App) -> Option<AnyElement> {
-        Self::line(cx).map(|line| blocking_overlay(line, cx))
+        Self::line(cx).map(|line| {
+            deferred(blocking_overlay(line, cx))
+                .with_priority(crate::toast::LAYER_PRIORITY + 1)
+                .into_any_element()
+        })
     }
 }
 

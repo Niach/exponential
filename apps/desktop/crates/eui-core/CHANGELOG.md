@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant` / `align` / `popupWidth` (#EXP-1629): a `row` Select builds no `label` part above its trigger; the trigger leaf carries the `label` (painted inside it, leading) and the `Select.chevron` glyph (`ui-chevron-right`) and stays one leaf (its `value` and `chevron` parts are painted from their recipes). The popup aligns by `align` (unset: `end` for a row, `start` for a field) and is `popupWidth` wide (unset: a row = `layout::SELECT_ROW_POPUP_WIDTH` 260, a field at least its trigger). A Select that opens scrolls its list so the first chosen option is in view (once per opening).
 - KeyRecorder guards (#EXP-1629): on a KeyRecorder `field` `Surface::event` takes `press` only while idle and `record` / `blur` only while it records (its resolved `recording` recipe prop); a `record` payload merges into the fired `key` action's context. Locked by `fixtures/interactions-round1.json` `keyRecorder`.
 
 ## 0.20.0 (2026-11-08)

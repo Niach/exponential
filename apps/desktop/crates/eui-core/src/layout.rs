@@ -54,6 +54,8 @@ pub const TAB_STRIP_MAX_WIDTH: f32 = 240.0;
 pub const TAB_DRAG_THRESHOLD: f32 = 4.0;
 /// VAPP-279: how long a touch rests on a strip tab before it drags (ms).
 pub const TAB_LONG_PRESS_MS: f64 = 500.0;
+/// #EXP-1629: a `row` Select's popup width when `popupWidth` is unset (px).
+pub const SELECT_ROW_POPUP_WIDTH: f32 = 260.0;
 
 #[cfg(test)]
 mod tests {
@@ -61,10 +63,10 @@ mod tests {
 
     #[test]
     fn the_constants_are_layout_json() {
-        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS)] {
+        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS), ("selectRowPopupWidth", SELECT_ROW_POPUP_WIDTH as f64)] {
             assert_eq!(layout_constant(name), Some(v), "{name}");
         }
-        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 21);
+        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 22);
         let json: serde_json::Value = serde_json::from_str(g::LAYOUT_JSON).unwrap();
         assert_eq!(json["windowThreshold"], 50);
     }

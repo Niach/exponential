@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{AnyElement, App, Entity, EntityId, Global, IntoElement, WeakEntity, Window};
 use ropey::Rope;
@@ -8,6 +9,7 @@ use super::{
     popovers::{CodeActionMenu, CompletionMenu, DiagnosticPopover, HoverPopover},
     search::SearchPanel,
 };
+use gpui_base::input::CompletionHighlighter;
 
 struct InputOverlayRegistry<M: OverlayMode> {
     hosts: HashMap<EntityId, (WeakEntity<InputBaseState<M>>, InputOverlayHost<M>)>,
@@ -25,9 +27,25 @@ impl<M: OverlayMode> Global for InputOverlayRegistry<M> {}
 
 struct InputOverlayHost<M: OverlayMode> {
     search: Entity<SearchPanel<M>>,
-    search_signature: (bool, bool, String, Option<usize>),
+    search_signature: SearchSignature,
     /// The language-feature popovers. Only a code editor has them.
     lsp: Option<LspOverlays>,
+}
+
+/// Identifies one version of the search session, as the search panel shows it.
+///
+/// Everything the panel renders from is here, so an unchanged frame compares
+/// equal and rebuilds nothing. `activation_revision` is what separates "the
+/// session is open" from "the user just asked for search again": re-invoking an
+/// open session leaves every other field alone, and without the revision the
+/// second request would compare equal and be dropped.
+#[derive(PartialEq, Eq, Default)]
+struct SearchSignature {
+    open: bool,
+    replace_mode: bool,
+    query: String,
+    anchor_offset: Option<usize>,
+    activation_revision: u64,
 }
 
 /// Identifies one version of an overlay's content.
@@ -55,6 +73,11 @@ pub(crate) struct LspOverlays {
     code_action_signature: OverlaySignature,
     hover_signature: Option<std::ops::Range<usize>>,
     diagnostic_signature: Option<std::rc::Rc<gpui_base::input::DiagnosticEntry>>,
+    /// Highlighter last copied onto the completion menu.
+    ///
+    /// Compared by `Rc` identity, so swapping the host's closure repaints an
+    /// open menu without rebuilding its items.
+    completion_highlight: Option<Rc<CompletionHighlighter>>,
 }
 
 /// What the state read out of the engine for one sync pass.
@@ -178,6 +201,7 @@ impl OverlayMode for crate::input::EditorMode {
             code_action_signature: OverlaySignature::default(),
             hover_signature: None,
             diagnostic_signature: None,
+            completion_highlight: None,
         })
     }
 
@@ -189,6 +213,17 @@ impl OverlayMode for crate::input::EditorMode {
         cx: &mut App,
     ) {
         let cursor = snapshot.cursor;
+
+        let highlight = state.read(cx).lsp().completion_highlighter().clone();
+        if lsp
+            .completion_highlight
+            .as_ref()
+            .is_none_or(|current| !Rc::ptr_eq(current, &highlight))
+        {
+            lsp.completion_highlight = Some(highlight.clone());
+            lsp.completion
+                .update(cx, |menu, cx| menu.set_highlight(highlight, cx));
+        }
 
         if snapshot.completion != lsp.completion_signature {
             lsp.completion_signature = OverlaySignature {
@@ -280,7 +315,7 @@ impl<M: OverlayMode> InputOverlayHost<M> {
     fn new(state: Entity<InputBaseState<M>>, window: &mut Window, cx: &mut App) -> Self {
         Self {
             search: SearchPanel::new(state.clone(), window, cx),
-            search_signature: (false, false, String::new(), None),
+            search_signature: SearchSignature::default(),
             lsp: M::build_lsp(&state, window, cx),
         }
     }
@@ -292,39 +327,60 @@ impl<M: OverlayMode> InputOverlayHost<M> {
         cx: &mut App,
     ) -> InputOverlays {
         let snapshot = M::lsp_snapshot(state.read(cx), cx);
-        let (search_open, replace_mode, search_session) = {
+        let (search_open, replace_mode, activation_revision, search_session) = {
             let state = state.read(cx);
             let search = state.search_session();
-            (search.open, search.replace_mode, search.clone())
+            (
+                search.open,
+                search.replace_mode,
+                state.search_activation_revision(),
+                search.clone(),
+            )
         };
 
+        let panel_replace_mode = self.search.read(cx).replace_mode();
         self.search
             .update(cx, |panel, _| panel.sync_session(&search_session));
 
-        let search_signature = (
-            search_open,
+        let search_signature = SearchSignature {
+            open: search_open,
             replace_mode,
-            search_session.query.clone(),
-            search_session.anchor_offset,
-        );
+            query: search_session.query.clone(),
+            anchor_offset: search_session.anchor_offset,
+            activation_revision,
+        };
         if search_signature != self.search_signature {
+            // The panel writes query and replacement-mode changes back into the
+            // session. Re-showing it for that echo would select the query or steal
+            // focus from replacement, so preserve changes the panel already holds.
+            // External mode changes still move focus out of a hidden replace field.
+            let was = &self.search_signature;
+            let query_echo = search_open
+                && was.open
+                && (was.replace_mode == search_signature.replace_mode
+                    || panel_replace_mode == search_signature.replace_mode)
+                && was.anchor_offset == search_signature.anchor_offset
+                && was.activation_revision == search_signature.activation_revision
+                && self.search.read(cx).query(cx) == search_session.query;
             self.search_signature = search_signature;
-            self.search.update(cx, |panel, cx| {
-                if search_open {
-                    let selected = Rope::from(search_session.query.clone());
-                    let visible = search_session.anchor_offset.map(|offset| offset..offset);
-                    panel.show_with_focus(
-                        &selected,
-                        replace_mode,
-                        visible,
-                        !cfg!(test),
-                        window,
-                        cx,
-                    );
-                } else {
-                    panel.hide_with_focus(!cfg!(test), window, cx);
-                }
-            });
+            if !query_echo {
+                self.search.update(cx, |panel, cx| {
+                    if search_open {
+                        let selected = Rope::from(search_session.query.clone());
+                        let visible = search_session.anchor_offset.map(|offset| offset..offset);
+                        panel.show_with_focus(
+                            &selected,
+                            replace_mode,
+                            visible,
+                            !cfg!(test),
+                            window,
+                            cx,
+                        );
+                    } else {
+                        panel.hide_with_focus(!cfg!(test), window, cx);
+                    }
+                });
+            }
         }
 
         if let (Some(lsp), Some(snapshot)) = (self.lsp.as_mut(), snapshot.as_ref()) {
@@ -411,6 +467,100 @@ mod tests {
         ) -> impl IntoElement {
             div()
         }
+    }
+
+    /// Asking for search again, while it is already open, must re-select the query.
+    ///
+    /// Re-invoking search leaves every other part of the session identical, so a
+    /// sync keyed only on that state reads it as an unchanged frame and drops the
+    /// request: the field keeps whatever caret the user left in it and the
+    /// shortcut looks dead. `activation_revision` is what carries the second
+    /// request through, and the echo guard below it is what must survive that.
+    #[gpui::test]
+    fn reopening_search_reselects_the_query(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let (probe, cx) = cx.add_window_view(|window, cx| OverlayProbe {
+            state: cx.new(|cx| crate::input::EditorState::new(window, cx).searchable(true)),
+        });
+        let state = probe.read_with(cx, |probe, _| probe.state.clone());
+
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_value("foo bar foo", window, cx);
+                state.set_selected_range(0..3, cx);
+                state.open_search(false, cx);
+            });
+
+            let mut host = InputOverlayHost::new(state.clone(), window, cx);
+            host.sync(&state, window, cx);
+
+            let search_input = host.search.read(cx).search_input().clone();
+            assert_eq!(search_input.read(cx).value(), "foo");
+            assert_eq!(
+                search_input.read(cx).selected_range(),
+                0..3,
+                "opening search selects the query it seeded the field with"
+            );
+
+            // The user drops the caret into the field. An untouched frame must
+            // leave it there — this is the echo guard, and a fix that reshows the
+            // panel on every frame would fail here instead of silently annoying.
+            search_input.update(cx, |input, cx| input.unselect(window, cx));
+            host.sync(&state, window, cx);
+            assert!(
+                search_input.read(cx).selected_range().is_empty(),
+                "an unchanged frame must not touch the field"
+            );
+
+            // The shortcut again, with the session already open and nothing else
+            // about it moved.
+            state.update(cx, |state, cx| state.open_search(false, cx));
+            host.sync(&state, window, cx);
+            assert_eq!(
+                search_input.read(cx).selected_range(),
+                0..3,
+                "re-invoking search must select the query again"
+            );
+        });
+    }
+
+    /// Reopening search must preserve navigation already owned by Base.
+    ///
+    /// Closing and reopening Find keeps the previous occurrence in browsers.
+    /// Neither Base reopening the session nor the styled panel echoing its
+    /// retained query may reset the current match to zero.
+    #[gpui::test]
+    fn reopening_search_panel_preserves_the_previous_match(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let (probe, cx) = cx.add_window_view(|window, cx| OverlayProbe {
+            state: cx.new(|cx| crate::input::EditorState::new(window, cx).searchable(true)),
+        });
+        let state = probe.read_with(cx, |probe, _| probe.state.clone());
+
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_value("foo bar foo baz foo", window, cx);
+                state.open_search(false, cx);
+                state.set_search_query("foo", true, cx);
+                assert_eq!(state.next_search_match(cx), Some(8..11));
+                assert_eq!(state.search_session().matcher.current_match_index(), 1);
+                state.close_search(cx);
+                state.open_search(false, cx);
+                assert_eq!(state.search_session().matcher.current_match_index(), 1);
+            });
+
+            let mut host = InputOverlayHost::new(state.clone(), window, cx);
+            host.sync(&state, window, cx);
+
+            state.read_with(cx, |state, _| {
+                assert_eq!(state.search_session().matcher.current_match_index(), 1);
+                assert_eq!(state.search_session().matcher.label(), "2/3");
+            });
+
+            state.update(cx, |state, cx| {
+                assert_eq!(state.next_search_match(cx), Some(16..19));
+            });
+        });
     }
 
     /// A frame that changed nothing must not rebuild the popovers.
