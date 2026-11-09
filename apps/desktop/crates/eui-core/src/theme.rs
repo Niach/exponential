@@ -408,9 +408,21 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     // #VAPP-258: Markdown heading / listItem margins.
     ("marginTop", &["spacing"]),
     ("marginBottom", &["spacing"]),
+    // #EDE-65: a macro box's leading top corner and its width cap (MessageBubble/bubble).
+    ("borderTopLeftRadius", &["radius", "spacing"]),
+    ("maxWidth", &["control", "spacing"]),
     // #EXP-1629: recipe-only (`padding-box` = the fill paints inside the border).
     ("backgroundClip", &[]),
 ];
+/// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
+const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
+
+fn is_percent(value: &Value) -> bool {
+    let Some(n) = value.as_str().and_then(|s| s.strip_suffix('%')) else { return false };
+    let (int, frac) = n.split_once('.').unwrap_or((n, "0"));
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(int) && digits(frac) && n.parse::<f64>().is_ok_and(|v| v <= 100.0)
+}
 /// #EXP-1629: the values of the recipe-only `backgroundClip`.
 pub const BACKGROUND_CLIPS: [&str; 2] = ["border-box", "padding-box"];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
@@ -710,6 +722,15 @@ fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<The
     if TOKEN_ONLY_KEYS.contains(&key) {
         issues.push(issue(path, format!("expected a ${}.<name> token", groups.first().copied().unwrap_or(""))));
         return;
+    }
+    if PERCENT_KEYS.contains(&key) {
+        if is_percent(value) {
+            return;
+        }
+        if is_finite_number(value).is_none() {
+            issues.push(issue(path, format!("expected a number, a percentage 0–100% or a ${} token", groups.join("|$"))));
+            return;
+        }
     }
     let weights = style_key_enum("fontWeight");
     match is_finite_number(value) {
@@ -1065,13 +1086,16 @@ pub fn try_load_theme(source: &Value, options: &ThemeOptions) -> Result<Resolved
 
 /// #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
 /// after themes shipped takes a sibling's value when the chain sets none, so
-/// every older theme stays complete: `link` = `primary`.
+/// every older theme stays complete: `link` = `primary`, #EDE-65
+/// `borderStrong` = `border`.
 fn derive_colors(theme: &mut ResolvedTheme) {
     for mode in Mode::ALL {
         let m = theme.modes.get_mut(mode);
-        if !m.color.contains_key("link") {
-            if let Some(primary) = m.color.get("primary").cloned() {
-                m.color.insert("link".to_string(), primary);
+        for (name, from) in [("link", "primary"), ("borderStrong", "border")] {
+            if !m.color.contains_key(name) {
+                if let Some(value) = m.color.get(from).cloned() {
+                    m.color.insert(name.to_string(), value);
+                }
             }
         }
     }
@@ -1564,6 +1588,52 @@ mod tests {
         let style = resolve_node_style(&playful, &node, Mode::Light, &[], &RecipeIndex::core());
         let key = format!("@media (min-width: {}px)", json::number_to_string(playful.tokens.breakpoint["md"]));
         assert_eq!(style[&key], json!({"color": "#00ff00"}));
+    }
+
+    #[test]
+    fn border_strong_is_the_ides_stroke_strong_in_exponential_and_border_elsewhere() {
+        // #EDE-65 (catalog/tokens.json `color.borderStrong`).
+        let exp = builtin_theme("exponential").unwrap();
+        assert_eq!(exp.modes.dark.color["borderStrong"], "#ffffff1f");
+        assert_eq!(exp.modes.light.color["borderStrong"], "#d4d4d4");
+        assert_eq!(builtin_theme("orange").unwrap().modes.dark.color["borderStrong"], "#ffffff1f");
+        for id in ["neutral", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.color["borderStrong"], t.modes.light.color["border"]);
+            assert_eq!(t.modes.dark.color["borderStrong"], t.modes.dark.color["border"]);
+        }
+    }
+
+    #[test]
+    fn the_exponential_message_bubble_is_the_ides_message_bubble() {
+        // #EDE-65: crates/ui session_chat::message_bubble.
+        let exp = builtin_theme("exponential").unwrap();
+        let bubble = |side: &str| resolve_recipe(&exp, &q("MessageBubble", "bubble", json!({"side": side}), &[]), Mode::Dark);
+        let boxed = json!({"borderRadius": 16, "borderTopLeftRadius": 16, "paddingHorizontal": 14, "paddingVertical": 10, "maxWidth": "62%", "borderWidth": 1});
+        has(&bubble("in"), boxed.clone());
+        has(&bubble("in"), json!({"backgroundColor": exp.modes.dark.color["popover"], "borderColor": "#ffffff1a"}));
+        has(&bubble("out"), boxed);
+        has(&bubble("out"), json!({"backgroundColor": "#ffffff1c", "borderColor": "#ffffff1f"}));
+        assert_eq!(resolve_recipe(&exp, &q("MessageBubble", "time", json!({}), &[]), Mode::Dark)["fontSize"], json!(10));
+        assert!(resolve_recipe(&builtin_theme("neutral").unwrap(), &q("MessageBubble", "bubble", json!({"side": "in"}), &[]), Mode::Dark).get("maxWidth").is_none());
+    }
+
+    #[test]
+    fn max_width_takes_a_percentage_and_border_top_left_radius_a_radius() {
+        let refs = builtin_refs();
+        let issues = |style: Value| -> Vec<String> {
+            validate_theme(&json!({"$schema": THEME_SCHEMA_ID, "id": "t", "name": "T", "extends": "neutral", "recipes": {"MessageBubble": {"bubble": [{"style": style}]}}}), &ThemeOptions::core(&refs))
+                .into_iter()
+                .map(|i| i.message)
+                .collect()
+        };
+        assert!(issues(json!({"maxWidth": "62%", "borderTopLeftRadius": "$radius.xl"})).is_empty());
+        assert!(issues(json!({"maxWidth": 320})).is_empty());
+        assert!(issues(json!({"maxWidth": "$spacing.xl"})).is_empty());
+        for bad in ["120%", "62", "wide", ".5%", "62 %"] {
+            assert!(issues(json!({"maxWidth": bad}))[0].starts_with("expected a number, a percentage"), "{bad}");
+        }
+        assert!(issues(json!({"borderTopLeftRadius": "16%"}))[0].starts_with("expected a number or a $radius|$spacing token"));
     }
 
     #[test]
