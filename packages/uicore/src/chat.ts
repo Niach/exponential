@@ -14,6 +14,13 @@ export interface ChatOptionInput {
   description: string | null
 }
 
+/** A card's genUI surface (Round 9 §19 Embed `surface`): the document draws it in place. */
+export interface ChatSurface {
+  root: Record<string, unknown>
+  data?: Record<string, unknown> | null
+  version?: string
+}
+
 /** An option as the document draws it: its row's id rides along (a template cannot read its parent). */
 export interface ChatOption extends ChatOptionInput {
   messageId: string
@@ -23,8 +30,8 @@ export type ChatRowInput =
   | { id: string; type: `message`; author: string; body: string; name: string | null; time: string; queued: boolean }
   | { id: string; type: `pill`; icon: string; label: string }
   | { id: string; type: `line`; icon: string; text: string }
-  | { id: string; type: `card`; icon: string; title: string; text: string; target: string | null }
-  | { id: string; type: `question`; question: string; options: ChatOptionInput[]; custom: boolean; multi: boolean; waiting: boolean; answer: string | null }
+  | { id: string; type: `card`; icon: string; title: string; text: string; target: string | null; surface?: ChatSurface | null }
+  | { id: string; type: `question`; question: string; options: ChatOptionInput[]; custom: boolean; multi: boolean; waiting: boolean; answer: string | null; surface?: ChatSurface | null }
   | { id: string; type: `picture`; attachmentId: string; caption: string | null }
 
 /** What the host knows. */
@@ -62,6 +69,7 @@ export interface ChatRow {
   waiting: boolean
   answer: string | null
   attachmentId: string | null
+  surface: ChatSurface | null
 }
 
 /** What the document binds. */
@@ -93,6 +101,7 @@ const blank = (id: string, kind: ChatRowKind): ChatRow => ({
   waiting: false,
   answer: null,
   attachmentId: null,
+  surface: null,
 })
 
 /** `name · time`, a missing part dropped with its separator. */
@@ -114,7 +123,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
     case `line`:
       return { ...blank(input.id, `line`), icon: input.icon, text: input.text }
     case `card`:
-      return { ...blank(input.id, `card`), icon: input.icon, title: input.title, text: input.text, target: input.target }
+      return { ...blank(input.id, `card`), icon: input.icon, title: input.title, text: input.text, target: input.target, surface: input.surface ?? null }
     case `question`:
       return {
         ...blank(input.id, `question`),
@@ -125,6 +134,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
         multi: input.multi,
         waiting: input.waiting,
         answer: input.answer,
+        surface: input.surface ?? null,
       }
     case `picture`:
       return { ...blank(input.id, `picture`), attachmentId: input.attachmentId, text: input.caption ?? `` }

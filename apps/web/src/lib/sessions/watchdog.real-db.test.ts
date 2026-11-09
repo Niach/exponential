@@ -47,6 +47,18 @@ vi.mock(`@/lib/merge-train/worker`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/merge-train/worker")>()),
   runMergeTrainTick: async () => 0,
 }))
+// Same for the schedules (automations.real-db and triggers.real-db cover
+// them): at this suite's NOW (2000) each sweep rewound the `checkedAt` of
+// EVERY app's automations and every agent's triggers, so a parallel suite's
+// schedule fired its due minute twice.
+vi.mock(`@/lib/apps/automations`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/apps/automations")>()),
+  fireScheduledAutomations: async () => 0,
+}))
+vi.mock(`@/lib/agents/triggers`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agents/triggers")>()),
+  fireScheduledTriggers: async () => 0,
+}))
 // The scheduler's metrics are not under test.
 vi.mock(`@/lib/metrics/registry`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/metrics/registry")>()),
@@ -174,6 +186,11 @@ const lines = async (sessionId: string, event: string, about: string) =>
     return card?.event === event && card.sessionId === about
   })
 
+// The file's first case pays its cold start (the dynamic imports `runWatchdog`
+// reaches, the first pooled connections): under 2 s alone, past vitest's 5 s
+// default when the full suite saturates the CPU. Only the budget grows.
+const COLD_CASE_MS = 20_000
+
 describe.skipIf(!ready.ok)(`the watchdog`, () => {
   it(`flags a queued session nobody claimed for unclaimedMinutes, ONCE; the claim clears it`, async () => {
     const w = await world()
@@ -208,7 +225,7 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     // The claim clears the flag.
     await w.host.claim({ sessionId: late, deviceId: w.deviceId })
     expect(await row(late)).toMatchObject({ status: `running`, blocked: null, needsInput: false })
-  })
+  }, COLD_CASE_MS)
 
   it(`nudges the host device again for a live session's input pending past nudgeMinutes`, async () => {
     const w = await world({ shared: true })

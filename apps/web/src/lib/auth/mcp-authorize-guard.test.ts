@@ -1,15 +1,17 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock(`@/db/connection`, () => ({ db: {} }))
-const { isAppsResource, tagAppsConsent } = await import(`./mcp-authorize-guard`)
+const h = vi.hoisted(() => ({ rows: [] as Array<{ redirectUris: string[]; disabled: boolean | null }> }))
 
-// #VAPP-182: an authorize request naming the apps resource lands on the
-// consent page with `resource=apps`; every other answer passes untouched.
-const authorize = (resource?: string) =>
-  new Request(`https://exp.test/api/auth/mcp/authorize?client_id=c&prompt=consent${resource ? `&resource=${encodeURIComponent(resource)}` : ``}`)
-const consentRedirect = () =>
-  new Response(null, { status: 302, headers: { location: `/auth/consent?consent_code=k&client_id=c&scope=openid`, "set-cookie": `a=b` } })
+vi.mock(`@/db/connection`, () => ({
+  db: {
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => h.rows }) }) }),
+  },
+}))
+const { guardMcpAuthorize } = await import(`./mcp-authorize-guard`)
+const { isAppsResource } = await import(`./mcp-resource`)
+
+const authorize = (query: string) => new Request(`https://exp.test/api/auth/oauth2/authorize?${query}`)
 
 describe(`mcp authorize: the apps resource (VAPP-182)`, () => {
   it(`recognizes the apps endpoint only`, () => {
@@ -19,21 +21,28 @@ describe(`mcp authorize: the apps resource (VAPP-182)`, () => {
     expect(isAppsResource(`not a url`)).toBe(false)
     expect(isAppsResource(null)).toBe(false)
   })
+})
 
-  it(`tags the consent redirect of an apps request, keeping its cookie`, () => {
-    const tagged = tagAppsConsent(authorize(`https://exp.test/api/mcp/apps`), consentRedirect())
-    expect(tagged.status).toBe(302)
-    const location = new URL(tagged.headers.get(`location`)!, `https://exp.test`)
-    expect(location.pathname).toBe(`/auth/consent`)
-    expect(location.searchParams.get(`resource`)).toBe(`apps`)
-    expect(location.searchParams.get(`consent_code`)).toBe(`k`)
-    expect(tagged.headers.get(`set-cookie`)).toBe(`a=b`)
+describe(`guardMcpAuthorize`, () => {
+  it(`forces prompt=consent on a known client`, async () => {
+    h.rows = [{ redirectUris: [`http://localhost:1/cb`], disabled: false }]
+    const guarded = await guardMcpAuthorize(authorize(`client_id=c&redirect_uri=${encodeURIComponent(`http://localhost:1/cb`)}`))
+    if (!(`request` in guarded)) throw new Error(`expected a request`)
+    expect(new URL(guarded.request.url).searchParams.get(`prompt`)).toBe(`consent`)
   })
 
-  it(`leaves the builtin resource and non-consent redirects alone`, () => {
-    const builtin = consentRedirect()
-    expect(tagAppsConsent(authorize(`https://exp.test/api/mcp`), builtin)).toBe(builtin)
-    const callback = new Response(null, { status: 302, headers: { location: `http://localhost/cb?code=x` } })
-    expect(tagAppsConsent(authorize(`https://exp.test/api/mcp/apps`), callback)).toBe(callback)
+  it(`answers an unknown client with a page for the human`, async () => {
+    h.rows = []
+    const guarded = await guardMcpAuthorize(authorize(`client_id=gone`))
+    if (!(`response` in guarded)) throw new Error(`expected a response`)
+    expect(guarded.response.status).toBe(400)
+    expect(await guarded.response.text()).toContain(`isn't registered here`)
+  })
+
+  it(`answers a redirect_uri the client never registered`, async () => {
+    h.rows = [{ redirectUris: [`http://localhost:1/cb`], disabled: false }]
+    const guarded = await guardMcpAuthorize(authorize(`client_id=c&redirect_uri=${encodeURIComponent(`http://evil.test/cb`)}`))
+    if (!(`response` in guarded)) throw new Error(`expected a response`)
+    expect(await guarded.response.text()).toContain(`Sign-in link out of date`)
   })
 })

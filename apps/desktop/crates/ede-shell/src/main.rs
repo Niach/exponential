@@ -332,6 +332,9 @@ struct Shell {
     chat_members: Vec<chat::Member>,
     /// The draft a pick closed the menu on (it stays shut for it, the IDE's rule).
     chat_menu_dismissed: Option<String>,
+    /// The `/chatMenu` as drawn, and its highlighted row (the keys move it).
+    chat_menu: Value,
+    chat_menu_selected: usize,
     /// The chat on a team: its account, team and open session.
     chat_team: Option<team_chat::TeamChat>,
     /// The team chat's opener over the app's keyring (its account's).
@@ -447,6 +450,24 @@ impl HostPlugin for Host {
         tracing::info!(surface = %event.surface_id, component = %event.component_id, name = %event.name, context = %event.context, "action");
         // The view is mid-update while it dispatches; a popup reads its
         // painted bounds, so that waits for the update to end.
+        // The composer's menu keys ride an event: genUI hands an event's
+        // payload ({key}) to its context, never to a function's args.
+        if event.name == "ede_chat" && event.context["action"] == "key" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            let (shell, key) = (self.shell.clone(), event.context["key"].as_str().unwrap_or("").to_string());
+            cx.defer(move |cx| chat_menu_key(&shell, &key, cx));
+            return;
+        }
+        // Lane Q: a chat card's Embed bubbles its inner events as
+        // {name, context} over the row's {action: card, messageId}.
+        if event.name == "ede_chat" && event.context["action"] == "card" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            let shell = self.shell.clone();
+            let context = event.context.clone();
+            cx.defer(move |cx| {
+                let message_id = context["messageId"].as_str().unwrap_or("");
+                chat_card(&shell, message_id, context["name"].as_str().unwrap_or(""), &context["context"], cx);
+            });
+            return;
+        }
         let popups = popups_of(&self.shell.borrow(), &event.surface_id, &event.component_id);
         if !popups.is_empty() {
             let shell = self.shell.clone();
@@ -893,11 +914,7 @@ impl HostPlugin for Host {
                                 refresh(&shell, cx);
                             }
                         },
-                        Some("slash") if !arg("prompt").is_empty() => chat_load_prompt(&shell, &arg("prompt"), cx),
-                        Some("slash") => {
-                            shell.borrow_mut().chat_menu_dismissed = Some(arg("insert"));
-                            chat_set_draft(&shell, &arg("insert"), cx);
-                        }
+                        Some("slash") => chat_menu_pick(&shell, &arg("insert"), &arg("prompt"), cx),
                         _ => chat_toggle(&shell, cx),
                     }
                 });
@@ -1897,7 +1914,7 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
     input.slash_commands = true;
     let view = uicore_model::chat::chat_view(&input);
-    let mut value = serde_json::to_value(&view).unwrap_or_default();
+    let mut value = chat::chatting(&view);
     value["noCli"] = json!(no_cli);
     shell.borrow_mut().feed.set("/chatting", value);
     chat_composer(shell, &view.composer, cx);
@@ -2146,6 +2163,38 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
     .detach();
 }
 
+/// Lane Q: an Embed's inner event on chat card `message_id`, answered the
+/// way the IDE does (`domain::chat_document::card_reply`): a show card's
+/// `reply` = the person's next message into its session.
+fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value, cx: &mut App) {
+    if chat_local(shell) {
+        let replied = shell.borrow_mut().chat_local.as_mut().map(|c| c.card(message_id, name, context));
+        if let Some(Err(e)) = replied {
+            failed_action(shell, "send", "the message", &e, cx);
+        }
+        chatting_changed(shell, cx);
+        return;
+    }
+    let Some((chat, rows)) = team_chat(shell) else { return };
+    let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
+    let mut input = team_chat::reply_input(&chat, &reply);
+    if let (Some(root), Some(text)) = (team_chat::target_root(&rows.account, &input), input.text.clone()) {
+        if let Some(sealed) = team_chat::seal(root, &text) {
+            input.text = Some(sealed);
+        }
+    }
+    let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
+    let trpc = shell.borrow().workspaces.trpc(&account);
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let sent = cx.background_executor().spawn(async move { api::sessions::send(&trpc, &input) }).await;
+        if let Err(e) = sent {
+            cx.update(|cx| failed_action(&shell, "send", "the message", &e.user_message(), cx));
+        }
+    })
+    .detach();
+}
+
 /// A failed action the person just took (feedback-states.json `errors`):
 /// the toast `Couldn't <verb> <thing>` with the server's message, as one of
 /// the shell's own notifications (the IDE's toast on this desktop).
@@ -2213,19 +2262,63 @@ fn chat_set_draft(shell: &SharedShell, text: &str, cx: &mut App) {
 /// THE `/` menu over the composer's draft (`/chatMenu`); shut for the
 /// draft a pick closed it on.
 fn chat_menu_changed(shell: &SharedShell) {
-    let menu = {
-        let s = shell.borrow();
-        if s.chat_menu_dismissed.as_deref() == Some(s.chat_draft.as_str()) {
-            json!({"open": false, "rows": []})
-        } else {
-            // `@` / `#` behind the caret first, else THE `/` menu.
-            let current = &s.model.switcher.current;
-            let query = domain::typeahead::detect_trigger(&s.chat_draft, s.chat_draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::IssueRef).map(|t| t.query);
-            let ranked = query.map(|q| issues::rank_in(&s.issue_index, &current.kind, &current.id, &q, domain::typeahead::MAX_ITEMS)).unwrap_or_default();
-            chat::mention_menu(&s.chat_draft, &s.chat_members, &ranked).unwrap_or_else(|| chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts))
+    let mut s = shell.borrow_mut();
+    let (mut menu, keep) = if s.chat_menu_dismissed.as_deref() == Some(s.chat_draft.as_str()) {
+        (json!({"open": false, "rows": []}), false)
+    } else {
+        // The IDE's rule: an Escape lasts exactly as long as its draft.
+        s.chat_menu_dismissed = None;
+        // `@` / `#` behind the caret first, else THE `/` menu.
+        let current = &s.model.switcher.current;
+        let query = domain::typeahead::detect_trigger(&s.chat_draft, s.chat_draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::IssueRef).map(|t| t.query);
+        let ranked = query.map(|q| issues::rank_in(&s.issue_index, &current.kind, &current.id, &q, domain::typeahead::MAX_ITEMS)).unwrap_or_default();
+        match chat::mention_menu(&s.chat_draft, &s.chat_members, &ranked) {
+            Some(menu) => (menu, false),
+            None => (chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts), true),
         }
     };
-    shell.borrow_mut().feed.set("/chatMenu", menu);
+    s.chat_menu_selected = chat::highlight(&mut menu, s.chat_menu_selected, keep);
+    s.chat_menu = menu.clone();
+    s.feed.set("/chatMenu", menu);
+}
+
+/// A menu row picked (its press, or Enter/Tab on the highlight): a prompt
+/// loads its body, a builtin or a typeahead row puts its insertion in the
+/// composer, which keeps the menu shut for it; nothing sends.
+fn chat_menu_pick(shell: &SharedShell, insert: &str, prompt: &str, cx: &mut App) {
+    if !prompt.is_empty() {
+        return chat_load_prompt(shell, prompt, cx);
+    }
+    shell.borrow_mut().chat_menu_dismissed = Some(insert.to_string());
+    chat_set_draft(shell, insert, cx);
+}
+
+/// The composer's menu keys (`ede_chat key {key}`, `chat::menu_key`, the IDE's).
+fn chat_menu_key(shell: &SharedShell, key: &str, cx: &mut App) {
+    let (rows, selected) = {
+        let s = shell.borrow();
+        (s.chat_menu["rows"].as_array().cloned().unwrap_or_default(), s.chat_menu_selected)
+    };
+    match chat::menu_key(key, selected, rows.len()) {
+        chat::MenuKey::Highlight(index) => {
+            let mut s = shell.borrow_mut();
+            let mut menu = s.chat_menu.clone();
+            s.chat_menu_selected = chat::highlight(&mut menu, index, true);
+            s.chat_menu = menu.clone();
+            s.feed.set("/chatMenu", menu);
+        }
+        chat::MenuKey::Pick(index) => {
+            let field = |key: &str| rows[index][key].as_str().unwrap_or("").to_string();
+            return chat_menu_pick(shell, &field("insert"), &field("prompt"), cx);
+        }
+        chat::MenuKey::Dismiss => {
+            let draft = shell.borrow().chat_draft.clone();
+            shell.borrow_mut().chat_menu_dismissed = Some(draft);
+            chat_menu_changed(shell);
+        }
+        chat::MenuKey::Ignore => return,
+    }
+    refresh(shell, cx);
 }
 
 /// The current team's prompts off its account's store.
@@ -2989,12 +3082,14 @@ fn main() {
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
-        feed.set("/chatting", serde_json::to_value(uicore_model::chat::chat_view(&chat)).unwrap_or_default());
+        feed.set("/chatting", chat::chatting(&uicore_model::chat::chat_view(&chat)));
         feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
             feed.set("/chat", json!({"draft": draft}));
-            let menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            let mut menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            // `EDE_SHELL_DEMO_HIGHLIGHT` = the row the menu keys moved to.
+            chat::highlight(&mut menu, std::env::var("EDE_SHELL_DEMO_HIGHLIGHT").ok().and_then(|i| i.parse().ok()).unwrap_or(0), true);
             feed.set("/chatMenu", menu);
         }
         if demo {
@@ -3114,6 +3209,8 @@ fn main() {
             chat_prompts: Vec::new(),
             chat_members: Vec::new(),
             chat_menu_dismissed: None,
+            chat_menu: Value::Null,
+            chat_menu_selected: 0,
             chat_team: None,
             chat_opener: None,
             chat_glyphs,
@@ -3593,6 +3690,32 @@ mod layer_sizes {
         let doc: Value = serde_json::from_str(uicore_docs::doc("sidebar").unwrap().source).unwrap();
         let row = serde_json::to_string(&doc["root"]).unwrap();
         assert!(row.contains(r#""functionCall":{"@call":"ede_chat","args":{"sessionId":{"@path":"id"}}}"#), "the rail's chat calls ede_chat {{sessionId}}");
+    }
+
+    /// #EDE-65 lane P: both composers hand their menu keys to the shell
+    /// while /chatMenu is open, and both menus paint the highlighted row.
+    #[test]
+    fn the_chat_composers_hand_the_menu_keys_to_the_shell() {
+        let doc: Value = serde_json::from_str(uicore_docs::doc("chat").unwrap().source).unwrap();
+        let mut composers = 0;
+        let mut rows = 0;
+        let mut walk = vec![&doc["root"]];
+        while let Some(node) = walk.pop() {
+            match node["id"].as_str() {
+                Some("chat_home_composer" | "chat_composer") => {
+                    assert_eq!(node["props"]["menuKeys"], json!({"@path": "/chatMenu/open"}));
+                    assert_eq!(node["on"]["key"], json!({"event": {"name": "ede_chat", "context": {"action": "key"}}}));
+                    composers += 1;
+                }
+                Some("chat_home_slash_row" | "chat_slash_row") => {
+                    assert_eq!(node["props"]["selected"], json!({"@path": "selected"}));
+                    rows += 1;
+                }
+                _ => {}
+            }
+            walk.extend(node["children"].as_array().into_iter().flatten());
+        }
+        assert_eq!((composers, rows), (2, 2));
     }
 }
 

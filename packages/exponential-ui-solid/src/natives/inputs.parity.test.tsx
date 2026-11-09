@@ -68,6 +68,14 @@ describe(`inputs: interactions replayed on both`, () => {
       typeInto(input, `abc`)
       fire(input, `keydown`, { key: `Enter` })
     }))
+  it(`Input row (#EXP-1629): label inside the field, typing, Enter`, async () =>
+    expectParity(one({ id: `i`, component: `Input`, props: { label: `CLI path`, name: `cli`, variant: `row`, value: { "@path": `/t` } } }, { t: `/usr/local/bin/claude` }), (root) => {
+      const input = root.querySelector(`input`)
+      fire(input, `focusin`)
+      ;(input as HTMLInputElement).focus()
+      typeInto(input, `abc`)
+      fire(input, `keydown`, { key: `Enter` })
+    }))
   it(`NumberField: steppers and keys`, async () =>
     expectParity(one({ id: `n`, component: `NumberField`, props: { label: `N`, value: 3, min: 1, max: 5 } }), (root) => {
       fire(root.querySelector(`[data-xui-part="NumberField/increment"]`), `click`)

@@ -34186,14 +34186,16 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
                 },
                 "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": false
-                  }
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 }
               }
             ],
@@ -34431,14 +34433,16 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
                 },
                 "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": false
-                  }
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 }
               }
             ],
@@ -67469,21 +67473,21 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
+                },
+                "recipe": {
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 },
                 "visible": {
                   "@call": "not",
                   "args": {
                     "value": {
-                      "@path": "/recording"
-                    }
-                  }
-                },
-                "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": {
                       "@path": "/recording"
                     }
                   }
@@ -67691,14 +67695,16 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "center",
-                  "gap": "$spacing.xs"
+                  "gap": "$spacing.xs",
+                  "alignSelf": "flex-start"
                 },
                 "recipe": {
-                  "macro": "KeyRecorder",
-                  "part": "value",
-                  "props": {
-                    "recording": false
-                  }
+                  "macro": "KbdGroup",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group"
                 }
               }
             ],

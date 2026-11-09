@@ -405,7 +405,7 @@ describe(`token endpoints are server-only (SLOP-7 review)`, () => {
     const { userId } = await signedUp(harness)
     // No github row for this user: the endpoint itself answers, not a 404.
     await expect(
-      harness.auth.api.getAccessToken({ body: { providerId: `github`, userId } })
+      harness.auth.api.getAccessToken({ body: { accountId: `no-such-account`, userId } })
     ).rejects.toMatchObject({ body: { code: `ACCOUNT_NOT_FOUND` } })
   })
 })

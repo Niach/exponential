@@ -323,3 +323,72 @@ describe(`compose`, () => {
 })
 
 void sh
+
+describe(`compose: licence inventories regenerate on the composed tree (#LOGS-2)`, () => {
+  // THIS repo's rules (paths, order, commands), each command stubbed by what
+  // it does: lockfiles = bun.lock from the manifest, collect:npm = the
+  // inventory from bun.lock, notices = NOTICES.txt from the inventory.
+  const REPO = JSON.parse(readFileSync(join(import.meta.dirname, `../../.exponential/merge-train.json`), `utf8`)) as TrainRepoConfig
+  const rule = (name: string) => REPO.generated.find((r) => r.name === name)!
+  const INVENTORY = `packages/licenses/inventory/npm-web.json`
+  const NOTICES = `apps/web/public/NOTICES.txt`
+  const lockOf = (deps: string[]) => deps.map((d) => `${d}@1`).join(`\n`) + `\n`
+  const inventoryOf = (lock: string) => `${JSON.stringify({ components: lock.split(`\n`).filter(Boolean) }, null, 2)}\n`
+  const noticesOf = (inventory: string) => (JSON.parse(inventory) as { components: string[] }).components.map((c) => `== ${c}\n`).join(``)
+  const files = (deps: string[]) => {
+    const lock = lockOf(deps)
+    const inventory = inventoryOf(lock)
+    return { "apps/web/package.json": `${deps.join(`\n`)}\n`, "bun.lock": lock, [INVENTORY]: inventory, [NOTICES]: noticesOf(inventory) }
+  }
+  const ran: string[] = []
+  const runCommand = (command: string, dir: string): boolean => {
+    ran.push(command)
+    const at = (p: string) => join(dir, p)
+    if (command === REPO.setup) return true
+    if (command === rule(`lockfiles`).command) {
+      writeFileSync(at(`bun.lock`), lockOf(readFileSync(at(`apps/web/package.json`), `utf8`).split(`\n`).filter(Boolean)))
+    } else if (command === rule(`npm licence inventory`).command) {
+      writeFileSync(at(INVENTORY), inventoryOf(readFileSync(at(`bun.lock`), `utf8`)))
+    } else if (command === rule(`licence notices`).command) {
+      writeFileSync(at(NOTICES), noticesOf(readFileSync(at(INVENTORY), `utf8`)))
+    } else return false
+    return true
+  }
+  const BASE = [`a`, `m`, `z`]
+
+  it(`two units that each add an npm dependency compose, the inventory and the notices carry both, CI runs`, () => {
+    const r = repo(files(BASE), REPO)
+    const one = r.branch(files([`a`, `b`, `m`, `z`]))
+    const two = r.branch(files([`a`, `m`, `y`, `z`]))
+    ran.length = 0
+    const { outcome, dispatch } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, one)] }, { prs: [pr(2, two)] }], runCommand })
+    expect(outcome.units.map((u) => [u.outcome, u.files, u.resolved])).toEqual([
+      [`composed`, [], []],
+      [`composed`, [], [`lockfiles`, `npm licence inventory`, `licence notices`]],
+    ])
+    expect(r.read(INVENTORY)).toBe(inventoryOf(lockOf([`a`, `b`, `m`, `y`, `z`])))
+    expect(r.read(NOTICES)).toBe(noticesOf(r.read(INVENTORY)))
+    // the composed tree, in policy order: the lock, then its inventory, then the notices
+    expect(ran).toEqual([REPO.setup, rule(`lockfiles`).command, rule(`npm licence inventory`).command, rule(`licence notices`).command])
+    expect([outcome.checks, dispatch]).toEqual([`dispatched`, [`test.yml`]])
+  })
+
+  it(`a Merge now the rule fired for runs CI`, () => {
+    const r = repo(files(BASE), REPO)
+    const landed = r.branch(files([`a`, `b`, `m`, `z`]))
+    const unit = r.branch(files([`a`, `m`, `y`, `z`]))
+    const { outcome, dispatch } = compose({ dir: r.dir, trainId: `t`, baseSha: landed, mode: `untested`, units: [{ prs: [pr(2, unit)] }], runCommand })
+    expect(outcome.units[0]).toMatchObject({ outcome: `composed`, resolved: [`lockfiles`, `npm licence inventory`, `licence notices`] })
+    expect(r.read(INVENTORY)).toBe(inventoryOf(lockOf([`a`, `b`, `m`, `y`, `z`])))
+    expect([outcome.checks, dispatch]).toEqual([`dispatched`, [`test.yml`]])
+  })
+
+  it(`an inventory the runner cannot collect (iOS) bounces instead of keeping ours`, () => {
+    const IOS = `packages/licenses/inventory/ios.json`
+    const r = repo({ ...files(BASE), [IOS]: `{"v":0}\n` }, REPO)
+    const landed = r.branch({ [IOS]: `{"v":1}\n` })
+    const unit = r.branch({ [IOS]: `{"v":2}\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: landed, mode: `test`, units: [{ prs: [pr(2, unit)] }], runCommand })
+    expect(outcome.units[0]).toMatchObject({ outcome: `conflict`, files: [IOS] })
+  })
+})

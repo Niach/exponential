@@ -78,7 +78,7 @@ import {
 } from "./domain"
 
 export * from "./auth-schema"
-import { users, oauthApplications } from "./auth-schema"
+import { users, oauthClients } from "./auth-schema"
 
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
@@ -3956,7 +3956,7 @@ export const mcpGrants = pgTable(
       .references(() => users.id, { onDelete: `cascade` }),
     clientId: text(`client_id`)
       .notNull()
-      .references(() => oauthApplications.clientId, { onDelete: `cascade` }),
+      .references(() => oauthClients.clientId, { onDelete: `cascade` }),
     allTeams: boolean(`all_teams`).notNull().default(false),
     teamIds: jsonb(`team_ids`)
       .$type<string[]>()

@@ -16,14 +16,12 @@ import {
 
 const mockState = vi.hoisted(() => ({
   social: vi.fn(),
-  oauth2: vi.fn(),
 }))
 
 vi.mock(`@/lib/auth/client`, () => ({
   authClient: {
     signIn: {
       social: mockState.social,
-      oauth2: mockState.oauth2,
     },
   },
 }))
@@ -68,7 +66,6 @@ const button = (name: string) =>
 describe(`useOAuthSignIn`, () => {
   beforeEach(() => {
     mockState.social.mockReset()
-    mockState.oauth2.mockReset()
   })
 
   it(`surfaces a resolved Google error and clears the pending provider`, async () => {
@@ -107,8 +104,8 @@ describe(`useOAuthSignIn`, () => {
     expect(result.current.pendingProvider).toBeNull()
   })
 
-  it(`surfaces a resolved OIDC error`, async () => {
-    mockState.oauth2.mockReturnValue(
+  it(`surfaces a resolved OIDC error (OIDC signs in through signIn.social since better-auth 1.7)`, async () => {
+    mockState.social.mockReturnValue(
       resolved({ code: `RATE_LIMITED`, message: `Too many requests` })
     )
     const { result } = renderHook(() => useOAuthSignIn(undefined))
@@ -117,8 +114,8 @@ describe(`useOAuthSignIn`, () => {
       await result.current.signInWithOidc(`authentik`)
     })
 
-    expect(mockState.oauth2).toHaveBeenCalledWith({
-      providerId: `authentik`,
+    expect(mockState.social).toHaveBeenCalledWith({
+      provider: `authentik`,
       callbackURL: `/`,
       errorCallbackURL: `/auth/login`,
     })
@@ -165,7 +162,6 @@ describe(`useOAuthSignIn`, () => {
 describe(`OAuthProviderButtons`, () => {
   beforeEach(() => {
     mockState.social.mockReset()
-    mockState.oauth2.mockReset()
   })
 
   it(`re-enables every provider button after a failed start`, async () => {

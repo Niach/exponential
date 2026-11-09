@@ -374,6 +374,10 @@
     "selectTrigger": [
       "field",
       "row"
+    ],
+    "inputVariant": [
+      "field",
+      "row"
     ]
   },
   "defs": {
@@ -4722,6 +4726,12 @@
           "type": "string",
           "bindable": true,
           "description": "Text; bind it to a data path."
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "inputVariant",
+          "default": "field",
+          "description": "`row` = a Group row: label, value."
         },
         "disabled": {
           "type": "boolean",

@@ -31,6 +31,10 @@ const APP_STAMPED: Record<string, string> = {
   oauth_applications: `better-auth adapter stamps it`,
   oauth_access_tokens: `better-auth adapter stamps it`,
   oauth_consents: `better-auth adapter stamps it`,
+  // better-auth 1.7 oauth-provider (the MCP OAuth server).
+  oauth2_clients: `better-auth adapter stamps it`,
+  oauth2_resources: `better-auth adapter stamps it`,
+  oauth2_consents: `better-auth adapter stamps it`,
   // Single writer (the SES webhook), which stamps updatedAt on both the upsert
   // and the auto-suppress write.
   email_bounces: `ses webhook stamps it on every write`,

@@ -4159,7 +4159,20 @@
                     "display": "flex",
                     "flexDirection": "row",
                     "alignItems": "center",
-                    "gap": "$spacing.xs"
+                    "gap": "$spacing.xs",
+                    "alignSelf": "flex-start"
+                  },
+                  "recipe": {
+                    "macro": "KbdGroup",
+                    "part": "root",
+                    "props": {}
+                  },
+                  "accessibility": {
+                    "role": "group"
+                  },
+                  "template": {
+                    "component": "ptt.field.value.key",
+                    "path": "/ptt/value"
                   },
                   "visible": {
                     "@call": "and",
@@ -4189,19 +4202,6 @@
                         }
                       ]
                     }
-                  },
-                  "recipe": {
-                    "macro": "KeyRecorder",
-                    "part": "value",
-                    "props": {
-                      "recording": {
-                        "@path": "/ptt/recording"
-                      }
-                    }
-                  },
-                  "template": {
-                    "component": "ptt.field.value.key",
-                    "path": "/ptt/value"
                   }
                 },
                 {
@@ -4252,6 +4252,31 @@
                   "component": "Box",
                   "props": {},
                   "children": [
+                    {
+                      "id": "ptt.field.held.pending",
+                      "component": "Box",
+                      "props": {},
+                      "children": [],
+                      "style": {
+                        "display": "flex",
+                        "flexDirection": "row",
+                        "alignItems": "center",
+                        "gap": "$spacing.xs",
+                        "alignSelf": "flex-start"
+                      },
+                      "recipe": {
+                        "macro": "KbdGroup",
+                        "part": "root",
+                        "props": {}
+                      },
+                      "accessibility": {
+                        "role": "group"
+                      },
+                      "template": {
+                        "component": "ptt.field.held.pending.key",
+                        "path": "/ptt/pending"
+                      }
+                    },
                     {
                       "id": "ptt.field.held.ellipsis",
                       "component": "Text",
@@ -4310,10 +4335,6 @@
                         "@path": "/ptt/recording"
                       }
                     }
-                  },
-                  "template": {
-                    "component": "ptt.field.held.key",
-                    "path": "/ptt/pending"
                   }
                 }
               ],
@@ -4434,13 +4455,13 @@
               "props": {}
             }
           },
-          "ptt.field.held.key": {
-            "id": "ptt.field.held.key",
+          "ptt.field.held.pending.key": {
+            "id": "ptt.field.held.pending.key",
             "component": "Box",
             "props": {},
             "children": [
               {
-                "id": "ptt.field.held.key.label",
+                "id": "ptt.field.held.pending.key.label",
                 "component": "Text",
                 "props": {
                   "text": {

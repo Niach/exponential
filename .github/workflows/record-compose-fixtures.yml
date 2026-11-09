@@ -68,6 +68,9 @@ name: record-compose-fixtures
 # the seeded avatars.
 # EXP-1629 (2026-11-09, #2441 after the KeyRecorder merge): re-recorded for
 # the new Kbd look and KbdGroup (`Kbd.png`, `KbdGroup.png`, `components.json`).
+# EXP-1629 (2026-11-09): re-recorded for Input `variant: row` (`Input.png`).
+# EXP-1629 (2026-11-09): re-recorded for KeyRecorder's caps as a KbdGroup
+# (`KeyRecorder.png`, `components.json`).
 on:
   workflow_dispatch: {}
   push:

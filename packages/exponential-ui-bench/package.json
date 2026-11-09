@@ -9,6 +9,7 @@
     "./scenarios/*": "./scenarios/*",
     "./results": "./results/index.ts",
     "./budgets.json": "./budgets.json",
+    "./counts.json": "./counts.json",
     "./findings.json": "./findings.json"
   },
   "scripts": {
@@ -20,6 +21,7 @@
     "bench:solid": "bun run ./runners/solid.ts",
     "bench:element": "bun run ./runners/element.ts",
     "ratchet": "bun run ./scripts/ratchet.ts",
+    "counts": "bun run ./scripts/counts.ts",
     "machine": "bun run ./scripts/machine.ts"
   },
   "devDependencies": {
