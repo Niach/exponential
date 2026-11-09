@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url"
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, TOKEN_GROUPS, coreCatalog } from "../src/catalog"
 import { splitDescriptions } from "../src/catalog.described"
 import { basicMap } from "../src/basic-map"
+import { mangle } from "../src/ids"
 import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
 import { reduceNested, reduceSurface } from "../src/reducer"
 import { coreLiteSchema, coreSchema } from "../src/schema"
@@ -159,6 +160,8 @@ function stripComments(value: unknown): unknown {
   return value
 }
 const kebab = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
+/** VAPP-289: a generated component id (round 9 §4: UAX #31, so `_`, never `-`). */
+const snake = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1_$2`).toLowerCase()
 const screaming = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1_$2`).replace(/[^A-Za-z0-9]+/g, `_`).toUpperCase()
 const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -545,11 +548,11 @@ interface ComponentCase {
 }
 
 function childFor(name: string): NestedNode {
-  return { id: `${kebab(name)}-child`, component: `Text`, props: { text: `Child` } }
+  return { id: `${snake(name)}_child`, component: `Text`, props: { text: `Child` } }
 }
 
 function makeCase(name: string, def: ComponentDef, suffix: string, props: Record<string, unknown>): ComponentCase {
-  const node: NestedNode = { id: kebab(name), component: name, props }
+  const node: NestedNode = { id: snake(name), component: name, props }
   // #VAPP-284: children make a Row a foldable parent; the sweep keeps the plain row (foldCases cover the parent).
   if (def.children !== `none` && name !== `Row`) node.children = [childFor(name)]
   return { name: `${name}/${suffix}`, node }
@@ -718,7 +721,7 @@ function componentCases(): ComponentCase[] {
         for (const value of [true, false]) cases.push(make(`${prop}=${value}`, { ...base, [prop]: value }))
       }
     }
-    for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: kebab(name), component: name, props: { ...base, ...props } } })
+    for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: snake(name), component: name, props: { ...base, ...props } } })
   }
   return cases
 }
@@ -749,7 +752,7 @@ const windowBody = (id: string): NestedNode => ({
   id,
   component: `Box`,
   style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm`, padding: `$spacing.xl`, flexGrow: 1, alignItems: `flex-start` },
-  children: [text(`${id}-title`, `Release 0.18`, `label`), text(`${id}-text`, `4 steps · 2 done`, `muted`), button(`${id}-open`, `Open board`, `outline`)],
+  children: [text(`${id}_title`, `Release 0.18`, `label`), text(`${id}_text`, `4 steps · 2 done`, `muted`), button(`${id}_open`, `Open board`, `outline`)],
 })
 
 /** What a specimen puts inside a container instead of the cases' generic
@@ -824,7 +827,7 @@ function settingsSelectRow(stackBelow?: string): NestedNode {
     id: `digest`,
     component: `SettingsRow`,
     props: { label: `Digest`, description: `How often the summary email goes out.`, ...(stackBelow ? { stackBelow } : {}) },
-    children: [{ id: `digest-select`, component: `Select`, props: { name: `digest`, value: `daily`, options: [{ label: `Hourly`, value: `hourly` }, { label: `Daily`, value: `daily` }, { label: `Off`, value: `off` }] } }],
+    children: [{ id: `digest_select`, component: `Select`, props: { name: `digest`, value: `daily`, options: [{ label: `Hourly`, value: `hourly` }, { label: `Daily`, value: `daily` }, { label: `Off`, value: `off` }] } }],
   }
 }
 
@@ -839,9 +842,9 @@ function settingsGroup(): NestedNode {
       id: `rows`,
       component: `Section`,
       children: [
-        { id: `email`, component: `SettingsRow`, props: { label: `Email notifications`, stackBelow: `never` }, children: [{ id: `email-switch`, component: `Switch`, props: { label: ``, name: `email`, checked: true } }] },
+        { id: `email`, component: `SettingsRow`, props: { label: `Email notifications`, stackBelow: `never` }, children: [{ id: `email_switch`, component: `Switch`, props: { label: ``, name: `email`, checked: true } }] },
         settingsSelectRow(),
-        { id: `volume`, component: `SettingsRow`, props: { label: `Ring volume` }, children: [{ id: `volume-slider`, component: `Slider`, props: { min: 0, max: 100, step: 5, value: 60, icon: `media-volume-up`, endLabel: `60%`, showValue: false } }] },
+        { id: `volume`, component: `SettingsRow`, props: { label: `Ring volume` }, children: [{ id: `volume_slider`, component: `Slider`, props: { min: 0, max: 100, step: 5, value: 60, icon: `media-volume-up`, endLabel: `60%`, showValue: false } }] },
       ],
     }],
   }
@@ -898,18 +901,18 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   // EXP-1653: the column stays at every width, so a phone frame shows the
   // shell and not only the pane (`md` hides it there with no way back).
   Sidebar: [{ label: `collapseBelow · never`, node: { id: `sidebar`, component: `Sidebar`, props: { side: `left`, width: 240, collapseBelow: `never` } } }],
-  SplitView: [{ label: `example`, node: { id: `split-view`, component: `SplitView`, props: { width: 280 } } }],
+  SplitView: [{ label: `example`, node: { id: `split_view`, component: `SplitView`, props: { width: 280 } } }],
   FormActions: [
-    { label: `example`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
-    { label: `destructive · true`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Delete team`, cancel: true, destructive: true } } },
+    { label: `example`, node: { id: `form_actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
+    { label: `destructive · true`, node: { id: `form_actions`, component: `FormActions`, props: { submit: `Delete team`, cancel: true, destructive: true } } },
   ],
   // VAPP-280: no generated cases; its cases are SPECIMEN_EXTRA (a Group
   // root must keep its own rows, not the Group demo children).
   SettingsRow: [],
   StatTile: [
-    { label: `example`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Active users`, value: `1,284`, delta: `+12 %`, tone: `success`, trend: [3, 4, 3, 5, 6, 8] } } },
-    { label: `tone · danger`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Error rate`, value: `0.42 %`, delta: `+0.1 %`, tone: `danger`, trend: [2, 2, 3, 2, 4, 5] } } },
-    { label: `no trend`, node: { id: `stat-tile`, component: `StatTile`, props: { label: `Open issues`, value: `37` } } },
+    { label: `example`, node: { id: `stat_tile`, component: `StatTile`, props: { label: `Active users`, value: `1,284`, delta: `+12 %`, tone: `success`, trend: [3, 4, 3, 5, 6, 8] } } },
+    { label: `tone · danger`, node: { id: `stat_tile`, component: `StatTile`, props: { label: `Error rate`, value: `0.42 %`, delta: `+0.1 %`, tone: `danger`, trend: [2, 2, 3, 2, 4, 5] } } },
+    { label: `no trend`, node: { id: `stat_tile`, component: `StatTile`, props: { label: `Open issues`, value: `37` } } },
   ],
   Trace: [`default`, `sm`].map((size) => ({ label: size === `sm` ? `size · sm` : `example`, node: { id: `trace`, component: `Trace`, props: { size }, children: traceLines(size) } })),
   TraceItem: [
@@ -989,7 +992,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   // button with the Row hover fill; at rest they look like the others).
   StatTile: [{ label: `pressable · true`, node: { id: `tile_press`, component: `StatTile`, props: { label: `Income`, value: `4,200`, delta: `+8 %`, tone: `success`, pressable: true } } }],
   Card: [{ label: `pressable · true`, node: { id: `card_press`, component: `Card`, props: { title: `Expenses`, description: `12 this month`, pressable: true }, children: [{ id: `card_press_t`, component: `Text`, props: { text: `Rent, travel, software`, variant: `body` } }] } }],
-  Window: [{ label: `no title`, node: { id: `untitled`, component: `Window`, props: {}, style: { height: 160 }, children: [windowBody(`untitled-body`)] } }],
+  Window: [{ label: `no title`, node: { id: `untitled`, component: `Window`, props: {}, style: { height: 160 }, children: [windowBody(`untitled_body`)] } }],
   // Round 8 (docs/round-8-contract.md): the download row, a bar with only
   // its trailing text, the collapsed Stepper, the mixed Checkbox.
   Progress: [
@@ -1007,7 +1010,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       children: [
         { id: `all`, component: `Checkbox`, props: { label: `All packs`, name: `all`, indeterminate: true } },
         {
-          id: `pack-list`,
+          id: `pack_list`,
           component: `Stack`,
           props: { direction: `vertical`, gap: `xs`, align: `start` },
           style: { paddingInlineStart: `$spacing.lg` },
@@ -1056,7 +1059,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
           style: { position: `absolute`, left: 0, right: 0, bottom: 0, display: `flex`, flexDirection: `row`, justifyContent: `space-between`, alignItems: `center`, padding: `$spacing.xs`, backgroundColor: `$color.card` },
           children: [button(`start`, `Start`, `ghost`), button(`clock`, `12:00`, `ghost`)],
         },
-        { id: `start-menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
+        { id: `start_menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
         { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
       ],
     },
@@ -1118,7 +1121,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   VoiceWave: [`sm`, `md`, `lg`, `xl`].map((size) => ({
     label: `variant · bars · ${size}`,
-    node: { id: `bars-${size}`, component: `VoiceWave`, props: { variant: `bars`, size, activity: `speaking`, level: 0.7, bands: [0.9, 0.5, 1, 0.6], label: `Voice` } },
+    node: { id: `bars_${size}`, component: `VoiceWave`, props: { variant: `bars`, size, activity: `speaking`, level: 0.7, bands: [0.9, 0.5, 1, 0.6], label: `Voice` } },
   })),
   Button: [{
     label: `hold · true`,
@@ -1160,10 +1163,10 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     node: { id: `strip`, component: `Tabs`, props: { variant: `strip`, value: `notes`, closable: `hover`, addable: true, tabs: [{ label: `Inbox`, value: `inbox`, icon: `nav-inbox` }, { label: `Release notes`, value: `notes`, icon: `nav-changelog` }, { label: `Board`, value: `board`, icon: `nav-boards` }] } },
   }, {
     label: `variant · strip · closable always`,
-    node: { id: `strip-close`, component: `Tabs`, props: { variant: `strip`, value: `a`, closable: `always`, tabs: [{ label: `ExponentialOS`, value: `a`, icon: `status-in-progress` }, { label: `google keywords`, value: `b`, icon: `action-chat` }] } },
+    node: { id: `strip_close`, component: `Tabs`, props: { variant: `strip`, value: `a`, closable: `always`, tabs: [{ label: `ExponentialOS`, value: `a`, icon: `status-in-progress` }, { label: `google keywords`, value: `b`, icon: `action-chat` }] } },
   }, {
     label: `variant · strip · overflow (+N)`,
-    node: { id: `strip-narrow`, component: `Tabs`, props: { variant: `strip`, value: `t4`, closable: `hover`, addable: true, tabs: [`Inbox`, `Release notes`, `Calendar`, `Settings`, `Search`, `Drafts`].map((label, i) => ({ label, value: `t${i}` })) }, style: { width: 320 } },
+    node: { id: `strip_narrow`, component: `Tabs`, props: { variant: `strip`, value: `t4`, closable: `hover`, addable: true, tabs: [`Inbox`, `Release notes`, `Calendar`, `Settings`, `Search`, `Drafts`].map((label, i) => ({ label, value: `t${i}` })) }, style: { width: 320 } },
   }, {
     // FEED-200: panels that page by swipe on touch (the thumb at rest).
     label: `swipeable · true · fill`,
@@ -1202,7 +1205,7 @@ const SPECIMEN_SLOTS: Record<string, Record<string, NestedNode>> = {
   Drawer: { trigger: button(`trigger`, `Filters`, `outline`), footer: button(`apply`, `Apply`) },
   DockCard: { footer: { id: `footer`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, justify: `end` }, children: [button(`no`, `No, keep planning`, `secondary`), button(`yes`, `Yes`)] } },
   Popover: { trigger: button(`trigger`, `Open popover`, `outline`) },
-  Sidebar: { sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `n1`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, selected: true, pressable: true }, slots: { trailing: { id: `n1-count`, component: `Badge`, props: { text: `3`, variant: `secondary` } } } }, { id: `n2`, component: `Row`, props: { title: `Issues`, icon: `nav-issues`, pressable: true } }] } },
+  Sidebar: { sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `n1`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, selected: true, pressable: true }, slots: { trailing: { id: `n1_count`, component: `Badge`, props: { text: `3`, variant: `secondary` } } } }, { id: `n2`, component: `Row`, props: { title: `Issues`, icon: `nav-issues`, pressable: true } }] } },
   AppBar: { trailing: { id: `more`, component: `Button`, props: { icon: `ui-more`, label: `More`, variant: `ghost`, size: `icon` } } },
   AlertDialog: { trigger: button(`trigger`, `Delete board`, `destructive`) },
   Page: { trailing: { id: `more`, component: `Button`, props: { icon: `ui-more`, label: `More`, variant: `ghost`, size: `icon` } } },
@@ -1232,11 +1235,12 @@ function specimenContent(node: NestedNode): NestedNode {
   return out
 }
 
-/** Re-ids a nested tree so several cases of one component share a surface. */
+/** Re-ids a nested tree so several cases of one component share a surface
+ *  (VAPP-289: through `mangle`, so every specimen id is an identifier). */
 function prefixIds(node: NestedNode, prefix: string): NestedNode {
-  const out: NestedNode = { ...node, id: `${prefix}${node.id}` }
+  const out: NestedNode = { ...node, id: mangle(`${prefix}${node.id}`) }
   // VAPP-276: an `anchor` names a node id of the same case.
-  if (typeof node.props?.anchor === `string`) out.props = { ...node.props, anchor: `${prefix}${node.props.anchor}` }
+  if (typeof node.props?.anchor === `string`) out.props = { ...node.props, anchor: mangle(`${prefix}${node.props.anchor}`) }
   if (node.children) out.children = node.children.map((c) => prefixIds(c, prefix))
   if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, prefixIds(v, prefix)]))
   return out
@@ -1305,7 +1309,7 @@ function inlineBindings(value: unknown, data: Record<string, unknown>): unknown 
 /** One component's specimen: a padded column of captioned cases. */
 function specimenNode(name: string, all: ComponentCase[]): NestedNode {
   const inline = INLINE_SPECIMENS.has(name)
-  const root = `specimen-${kebab(name)}`
+  const root = `specimen_${snake(name)}`
   const wrap = SPECIMEN_WRAP[name]
   const source = SPECIMEN_SOURCES[name]
   if (source) {
@@ -1324,13 +1328,13 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
       ? { display: `flex`, flexDirection: `row`, flexWrap: `wrap`, alignItems: `flex-start`, gap: `$spacing.lg`, padding: `$spacing.xl` }
       : { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: SPECIMEN_MAX_WIDTH[name] ?? 720 },
     children: specimenCases(name, all).map((c, i) => ({
-      id: `${root}-case-${i}`,
+      id: `${root}_case_${i}`,
       component: `Stack`,
       props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
       ...(wrap ? { style: wrap } : {}),
       children: [
-        { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
-        prefixIds(c.node, `c${i}-`),
+        { id: `${root}_case_${i}_label`, component: `Text`, props: { text: c.label, variant: `caption` } },
+        prefixIds(c.node, `c${i}_`),
       ],
     })),
   }
@@ -1450,8 +1454,8 @@ function railNav(): NestedNode {
     component: `Stack`,
     props: { gap: `xs` },
     children: [
-      { id: `inbox`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, meta: `3`, selected: true, pressable: true }, slots: { trailing: { id: `inbox-new`, component: `Badge`, props: { text: `New` } } } },
-      { id: `issues`, component: `Row`, props: { title: `Issues`, pressable: true }, slots: { leading: { id: `issues-dot`, component: `Icon`, props: { name: `nav-issues`, size: `sm` } } } },
+      { id: `inbox`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, meta: `3`, selected: true, pressable: true }, slots: { trailing: { id: `inbox_new`, component: `Badge`, props: { text: `New` } } } },
+      { id: `issues`, component: `Row`, props: { title: `Issues`, pressable: true }, slots: { leading: { id: `issues_dot`, component: `Icon`, props: { name: `nav-issues`, size: `sm` } } } },
       { id: `more`, component: `Section`, props: { title: `More`, collapsible: true, open: false }, children: [{ id: `search`, component: `Row`, props: { title: `Search`, icon: `nav-search`, meta: `120`, pressable: true } }] },
     ],
   }
@@ -1494,7 +1498,7 @@ function railFoldCases(): ComponentCase[] {
     name: `Sidebar/rail:${name}`,
     node: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed, collapseBelow: `never` }, slots: { sidebar: nav }, children: [{ id: `main`, component: `Text`, props: { text: `Pick a board.` } }] },
   })
-  return [sidebar(`fold-collapsed`, true), sidebar(`fold-expanded`, false)]
+  return [sidebar(`fold_collapsed`, true), sidebar(`fold_expanded`, false)]
 }
 
 /** #VAPP-277 × #VAPP-285: a Tree in a collapsed rail Sidebar: every row a
@@ -1510,7 +1514,7 @@ function railTreeCases(): ComponentCase[] {
 /** #EXP-1736: the sender's avatar left of an incoming bubble (an `out` one
  *  drops the slot), with the press that opens the sender. */
 function messageBubbleCases(): ComponentCase[] {
-  const avatar: NestedNode = { id: `bubble-avatar`, component: `Avatar`, props: { name: `Release agent` } }
+  const avatar: NestedNode = { id: `bubble_avatar`, component: `Avatar`, props: { name: `Release agent` } }
   const props = { text: `Merged; the tag is pushed.`, author: `Release agent`, time: `18:04`, href: `https://ui.exponential.at` }
   return [
     { name: `MessageBubble/avatar:in`, node: { id: `bubble`, component: `MessageBubble`, props, slots: { avatar } } },

@@ -682,7 +682,7 @@
           "children": [
             "list",
             "item",
-            "ghost-list"
+            "ghost_list"
           ]
         },
         {
@@ -725,7 +725,7 @@
           }
         },
         {
-          "id": "ghost-list",
+          "id": "ghost_list",
           "component": "List",
           "children": {
             "componentId": "nowhere",
@@ -751,7 +751,7 @@
               }
             },
             {
-              "id": "ghost-list",
+              "id": "ghost_list",
               "component": "List",
               "props": {},
               "children": [],

@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { render } from "../scripts/generate"
+import { isIdentifier } from "./ids"
 
 const pkgRoot = join(import.meta.dir, `..`)
 
@@ -89,6 +90,27 @@ describe(`generated outputs (VAPP-85)`, () => {
       expect(readFileSync(join(pkgRoot, rel), `utf8`)).toBe(files[rel])
     })
   }
+
+  // VAPP-289 (round 9 §4): every component id the generator mints is an
+  // identifier. A derived id (`<id>.<part>`, `<id>.<key>`, §4.3) is checked
+  // by its authored head. a2ui10-messages.json keeps its non-identifier ids:
+  // they are the refusal cases' inputs.
+  test(`every generated fixture's component ids are identifiers`, () => {
+    const bad: string[] = []
+    const walk = (rel: string, v: unknown): void => {
+      if (Array.isArray(v)) return v.forEach((x) => walk(rel, x))
+      if (!v || typeof v !== `object`) return
+      const o = v as Record<string, unknown>
+      // A specimen entry's `id` is its view id (exponential-ui-<name>); its tree is `node`.
+      const isEntry = rel === `fixtures/specimens.json` && `node` in o && `title` in o
+      if (!isEntry && typeof o.id === `string` && typeof o.component === `string` && !isIdentifier(o.id.split(`.`)[0]!)) bad.push(`${rel}: ${o.id}`)
+      for (const x of Object.values(o)) walk(rel, x)
+    }
+    for (const [rel, content] of Object.entries(files)) {
+      if (rel.startsWith(`fixtures/`) && rel.endsWith(`.json`) && rel !== `fixtures/a2ui10-messages.json`) walk(rel, JSON.parse(content))
+    }
+    expect(bad).toEqual([])
+  })
 })
 
 describe(`core.schema.json actions (VAPP-99, round 9)`, () => {
