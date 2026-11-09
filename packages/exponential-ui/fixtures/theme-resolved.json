@@ -2716,6 +2716,31 @@
                 "backgroundColor": "#00000000",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 20,
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono"
+              }
             }
           ],
           "label": [
@@ -2782,7 +2807,6 @@
           "field": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -2793,8 +2817,16 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm",
-                "minHeight": "$control.textarea",
                 "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "variant": "field"
+              },
+              "style": {
+                "height": "$control.input",
+                "minHeight": "$control.textarea"
               }
             },
             {
@@ -2819,6 +2851,32 @@
               },
               "style": {
                 "borderColor": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
               }
             }
           ],
@@ -11110,6 +11168,31 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 20,
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
@@ -11128,6 +11211,19 @@
                 "backgroundColor": "#00000000",
                 "fontSize": 12.25,
                 "lineHeight": 17.5
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 18,
+                "fontSize": 12.25,
+                "lineHeight": 18
               }
             }
           ],
@@ -11204,7 +11300,6 @@
           "field": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -11215,8 +11310,16 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm",
-                "minHeight": "$control.textarea",
                 "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "variant": "field"
+              },
+              "style": {
+                "height": "$control.input",
+                "minHeight": "$control.textarea"
               }
             },
             {
@@ -11244,10 +11347,60 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": 24,
+                "paddingVertical": 18.5,
+                "backgroundColor": "#00000000",
+                "fontSize": 12.25,
+                "lineHeight": 18
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 18
               }
             }
           ],
@@ -19883,11 +20036,49 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 20,
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full",
                 "borderWidth": "$border.thick",
                 "paddingHorizontal": "$spacing.lg",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "borderRadius": "$radius.none",
+                "borderWidth": 0,
+                "paddingHorizontal": 0
               }
             }
           ],
@@ -19955,7 +20146,6 @@
           "field": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -19966,8 +20156,16 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm",
-                "minHeight": "$control.textarea",
                 "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "variant": "field"
+              },
+              "style": {
+                "height": "$control.input",
+                "minHeight": "$control.textarea"
               }
             },
             {
@@ -19995,10 +20193,48 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.xl",
                 "borderWidth": "$border.thick",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "borderRadius": "$radius.none",
+                "borderWidth": 0
               }
             }
           ],
@@ -28706,6 +28942,31 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 20,
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
@@ -28724,6 +28985,19 @@
                 "backgroundColor": "#00000000",
                 "fontSize": 12.25,
                 "lineHeight": 17.5
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "bare",
+                  "code"
+                ]
+              },
+              "style": {
+                "height": 18,
+                "fontSize": 12.25,
+                "lineHeight": 18
               }
             }
           ],
@@ -28800,7 +29074,6 @@
           "field": [
             {
               "style": {
-                "height": "$control.input",
                 "paddingHorizontal": "$spacing.md",
                 "borderRadius": "$radius.md",
                 "borderWidth": "$border.hairline",
@@ -28811,8 +29084,16 @@
                 "lineHeight": "$type.lineHeight.sm",
                 "fontFamily": "$type.family.sans",
                 "boxShadow": "$shadow.sm",
-                "minHeight": "$control.textarea",
                 "paddingVertical": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "variant": "field"
+              },
+              "style": {
+                "height": "$control.input",
+                "minHeight": "$control.textarea"
               }
             },
             {
@@ -28840,10 +29121,60 @@
               }
             },
             {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.lg",
+                "paddingVertical": "$spacing.md",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
                 "boxShadow": "$shadow.none"
+              }
+            },
+            {
+              "when": {
+                "variant": [
+                  "row",
+                  "code"
+                ]
+              },
+              "style": {
+                "paddingHorizontal": 24,
+                "paddingVertical": 18.5,
+                "backgroundColor": "#00000000",
+                "fontSize": 12.25,
+                "lineHeight": 18
+              }
+            },
+            {
+              "when": {
+                "variant": "code"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 18
               }
             }
           ],
