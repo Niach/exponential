@@ -22,10 +22,11 @@ object Routes {
     /** #FEED-191 (needs-you.json): THE list, pushed from the Chats list's first row. */
     const val CHATS_NEEDS_YOU = "chats-needs-you"
 
-    /** `tab` = the tab the chat opens on (`guide` for a `?view=guide`
-     *  link); absent = the Conversation. `plan` = the plan card the plan tab
-     *  opens on (#EXP-1662; absent = `planTabTarget`). `card` = the waiting card
-     *  the Conversation centres (#FEED-191 needs-you.json). */
+    /** `tab` = the tab THE session screen opens on (#EXP-1732
+     *  session-screen.json: `chat` · `issues` · `sessions` · `results`; legacy
+     *  values `guide` / `plan` / ... map through `legacyTabs`); absent = Chat.
+     *  `plan` = the plan card opened as the pushed item (#EXP-1662). `card` =
+     *  the waiting card the Conversation centres (#FEED-191 needs-you.json). */
     const val CHAT_PATTERN = "chat/{sessionId}?tab={tab}&plan={plan}&card={card}"
 
     /** EXP-1635 (share-targets.json): STEP 1 of a share; New issue pushes [SHARE_COMPOSE]. */

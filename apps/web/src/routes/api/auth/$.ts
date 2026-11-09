@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { withProxyAttestedClientIp } from "@/lib/auth/client-ip"
 import { guardMcpAuthorize } from "@/lib/auth/mcp-authorize-guard"
 import { withCurrentAuthPath } from "@/lib/auth/legacy-auth-paths"
+import { legacyProtectedResourceResponse } from "@/lib/auth/mcp-oauth-config"
 
 // The Creem plugin registers session-facing endpoints we never call —
 // checkout/seat/plan/cancel changes all go through the team-scoped tRPC
@@ -33,6 +34,8 @@ async function handleGet(incoming: Request) {
   if (isBlockedCreemEndpoint(pathname)) {
     return new Response(`Not found`, { status: 404 })
   }
+  const legacyMetadata = legacyProtectedResourceResponse(pathname)
+  if (legacyMetadata) return legacyMetadata
   if (pathname === `/api/auth/oauth2/authorize`) {
     const guarded = await guardMcpAuthorize(withProxyAttestedClientIp(request))
     if (`response` in guarded) return guarded.response

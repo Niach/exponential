@@ -1,6 +1,6 @@
 # Tools, exposes and extensions
 
-> Generated from packages/exponential-ui/docs/package-format.md (Tools, Exposes, Extensions) (genUI 0.20.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Tools, Exposes, Extensions) (genUI 0.21.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Tools
 

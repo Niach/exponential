@@ -21,10 +21,12 @@
 //!    ([`crate::screens::dev_dialog_settled`]) — `EXP_DEV_DIALOG` opens its
 //!    overlay 1.5s after its precondition resolves, and a capture taken
 //!    before that would show the bare screen,
-//! 4. (#EXP-1654) on a `session:` screen, the steer feed has PAINTED its
-//!    first replay ([`note_feed_painted`]): the viewer joins the device over
-//!    eNet seconds after the shapes are Live, and a capture taken before that
-//!    photographed "No live transcript".
+//! 4. (#EXP-1654) on a `session:` screen, or (#EXP-1732) with
+//!    `EXP_DEV_WAIT_FEED=1` (an agent's or an app's screen whose Chat pane is
+//!    a recorded root), the steer feed has PAINTED its first replay
+//!    ([`note_feed_painted`]): the viewer joins the device over eNet seconds
+//!    after the shapes are Live, and a capture taken before that photographed
+//!    "No live transcript".
 //!
 //! While it waits it prints the blocking reason (naming the shapes it is
 //! still missing) every [`LOG_INTERVAL`] whenever that reason CHANGES, so a
@@ -83,7 +85,8 @@ pub fn install_dev_ready_probe(cx: &mut App) {
     let signed_in_lane = env_set("EXP_DEV_SERVER") && env_set("EXP_DEV_TOKEN");
     let dialog = std::env::var("EXP_DEV_DIALOG").unwrap_or_default();
     let wants_feed = std::env::var("EXP_DEV_SCREEN")
-        .is_ok_and(|screen| screen.trim().starts_with("session:"));
+        .is_ok_and(|screen| screen.trim().starts_with("session:"))
+        || env_set("EXP_DEV_WAIT_FEED");
 
     cx.spawn(async move |cx| {
         let started = Instant::now();

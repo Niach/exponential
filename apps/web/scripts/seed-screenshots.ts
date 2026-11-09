@@ -738,7 +738,11 @@ async function seedSessionTree(ctx: {
       root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
         agentId: DEMO_AGENT_IDS[spec.key],
         title: spec.name,
-        deviceId: DEMO_SERVER_DEVICE_ID,
+        // #EXP-1732: Triage's conversation runs on the demo desktop, ONLINE
+        // under screenshots:desktop, whose stub replays its recorded journal
+        // (lib/demo-stored-journals.ts) on the Chat tab; the other two stay
+        // on the (offline) build server.
+        deviceId: spec.key === `triage` ? DEMO_DEVICE_ID : DEMO_SERVER_DEVICE_ID,
         account: `system`,
         repositoryId: null,
         status: `idle`,

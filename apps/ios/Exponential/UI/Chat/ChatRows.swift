@@ -4,37 +4,41 @@ import Foundation
 import GRDB
 import SwiftUI
 
-/// EXP-1295: a chat screen's page — the strip's tabs as the phone's
-/// pager (Conversation · one per linked issue, EXP-1334: the folded
-/// sub-issues too; the "+" is a button) · results-tab.json: the Results page,
-/// always the last.
+/// #EXP-1732: a WAY INTO a session screen (a route's `child`, a landing):
+/// a tab (`conversation` = Chat, `results`) or an item opened over its tab
+/// (an issue: Issues, a session: Sessions, a plan over Chat), or a waiting
+/// card the Chat scrolls to.
 enum ChatPage: Hashable {
     case conversation
-    /// #EXP-1662 (plan-page.json): the plan tab, right after Conversation.
-    /// The page itself is `.plan(nil)`; a way in names the plan it opens
-    /// (nil = `PlanPage.planTabTarget`), which `ChatScreen` holds aside.
+    /// #EXP-1662 (plan-page.json): the plan page as an opened item; nil =
+    /// `PlanPage.planTabTarget`.
     case plan(String?)
-    /// results-tab.json (not a session-chat.json tab: the host pins it after
-    /// the last chip).
+    /// results-tab.json: the Results tab.
     case results
-    /// #FEED-191 (needs-you.json): a WAY IN, never a page: the Conversation,
-    /// scrolled to this waiting card (THE waiting button's pick).
+    /// #FEED-191 (needs-you.json): the Chat, scrolled to this waiting card.
     case card(String)
+    /// The Issues tab with that issue opened in place.
     case issue(String)
-    /// EXP-1343: a session chip (or a nested session) as a page — its raw
-    /// work + composer under the chat's header.
+    /// The Sessions tab with that session opened in place (its raw work +
+    /// composer).
     case session(String)
 }
 
-/// VAPP-110: what an app EDITOR puts into the chat screen hosting its
-/// chat (`ChatScreen.editor`): the chat header's title block (#EXP-1729:
-/// the app's disc + name over `status · device`), the band under it (the Chat | Preview | Versions control) and the
-/// pane covering the Conversation (nil = the Chat tab); VAPP-121: the
-/// header's trailing round button (Export; nil = none).
+/// #EXP-1732: what an app EDITOR puts into THE session screen hosting its
+/// editor session (`ChatScreen.editor`, kind `app`): the header's lead and
+/// title (glyph + name + version pill over #EXP-1729's `status · device`),
+/// the active tab (the editor drives
+/// it: a screen link, a Versions row's Preview), the Preview / Data /
+/// Versions bodies, the gear's settings page and the header's `…` (Export,
+/// Delete).
 struct ChatEditorSlot {
-    let title: AnyView
-    let band: AnyView
-    let pane: AnyView?
+    /// The title block over the TREE's status word (`ChatHeaderTitle.status`).
+    let title: (String) -> AnyView
+    let tab: Binding<SessionScreen.Tab>
+    /// The app tab's body (preview, data, versions); nil = not the editor's.
+    let pane: (SessionScreen.Tab) -> AnyView?
+    /// The gear's opened item: the app's settings page.
+    let settings: AnyView
     var trailing: AnyView? = nil
     /// #FEED-204: the composer's Device row and an ended root's move.
     var device: SessionComposerFooter.DeviceMenu? = nil
@@ -154,11 +158,20 @@ struct ChatRows: Sendable {
     ) -> TranscriptGrouping.Input {
         let chat = chat ?? root
         let isRoot = chat.id == root.id
-        let title = isRoot && !agentName.isEmpty ? agentName : (chat.title ?? SessionTitle.Copy.untitled)
+        // EXP-1341: THE session title (an issue-named root reads its
+        // issues, never `Untitled`), like web and Android.
+        let titles = SessionTitle.titles(
+            sessions.map(TreeSession.init(sessionRow:)),
+            sessionIssues: sessionIssues.map(TreeSessionIssue.init(sessionIssueRow:)),
+            issues: issues.map(TreeIssue.init(issueRow:)),
+            messages: messages.map(TreeMessage.init(messageRow:))
+        )
+        let titleOf = { (session: SessionEntity) in titles[session.id] ?? session.title ?? SessionTitle.Copy.untitled }
+        let title = isRoot && !agentName.isEmpty ? agentName : titleOf(chat)
         let known = sessions.map { session in
             TranscriptGrouping.KnownSession(
                 id: session.id,
-                title: session.title ?? SessionTitle.Copy.untitled,
+                title: titleOf(session),
                 agentId: session.agentId
             )
         }

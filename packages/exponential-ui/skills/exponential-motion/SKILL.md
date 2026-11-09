@@ -5,7 +5,7 @@ description: "Animate with Motion: the readable Motion dialect that compiles 1:1
 
 # Motion
 
-> Generated from docs/spec/motion.md and the Motion guide (genUI 0.20.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from docs/spec/motion.md and the Motion guide (genUI 0.21.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 `Motion` is the genUI component for vector animation. **Lottie JSON is the
 stored and rendered format.** Models and people write a readable **dialect**

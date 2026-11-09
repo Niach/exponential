@@ -36,7 +36,7 @@ export function pushBack(stack: readonly string[], here: string | null): string[
 
 /** Where a session opens on web. */
 export type SessionTarget =
-  /** Its chat (a child = `?tab=session&session=<id>` in place). */
+  /** Its chat (a child = `?tab=sessions&open=session&session=<id>` in place). */
   | { to: `chat`; chatId: string; session: string | null }
   /** The viewer's own conversation with a team agent = the agent's page. */
   | { to: `agent`; agentId: string }

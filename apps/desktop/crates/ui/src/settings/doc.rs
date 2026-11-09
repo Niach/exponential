@@ -316,15 +316,27 @@ impl Ink {
 /// The pane's document as a [`SurfaceView`] in the Exponential theme, its actions
 /// and inputs routed to `binding`, everything else to the IDE's plugin.
 pub(super) fn mount<S: 'static>(surface_id: &str, tree: Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    mount_with(surface_id, tree, binding, std::rc::Rc::new(ide_plugin()), false, window, cx)
+}
+
+/// The IDE's plugin as the panes' documents use it (no media origin, no
+/// uploads).
+pub(super) fn ide_plugin() -> crate::exponential_ui_host::IdePlugin {
+    crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None }
+}
+
+/// [`mount`] with the pane's own plugin under the binding; `lift_layers`
+/// opens its popups at window level, as the IDE's picker popovers do.
+pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, inner: std::rc::Rc<dyn eui_gpui::host::HostPlugin>, lift_layers: bool, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
     use gpui::AppContext as _;
     use std::rc::Rc;
-    let inner: Rc<dyn eui_gpui::host::HostPlugin> = Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None });
     let host: Rc<dyn eui_gpui::host::HostPlugin> = Rc::new(eui_gpui::binding::BindingHost::new(binding, inner));
     let options = eui_gpui::view::SurfaceViewOptions {
         surface_id: surface_id.into(),
         theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
         mode: eui_core::theme::Mode::Dark,
         host,
+        lift_layers,
         settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
         ..Default::default()
     };
