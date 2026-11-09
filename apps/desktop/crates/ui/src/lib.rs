@@ -39,6 +39,8 @@ mod trigger_editor;
 // NEW-2: THE schedule picker rows (schedule-picker.json ×4).
 mod schedule_fields;
 mod board;
+mod font_warm;
+mod lazy_rows;
 mod board_form;
 mod changelog;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
@@ -303,6 +305,8 @@ pub fn init(cx: &mut App) {
     eui_gpui::view::init(cx);
     // #LOGS-5: Home is the landing screen; its dawn mark rasters meanwhile.
     chat_screen::warm_dawn(cx);
+    // #LOGS-6: the fonts an issue page shapes load off the main thread.
+    font_warm::warm(cx);
     // Session 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
