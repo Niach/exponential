@@ -43,6 +43,7 @@ import { db, pool } from "@/db/connection"
 import { mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams } from "@/db/schema"
 import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import { readCommitChecks } from "@/lib/merge-train/commit-checks"
+import { confirmLanding } from "@/lib/merge-train/confirm"
 import {
   closedIssueIdentifiers,
   postAssistantBatch,
@@ -278,6 +279,15 @@ async function requeue(ids: string[], base: string, now: Date): Promise<void> {
   for (const id of ids) await stepPullRequest(id, { type: `train_requeued` }, { base, now })
 }
 
+/** #FEED-212: a landing the forge refused or never confirmed: its PRs back to
+ *  the queue with the attempt counted (never closed, never merged), the rest
+ *  of the run re-queued, the run an error. */
+async function unland(run: RunRow, ids: string[], rest: string[], now: Date, error: string): Promise<void> {
+  for (const id of ids) await stepPullRequest(id, { type: `train_unlanded` }, { base: run.base, now })
+  await requeue(rest.filter((id) => !ids.includes(id)), run.base, now)
+  await finishRun(run, `error`, { error })
+}
+
 /** Units whose members a push, a hold or a close pulled out of `runId`. */
 function pulled(units: string[][], prs: Map<string, PrRow>, runId: string | null): boolean {
   return units.some((unit) =>
@@ -411,16 +421,29 @@ async function land(
     await finishRun(run, `cancelled`, { error: `${run.base} already landed: nothing lands onto it` })
     return false
   }
+  // #FEED-212: a head equal to the base composed nothing (an empty squash):
+  // fast-forwarding onto itself "succeeds" and lands nothing.
+  if (head === run.baseSha) {
+    console.error(`[merge-train] ${repo.fullName}: run ${run.id} composed nothing onto ${run.base}`)
+    await unland(run, ids, rest, now, `the train head is ${run.base} itself: nothing to land`)
+    return false
+  }
   const ff = await forge.fastForward(fr, { branch: run.base, from: run.baseSha, to: head })
   if (!ff.ok) {
-    await requeue(rest, run.base, now)
-    if (ff.reason === `refused`) {
-      backoff.set(repo.id, now.getTime() + REFUSED_BACKOFF_MS)
-      console.error(`[merge-train] ${repo.fullName}: fast-forward of ${run.base} refused: ${ff.message}`)
+    if (ff.reason === `moved`) {
+      await requeue(rest, run.base, now)
+      await finishRun(run, `cancelled`, { error: `${run.base} moved: recompose` })
+      return false
     }
-    await finishRun(run, ff.reason === `moved` ? `cancelled` : `error`, {
-      error: ff.reason === `moved` ? `${run.base} moved: recompose` : ff.message,
-    })
+    backoff.set(repo.id, now.getTime() + REFUSED_BACKOFF_MS)
+    console.error(`[merge-train] ${repo.fullName}: fast-forward of ${run.base} refused: ${ff.message}`)
+    await unland(run, ids, rest, now, ff.message)
+    return false
+  }
+  // #FEED-212: reported only once the base holds the landed commit.
+  if (!(await confirmLanding(forge, fr, { base: run.base, from: run.baseSha, landed: head }))) {
+    console.error(`[merge-train] ${repo.fullName}: ${run.base} does not hold ${head} after the fast-forward`)
+    await unland(run, ids, rest, now, `${run.base} does not hold ${head} after the fast-forward`)
     return false
   }
   await landPullRequests(repo, ids, run.base, head, forge, now)
@@ -594,9 +617,13 @@ async function landDirect(
       title: read.title || pr.title || `#${pr.number}`,
       expectedHead: run.heads[bottom!] ?? null,
     })
-    if (merged.ok) {
+    if (merged.ok && (await confirmLanding(forge, fr, { base, from: run.baseSha, landed: merged.sha }))) {
       await landPullRequests(repo, [bottom!], base, merged.sha, forge, now, false)
       landed.push(bottom!)
+    } else if (merged.ok) {
+      // #FEED-212: the forge said merged but the base does not hold it.
+      console.error(`[merge-train] ${repo.fullName}: #${pr.number}'s merge ${merged.sha ?? `(no sha)`} is not on ${base}`)
+      await stepPullRequest(bottom!, { type: `train_unlanded` }, { base, now })
     } else if (merged.conflict) {
       await stepPullRequest(bottom!, { type: `train_conflict` }, { base, now, files: [merged.message] })
     } else {
