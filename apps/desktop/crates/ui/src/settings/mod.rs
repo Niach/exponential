@@ -48,7 +48,7 @@ pub(crate) mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;
-mod api_keys;
+pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
@@ -64,7 +64,7 @@ mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
 mod members;
-mod all_boards;
+pub(crate) mod all_boards;
 mod change_email_dialog;
 mod sign_in_methods;
 pub(crate) mod notifications_prefs;
@@ -80,7 +80,7 @@ pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
 mod tools;
-mod widget;
+pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
 /// same 40px as the team switcher above it. It was a ~28px text row, which
@@ -764,7 +764,7 @@ impl SettingsView {
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
-        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), cx));
+        let all_boards = cx.new(|cx| AllBoardsPane::new(nav.clone(), window, cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let agent_detail =
@@ -773,7 +773,7 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
-        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
+        let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
         let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
