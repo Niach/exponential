@@ -575,7 +575,7 @@ describe(`new natives`, () => {
     const root = tree({ id: `s`, component: `Select`, props: { label: `Status`, name: `status`, searchable: true, options: [{ label: `Todo`, value: `todo` }, { label: `Doing`, value: `doing` }, { label: `Done`, value: `done` }] }, on: { change: { event: { name: `change` } }, search: { event: { name: `search` } } } })
     const { container } = render(<ExponentialSurface root={root} theme="neutral" id="sel" host={{ onAction: (e) => void events.push(e) }} />)
     fireEvent.click(container.querySelector(`[role="combobox"]`)!)
-    const field = document.querySelector(`input.xui-Select-search`) as HTMLInputElement
+    const field = document.querySelector(`.xui-Select-search input`) as HTMLInputElement
     fireEvent.change(field, { target: { value: `n` } })
     act(() => vi.advanceTimersByTime(200))
     expect(events.find((e) => e.name === `search`)!.context).toEqual({ query: `n` })

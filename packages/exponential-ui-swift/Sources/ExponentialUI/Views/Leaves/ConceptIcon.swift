@@ -23,7 +23,7 @@ enum BuiltinIcons {
         "Menu.check": "ui-check", "Menu.submenuIndicator": "ui-chevron-right",
         "FileUpload.icon": "upload", "FileUpload.file": "ui-file", "FileUpload.remove": "ui-close",
         "Image.fallback": "ui-icon-placeholder", "NumberField.decrement": "ui-minus", "NumberField.increment": "ui-add",
-        "Select.trigger": "ui-selector", "Select.search": "search", "Select.check": "ui-check",
+        "Select.trigger": "ui-selector", "Select.search": "search", "Select.check": "ui-check", "Select.chevron": "ui-chevron-right",
         "SearchList.search": "search", "SearchList.check": "ui-check", "Tabs.close": "ui-close", "Tabs.new": "ui-add",
         "Table.sortIcon.asc": "ui-chevron-up", "Table.sortIcon.desc": "ui-chevron-down", "TimePicker.trigger": "ui-clock",
         "Toast.close": "ui-close", "Toast.icon.info": "ui-info", "Toast.icon.success": "ui-success",

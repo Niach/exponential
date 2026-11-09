@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant: row` (#EXP-1629), React's: the label inside the trigger, the `value` and `chevron` parts, `align` + `popupWidth`, the list scrolled to the chosen option, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 
 ## 0.20.0 (2026-11-08)
