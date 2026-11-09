@@ -161,13 +161,15 @@ fn author_label(user: Option<&User>) -> String {
     user.and_then(|u| u.name.clone().filter(|n| !n.is_empty()).or_else(|| u.email.clone().filter(|e| !e.is_empty()))).unwrap_or_else(|| "Someone".into())
 }
 
-/// The send: into the open session, else to the picked agent on the team.
-pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str) -> Option<api::sessions::SendInput> {
+/// The send: into the open session, else to the picked agent on the team;
+/// `attachments` = files ride it, so it may go without text.
+pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str, attachments: bool) -> Option<api::sessions::SendInput> {
     let text = text.trim();
-    if text.is_empty() {
+    if text.is_empty() && !attachments {
         return None;
     }
-    let mut input = api::sessions::SendInput { team_id: Some(chat.team_id.clone()), text: Some(text.to_string()), ..Default::default() };
+    let text = (!text.is_empty()).then(|| text.to_string());
+    let mut input = api::sessions::SendInput { team_id: Some(chat.team_id.clone()), text, ..Default::default() };
     match (&chat.session_id, agent_id) {
         (Some(session), _) => input.session_id = Some(session.clone()),
         (None, Some(agent)) => input.agent_id = Some(agent.to_string()),
@@ -306,12 +308,15 @@ mod tests {
 
     #[test]
     fn a_send_goes_to_the_open_session_else_to_the_picked_agent() {
-        let open = send_input(&chat(Some("s1")), Some("a1"), " hi ").unwrap();
+        let open = send_input(&chat(Some("s1")), Some("a1"), " hi ", false).unwrap();
         assert_eq!((open.session_id.as_deref(), open.agent_id.as_deref(), open.text.as_deref()), (Some("s1"), None, Some("hi")));
-        let home = send_input(&chat(None), Some("a2"), "hi").unwrap();
+        let home = send_input(&chat(None), Some("a2"), "hi", false).unwrap();
         assert_eq!((home.session_id.as_deref(), home.agent_id.as_deref(), home.team_id.as_deref()), (None, Some("a2"), Some("t1")));
-        assert!(send_input(&chat(None), None, "hi").is_none());
-        assert!(send_input(&chat(Some("s1")), None, "  ").is_none());
+        assert!(send_input(&chat(None), None, "hi", false).is_none());
+        assert!(send_input(&chat(Some("s1")), None, "  ", false).is_none());
+        // #EDE-65 lane L: attachments go without text.
+        let files = send_input(&chat(Some("s1")), None, "  ", true).unwrap();
+        assert_eq!((files.session_id.as_deref(), files.text.as_deref()), (Some("s1"), None));
         let r = rows();
         assert_eq!(target_root(&r.account, &home).map(|s| s.id.as_str()), Some("s1"), "my conversation with Triage");
     }
