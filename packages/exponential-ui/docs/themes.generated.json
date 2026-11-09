@@ -3877,6 +3877,14 @@
       ]
     },
     {
+      "name": "Embed",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": []
+    },
+    {
       "name": "Calendar",
       "kind": "macro",
       "parts": [
