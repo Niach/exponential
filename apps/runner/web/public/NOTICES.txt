@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-122 third-party components are distributed as part of this build. They are
+120 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -174,70 +174,6 @@ SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 15 components:
-
-  adler2 2.0.1
-    MIT elected from `0BSD OR MIT OR Apache-2.0`
-  itoa 1.0.18
-    MIT elected from `MIT OR Apache-2.0`
-  once_cell 1.21.4
-    MIT elected from `MIT OR Apache-2.0`
-  pin-project-lite 0.2.17
-    MIT elected from `Apache-2.0 OR MIT`
-  proc-macro2 1.0.106
-    MIT elected from `MIT OR Apache-2.0`
-  quote 1.0.47
-    MIT elected from `MIT OR Apache-2.0`
-  rustversion 1.0.22  [build-time only, not linked]
-    MIT elected from `MIT OR Apache-2.0`
-  serde 1.0.229
-    MIT elected from `MIT OR Apache-2.0`
-  serde_core 1.0.229
-    MIT elected from `MIT OR Apache-2.0`
-  serde_derive 1.0.229
-    MIT elected from `MIT OR Apache-2.0`
-  serde_json 1.0.151
-    MIT elected from `MIT OR Apache-2.0`
-  syn 2.0.118
-    MIT elected from `MIT OR Apache-2.0`
-  syn 3.0.4
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-ident 1.0.24
-    Copyright © 1991-2023 Unicode, Inc.
-    MIT elected from `(MIT OR Apache-2.0) AND Unicode-3.0`
-  zmij 1.0.21
-
-..............................................................................
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
 Applies to the following 13 components:
 
   @radix-ui/number 1.1.1
@@ -280,24 +216,84 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
+Applies to the following 13 components:
+
+  adler2 2.0.1
+    MIT elected from `0BSD OR MIT OR Apache-2.0`
+  itoa 1.0.18
+    MIT elected from `MIT OR Apache-2.0`
+  pin-project-lite 0.2.17
+    MIT elected from `Apache-2.0 OR MIT`
+  proc-macro2 1.0.106
+    MIT elected from `MIT OR Apache-2.0`
+  quote 1.0.47
+    MIT elected from `MIT OR Apache-2.0`
+  rustversion 1.0.22  [build-time only, not linked]
+    MIT elected from `MIT OR Apache-2.0`
+  serde 1.0.229
+    MIT elected from `MIT OR Apache-2.0`
+  serde_core 1.0.229
+    MIT elected from `MIT OR Apache-2.0`
+  serde_derive 1.0.229
+    MIT elected from `MIT OR Apache-2.0`
+  serde_json 1.0.151
+    MIT elected from `MIT OR Apache-2.0`
+  syn 3.0.4
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-ident 1.0.24
+    Copyright © 1991-2023 Unicode, Inc.
+    MIT elected from `(MIT OR Apache-2.0) AND Unicode-3.0`
+  zmij 1.0.21
+
+..............................................................................
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
 Applies to the following 6 components:
 
   cfg-if 1.0.4
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
-  js-sys 0.3.103
+  js-sys 0.3.107
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen 0.2.126
+  wasm-bindgen 0.2.130
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro 0.2.126
+  wasm-bindgen-macro 0.2.130
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro-support 0.2.126
+  wasm-bindgen-macro-support 0.2.130
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-shared 0.2.126
+  wasm-bindgen-shared 0.2.130
     Copyright (c) 2014 Alex Crichton
     MIT elected from `MIT OR Apache-2.0`
 
@@ -503,15 +499,15 @@ MIT
 
 Applies to the following 3 components:
 
-  futures-core 0.3.32
+  futures-core 0.3.34
     Copyright (c) 2016 Alex Crichton
     Copyright (c) 2017 The Tokio Authors
     MIT elected from `MIT OR Apache-2.0`
-  futures-task 0.3.32
+  futures-task 0.3.34
     Copyright (c) 2016 Alex Crichton
     Copyright (c) 2017 The Tokio Authors
     MIT elected from `MIT OR Apache-2.0`
-  futures-util 0.3.32
+  futures-util 0.3.34
     Copyright (c) 2016 Alex Crichton
     Copyright (c) 2017 The Tokio Authors
     MIT elected from `MIT OR Apache-2.0`
@@ -1522,22 +1518,20 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   cfg-if 1.0.4
     MIT elected from `MIT OR Apache-2.0`
-  futures-core 0.3.32
+  futures-core 0.3.34
     MIT elected from `MIT OR Apache-2.0`
-  futures-task 0.3.32
+  futures-task 0.3.34
     MIT elected from `MIT OR Apache-2.0`
-  futures-util 0.3.32
+  futures-util 0.3.34
     MIT elected from `MIT OR Apache-2.0`
   itoa 1.0.18
     MIT elected from `MIT OR Apache-2.0`
-  js-sys 0.3.103
+  js-sys 0.3.107
     MIT elected from `MIT OR Apache-2.0`
   memchr 2.8.3
     MIT elected from `Unlicense OR MIT`
   miniz_oxide 0.8.9
     MIT elected from `MIT OR Zlib OR Apache-2.0`
-  once_cell 1.21.4
-    MIT elected from `MIT OR Apache-2.0`
   pin-project-lite 0.2.17
     MIT elected from `Apache-2.0 OR MIT`
   proc-macro2 1.0.106
@@ -1554,21 +1548,19 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   serde_json 1.0.151
     MIT elected from `MIT OR Apache-2.0`
-  syn 2.0.118
-    MIT elected from `MIT OR Apache-2.0`
   syn 3.0.4
     MIT elected from `MIT OR Apache-2.0`
   ttf-parser 0.25.1
     MIT elected from `MIT OR Apache-2.0`
   unicode-ident 1.0.24
     MIT elected from `(MIT OR Apache-2.0) AND Unicode-3.0`
-  wasm-bindgen 0.2.126
+  wasm-bindgen 0.2.130
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro 0.2.126
+  wasm-bindgen-macro 0.2.130
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-macro-support 0.2.126
+  wasm-bindgen-macro-support 0.2.130
     MIT elected from `MIT OR Apache-2.0`
-  wasm-bindgen-shared 0.2.126
+  wasm-bindgen-shared 0.2.130
     MIT elected from `MIT OR Apache-2.0`
 
 

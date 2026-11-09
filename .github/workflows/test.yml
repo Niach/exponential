@@ -101,7 +101,7 @@ jobs:
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
-          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
@@ -568,8 +568,8 @@ jobs:
       swift_only: true
     secrets: inherit
 
-  # EXP-1429: the gpui revision policy (zed + gpui-component revs, the
-  # ztracing patch, the toolchain) agrees across the desktop workspace, the
+  # EXP-1429: the gpui version policy (the gpui-pre snapshot, the
+  # gpui-component release, the toolchain) agrees across the desktop workspace, the
   # painter's README, the gpui guide app and its install snippet. Text only,
   # well under a second.
   gpui-revs:

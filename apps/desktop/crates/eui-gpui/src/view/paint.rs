@@ -614,7 +614,7 @@ impl SurfaceView {
             return el;
         }
         let id = n.id.clone();
-        el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        el = el.on_scroll(cx.listener(move |this, ev: &gpui::ScrollEvent, _window, cx| this.wheel(index, &id, ev, cx)));
         // #EXP-1629: the IDE's own scrollbar over the container
         // (`view/scrollbar.rs`), fed the core's offset.
         let handle = self.scrollbars.borrow_mut().entry(n.id.clone()).or_default().clone();

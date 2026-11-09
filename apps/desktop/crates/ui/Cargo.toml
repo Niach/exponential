@@ -10,6 +10,11 @@ publish = false
 # of app.exponential.at (see login.rs `CLOUD_INSTANCE`), and the app data dir
 # moves aside so channels never share saved accounts (api/staging).
 staging = ["api/staging"]
+# #LOGS-2 frame timings for the lag diagnostics: gpui's `profiler` feature
+# (ungated at our previous zed pin; a feature since zed #62496). It compiles
+# always-on bookkeeping into gpui (per-frame histograms, a per-task counter),
+# so it stays opt-in: without it the lag sampler records stalls but no frames.
+frame-stats = ["gpui/profiler"]
 
 [dependencies]
 theme = { path = "../theme" }

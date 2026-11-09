@@ -12,7 +12,7 @@ use std::time::Duration;
 use eui_core::NestedNode;
 use eui_gpui::host::{ActionEvent, HostPlugin, UploadEvent};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
-use gpui::{div, prelude::*, px, App, Entity, Modifiers, MouseButton, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, Window};
+use gpui::{div, prelude::*, px, App, Entity, Modifiers, MouseButton, ScrollDelta, ScrollEvent, TestAppContext, VisualTestContext, Window};
 use serde_json::{json, Value};
 
 #[derive(Default)]
@@ -390,12 +390,12 @@ fn scroll_containers_scroll_their_content_and_draw_it_translated(cx: &mut TestAp
     let before = y(&view, cx, "row3");
     assert_eq!(before, 20.0 + 120.0);
     let pane = view.read_with(cx, |v, _| v.painted_bounds("pane").unwrap());
-    cx.simulate_event(ScrollWheelEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-50.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-50.0))), ..Default::default() });
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("pane")), (0.0, 50.0), "the wheel moved the core's offset");
     assert_eq!(y(&view, cx, "row3"), before - 50.0, "the content is drawn translated");
     for _ in 0..20 {
-        cx.simulate_event(ScrollWheelEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-100.0))), ..Default::default() });
+        cx.simulate_event(ScrollEvent { position: pane.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-100.0))), ..Default::default() });
     }
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("pane").1), 12.0 * 40.0 - 120.0, "clamped at the end");
@@ -652,7 +652,7 @@ fn a_tall_dialog_scrolls_its_body(cx: &mut TestAppContext) {
     draw(cx);
     let (content, window_h) = view.read_with(cx, |v, _| (v.painted_bounds("long.content").expect("the dialog painted"), v.visible_region().height));
     assert!(f32::from(content.size.height) <= window_h, "the dialog fits the viewport ({} > {window_h})", f32::from(content.size.height));
-    cx.simulate_event(ScrollWheelEvent { position: content.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-200.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: content.center(), delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-200.0))), ..Default::default() });
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.surface().scroll_offset("long.body").1), 200.0, "its body scrolled");
 }
@@ -1408,7 +1408,7 @@ fn a_wheel_over_the_anchors_container_closes_its_popover(cx: &mut TestAppContext
     let list = view.read_with(cx, |v, _| v.painted_bounds("list").expect("the container painted"));
     // Low in the container, clear of the Popover hanging under the anchor.
     let at = list.bottom_left() + gpui::point(px(10.0), px(-10.0));
-    cx.simulate_event(ScrollWheelEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(0.0), px(-40.0))), ..Default::default() });
     draw(cx);
     assert!(view.read_with(cx, |v, _| v.surface().scroll_offset("list").1) > 0.0, "the wheel scrolled the container");
     assert!(!open(&view, cx), "the Popover closed with its anchor's scroll");
@@ -1468,7 +1468,7 @@ fn a_key_recorder_captures_like_the_fixture(cx: &mut TestAppContext) {
             }
         }
         s.push_str(key);
-        gpui::Keystroke::parse(&s).unwrap()
+        gpui::Keystroke::parse(Box::leak(s.into_boxed_str())).unwrap()
     };
     for c in k["cases"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
@@ -1499,7 +1499,7 @@ fn a_key_recorder_captures_like_the_fixture(cx: &mut TestAppContext) {
                     vcx.simulate_mouse_down(b.center(), button, Modifiers::default());
                     vcx.simulate_mouse_up(b.center(), button, Modifiers::default());
                 }
-                "blur" => vcx.update(|window, _| window.blur()),
+                "blur" => vcx.update(|window, cx| window.blur(cx)),
                 "hostWrite" => view.update(vcx, |v, cx| v.set_data(value["path"].as_str().unwrap(), Some(value["value"].clone()), cx).unwrap()),
                 other => panic!("{name}: step {other}"),
             }
@@ -1530,7 +1530,7 @@ fn a_key_recorder_drops_repeats_and_unshifts(cx: &mut TestAppContext) {
     vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
     vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
     draw(vcx);
-    let down = |key: &str, held: bool| gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse(key).unwrap(), is_held: held, prefer_character_input: false };
+    let down = |key: &'static str, held: bool| gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse(key).unwrap(), is_held: held, prefer_character_input: false };
     vcx.simulate_event(down("k", false));
     vcx.simulate_event(down("k", true));
     vcx.simulate_event(down("shift-!", false));

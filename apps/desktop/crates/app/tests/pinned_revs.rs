@@ -1,57 +1,66 @@
-//! EXP-519: the zed/gpui pin lives in Cargo.lock, not Cargo.toml.
+//! EXP-519: the gpui stack is pinned exactly, and the lock must agree.
 //!
-//! Upstream gpui-component FLOATS its zed git deps (their Cargo.lock is their
-//! only pin), and cargo refuses both a rev-pinned manifest next to a floating
-//! transitive (two gpui package ids splitting every gpui type) and a same-URL
-//! `[patch]`. So the workspace manifest floats too and the committed Cargo.lock
-//! carries the one true rev — which means a stray `cargo update` (without
-//! `--precise`) would silently move the entire gpui stack to zed main HEAD.
-//! This test pins the lockfile itself: bump the constants here together with
-//! the revs (see the workspace Cargo.toml comment for the update recipe).
+//! gpui comes from the `gpui-pre-*` crates.io snapshots of zed's crates at the
+//! exact snapshot gpui-kit's `gpui-component` release builds against (gpui-kit
+//! pins `=` versions; any snapshot may change gpui's API). Every `gpui-pre*`
+//! package in Cargo.lock sits on [`GPUI_PRE`], every gpui-kit package on
+//! [`GPUI_COMPONENT`], and neither upstream may come back as a git source
+//! (a second gpui package id splits every gpui type). Bump the constants here
+//! together with the workspace Cargo.toml (see its comment for the recipe).
 
-/// The zed rev gpui-component's own Cargo.lock locks at [`GPUI_COMPONENT_REV`].
-const ZED_REV: &str = "cc053a4a6fa2fd0e8793201ed9099466af1be0b1";
-/// The gpui-component rev the workspace Cargo.toml pins.
-const GPUI_COMPONENT_REV: &str = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8";
+/// The gpui-pre snapshot gpui-component [`GPUI_COMPONENT`] pins.
+const GPUI_PRE: &str = "0.3.11";
+/// The gpui-component release the workspace Cargo.toml pins.
+const GPUI_COMPONENT: &str = "0.9.0";
+/// gpui-kit's packages that release together with gpui-component.
+const GPUI_KIT_PACKAGES: &[&str] = &[
+    "gpui-component",
+    "gpui-base",
+    "gpui-kit-assets",
+    "gpui-component-macros",
+];
 
 #[test]
-fn lockfile_pins_the_expected_git_revs() {
+fn lockfile_pins_the_expected_gpui_versions() {
     let lock = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../Cargo.lock"
     ))
     .expect("workspace Cargo.lock");
 
-    let mut zed_sources = 0usize;
-    let mut component_sources = 0usize;
-    for line in lock.lines() {
-        let Some(source) = line.strip_prefix("source = \"git+") else {
+    let mut gpui_pre = 0usize;
+    let mut component = 0usize;
+    for package in lock.split("[[package]]").skip(1) {
+        let field = |key: &str| {
+            package.lines().find_map(|line| {
+                line.strip_prefix(&format!("{key} = \""))
+                    .and_then(|rest| rest.strip_suffix('"'))
+            })
+        };
+        let (Some(name), Some(version)) = (field("name"), field("version")) else {
             continue;
         };
-        if let Some(rest) = source.strip_prefix("https://github.com/zed-industries/zed") {
-            zed_sources += 1;
-            let expected = format!("#{ZED_REV}\"");
+        if let Some(source) = field("source") {
             assert!(
-                rest == expected,
-                "zed git source drifted off the pin: {line}\n\
-                 expected every zed source to end in {expected}"
+                !source.contains("github.com/zed-industries/zed")
+                    && !source.contains("github.com/longbridge/gpui-"),
+                "{name} comes from a git source ({source}): gpui is pinned to crates.io"
             );
-        } else if let Some(rest) =
-            source.strip_prefix("https://github.com/longbridge/gpui-component")
-        {
-            component_sources += 1;
-            let expected = format!("?rev={GPUI_COMPONENT_REV}#{GPUI_COMPONENT_REV}\"");
-            assert!(
-                rest == expected,
-                "gpui-component git source drifted off the pin: {line}"
-            );
+        }
+        // The snapshot's reqwest fork keeps reqwest's own version line.
+        if (name == "gpui-pre" || name.starts_with("gpui-pre-")) && name != "gpui-pre-reqwest" {
+            gpui_pre += 1;
+            assert_eq!(version, GPUI_PRE, "{name} drifted off the gpui-pre pin");
+        } else if GPUI_KIT_PACKAGES.contains(&name) {
+            component += 1;
+            assert_eq!(version, GPUI_COMPONENT, "{name} drifted off the gpui-component pin");
         }
     }
 
-    // A refactor that renamed/moved the sources entirely must fail loudly too.
-    assert!(zed_sources > 0, "no zed git sources found in Cargo.lock");
+    // A refactor that renamed/moved the packages entirely must fail loudly too.
+    assert!(gpui_pre > 0, "no gpui-pre packages found in Cargo.lock");
     assert!(
-        component_sources > 0,
-        "no gpui-component git sources found in Cargo.lock"
+        component >= GPUI_KIT_PACKAGES.len(),
+        "not every gpui-kit package is in Cargo.lock"
     );
 }

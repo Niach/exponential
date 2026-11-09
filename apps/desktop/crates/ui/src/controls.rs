@@ -369,7 +369,7 @@ impl TailFollow {
                     .size_full()
                     .overflow_y_scroll()
                     .track_scroll(handle)
-                    .on_scroll_wheel(move |event, window, cx| {
+                    .on_scroll(move |event, window, cx| {
                         let dy = f32::from(event.delta.pixel_delta(window.line_height()).y);
                         if wheel.on_wheel(dy) {
                             cx.notify(entity_id);
@@ -1447,7 +1447,7 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                                 div()
                                     .w(window.bounds().size.width)
                                     .h(window.bounds().size.height)
-                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                                    .on_scroll(|_, _, cx| cx.stop_propagation())
                                     .child(
                                         anchored()
                                             .position(position)

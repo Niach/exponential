@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use eui_core::NestedNode;
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
-use gpui::{px, Entity, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext};
+use gpui::{px, Entity, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, VisualTestContext};
 use serde_json::{json, Value};
 
 fn draw(cx: &mut VisualTestContext) {
@@ -53,7 +53,7 @@ fn x_of(view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str) -> f32
 }
 
 fn wheel(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, dx: f32, dy: f32, phase: TouchPhase) {
-    cx.simulate_event(ScrollWheelEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(dx), px(dy))), touch_phase: phase, ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: at, delta: ScrollDelta::Pixels(gpui::point(px(dx), px(dy))), touch_phase: phase, ..Default::default() });
     cx.executor().advance_clock(Duration::from_millis(16));
     draw(cx);
 }
@@ -112,7 +112,7 @@ fn vertical_gestures_and_ones_over_a_slider_leave_the_pager_alone(cx: &mut TestA
     wheel(cx, content.center(), 0.0, 0.0, TouchPhase::Ended);
     assert_eq!(selected(&view, cx), Some(0), "a vertical gesture is the page's");
     // A mouse wheel (lines) never swipes.
-    cx.simulate_event(ScrollWheelEvent { position: content.center(), delta: ScrollDelta::Lines(gpui::point(-5.0, 0.0)), touch_phase: TouchPhase::Started, ..Default::default() });
+    cx.simulate_event(ScrollEvent { position: content.center(), delta: ScrollDelta::Lines(gpui::point(-5.0, 0.0)), touch_phase: TouchPhase::Started, ..Default::default() });
     draw(cx);
     assert_eq!(selected(&view, cx), Some(0));
     // Page to the Slider's panel, then swipe starting over the Slider.

@@ -39,6 +39,7 @@ pub fn install(cx: &mut App) {
     cx.observe(&state, move |_, cx| connect(cx)).detach();
 
     cx.spawn(async move |cx| {
+        #[cfg(feature = "frame-stats")]
         let mut frames: Option<gpui::FrameTimingCollector> = None;
         let mut beat = 0u32;
         loop {
@@ -46,18 +47,22 @@ pub fn install(cx: &mut App) {
                 cx.background_executor().timer(IDLE_RECHECK).await;
                 continue;
             }
+            #[cfg(feature = "frame-stats")]
             if frames.is_none() {
-                gpui::set_frame_trace_enabled(true);
+                gpui::set_trace_enabled(true);
                 frames = Some(gpui::FrameTimingCollector::new());
             }
             cx.background_executor().timer(lag::TICK).await;
             let foreground = cx.update(|cx| cx.active_window().is_some());
             lag::tick(foreground);
             beat += 1;
+            #[cfg(feature = "frame-stats")]
             if beat % DRAIN_EVERY == 0 {
                 if let Some(collector) = frames.as_mut() {
-                    for frame in collector.collect_unseen() {
-                        lag::record_frame(frame.draw_start, frame.draw_end, frame.invalidations);
+                    for event in collector.collect_unseen() {
+                        if let gpui::FrameEvent::Draw(frame) = event {
+                            lag::record_frame(frame.draw_start, frame.draw_end, frame.invalidations);
+                        }
                     }
                 }
             }

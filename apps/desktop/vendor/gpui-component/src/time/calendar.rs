@@ -1,7 +1,7 @@
 use chrono::Weekday;
 use gpui::{
     App, ElementId, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StyleRefinement, Styled, Window, prelude::FluentBuilder as _, px, relative,
+    SharedString, StyleRefinement, Styled, Window, prelude::FluentBuilder as _, px,
 };
 use rust_i18n::t;
 
@@ -27,6 +27,10 @@ fn month_name(month: i32) -> SharedString {
         _ => "".into(),
     }
     .into()
+}
+
+fn uses_compact_text(kind: CalendarItemKind) -> bool {
+    kind == CalendarItemKind::Month
 }
 
 /// Styled facade for the complete behavior and structure in `gpui-base`.
@@ -114,14 +118,19 @@ impl RenderOnce for Calendar {
                 .flex()
                 .items_center()
                 .justify_center()
-                .when(state.kind() != CalendarItemKind::Weekday, |this| {
-                    this.text_sm()
-                })
+                .when(
+                    state.kind() != CalendarItemKind::Weekday,
+                    |this| match size {
+                        Size::Small => this.text_xs(),
+                        _ => this.text_sm(),
+                    },
+                )
                 .when(state.kind() == CalendarItemKind::Weekday, |this| {
                     this.text_xs()
                         .font_normal()
                         .text_color(cx.theme().muted_foreground)
                 })
+                .when(uses_compact_text(state.kind()), |this| this.text_xs())
                 .when(
                     matches!(
                         state.kind(),
@@ -136,7 +145,7 @@ impl RenderOnce for Calendar {
                     ),
                     |this| {
                         this.when(state.kind() == CalendarItemKind::Month, |this| {
-                            this.w(relative(0.3)).m_1()
+                            this.w_full().my_1()
                         })
                         .when(state.kind() == CalendarItemKind::MonthToggle, |this| {
                             this.w_auto().px_2()
@@ -150,7 +159,7 @@ impl RenderOnce for Calendar {
                     ),
                     |this| {
                         this.when(state.kind() == CalendarItemKind::Year, |this| {
-                            this.w(relative(0.16)).m_1()
+                            this.w_full().my_1()
                         })
                         .when(state.kind() == CalendarItemKind::YearToggle, |this| {
                             this.w_auto().px_2()
@@ -192,9 +201,9 @@ impl RenderOnce for Calendar {
             .p_3()
             .gap_0p5()
             .map(|this| match size {
-                Size::Small => this.w(px(232.) * month_count),
-                Size::Large => this.w(px(316.) * month_count),
-                _ => this.w(px(288.) * month_count),
+                Size::Small => this.w(px(220.) * month_count),
+                Size::Large => this.w(px(304.) * month_count),
+                _ => this.w(px(248.) * month_count),
             })
             .refine_style(&self.style)
     }
@@ -202,7 +211,7 @@ impl RenderOnce for Calendar {
 
 #[cfg(test)]
 mod tests {
-    use super::Date;
+    use super::{CalendarItemKind, Date, uses_compact_text};
     use chrono::NaiveDate;
 
     #[test]
@@ -212,5 +221,12 @@ mod tests {
             "2024-08-03"
         );
         assert_eq!(Date::Single(None).to_string(), "nil");
+    }
+
+    #[test]
+    fn only_month_options_use_compact_text() {
+        assert!(uses_compact_text(CalendarItemKind::Month));
+        assert!(!uses_compact_text(CalendarItemKind::MonthToggle));
+        assert!(!uses_compact_text(CalendarItemKind::Day));
     }
 }
