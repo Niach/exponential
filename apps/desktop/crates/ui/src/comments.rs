@@ -145,6 +145,10 @@ pub(crate) struct CommentCardProps<'a> {
     /// card (the submission's `reporterName`, else the contract's anonymous
     /// name).
     pub reporter_name: &'a str,
+    /// #EXP-1754: a `source = reporter` card's hue key — the reporter's NAME,
+    /// else EMAIL ([`crate::user_avatar::avatar_hue_key`]); `None` (anonymous)
+    /// = the muted disc. The shown anonymous copy is never a key.
+    pub reporter_avatar_key: Option<&'a str>,
     /// Author-only (web `canModify`) — the `…` menu's Edit row. Never on a
     /// reporter's comment (SLOP-4).
     pub can_edit: bool,
@@ -251,13 +255,14 @@ pub(crate) fn synced_app_name(app_id: Option<&str>, cx: &gpui::App) -> Option<St
     apps.get(app_id).map(|app| app.name.clone()).filter(|name| !name.is_empty())
 }
 
-/// The avatar's hue key: the author id, or the reporter's NAME for a
-/// reporter's comment (no id — the same visitor keeps one colour).
-fn avatar_key<'a>(comment: &'a Comment, name: &'a str) -> &'a str {
+/// The avatar's hue key (#EXP-1754, fixtures/avatar.json `keys`): the author
+/// id, or for a reporter's comment (no id) the reporter's key — their name,
+/// else email, so the same visitor keeps one colour; blank = the muted disc.
+fn avatar_key<'a>(comment: &'a Comment, reporter_key: Option<&'a str>) -> &'a str {
     if comment.is_from_reporter() {
-        return name;
+        return reporter_key.unwrap_or_default();
     }
-    comment.author_id.as_deref().unwrap_or_default()
+    crate::user_avatar::avatar_hue_key(comment.author_id.as_deref(), None, None).unwrap_or_default()
 }
 
 /// A card's author name: the agent's when an agent's session wrote it
@@ -280,7 +285,7 @@ fn card_avatar(
     match &card.author_agent {
         Some(agent) => crate::user_avatar::agent_avatar(agent.icon.as_deref(), agent.color.as_deref(), size, cx),
         None => crate::user_avatar::user_avatar(
-            avatar_key(card.comment, name),
+            avatar_key(card.comment, card.reporter_avatar_key),
             name,
             card.author.and_then(|user| user.image.as_deref()),
             size,
@@ -1244,12 +1249,15 @@ mod tests {
             "Anonymous visitor"
         );
         assert_eq!(comment_caption(&reporter, None).as_deref(), Some("reporter"));
-        // The avatar keys on the name — no user row exists.
-        assert_eq!(avatar_key(&reporter, "Ada"), "Ada");
+        // #EXP-1754: the avatar keys on the reporter's name (else email) —
+        // no user row exists; an anonymous reporter has no key (grey).
+        assert_eq!(avatar_key(&reporter, Some("Ada")), "Ada");
+        assert_eq!(avatar_key(&reporter, Some("ada@x.dev")), "ada@x.dev");
+        assert_eq!(avatar_key(&reporter, None), "");
 
         let to_reporter = comment("user", "reporter", Some("u-1"));
         assert_eq!(comment_caption(&to_reporter, None).as_deref(), Some("to reporter"));
-        assert_eq!(avatar_key(&to_reporter, "Ada"), "u-1");
+        assert_eq!(avatar_key(&to_reporter, Some("Ada")), "u-1");
 
         let former = comment("user", "team", None);
         assert_eq!(comment_author_name(&former, None, "Ada"), "Former member");

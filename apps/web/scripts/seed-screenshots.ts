@@ -3187,6 +3187,18 @@ async function main() {
       ),
       createdAt: hoursAgo(1),
     },
+    // #EXP-1754: a team note whose author was deleted (author_id SET NULL,
+    // not a reporter): "Former member" with NO key at all, the one avatar
+    // the thread paints grey (fixtures/avatar.json `keys`), beside the
+    // reporter coloured from their name.
+    {
+      issueId: widgetIssue.id,
+      teamId: ws.id,
+      boardId: board.id,
+      authorId: null,
+      body: `Same spinner on an iPad Air here; 2.4.1 fixed it too.`,
+      createdAt: hoursAgo(0.5),
+    },
   ])
 
   // Personal API keys for the `settings-api-keys` view ("No API keys yet."

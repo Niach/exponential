@@ -971,10 +971,12 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
-  // #EXP-1629 (fixtures/avatar.json): no seed = the muted fallback, an
+  // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
+  // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.
   Avatar: [
-    { label: `seed · none`, node: { id: `muted`, component: `Avatar`, props: { name: `Jane Doe`, size: `default` } } },
+    { label: `seed · none`, node: { id: `by_name`, component: `Avatar`, props: { name: `Jane Reporter`, size: `default` } } },
+    { label: `name · empty`, node: { id: `muted`, component: `Avatar`, props: { name: ``, size: `default` } } },
     { label: `name · an email`, node: { id: `email`, component: `Avatar`, props: { name: `alex.smith@x.dev`, seed: `demo-jonas`, size: `default` } } },
     { label: `src · a picture`, node: { id: `picture`, component: `Avatar`, props: { name: `Jane Doe`, seed: `demo-mira`, size: `xl`, src: AVATAR_PICTURE } } },
   ],
