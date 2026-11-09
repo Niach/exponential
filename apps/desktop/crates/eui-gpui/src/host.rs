@@ -157,6 +157,23 @@ pub trait HostPlugin: 'static {
         None
     }
 
+    /// #EDE-65 lane O: the host paints the Embed `component_id` itself (a
+    /// row it owns that no catalog component draws: the IDE's tool rows and
+    /// Work card in the shared chat), by its painted id like
+    /// [`Self::icon_element`] by name. `Some(height)` at `width` claims it:
+    /// no nested surface is made and [`Self::host_leaf`] fills its frame;
+    /// `None` = the Embed's own nested surface. A claimed leaf whose height
+    /// moves asks for a new measure with `SurfaceView::host_leaf_resized`.
+    fn host_leaf_height(&self, _component_id: &str, _width: f32, _window: &mut gpui::Window, _cx: &mut gpui::App) -> Option<f32> {
+        None
+    }
+
+    /// The claimed Embed's element filling its frame (asked only for an id
+    /// [`Self::host_leaf_height`] claimed).
+    fn host_leaf(&self, _component_id: &str, _window: &mut gpui::Window, _cx: &mut gpui::App) -> Option<gpui::AnyElement> {
+        None
+    }
+
     /// A host function call (`functionCall` to a non-built-in name). The
     /// default ignores it; [`crate::runtime::host_plugin`] routes it through
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
