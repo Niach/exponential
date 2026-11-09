@@ -3529,7 +3529,7 @@
       ],
       "example": {
         "title": "Couldn't save the board",
-        "description": "Server did not answer.",
+        "description": "The server did not answer.",
         "type": "error",
         "actionLabel": "Retry"
       }
