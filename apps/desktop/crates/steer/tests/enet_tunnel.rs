@@ -188,7 +188,7 @@ async fn device_socket(mut ws: Ws, relay: Arc<RelayState>) {
         tokio::select! {
             out = from_relay.recv_async() => {
                 let Ok(text) = out else { return };
-                if ws.send(Message::Text(text)).await.is_err() { return }
+                if ws.send(Message::text(text)).await.is_err() { return }
             }
             msg = ws.next() => {
                 let Some(Ok(Message::Text(text))) = msg else {
@@ -222,7 +222,7 @@ async fn device_socket(mut ws: Ws, relay: Arc<RelayState>) {
 async fn viewer_socket(mut ws: Ws, tunnel_id: String, ticket: String, relay: Arc<RelayState>) {
     let (session_id, user_id) = ticket.split_once('|').unwrap();
     let Some(device) = relay.device.lock().unwrap().clone() else {
-        let _ = ws.send(Message::Text(r#"{"t":"tunnel_error","code":"device_offline"}"#.into())).await;
+        let _ = ws.send(Message::text(r#"{"t":"tunnel_error","code":"device_offline"}"#)).await;
         return;
     };
     let (to_viewer, from_device) = flume::unbounded::<Option<String>>();
@@ -235,7 +235,7 @@ async fn viewer_socket(mut ws: Ws, tunnel_id: String, ticket: String, relay: Arc
             out = from_device.recv_async() => match out {
                 Ok(Some(data)) => {
                     let sealed = serde_json::json!({"t": "sealed", "data": data}).to_string();
-                    if ws.send(Message::Text(sealed)).await.is_err() { break }
+                    if ws.send(Message::text(sealed)).await.is_err() { break }
                 }
                 _ => { let _ = ws.close(None).await; break }
             },

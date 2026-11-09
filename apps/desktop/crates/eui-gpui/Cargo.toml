@@ -24,7 +24,7 @@ default = ["net"]
 # The network transports (JSONL / SSE over HTTP, WebSocket, MCP) and the
 # media loader's http(s) fetches. Off = MemoryTransport + your own Transport
 # impls, file:// media only.
-net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
+net = ["dep:reqwest", "dep:rustls", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 # #EXP-1739: report the markdown's selectable text as an overlay anchor
 # (`gpui_component::overlay_anchor`), so a context menu opened on it closes
 # when it scrolls, moves or goes. That module exists only in the desktop
@@ -71,6 +71,9 @@ url = "2.5"
 # `net`: the blocking client on transport threads (its own private runtime,
 # never gpui's executors), a current-thread tokio runtime per WebSocket.
 reqwest = { workspace = true, optional = true }
+# reqwest 0.13 without a bundled provider: ring, installed as the process
+# default unless the host installed one already.
+rustls = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
