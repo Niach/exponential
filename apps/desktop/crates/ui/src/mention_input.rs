@@ -486,6 +486,7 @@ use gpui::prelude::FluentBuilder as _;
 
 impl Render for MentionInput {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MentionInput").entered();
         self.drain_pending_commit(window, cx);
         self.drain_pending_typeahead(window, cx);
         let bounds = self.bounds.clone();

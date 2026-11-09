@@ -56,6 +56,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_236: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-desktop-diagnostics",
+    date: "2026-11-09",
+    title: "Send diagnostics, your choice",
+    summary: "The desktop app and the CLI send crash and performance diagnostics through our own servers, with your user id only; turn it off in Settings → Account → Privacy.",
+    body: r#"- **Diagnostics**: the desktop app and the `exponential` CLI send crash reports and performance traces, so we can find what makes the app slow. They only ever go through our own servers, carry your user id and nothing else, and are deleted after 30 days.
+- **Send diagnostics**: switch it off in Settings → Account → Privacy; for the CLI, set `EXP_DIAGNOSTICS=0` or run `exponential diagnostics off`."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_235: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-send-diagnostics",
     date: "2026-11-09",

@@ -609,6 +609,7 @@ impl BoardDetailPane {
 
 impl Render for BoardDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "BoardDetailPane").entered();
         let team_id = active_team_id(&self.nav, cx);
         if let Some(team_id) = team_id.as_deref() {
             self.ensure_repos(team_id, cx);

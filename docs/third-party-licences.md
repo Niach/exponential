@@ -375,6 +375,19 @@ excluded from the workspace, so the Rust collector still inventories it as the
 third-party `iroh@1.4.1` (same licence election and texts). Every client that
 links the P2P node (desktop, CLI, the browser's wasm) ships it.
 
+### Diagnostics: the Sentry SDK in the desktop app and the CLI (LOGS-2, 2026-11-09)
+
+`apps/desktop/crates/observability` links the `sentry` 0.49 crates
+(Functional Software, Inc., MIT) with `sentry-tracing`, plus their new
+transitive crates (`debugid` Apache-2.0, `hostname`, `os_info` MIT, `uname`
+MIT OR Apache-2.0); every one is on deny.toml's allow-list and in the
+generated desktop notices. No transport feature: the envelopes go through
+the app's own reqwest client to the connected server's `/api/monitoring`
+tunnel, never to a third-party host, so no second HTTP or TLS stack ships.
+The Engine runner never links it (`eengine-runner/tests/dependency_gate.rs`
+forbids `sentry` and `tracing-subscriber`); `eengine` and `eengine-ffi` gain
+only `tracing` (MIT, no default features) for their spans.
+
 ### genUI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance

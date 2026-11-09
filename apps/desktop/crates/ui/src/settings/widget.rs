@@ -463,6 +463,7 @@ fn document(ink: &Ink, inks: &Inks) -> Value {
 
 impl Render for WidgetPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "WidgetPane").entered();
         let team = self.active_team_id(cx);
         if let Some(team_id) = &team {
             self.ensure_loaded(team_id, cx);

@@ -1748,6 +1748,7 @@ fn gap_before(blocks: &[Block], i: usize, s: &MdStyles) -> f32 {
 
 /// Lay the blocks out `width` wide.
 pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText) -> MdLayout {
+    let _span = tracing::trace_span!("eui.markdown.layout", blocks = blocks.len()).entered();
     let mut y = 0.0;
     let mut out = Vec::with_capacity(blocks.len());
     for (i, b) in blocks.iter().enumerate() {

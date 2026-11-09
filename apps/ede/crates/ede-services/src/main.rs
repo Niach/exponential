@@ -20,10 +20,16 @@ fn usage() -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    // No Sentry here (#LOGS-2): ede-shell links this crate, so it would join
-    // the IDE's licence graph; the compositor and the session report.
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // #LOGS-2: the daemon reports to Sentry when diagnostics are on (the
+    // binary only: ede-shell links this crate as a library and never inits
+    // a client). The one-shot commands log to stderr and report nothing.
+    let _observability = if args.first().map(String::as_str) == Some("serve") {
+        Some(ede_observability::init("services", "info", ede_observability::Output::Stderr))
+    } else {
+        tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+        None
+    };
     let registry = Arc::new(Registry::default());
     match args.first().map(String::as_str) {
         Some("serve") => {

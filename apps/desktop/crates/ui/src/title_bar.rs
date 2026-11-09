@@ -334,6 +334,7 @@ struct TitleBarState {
 // TODO: Remove this when GPUI has released v0.2.3
 impl Render for TitleBarState {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "TitleBarState").entered();
         div()
     }
 }

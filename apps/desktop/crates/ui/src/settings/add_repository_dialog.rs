@@ -709,6 +709,7 @@ fn suspended_notice(result: &GithubReposResult, cx: &gpui::App) -> impl IntoElem
 
 impl Render for AddRepositoryDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AddRepositoryDialogView").entered();
         if !self.focused_once {
             self.focused_once = true;
             self.query.update(cx, |state, cx| state.focus(window, cx));

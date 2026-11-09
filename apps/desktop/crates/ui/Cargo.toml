@@ -17,6 +17,9 @@ domain = { path = "../domain" }
 eengine = { path = "../eengine" }
 sync = { path = "../sync" }
 api = { path = "../api" }
+observability = { path = "../observability" }
+# #LOGS-2: the per-view render spans the lag instrumentation reads.
+tracing = "0.1"
 # VAPP-239: the shared MCP URL rule (`emcp::contract::upstream::mcp_url_allowed`); api already depends on it.
 emcp = { path = "../emcp" }
 terminal = { path = "../terminal" }

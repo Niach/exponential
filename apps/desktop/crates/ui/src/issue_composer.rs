@@ -521,6 +521,7 @@ impl Focusable for IssueComposer {
 
 impl Render for IssueComposer {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueComposer").entered();
         // Web `autoFocus` on the title input (once, after the composer mounts).
         if !self.focused_once {
             self.focused_once = true;
