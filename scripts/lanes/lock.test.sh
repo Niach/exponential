@@ -85,4 +85,21 @@ case "$pid" in '' | *[!0-9]*) no "lane.sh records its pid" ;; *) ok "lane.sh rec
 "$here/lane.sh" android me -- sh -c 'echo "other 1" > "$EXP_LANE_LOCK_ROOT/exp-android-emu-1/owner"' 2>/dev/null
 [ "$(lock_owner "$root/exp-android-emu-1")" = other ] && ok "lane.sh leaves a lock it no longer owns" || no "lane.sh leaves a lock it no longer owns"
 
+
+# Slots (exp-lane-slots `heavy=2`): two lane.sh runs hold the heavy lane at
+# once, each its own slot dir, both released after; the default stays 1.
+[ "$(lane_slots heavy)" = 1 ] && ok "a lane has one slot by default" || no "a lane has one slot by default"
+printf 'heavy=2\n' > "$root/exp-lane-slots"
+[ "$(lane_slots heavy)" = 2 ] && ok "exp-lane-slots raises a lane's slots" || no "exp-lane-slots raises a lane's slots"
+[ "$(lane_slots ios)" = 1 ] && ok "other lanes keep one slot" || no "other lanes keep one slot"
+"$here/lane.sh" heavy first -- sh -c 'touch "$EXP_LANE_LOCK_ROOT/first-in"; sleep 3' &
+firstpid=$!
+i=0; while [ ! -e "$root/first-in" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+second=$(LANE_LOCK_POLL_SECONDS=30 "$here/lane.sh" heavy second -- sh -c 'cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"; cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-2/owner"' | tr '\n' ' ')
+[ "$second" = "first second " ] && ok "a second run takes the free slot while the first holds slot 1" || no "a second run takes the free slot while the first holds slot 1 (got '$second')"
+[ ! -e "$root/exp-perf-heavy-2" ] && ok "the second run releases its slot" || no "the second run releases its slot"
+wait "$firstpid"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "the first run releases slot 1" || no "the first run releases slot 1"
+rm -f "$root/exp-lane-slots" "$root/first-in"
+
 [ "$fails" -eq 0 ] && echo "all lane lock checks passed" || { echo "$fails lane lock check(s) failed"; exit 1; }
