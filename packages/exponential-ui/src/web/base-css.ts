@@ -67,6 +67,7 @@ ${ROUND2_CSS}
 .xui-el{box-sizing:border-box;display:flex;flex-direction:row;position:relative;margin:0;padding:0;border:0 solid transparent;min-width:auto;min-height:auto;font:inherit;color:inherit;background:transparent;text-align:start;text-decoration:none;outline:none;appearance:none;-webkit-appearance:none}
 button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav){margin:0;padding:0;border:0 solid transparent;background:transparent;color:inherit;font:inherit;appearance:none;-webkit-appearance:none}
 .xui-el:focus-visible:not([data-xui-quiet-focus]){outline:2px solid var(--xui-color-ring);outline-offset:1px}
+.xui-KeyRecorder-field[data-m-recording="true"]:focus-visible{outline:none}
 .xui-leaf{flex-direction:column}
 .xui-leaf>.xui-measured{flex-shrink:0}
 [data-xui-c="Text"].xui-el{display:block;white-space:pre-wrap;overflow-wrap:anywhere}

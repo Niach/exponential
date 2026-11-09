@@ -507,6 +507,67 @@ fun SurfaceModel.boxHover(id: String, inside: Boolean) {
     if (events.isNotEmpty()) dispatch(events)
 }
 
+// #EXP-1629 (interactions-round1.json keyRecorder): a KeyRecorder's field.
+// The painter captures (keys, mouse buttons 3-5, focus loss) and sends
+// `press`, `record` {type, key?, button?, ctrl, alt, shift, meta} and
+// `blur` on the field; the core guards them (a press only while idle,
+// record / blur only while recording) and the host owns the grammar.
+
+/**
+ * A KeyRecorder's `field` part: the macro's one pressable Box (a macro's
+ * nodes carry the macro's name, never their part; the part's id is
+ * `<owner>.field`).
+ */
+val NodeInfo.isKeyRecorderField: Boolean get() = macroName == "KeyRecorder" && component == "Box" && pressable && id.endsWith(".field")
+
+/**
+ * The field records now: its `recording` recipe prop as the core resolved
+ * it (the field's a11y `pressed` = `{props.recording|false}`), read live.
+ */
+val NodeInfo.keyRecorderRecording: Boolean get() = isKeyRecorderField && accessibility?.get("pressed")?.bool == true
+
+/** Is the KeyRecorder field at [index] recording (the live node)? */
+fun SurfaceModel.keyRecorderRecording(index: Int): Boolean = node(index)?.keyRecorderRecording == true
+
+/** The `record` payload: the event [type], its canonical [key] or mouse [button], and the held flags. */
+fun keyRecorderPayload(type: String, ctrl: Boolean, alt: Boolean, shift: Boolean, meta: Boolean, key: String? = null, button: Int? = null): JsonValue =
+    JsonValue.Obj(
+        linkedMapOf<String, JsonValue>(
+            "ctrl" to JsonValue.Bool(ctrl),
+            "alt" to JsonValue.Bool(alt),
+            "shift" to JsonValue.Bool(shift),
+            "meta" to JsonValue.Bool(meta),
+            "type" to JsonValue.Str(type),
+        ).apply {
+            if (key != null) put("key", JsonValue.Str(key))
+            if (button != null) put("button", JsonValue.Num(button.toDouble()))
+        },
+    )
+
+/** A press on the field (a tap, or Enter / Space while idle): `start` + recording true while idle. */
+fun SurfaceModel.keyRecorderPress(index: Int) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "press")
+}
+
+/** A captured key / modifier change / mouse button ([keyRecorderPayload]) while recording: `key`. */
+fun SurfaceModel.keyRecorderRecord(index: Int, payload: JsonValue) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "record", payload)
+}
+
+/** A mouse button over the field: only 3 (middle), 4 (back) and 5 (forward) are sent. */
+fun SurfaceModel.keyRecorderMouse(index: Int, button: Int, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false, meta: Boolean = false) {
+    if (button !in 3..5) return
+    keyRecorderRecord(index, keyRecorderPayload("mouse", ctrl, alt, shift, meta, button = button))
+}
+
+/** The field lost the focus: `stop` + recording false while recording. */
+fun SurfaceModel.keyRecorderBlur(index: Int) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "blur")
+}
+
 /** Focus on / off a node. */
 fun SurfaceModel.focus(id: String, focused: Boolean, fromKeyboard: Boolean = false) {
     if (focused) keyboardFocus = id else if (keyboardFocus == id) keyboardFocus = null

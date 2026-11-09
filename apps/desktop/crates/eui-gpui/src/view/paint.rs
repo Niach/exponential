@@ -647,6 +647,21 @@ impl SurfaceView {
                 this.context_menu(index, ev.position, cx);
             }));
         }
+        // #EXP-1629: a KeyRecorder's field, while it records: modifier
+        // changes and mouse buttons 3-5 over it go to `record`.
+        if self.key_recorder_field(index).is_some() {
+            el = el
+                .on_any_mouse_down(cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                    if this.record_mouse(ev.button, &ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
+                    if this.record_modifiers(&ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }));
+        }
         // FileUpload: OS file drops (the `dragover` state while over it).
         if owner == "FileUpload" && n.part.as_deref() == Some("dropzone") {
             let (drop_id, move_id) = (id.clone(), id.clone());

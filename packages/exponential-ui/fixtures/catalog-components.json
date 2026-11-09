@@ -11376,6 +11376,50 @@
       }
     },
     {
+      "name": "KeyRecorder/example",
+      "node": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ]
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/recording=true",
+      "node": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "recording": true
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/recording=false",
+      "node": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "recording": false
+        }
+      }
+    },
+    {
       "name": "DatePicker/example",
       "node": {
         "id": "date-picker",

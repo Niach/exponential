@@ -1207,6 +1207,49 @@
           }
         }
       ]
+    },
+    "KeyRecorder": {
+      "field": [
+        {
+          "style": {
+            "paddingHorizontal": 7,
+            "paddingVertical": 3.5,
+            "borderRadius": 5.25
+          }
+        }
+      ],
+      "none": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "ellipsis": [
+        {
+          "style": {
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": 13,
+            "lineHeight": 20
+          }
+        }
+      ]
     }
   }
 }

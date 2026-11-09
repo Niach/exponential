@@ -68,3 +68,6 @@ export { qrPaint, qrScanReporter, qrScanFormats, qrCornerPath, qrFeedColour, QR_
 export type { QrPaint, QrScannerHost, QrCorner, HoldEvent, HoldRect } from "./round5"
 // #VAPP-285: the Tree keys in the DOM (React + Solid Box).
 export { treeKeyTarget } from "./tree-keys"
+// #EXP-1629: the KeyRecorder field's DOM capture (React + Solid Box).
+export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMousePayload, isKeyRecorderField } from "./key-recorder"
+export type { KeyRecorderPayload } from "./key-recorder"

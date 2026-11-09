@@ -683,7 +683,12 @@ impl SurfaceView {
 
     /// VAPP-162: a key released on the focused `hold` Button ends a hold
     /// the same key started.
-    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // #EXP-1629: a recording KeyRecorder takes every key up.
+        if self.record_key_up(ev, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if self.key_up(&ev.keystroke.key, cx) {
             cx.stop_propagation();
         }
