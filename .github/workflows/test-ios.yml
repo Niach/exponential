@@ -84,6 +84,21 @@ jobs:
           mise use -g tuist@4.215.1
           tuist version
 
+      # The Mac runners share a machine whose global tuist (Homebrew's cask)
+      # trails the pin and serves every local lane, so the pinned release
+      # lives in the runner's own tool cache (kept across jobs) and only this
+      # job's PATH sees it.
+      - name: Pin tuist (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: |
+          dir="$RUNNER_TOOL_CACHE/tuist/4.215.1"
+          if [ ! -x "$dir/tuist" ]; then
+            rm -rf "$dir" && mkdir -p "$dir"
+            curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$dir.zip" https://github.com/tuist/tuist/releases/download/4.215.1/tuist.zip
+            unzip -q -o "$dir.zip" -d "$dir" && rm -f "$dir.zip"
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+
       - name: Check the local tuist + Xcode (self-hosted)
         if: runner.environment == 'self-hosted'
         run: |
