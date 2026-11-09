@@ -901,6 +901,16 @@ enum SelectTrigger {
     static func glyphSize(_ look: PartStyle) -> CGFloat {
         look.width ?? look.height ?? 16
     }
+
+    /// A label in a trigger's text style with its `label` part's face (an
+    /// Input `row`'s label too).
+    static func labelStyle(_ ts: TextStyle, _ look: PartStyle) -> TextStyle {
+        var s = ts
+        if let w = look.style.fontWeight { s.fontWeight = w }
+        if let f = look.style.fontSize { s.fontSize = f }
+        if let l = look.style.lineHeight { s.lineHeight = l }
+        return s
+    }
 }
 
 /// #EXP-1629: an Input `variant: row` field, shared by the measurer and

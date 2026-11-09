@@ -30613,6 +30613,18 @@
         "part" : "spacer"
       },
       {
+        "component" : "Box",
+        "frame" : [
+          307,
+          12.66,
+          69,
+          15.5
+        ],
+        "id" : "select.button",
+        "part" : "button",
+        "radius" : 10
+      },
+      {
         "component" : "Text",
         "frame" : [
           307,
