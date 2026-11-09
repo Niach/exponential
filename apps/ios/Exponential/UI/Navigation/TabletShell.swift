@@ -436,7 +436,7 @@ struct TabletSidebar: View {
                 UserAvatar(
                     image: nil,
                     initials: String(name.prefix(1)).uppercased(),
-                    hueKey: account?.userId,
+                    hueKey: avatarHueKey(id: account?.userId, name: account?.userName, email: account?.userEmail),
                     size: 26
                 )
                 VStack(alignment: .leading, spacing: 0) {

@@ -206,6 +206,10 @@ struct UnechoedSave {
 /// reading pause.
 const UNECHOED_SAVE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// #EXP-1754: how often an issue opened before the account is signed in
+/// retries its widget-submission fetch (every 500 ms, so ~30 s).
+const WIDGET_SUBMISSION_RETRIES: u32 = 60;
+
 impl UnechoedSaves {
     /// Record that `saved` (normalized) was just sent for `issue_id`, whose
     /// synced row currently reads `synced` (normalized).
@@ -716,7 +720,7 @@ impl IssueDetailView {
         self.busy_files.clear();
         // The metadata card belongs to the OUTGOING issue; refetch below.
         self.widget_submission = None;
-        self.fetch_widget_submission(issue_id.clone(), window, cx);
+        self.fetch_widget_submission(issue_id.clone(), 0, window, cx);
         *self.last_saved_description.borrow_mut() = String::new();
         // Back to the top: the scroll offset belongs to the PREVIOUS issue
         // (gpui keys scroll state by element id and this view is shared) —
@@ -799,10 +803,25 @@ impl IssueDetailView {
     fn fetch_widget_submission(
         &mut self,
         issue_id: String,
+        attempt: u32,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
+            // #EXP-1754: an issue opened at launch (a restored tab) can come
+            // before the account is signed in: try again shortly, a bounded
+            // number of times, so its reporter card still lands.
+            if attempt < WIDGET_SUBMISSION_RETRIES {
+                cx.spawn_in(window, async move |this, window| {
+                    window.background_executor().timer(std::time::Duration::from_millis(500)).await;
+                    let _ = this.update_in(window, |view, window, cx| {
+                        if view.issue_id.as_deref() == Some(issue_id.as_str()) {
+                            view.fetch_widget_submission(issue_id.clone(), attempt + 1, window, cx);
+                        }
+                    });
+                })
+                .detach();
+            }
             return;
         };
         cx.spawn_in(window, async move |this, window| {
@@ -831,6 +850,12 @@ impl IssueDetailView {
                                     .reporter_email
                                     .as_deref()
                                     .is_some_and(|email| !email.trim().is_empty()),
+                                avatar_key: crate::user_avatar::avatar_hue_key(
+                                    None,
+                                    submission.reporter_name.as_deref(),
+                                    submission.reporter_email.as_deref(),
+                                )
+                                .map(str::to_string),
                             }
                         });
                         view.timeline.update(cx, |timeline, cx| {

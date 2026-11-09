@@ -570,6 +570,49 @@
       }
     },
     {
+      "id": "issue-reporter-comments",
+      "group": "issues",
+      "title": "Issue comments · widget reporter",
+      "blurb": "A widget-filed issue scrolled to its comments: the reporter's reply wears the hue of their name, a deleted member's note has no key and stays grey (#EXP-1754, fixtures/avatar.json `keys`).",
+      "diffTolerance": 0.001,
+      "order": 12,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-19",
+        "anchor": {
+          "text": "Same spinner on an iPad Air here",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-19",
+        "anchor": {
+          "text": "Same spinner on an iPad Air here",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_issue-reporter-comments",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_issue-reporter-comments",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "issue:$APP-19"
+        },
+        "env": {
+          "EXP_DEV_SCROLL_TO": "end"
+        }
+      }
+    },
+    {
       "id": "issue-create",
       "group": "issues",
       "title": "New issue",
