@@ -499,9 +499,13 @@ extension SurfaceModel {
     }
 
     /// A Select popup opened: a fresh pick (the IDE's picker), the cursor
-    /// on the FIRST enabled option; the core opens the list at its top.
+    /// on the FIRST enabled option (a `multiple` one's on its first chosen,
+    /// none while nothing is: the IDE's multi picker); the core opens the
+    /// list at its top.
     func selectOpened(_ owner: String) {
-        let target = selectItems(owner).first { !isDisabled($0) }
+        let enabled = selectItems(owner).filter { !isDisabled($0) }
+        let multiple = byId[owner].flatMap { node($0) }?.props.flag("multiple") ?? false
+        let target = multiple ? enabled.first { node($0)?.selected == true } : enabled.first
         selectCursor[owner] = nil
         moveSelectCursor(owner, to: target)
     }

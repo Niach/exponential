@@ -81,6 +81,28 @@ pub fn set_prop(doc: &mut Document, id: &str, prop: &str, value: serde_json::Val
     }
 }
 
+/// #EDE-65 lane O: sets (or, with `Null`, removes) one key of the node
+/// `id`'s own `style` (the author's, which wins over a `style` prop): a
+/// host that draws a region of a document inside its own frame drops the
+/// document's (the chat's border and radius in the IDE's Chat tab).
+pub fn set_style(doc: &mut Document, id: &str, key: &str, value: serde_json::Value) {
+    fn walk(node: &mut eui_core::types::NestedNode, id: &str, key: &str, value: &serde_json::Value) {
+        if node.id == id {
+            let style = node.style.get_or_insert_with(Default::default);
+            if value.is_null() {
+                style.remove(key);
+            } else {
+                style.insert(key.to_string(), value.clone());
+            }
+        }
+        node.children.iter_mut().flatten().for_each(|c| walk(c, id, key, value));
+        node.slots.iter_mut().flat_map(|slots| slots.values_mut()).for_each(|c| walk(c, id, key, value));
+    }
+    if let Body::Nested(tree) = &mut doc.body {
+        walk(tree, id, key, &value);
+    }
+}
+
 /// The theme a host window draws its regions in: the regions sit on the
 /// host's one ground, so the Sidebar paints no fill of its own.
 pub fn theme(base: &ResolvedTheme) -> Arc<ResolvedTheme> {
@@ -152,5 +174,18 @@ mod tests {
         let base = eui_core::themes::builtin_theme("exponential").expect("the theme");
         assert!(base.recipes.contains_key("Sidebar"));
         assert!(!theme(&base).recipes.contains_key("Sidebar"));
+    }
+
+    /// #EDE-65 lane O: a host drops a node's own style keys or sets one.
+    #[test]
+    fn a_host_restyles_a_node_of_the_document() {
+        let mut doc = document(uicore_docs::doc("chat").expect("the chat"));
+        set_style(&mut doc, "chat", "borderWidth", serde_json::Value::Null);
+        set_style(&mut doc, "chat", "borderRadius", serde_json::json!(0));
+        let Body::Nested(root) = &doc.body else { panic!("a nested document") };
+        let style = root.style.as_ref().expect("the root's style");
+        assert!(!style.contains_key("borderWidth"));
+        assert_eq!(style.get("borderRadius"), Some(&serde_json::json!(0)));
+        assert_eq!(style.get("display"), Some(&serde_json::json!("flex")), "the rest stays");
     }
 }

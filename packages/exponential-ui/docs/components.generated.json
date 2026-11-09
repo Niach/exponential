@@ -21,7 +21,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-box",
-      "description": "Container laid out by the whitelisted style object; every macro expands into it. `on.hover` fires on pointer enter.",
+      "description": "Container laid out by its whitelisted style; every macro expands into it. `hover` fires on pointer enter.",
       "children": "many",
       "slots": [],
       "events": [
@@ -125,7 +125,7 @@
           "bindable": false,
           "responsive": true,
           "default": false,
-          "description": "Lets children wrap onto new lines."
+          "description": "Children wrap onto new lines."
         },
         {
           "name": "style",
@@ -207,7 +207,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-card",
-      "description": "Bordered card, optional title and description, for grouped content (not page headers).",
+      "description": "Bordered card for grouped content, not page headers.",
       "children": "many",
       "slots": [],
       "events": [
@@ -281,7 +281,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-window",
-      "description": "Window frame: a three-dot chrome bar with an optional caption over one child filling the body.",
+      "description": "Window frame: three-dot chrome bar (optional caption) over one child filling the body.",
       "children": "one",
       "slots": [],
       "events": [],
@@ -393,7 +393,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Draws a hairline between items."
+          "description": "Hairline between items."
         },
         {
           "name": "sectionBy",
@@ -482,7 +482,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Draws a grip on each handle."
+          "description": "Grip on each handle."
         },
         {
           "name": "style",
@@ -615,7 +615,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "Hides the column; bind to a toggle."
+          "description": "Hides the column."
         },
         {
           "name": "rail",
@@ -647,7 +647,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-split-view",
-      "description": "List (`list` slot) + detail (children); phones show one, the detail with a back button.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with a back button.",
       "children": "many",
       "slots": [
         "list"
@@ -697,7 +697,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-app-bar",
-      "description": "Top bar: title, optional subtitle and back button, `leading`/`trailing` slots.",
+      "description": "Top bar: title, optional subtitle and back button.",
       "children": "none",
       "slots": [
         "leading",
@@ -731,7 +731,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows a back button that fires `back`."
+          "description": "Back button firing `back`."
         }
       ],
       "accessibility": {
@@ -755,7 +755,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-page",
-      "description": "Screen: AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "description": "Screen: an AppBar row over a padded scrolling body.",
       "children": "many",
       "slots": [
         "leading",
@@ -789,7 +789,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows a back button that fires `back`."
+          "description": "Back button firing `back`."
         },
         {
           "name": "padded",
@@ -858,7 +858,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-section",
-      "description": "Band header (title, caption, count, glyph; foldable, tinted) over hairline-divided rows; no title = rows only.",
+      "description": "Band header (foldable, tinted) over hairline-divided rows; no title = rows only.",
       "children": "many",
       "slots": [
         "leading",
@@ -976,7 +976,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-group",
-      "description": "Rounded group of form rows with an optional title and footnote.",
+      "description": "Rounded group of form rows, optional title and footnote.",
       "children": "many",
       "slots": [],
       "events": [],
@@ -996,7 +996,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Muted note under the group."
+          "description": "Note under the group."
         }
       ],
       "accessibility": {
@@ -1017,7 +1017,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-text",
-      "description": "Text in one type style; prefer dedicated components over inline markdown.",
+      "description": "Text in one type style; prefer components over inline markdown.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1155,7 +1155,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-markdown",
-      "description": "Rendered GitHub-flavoured markdown, for prose.",
+      "description": "GitHub-flavoured markdown, for prose.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1178,7 +1178,7 @@
           "bindable": false,
           "responsive": false,
           "default": "document",
-          "description": "`inline` = a text run (no outer block gap, paragraphs in `variant`'s Text type), `document` = full prose."
+          "description": "`inline` = a text run (no outer gap; paragraphs in `variant`'s type), `document` = full prose."
         },
         {
           "name": "variant",
@@ -1226,7 +1226,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-code-block",
-      "description": "Mono source code: syntax colouring, optional line numbers, a copy button.",
+      "description": "Mono source code: syntax colouring, line numbers, copy button.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1264,7 +1264,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows a line-number gutter."
+          "description": "Line-number gutter."
         },
         {
           "name": "wrap",
@@ -1298,7 +1298,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Lines before the block scrolls."
+          "description": "Lines before it scrolls."
         },
         {
           "name": "variant",
@@ -1410,7 +1410,7 @@
       "group": "text",
       "lite": true,
       "specimenId": "exponential-ui-label",
-      "description": "Caption for an unlabelled control, with an optional required mark.",
+      "description": "Caption for an unlabelled control, optional required mark.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1439,7 +1439,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Adds the required mark."
+          "description": "Required mark."
         }
       ],
       "accessibility": {
@@ -1494,7 +1494,7 @@
           "bindable": false,
           "responsive": false,
           "default": "cover",
-          "description": "How the picture fills the box."
+          "description": "How it fills the box."
         },
         {
           "name": "width",
@@ -1543,7 +1543,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Horizontal focal point 0..1 kept on crop (0.5)."
+          "description": "Focal x 0..1 kept on crop (0.5)."
         },
         {
           "name": "focalY",
@@ -1551,7 +1551,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Vertical focal point 0..1 kept on crop (0.5)."
+          "description": "Focal y 0..1 kept on crop (0.5)."
         },
         {
           "name": "style",
@@ -1694,7 +1694,7 @@
       "group": "media",
       "lite": true,
       "specimenId": "exponential-ui-icon",
-      "description": "One icon from the shared Lucide registry, by name.",
+      "description": "One icon from the shared Lucide registry.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1755,7 +1755,7 @@
       "group": "media",
       "lite": false,
       "specimenId": "exponential-ui-video",
-      "description": "The poster until play, then the platform player with controls.",
+      "description": "Poster until play, then the platform player with controls.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -1794,7 +1794,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Starts muted playback on appear."
+          "description": "Plays muted on appear."
         },
         {
           "name": "aspectRatio",
@@ -1928,7 +1928,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "A user id; else the name picks the hue."
+          "description": "User id; else the name picks the hue."
         }
       ],
       "accessibility": {
@@ -2035,7 +2035,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Wraps from the last page to the first."
+          "description": "Last page wraps to the first."
         },
         {
           "name": "indicators",
@@ -2044,7 +2044,7 @@
           "bindable": false,
           "responsive": false,
           "default": true,
-          "description": "Shows the page dots."
+          "description": "Page dots."
         },
         {
           "name": "counter",
@@ -2194,7 +2194,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Stretches the headers across the width."
+          "description": "Headers span the width."
         },
         {
           "name": "closable",
@@ -2203,7 +2203,7 @@
           "bindable": false,
           "responsive": false,
           "default": "none",
-          "description": "Close glyphs firing `close`; `hover` = on hover."
+          "description": "Close glyphs firing `close`."
         },
         {
           "name": "addable",
@@ -2259,7 +2259,7 @@
       "group": "navigation",
       "lite": true,
       "specimenId": "exponential-ui-segmented",
-      "description": "ONE row or column of segments: pill track, toggles, joined outline buttons, bottom bar or rail.",
+      "description": "ONE row or column of segments (also a bottom bar or rail).",
       "children": "none",
       "slots": [],
       "events": [
@@ -2736,7 +2736,7 @@
           "required": true,
           "bindable": false,
           "responsive": false,
-          "description": "How many pages there are."
+          "description": "Page count."
         },
         {
           "name": "page",
@@ -2769,7 +2769,7 @@
       "group": "navigation",
       "lite": true,
       "specimenId": "exponential-ui-breadcrumb",
-      "description": "Path to the current page; all but the last item are links firing `select`.",
+      "description": "Path to the current page; all but the last are links firing `select`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -2783,7 +2783,7 @@
           "required": true,
           "bindable": false,
           "responsive": false,
-          "description": "Path from the root to the current page."
+          "description": "Root first."
         }
       ],
       "accessibility": {
@@ -2910,7 +2910,7 @@
           "bindable": true,
           "responsive": false,
           "default": 0,
-          "description": "0-based index of the active step."
+          "description": "Active step, 0-based."
         },
         {
           "name": "orientation",
@@ -3119,7 +3119,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-dock-card",
-      "description": "Floating one-row card; its children open in a bottom sheet with a pinned footer.",
+      "description": "Floating one-row card; children open in a bottom sheet, footer pinned.",
       "children": "many",
       "slots": [
         "footer"
@@ -3215,7 +3215,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-alert-dialog",
-      "description": "Confirmation modal that ignores outside clicks; fires `confirm` or `cancel`.",
+      "description": "Confirmation modal; ignores outside clicks.",
       "children": "many",
       "slots": [
         "trigger"
@@ -3303,7 +3303,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-popover",
-      "description": "Small panel anchored to its trigger, opens on press.",
+      "description": "Small panel anchored to its trigger.",
       "children": "many",
       "slots": [
         "trigger"
@@ -3424,7 +3424,7 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "Actions, checkboxes, groups and submenus, opened by pressing its child or right-click / long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
       "children": "one",
       "slots": [],
       "events": [
@@ -3582,7 +3582,7 @@
           "bindable": false,
           "responsive": false,
           "default": 5000,
-          "description": "Ms until it dismisses itself; 0 = never."
+          "description": "Ms until it dismisses; 0 = never."
         },
         {
           "name": "actionLabel",
@@ -3698,7 +3698,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Detail under the heading."
+          "description": "Under the title."
         },
         {
           "name": "type",
@@ -3730,7 +3730,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-chip",
-      "description": "Small token: a pill (filter, label, state) or a rect naming an entity with glyph or image; removable.",
+      "description": "Small token: a pill (filter, label, state) or a rect naming an entity; removable.",
       "children": "none",
       "slots": [
         "leading"
@@ -3765,7 +3765,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Draws it as the active choice."
+          "description": "Active choice."
         },
         {
           "name": "tone",
@@ -3848,7 +3848,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-empty-state",
-      "description": "Empty screen or list: a short title; `page` adds an icon disc, a sentence and an action, `list` one muted line.",
+      "description": "Empty screen or list: `page` = icon disc, title, sentence, action; `list` = one muted line.",
       "children": "none",
       "slots": [],
       "events": [
@@ -3920,7 +3920,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-progress",
-      "description": "Horizontal progress bar, optional label.",
+      "description": "Horizontal progress bar.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -3998,7 +3998,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-meter",
-      "description": "Usage bar of coloured segments against a maximum, with a caption and a value.",
+      "description": "Usage bar: coloured segments against a maximum, label and value.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -4215,7 +4215,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Row's height in px."
+          "description": "Row height in px."
         },
         {
           "name": "dot",
@@ -4330,7 +4330,7 @@
       "group": "media",
       "lite": false,
       "specimenId": "exponential-ui-call-surface",
-      "description": "Voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, call buttons.",
       "children": "none",
       "slots": [],
       "events": [
@@ -4459,7 +4459,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-table",
-      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns hold components.",
       "children": "none",
       "slots": [
         "*"
@@ -4485,7 +4485,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "One object per row keyed by column key; bind for live data."
+          "description": "One object per row, keyed by column key."
         },
         {
           "name": "rowKey",
@@ -4527,7 +4527,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Caption under the table."
+          "description": "Under the table."
         },
         {
           "name": "emptyText",
@@ -4563,7 +4563,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Pins the header while rows scroll."
+          "description": "Pins the header."
         },
         {
           "name": "totals",
@@ -4628,7 +4628,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-chart",
-      "description": "Bar, stacked-bar, line, area, pie, donut or sparkline, with axes, legend and tooltip.",
+      "description": "Chart of any `kind`, with axes, legend and tooltip.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -4747,7 +4747,7 @@
           "bindable": false,
           "responsive": false,
           "default": true,
-          "description": "Horizontal grid lines at the ticks."
+          "description": "Grid lines at the ticks."
         },
         {
           "name": "showLegend",
@@ -4765,7 +4765,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Labels each bar, point or slice with its value."
+          "description": "Labels each mark with its value."
         }
       ],
       "accessibility": {
@@ -4992,7 +4992,7 @@
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "`default` = primary action, `destructive` = dangerous, `ghost`/`link` = quiet."
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
         },
         {
           "name": "size",
@@ -5044,7 +5044,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Submits the enclosing Form on press."
+          "description": "Submits the enclosing Form."
         },
         {
           "name": "hold",
@@ -5086,7 +5086,7 @@
       "group": "action",
       "lite": true,
       "specimenId": "exponential-ui-link",
-      "description": "Inline link text that opens a URL or fires `press`.",
+      "description": "Inline link opening a URL or firing `press`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -5372,7 +5372,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-settings-row",
-      "description": "Settings line: label (+ description) at the start, control (children) at the end; stacks on phones.",
+      "description": "Settings line: label (+ description), then the control (children); stacks on phones.",
       "children": "many",
       "slots": [],
       "events": [],
@@ -5729,7 +5729,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Suffix after the number (`kg`, `%`)."
+          "description": "Suffix (`kg`, `%`)."
         },
         {
           "name": "placeholder",
@@ -5794,7 +5794,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-checkbox",
-      "description": "Labelled checkbox; bind `checked`.",
+      "description": "Labelled checkbox.",
       "children": "none",
       "slots": [],
       "events": [
@@ -5878,7 +5878,7 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-radio",
-      "description": "Labelled radio group choosing one value; bind `value`.",
+      "description": "Labelled radio group choosing one value.",
       "children": "none",
       "slots": [],
       "events": [
@@ -6077,7 +6077,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-switch",
-      "description": "Labelled on/off switch; bind `checked`.",
+      "description": "Labelled on/off switch.",
       "children": "none",
       "slots": [],
       "events": [
@@ -6262,7 +6262,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-rating",
-      "description": "Row of stars scoring out of `max`; `readOnly` only displays.",
+      "description": "Row of stars scoring out of `max`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -6328,7 +6328,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-select",
-      "description": "Picks one or many options; `searchable` = a filtering combobox, `source` = a host list.",
+      "description": "Picks one or many options.",
       "children": "none",
       "slots": [],
       "events": [
@@ -6377,7 +6377,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Host list id supplying the options (e.g. `exp:statuses`)."
+          "description": "Host list id for the options (`exp:statuses`)."
         },
         {
           "name": "placeholder",
@@ -6420,7 +6420,7 @@
           "bindable": false,
           "responsive": false,
           "default": "$string.noResults",
-          "description": "Shown when the search matches nothing."
+          "description": "Shown on no match."
         },
         {
           "name": "triggerVariant",
@@ -6445,7 +6445,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Popup width in px (`row`: 260)."
+          "description": "Px (`row`: 260)."
         },
         {
           "name": "disabled",
@@ -6617,7 +6617,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-chip-input",
-      "description": "Removable chips (Enter or comma adds); bind `values`.",
+      "description": "Removable chips (Enter or comma adds).",
       "children": "none",
       "slots": [],
       "events": [
@@ -6721,7 +6721,7 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-key-recorder",
-      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; the host sets `value`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -6762,7 +6762,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "The held modifiers while recording."
+          "description": "Held modifiers while recording."
         },
         {
           "name": "placeholder",
@@ -6778,7 +6778,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "An error under the field."
+          "description": "Error under the field."
         }
       ],
       "accessibility": {
@@ -7118,7 +7118,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-file-upload",
-      "description": "Drop zone + browse button; files reach the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse button; files go to the host via `upload`, listed back in `files`.",
       "children": "none",
       "slots": [],
       "events": [
@@ -7284,7 +7284,7 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-composer",
-      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
+      "description": "Chat input: growing text field, submit button, optional attachments; slots sit in its controls row.",
       "children": "none",
       "slots": [
         "leading",
@@ -7331,7 +7331,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files})."
+          "description": "Attach control firing `attach` (a pasted image too, {files})."
         },
         {
           "name": "busy",
@@ -7373,7 +7373,7 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-row",
-      "description": "THE list row: lead glyph or slot, mono identifier, title, subtitle, trailing meta or value, slot, chevron; flat or card, nestable; with children it folds.",
+      "description": "THE list row: lead glyph or slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nestable; with children it folds.",
       "children": "many",
       "slots": [
         "leading",
@@ -7399,7 +7399,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Mono identifier before the title (`EXP-12`)."
+          "description": "Mono id before the title (`EXP-12`)."
         },
         {
           "name": "subtitle",
@@ -7457,7 +7457,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "Draws it as the active row."
+          "description": "Active row."
         },
         {
           "name": "density",
@@ -7475,7 +7475,7 @@
           "bindable": false,
           "responsive": false,
           "default": "flat",
-          "description": "Flat, or a padded card with its own fill and border."
+          "description": "Flat, or a padded card (own fill and border)."
         },
         {
           "name": "pressable",
@@ -7722,7 +7722,7 @@
       "group": "media",
       "lite": true,
       "specimenId": "exponential-ui-motion",
-      "description": "Lottie-compatible vector animation, identical everywhere: loaders, success and empty states, explainers.",
+      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
       "children": "none",
       "slots": [],
       "events": [
@@ -7740,7 +7740,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
         },
         {
           "name": "size",
@@ -7815,7 +7815,7 @@
           "bindable": false,
           "responsive": false,
           "default": true,
-          "description": "Repeats; false = play once and hold."
+          "description": "false = play once and hold."
         },
         {
           "name": "plays",
@@ -7907,7 +7907,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "DotLottie state machine for playback (a .lottie src has its own)."
+          "description": "DotLottie state machine (a .lottie src has its own)."
         },
         {
           "name": "inputs",
@@ -7915,7 +7915,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "State-machine inputs {name: value}; bind to drive states."
+          "description": "State-machine inputs {name: value}; bind them."
         },
         {
           "name": "label",
@@ -7999,7 +7999,7 @@
       "group": "media",
       "lite": true,
       "specimenId": "exponential-ui-canvas",
-      "description": "Static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8194,7 +8194,7 @@
       "group": "layout",
       "lite": false,
       "specimenId": "exponential-ui-embed",
-      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "description": "Nested surface drawn in place, sandboxed (own data and ids); its `event` actions fire `action` {name, context}; a bad one shows an error box.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8250,7 +8250,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-calendar",
-      "description": "Month or week of records as chart-coloured bars in lanes; phones: dots and the day's agenda.",
+      "description": "Month or week of records as coloured bars in lanes; phones: dots and the day's agenda.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8332,7 +8332,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-timeline",
-      "description": "Records over time: chart-coloured bars across week, month or quarter columns.",
+      "description": "Records over time: coloured bars across week, month or quarter columns.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8403,7 +8403,7 @@
       "group": "data",
       "lite": true,
       "specimenId": "exponential-ui-record-form",
-      "description": "Form for one record kind: a field per schema field with its checks; submit saves.",
+      "description": "Form for one record kind: a field per schema field, with checks; submit saves.",
       "children": "none",
       "slots": [],
       "events": [
@@ -8444,7 +8444,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows the fields inert, no submit."
+          "description": "Fields inert, no submit."
         },
         {
           "name": "cancel",
@@ -8592,7 +8592,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-record-table",
-      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -8612,7 +8612,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Records query (`sort=name&order=asc`, `query=<name>`); default newest first."
+          "description": "Query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         {
           "name": "columns",
@@ -8655,7 +8655,7 @@
           "bindable": false,
           "responsive": false,
           "default": true,
-          "description": "Shows the Add button."
+          "description": "Add button."
         },
         {
           "name": "editable",

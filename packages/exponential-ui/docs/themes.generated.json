@@ -947,6 +947,28 @@
             "dark": "#ffffff1f"
           }
         }
+      },
+      {
+        "name": "ghostHover",
+        "ref": "$color.ghostHover",
+        "values": {
+          "neutral": {
+            "light": "#f5f5f5",
+            "dark": "#262626"
+          },
+          "exponential": {
+            "light": "#f5f5f5",
+            "dark": "#ffffff0e"
+          },
+          "playful": {
+            "light": "#ffe4e6",
+            "dark": "#4c1d95"
+          },
+          "orange": {
+            "light": "#f5f5f5",
+            "dark": "#ffffff0e"
+          }
+        }
       }
     ],
     "spacing": [
@@ -3776,7 +3798,8 @@
         "fade",
         "description",
         "labels",
-        "control"
+        "control",
+        "button"
       ],
       "props": [
         "multiple",

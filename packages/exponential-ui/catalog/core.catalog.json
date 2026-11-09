@@ -1415,7 +1415,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Container laid out by the whitelisted style object; every macro expands into it. `on.hover` fires on pointer enter.",
+      "description": "Container laid out by its whitelisted style; every macro expands into it. `hover` fires on pointer enter.",
       "props": {
         "style": {
           "type": "style",
@@ -1481,7 +1481,7 @@
           "type": "boolean",
           "default": false,
           "responsive": true,
-          "description": "Lets children wrap onto new lines."
+          "description": "Children wrap onto new lines."
         },
         "style": {
           "type": "style",
@@ -1528,7 +1528,7 @@
       "group": "layout",
       "lite": true,
       "children": "many",
-      "description": "Bordered card, optional title and description, for grouped content (not page headers).",
+      "description": "Bordered card for grouped content, not page headers.",
       "props": {
         "title": {
           "type": "string",
@@ -1566,7 +1566,7 @@
       "group": "layout",
       "lite": true,
       "children": "one",
-      "description": "Window frame: a three-dot chrome bar with an optional caption over one child filling the body.",
+      "description": "Window frame: three-dot chrome bar (optional caption) over one child filling the body.",
       "props": {
         "title": {
           "type": "string",
@@ -1625,7 +1625,7 @@
         "divided": {
           "type": "boolean",
           "default": false,
-          "description": "Draws a hairline between items."
+          "description": "Hairline between items."
         },
         "sectionBy": {
           "type": "string",
@@ -1679,7 +1679,7 @@
         "handle": {
           "type": "boolean",
           "default": false,
-          "description": "Draws a grip on each handle."
+          "description": "Grip on each handle."
         },
         "style": {
           "type": "style",
@@ -1759,7 +1759,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "Hides the column; bind to a toggle."
+          "description": "Hides the column."
         },
         "rail": {
           "type": "boolean",
@@ -1781,7 +1781,7 @@
       "slots": [
         "list"
       ],
-      "description": "List (`list` slot) + detail (children); phones show one, the detail with a back button.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with a back button.",
       "props": {
         "open": {
           "type": "boolean",
@@ -1812,7 +1812,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Top bar: title, optional subtitle and back button, `leading`/`trailing` slots.",
+      "description": "Top bar: title, optional subtitle and back button.",
       "props": {
         "title": {
           "type": "string",
@@ -1828,7 +1828,7 @@
         "back": {
           "type": "boolean",
           "default": false,
-          "description": "Shows a back button that fires `back`."
+          "description": "Back button firing `back`."
         }
       },
       "events": [
@@ -1848,7 +1848,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Screen: AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "description": "Screen: an AppBar row over a padded scrolling body.",
       "props": {
         "title": {
           "type": "string",
@@ -1864,7 +1864,7 @@
         "back": {
           "type": "boolean",
           "default": false,
-          "description": "Shows a back button that fires `back`."
+          "description": "Back button firing `back`."
         },
         "padded": {
           "type": "boolean",
@@ -1910,7 +1910,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Band header (title, caption, count, glyph; foldable, tinted) over hairline-divided rows; no title = rows only.",
+      "description": "Band header (foldable, tinted) over hairline-divided rows; no title = rows only.",
       "props": {
         "title": {
           "type": "string",
@@ -1977,7 +1977,7 @@
       "group": "list",
       "lite": true,
       "children": "many",
-      "description": "Rounded group of form rows with an optional title and footnote.",
+      "description": "Rounded group of form rows, optional title and footnote.",
       "props": {
         "title": {
           "type": "string",
@@ -1985,7 +1985,7 @@
         },
         "footer": {
           "type": "string",
-          "description": "Muted note under the group."
+          "description": "Note under the group."
         }
       },
       "example": {
@@ -1997,7 +1997,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "Text in one type style; prefer dedicated components over inline markdown.",
+      "description": "Text in one type style; prefer components over inline markdown.",
       "props": {
         "text": {
           "type": "string",
@@ -2080,7 +2080,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "Rendered GitHub-flavoured markdown, for prose.",
+      "description": "GitHub-flavoured markdown, for prose.",
       "props": {
         "text": {
           "type": "markdown",
@@ -2095,7 +2095,7 @@
             "inline"
           ],
           "default": "document",
-          "description": "`inline` = a text run (no outer block gap, paragraphs in `variant`'s Text type), `document` = full prose."
+          "description": "`inline` = a text run (no outer gap; paragraphs in `variant`'s type), `document` = full prose."
         },
         "variant": {
           "type": "enum",
@@ -2124,7 +2124,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "Mono source code: syntax colouring, optional line numbers, a copy button.",
+      "description": "Mono source code: syntax colouring, line numbers, copy button.",
       "props": {
         "code": {
           "type": "string",
@@ -2145,7 +2145,7 @@
         "lineNumbers": {
           "type": "boolean",
           "default": false,
-          "description": "Shows a line-number gutter."
+          "description": "Line-number gutter."
         },
         "wrap": {
           "type": "boolean",
@@ -2166,7 +2166,7 @@
         },
         "maxLines": {
           "type": "number",
-          "description": "Lines before the block scrolls."
+          "description": "Lines before it scrolls."
         },
         "variant": {
           "type": "enum",
@@ -2234,7 +2234,7 @@
       "group": "text",
       "lite": true,
       "children": "none",
-      "description": "Caption for an unlabelled control, with an optional required mark.",
+      "description": "Caption for an unlabelled control, optional required mark.",
       "props": {
         "text": {
           "type": "string",
@@ -2249,7 +2249,7 @@
         "required": {
           "type": "boolean",
           "default": false,
-          "description": "Adds the required mark."
+          "description": "Required mark."
         }
       },
       "example": {
@@ -2279,7 +2279,7 @@
           "type": "enum",
           "enum": "imageFit",
           "default": "cover",
-          "description": "How the picture fills the box."
+          "description": "How it fills the box."
         },
         "width": {
           "type": "number",
@@ -2305,11 +2305,11 @@
         },
         "focalX": {
           "type": "number",
-          "description": "Horizontal focal point 0..1 kept on crop (0.5)."
+          "description": "Focal x 0..1 kept on crop (0.5)."
         },
         "focalY": {
           "type": "number",
-          "description": "Vertical focal point 0..1 kept on crop (0.5)."
+          "description": "Focal y 0..1 kept on crop (0.5)."
         },
         "style": {
           "type": "style",
@@ -2393,7 +2393,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "One icon from the shared Lucide registry, by name.",
+      "description": "One icon from the shared Lucide registry.",
       "props": {
         "name": {
           "type": "icon",
@@ -2428,7 +2428,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "The poster until play, then the platform player with controls.",
+      "description": "Poster until play, then the platform player with controls.",
       "props": {
         "src": {
           "type": "url",
@@ -2447,7 +2447,7 @@
         "autoplay": {
           "type": "boolean",
           "default": false,
-          "description": "Starts muted playback on appear."
+          "description": "Plays muted on appear."
         },
         "aspectRatio": {
           "type": "number",
@@ -2518,7 +2518,7 @@
         "seed": {
           "type": "string",
           "bindable": true,
-          "description": "A user id; else the name picks the hue."
+          "description": "User id; else the name picks the hue."
         }
       },
       "example": {
@@ -2577,12 +2577,12 @@
         "loop": {
           "type": "boolean",
           "default": false,
-          "description": "Wraps from the last page to the first."
+          "description": "Last page wraps to the first."
         },
         "indicators": {
           "type": "boolean",
           "default": true,
-          "description": "Shows the page dots."
+          "description": "Page dots."
         },
         "counter": {
           "type": "boolean",
@@ -2680,13 +2680,13 @@
         "fill": {
           "type": "boolean",
           "default": false,
-          "description": "Stretches the headers across the width."
+          "description": "Headers span the width."
         },
         "closable": {
           "type": "enum",
           "enum": "tabClosable",
           "default": "none",
-          "description": "Close glyphs firing `close`; `hover` = on hover."
+          "description": "Close glyphs firing `close`."
         },
         "addable": {
           "type": "boolean",
@@ -2725,7 +2725,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "ONE row or column of segments: pill track, toggles, joined outline buttons, bottom bar or rail.",
+      "description": "ONE row or column of segments (also a bottom bar or rail).",
       "props": {
         "items": {
           "type": "array",
@@ -3022,7 +3022,7 @@
         "totalPages": {
           "type": "number",
           "required": true,
-          "description": "How many pages there are."
+          "description": "Page count."
         },
         "page": {
           "type": "number",
@@ -3044,7 +3044,7 @@
       "group": "navigation",
       "lite": true,
       "children": "none",
-      "description": "Path to the current page; all but the last item are links firing `select`.",
+      "description": "Path to the current page; all but the last are links firing `select`.",
       "props": {
         "items": {
           "type": "array",
@@ -3053,7 +3053,7 @@
             "shape": "option"
           },
           "required": true,
-          "description": "Path from the root to the current page."
+          "description": "Root first."
         }
       },
       "events": [
@@ -3146,7 +3146,7 @@
           "type": "number",
           "default": 0,
           "bindable": true,
-          "description": "0-based index of the active step."
+          "description": "Active step, 0-based."
         },
         "orientation": {
           "type": "enum",
@@ -3277,7 +3277,7 @@
       "slots": [
         "footer"
       ],
-      "description": "Floating one-row card; its children open in a bottom sheet with a pinned footer.",
+      "description": "Floating one-row card; children open in a bottom sheet, footer pinned.",
       "props": {
         "label": {
           "type": "string",
@@ -3339,7 +3339,7 @@
       "slots": [
         "trigger"
       ],
-      "description": "Confirmation modal that ignores outside clicks; fires `confirm` or `cancel`.",
+      "description": "Confirmation modal; ignores outside clicks.",
       "props": {
         "title": {
           "type": "string",
@@ -3391,7 +3391,7 @@
       "slots": [
         "trigger"
       ],
-      "description": "Small panel anchored to its trigger, opens on press.",
+      "description": "Small panel anchored to its trigger.",
       "props": {
         "open": {
           "type": "boolean",
@@ -3457,7 +3457,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups and submenus, opened by pressing its child or right-click / long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
       "props": {
         "label": {
           "type": "string",
@@ -3550,7 +3550,7 @@
         "duration": {
           "type": "number",
           "default": 5000,
-          "description": "Ms until it dismisses itself; 0 = never."
+          "description": "Ms until it dismisses; 0 = never."
         },
         "actionLabel": {
           "type": "string",
@@ -3619,7 +3619,7 @@
         "message": {
           "type": "string",
           "bindable": true,
-          "description": "Detail under the heading."
+          "description": "Under the title."
         },
         "type": {
           "type": "enum",
@@ -3642,7 +3642,7 @@
       "slots": [
         "leading"
       ],
-      "description": "Small token: a pill (filter, label, state) or a rect naming an entity with glyph or image; removable.",
+      "description": "Small token: a pill (filter, label, state) or a rect naming an entity; removable.",
       "props": {
         "label": {
           "type": "string",
@@ -3659,7 +3659,7 @@
         "selected": {
           "type": "boolean",
           "default": false,
-          "description": "Draws it as the active choice."
+          "description": "Active choice."
         },
         "tone": {
           "type": "enum",
@@ -3710,7 +3710,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Empty screen or list: a short title; `page` adds an icon disc, a sentence and an action, `list` one muted line.",
+      "description": "Empty screen or list: `page` = icon disc, title, sentence, action; `list` = one muted line.",
       "props": {
         "icon": {
           "type": "icon",
@@ -3754,7 +3754,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Horizontal progress bar, optional label.",
+      "description": "Horizontal progress bar.",
       "props": {
         "value": {
           "type": "number",
@@ -3800,7 +3800,7 @@
       "group": "feedback",
       "lite": true,
       "children": "none",
-      "description": "Usage bar of coloured segments against a maximum, with a caption and a value.",
+      "description": "Usage bar: coloured segments against a maximum, label and value.",
       "props": {
         "segments": {
           "type": "array",
@@ -3925,7 +3925,7 @@
         },
         "rowHeight": {
           "type": "number",
-          "description": "Row's height in px."
+          "description": "Row height in px."
         },
         "dot": {
           "type": "boolean",
@@ -3999,7 +3999,7 @@
       "group": "media",
       "lite": false,
       "children": "none",
-      "description": "Voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, call buttons.",
       "props": {
         "name": {
           "type": "string",
@@ -4090,7 +4090,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns hold components.",
       "props": {
         "columns": {
           "type": "array",
@@ -4108,7 +4108,7 @@
           },
           "required": true,
           "bindable": true,
-          "description": "One object per row keyed by column key; bind for live data."
+          "description": "One object per row, keyed by column key."
         },
         "rowKey": {
           "type": "string",
@@ -4137,7 +4137,7 @@
         },
         "caption": {
           "type": "string",
-          "description": "Caption under the table."
+          "description": "Under the table."
         },
         "emptyText": {
           "type": "string",
@@ -4158,7 +4158,7 @@
         "stickyHeader": {
           "type": "boolean",
           "default": false,
-          "description": "Pins the header while rows scroll."
+          "description": "Pins the header."
         },
         "totals": {
           "type": "boolean",
@@ -4210,7 +4210,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "Bar, stacked-bar, line, area, pie, donut or sparkline, with axes, legend and tooltip.",
+      "description": "Chart of any `kind`, with axes, legend and tooltip.",
       "props": {
         "kind": {
           "type": "enum",
@@ -4286,7 +4286,7 @@
         "showGrid": {
           "type": "boolean",
           "default": true,
-          "description": "Horizontal grid lines at the ticks."
+          "description": "Grid lines at the ticks."
         },
         "showLegend": {
           "type": "boolean",
@@ -4296,7 +4296,7 @@
         "showValues": {
           "type": "boolean",
           "default": false,
-          "description": "Labels each bar, point or slice with its value."
+          "description": "Labels each mark with its value."
         }
       },
       "example": {
@@ -4442,7 +4442,7 @@
           "type": "enum",
           "enum": "variant",
           "default": "default",
-          "description": "`default` = primary action, `destructive` = dangerous, `ghost`/`link` = quiet."
+          "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
         },
         "size": {
           "type": "enum",
@@ -4476,7 +4476,7 @@
         "submit": {
           "type": "boolean",
           "default": false,
-          "description": "Submits the enclosing Form on press."
+          "description": "Submits the enclosing Form."
         },
         "hold": {
           "type": "boolean",
@@ -4504,7 +4504,7 @@
       "group": "action",
       "lite": true,
       "children": "none",
-      "description": "Inline link text that opens a URL or fires `press`.",
+      "description": "Inline link opening a URL or firing `press`.",
       "props": {
         "label": {
           "type": "string",
@@ -4670,7 +4670,7 @@
       "group": "input",
       "lite": true,
       "children": "many",
-      "description": "Settings line: label (+ description) at the start, control (children) at the end; stacks on phones.",
+      "description": "Settings line: label (+ description), then the control (children); stacks on phones.",
       "props": {
         "label": {
           "type": "string",
@@ -4878,7 +4878,7 @@
         },
         "unit": {
           "type": "string",
-          "description": "Suffix after the number (`kg`, `%`)."
+          "description": "Suffix (`kg`, `%`)."
         },
         "placeholder": {
           "type": "string",
@@ -4923,7 +4923,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Labelled checkbox; bind `checked`.",
+      "description": "Labelled checkbox.",
       "props": {
         "label": {
           "type": "string",
@@ -4976,7 +4976,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "Labelled radio group choosing one value; bind `value`.",
+      "description": "Labelled radio group choosing one value.",
       "props": {
         "label": {
           "type": "string",
@@ -5113,7 +5113,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Labelled on/off switch; bind `checked`.",
+      "description": "Labelled on/off switch.",
       "props": {
         "label": {
           "type": "string",
@@ -5220,7 +5220,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Row of stars scoring out of `max`; `readOnly` only displays.",
+      "description": "Row of stars scoring out of `max`.",
       "props": {
         "value": {
           "type": "number",
@@ -5260,7 +5260,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Picks one or many options; `searchable` = a filtering combobox, `source` = a host list.",
+      "description": "Picks one or many options.",
       "props": {
         "label": {
           "type": "string",
@@ -5286,7 +5286,7 @@
         },
         "source": {
           "type": "string",
-          "description": "Host list id supplying the options (e.g. `exp:statuses`)."
+          "description": "Host list id for the options (`exp:statuses`)."
         },
         "placeholder": {
           "type": "string",
@@ -5310,7 +5310,7 @@
         "emptyText": {
           "type": "string",
           "default": "$string.noResults",
-          "description": "Shown when the search matches nothing."
+          "description": "Shown on no match."
         },
         "triggerVariant": {
           "type": "enum",
@@ -5325,7 +5325,7 @@
         },
         "popupWidth": {
           "type": "number",
-          "description": "Popup width in px (`row`: 260)."
+          "description": "Px (`row`: 260)."
         },
         "disabled": {
           "type": "boolean",
@@ -5442,7 +5442,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Removable chips (Enter or comma adds); bind `values`.",
+      "description": "Removable chips (Enter or comma adds).",
       "props": {
         "label": {
           "type": "string",
@@ -5511,7 +5511,7 @@
       "group": "input",
       "lite": false,
       "children": "none",
-      "description": "A shortcut field: a press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta} and the host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; the host sets `value`.",
       "props": {
         "label": {
           "type": "string",
@@ -5538,7 +5538,7 @@
             "type": "string"
           },
           "bindable": true,
-          "description": "The held modifiers while recording."
+          "description": "Held modifiers while recording."
         },
         "placeholder": {
           "type": "string",
@@ -5546,7 +5546,7 @@
         },
         "error": {
           "type": "string",
-          "description": "An error under the field."
+          "description": "Error under the field."
         }
       },
       "events": [
@@ -5738,7 +5738,7 @@
       "group": "input",
       "lite": true,
       "children": "none",
-      "description": "Drop zone + browse button; files reach the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse button; files go to the host via `upload`, listed back in `files`.",
       "props": {
         "label": {
           "type": "string",
@@ -5841,7 +5841,7 @@
         "leading",
         "trailing"
       ],
-      "description": "Chat input: a growing text field, a submit button, optional attachments; `leading`/`trailing` slots sit in its controls row.",
+      "description": "Chat input: growing text field, submit button, optional attachments; slots sit in its controls row.",
       "props": {
         "placeholder": {
           "type": "string",
@@ -5860,7 +5860,7 @@
         "attachments": {
           "type": "boolean",
           "default": false,
-          "description": "Shows the attach control (`attach`; a pasted image fires `attach` {files})."
+          "description": "Attach control firing `attach` (a pasted image too, {files})."
         },
         "busy": {
           "type": "boolean",
@@ -5894,7 +5894,7 @@
         "leading",
         "trailing"
       ],
-      "description": "THE list row: lead glyph or slot, mono identifier, title, subtitle, trailing meta or value, slot, chevron; flat or card, nestable; with children it folds.",
+      "description": "THE list row: lead glyph or slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nestable; with children it folds.",
       "props": {
         "title": {
           "type": "string",
@@ -5905,7 +5905,7 @@
         "identifier": {
           "type": "string",
           "bindable": true,
-          "description": "Mono identifier before the title (`EXP-12`)."
+          "description": "Mono id before the title (`EXP-12`)."
         },
         "subtitle": {
           "type": "string",
@@ -5942,7 +5942,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "Draws it as the active row."
+          "description": "Active row."
         },
         "density": {
           "type": "enum",
@@ -5954,7 +5954,7 @@
           "type": "enum",
           "enum": "rowSurface",
           "default": "flat",
-          "description": "Flat, or a padded card with its own fill and border."
+          "description": "Flat, or a padded card (own fill and border)."
         },
         "pressable": {
           "type": "boolean",
@@ -6180,14 +6180,14 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "Lottie-compatible vector animation, identical everywhere: loaders, success and empty states, explainers.",
+      "description": "Lottie-compatible vector animation, identical everywhere (loaders, states, explainers).",
       "props": {
         "layers": {
           "type": "array",
           "items": {
             "type": "object"
           },
-          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
         },
         "size": {
           "type": "array",
@@ -6232,7 +6232,7 @@
         "loop": {
           "type": "boolean",
           "default": true,
-          "description": "Repeats; false = play once and hold."
+          "description": "false = play once and hold."
         },
         "plays": {
           "type": "number",
@@ -6287,12 +6287,12 @@
         },
         "stateMachine": {
           "type": "object",
-          "description": "DotLottie state machine for playback (a .lottie src has its own)."
+          "description": "DotLottie state machine (a .lottie src has its own)."
         },
         "inputs": {
           "type": "object",
           "bindable": true,
-          "description": "State-machine inputs {name: value}; bind to drive states."
+          "description": "State-machine inputs {name: value}; bind them."
         },
         "label": {
           "type": "string",
@@ -6364,7 +6364,7 @@
       "group": "media",
       "lite": true,
       "children": "none",
-      "description": "Static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "description": "Static drawing of shapes and text (charts, diagrams); Motion animates.",
       "props": {
         "size": {
           "type": "array",
@@ -6531,7 +6531,7 @@
       "group": "layout",
       "lite": false,
       "children": "none",
-      "description": "A nested surface drawn in place, sandboxed: its own data and ids, never the host's. Its `event` actions fire `action` {name, context}; a bad surface shows an error box.",
+      "description": "Nested surface drawn in place, sandboxed (own data and ids); its `event` actions fire `action` {name, context}; a bad one shows an error box.",
       "props": {
         "surface": {
           "type": "object",
@@ -6571,7 +6571,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Month or week of records as chart-coloured bars in lanes; phones: dots and the day's agenda.",
+      "description": "Month or week of records as coloured bars in lanes; phones: dots and the day's agenda.",
       "events": [
         "select",
         "open"
@@ -6616,7 +6616,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Records over time: chart-coloured bars across week, month or quarter columns.",
+      "description": "Records over time: coloured bars across week, month or quarter columns.",
       "events": [
         "open"
       ],
@@ -6653,7 +6653,7 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "Form for one record kind: a field per schema field with its checks; submit saves.",
+      "description": "Form for one record kind: a field per schema field, with checks; submit saves.",
       "props": {
         "kind": {
           "type": "string",
@@ -6673,7 +6673,7 @@
         "readOnly": {
           "type": "boolean",
           "default": false,
-          "description": "Shows the fields inert, no submit."
+          "description": "Fields inert, no submit."
         },
         "cancel": {
           "type": "boolean",
@@ -6800,7 +6800,7 @@
       "group": "data",
       "lite": false,
       "children": "none",
-      "description": "One kind's records: count + Add, a sortable table (phones: a list), drawer edit, confirmed delete.",
+      "description": "One kind's records: count + Add, sortable table (phones: a list), drawer edit, confirmed delete.",
       "props": {
         "kind": {
           "type": "string",
@@ -6809,7 +6809,7 @@
         },
         "query": {
           "type": "string",
-          "description": "Records query (`sort=name&order=asc`, `query=<name>`); default newest first."
+          "description": "Query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
           "type": "array",
@@ -6832,7 +6832,7 @@
         "add": {
           "type": "boolean",
           "default": true,
-          "description": "Shows the Add button."
+          "description": "Add button."
         },
         "editable": {
           "type": "boolean",

@@ -1739,6 +1739,19 @@ impl Surface {
         out
     }
 
+    /// #EDE-65 lane O: the List or Table `id`'s row keys (row positions, the
+    /// static children first) and each row's top in the list's content (the
+    /// rows laid out at their height, the rest at the estimate), the content
+    /// extent last: what a host keeping a reader's row in place reads.
+    pub fn list_rows(&mut self, id: &str) -> Option<(std::sync::Arc<Vec<String>>, std::sync::Arc<Vec<f32>>)> {
+        let spec = self.lists.iter().find(|l| l.id == id)?;
+        let (keys, gap) = (spec.keys.clone(), spec.gap);
+        let window = self.local.lists.get_mut(id)?;
+        window.gap = gap;
+        let offsets = window.offsets_cached(&keys);
+        Some((keys, offsets))
+    }
+
     /// Scroll every scroll container above `id` so the node is in view (a
     /// windowed row that is not rendered scrolls by its key's offset).
     pub fn scroll_into_view(&mut self, id: &str) -> Vec<OutEvent> {

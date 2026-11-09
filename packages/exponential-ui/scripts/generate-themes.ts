@@ -106,6 +106,12 @@ export function composeExponential(): ThemeSource {
   // `border` (#e5e5e5 → neutral-300), as the dark pair steps 10% → 12%.
   dark.borderStrong = hex(design.glass.strokeStrong)
   light.borderStrong = `#d4d4d4`
+  // #EXP-1629: a ghost button's hover (the picker row's value button) is
+  // gpui-component's ghost hover: the accent at half in dark (the glass
+  // active fill's alpha halved), the light accent (neutral-100) in light.
+  const active = hex(design.glass.fillActive)
+  dark.ghostHover = `${active.slice(0, 7)}${Math.round(parseInt(active.slice(7, 9) || `ff`, 16) / 2).toString(16).padStart(2, `0`)}` as `#${string}`
+  light.ghostHover = `#f5f5f5`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)

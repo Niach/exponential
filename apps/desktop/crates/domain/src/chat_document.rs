@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::rows::MessageRow;
 use crate::session_tree::{CardSurface, SessionChatRow};
-use uicore_model::chat::{ChatOption, ChatRowInput};
+use uicore_model::chat::{ChatGroup, ChatOption, ChatRowInput};
 
 /// `HH:MM` (local) of a wire timestamp; empty when unparseable.
 pub fn clock(at: Option<&str>) -> String {
@@ -45,6 +45,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             name: if author == "user" { name(author_id.as_deref()) } else { None },
             time: at(id),
             queued: *queued,
+            group: None,
         },
         SessionChatRow::Session { id, card } => ChatRowInput::Card {
             id: id.clone(),
@@ -130,6 +131,55 @@ pub fn card_reply(rows: &[SessionChatRow], message_id: &str, name: Option<&str>,
     match rows.iter().find(|row| row.id() == message_id)? {
         SessionChatRow::Surface { session_id, .. } => Some(CardReply::Send { session_id: session_id.clone(), text }),
         _ => None,
+    }
+}
+
+/// A conversation row as the grouping reads it (transcript-grouping.json):
+/// a card-less message, a child's report (a message from its session), a
+/// subagent line (the agent's trace), every other card full.
+pub fn transcript_item(row: &SessionChatRow) -> crate::transcript_grouping::TranscriptItem {
+    use crate::transcript_grouping::TranscriptItem;
+    match row {
+        SessionChatRow::Message { id, author, author_id, author_session_id, .. } => TranscriptItem::message(id.as_str(), author, author_id.as_deref(), author_session_id.as_deref()),
+        SessionChatRow::Report { id, session_id, .. } => TranscriptItem::message(id.as_str(), crate::contract::MESSAGE_AUTHOR_KIND_AGENT, None, Some(session_id.as_str())),
+        SessionChatRow::Subagent { id, .. } => TranscriptItem::trace(id.as_str()),
+        other => TranscriptItem::full(other.id()),
+    }
+}
+
+/// The prefix of an avatar icon name a host paints as THE sender avatar
+/// disc (the IDE's `agent_avatar`: the inner icon on the secondary disc).
+pub const AVATAR_ICON_PREFIX: &str = "avatar:";
+
+/// #EDE-65 lane O: the IDE transcript's grouping (#EXP-1736,
+/// transcript-grouping.json) on the chat's message rows, so eDE's bubbles
+/// sit like the IDE's: `out` = the viewer's own, `in` under the sender's
+/// avatar (`avatar` names its icon, a group's first row only) with the
+/// sender's name over a group's first bubble, the group gaps. `transcript`
+/// = who is who (its `items` are filled from `rows`).
+pub fn group(out: &mut [ChatRowInput], rows: &[SessionChatRow], mut transcript: crate::transcript_grouping::TranscriptInput, avatar: impl Fn(&crate::transcript_grouping::TranscriptSender) -> Option<String>) {
+    use crate::transcript_grouping::{transcript_layout, TranscriptSide};
+    transcript.items = rows.iter().map(transcript_item).collect();
+    let layouts: HashMap<String, crate::transcript_grouping::TranscriptRowLayout> = transcript_layout(&transcript).into_iter().map(|l| (l.id.clone(), l)).collect();
+    for row in out.iter_mut() {
+        let ChatRowInput::Message { id, name, group, .. } = row else { continue };
+        let Some(layout) = layouts.get(id.as_str()) else { continue };
+        let side = match layout.side {
+            TranscriptSide::Own => "out",
+            TranscriptSide::Other => "in",
+            TranscriptSide::Full => continue,
+        };
+        let sender = layout.sender.as_ref();
+        if side == "in" {
+            *name = sender.filter(|_| layout.name).map(|s| s.display_name());
+        }
+        *group = Some(ChatGroup {
+            side: Some(side.into()),
+            avatar: sender.filter(|_| side == "in" && layout.avatar).and_then(&avatar),
+            indent: side == "in",
+            link: None,
+            gap: layout.gap.round().max(0.0) as u32,
+        });
     }
 }
 
@@ -397,6 +447,30 @@ mod tests {
         assert!(!waiting(q(false, Some(true), None)));
         let ChatRowInput::Question { answer, .. } = &rows(&[q(true, None, Some(vec!["A".into(), "B".into()]))], &HashMap::new(), |_| None)[0] else { panic!() };
         assert_eq!(answer.as_deref(), Some("A, B"));
+    }
+
+    /// #EDE-65 lane O: eDE's rows group like the IDE's: the viewer's own
+    /// out, the agent's in under its avatar with its name on a group's first
+    /// bubble, the in-group gap after it.
+    #[test]
+    fn the_rows_group_like_the_ide_transcript() {
+        use crate::transcript_grouping::{SenderKind, TranscriptAgent, TranscriptChat, TranscriptInput};
+        let msg = |id: &str, author: &str, author_id: Option<&str>| SessionChatRow::Message { id: id.into(), author: author.into(), author_id: author_id.map(str::to_string), body: id.into(), queued: false, author_session_id: None, xref: None };
+        let chat = vec![msg("m1", "user", Some("u1")), msg("m2", "agent", None), msg("m3", "agent", None)];
+        let mut out = rows(&chat, &HashMap::new(), |_| None);
+        let transcript = TranscriptInput {
+            viewer_id: Some("u1".into()),
+            chat: TranscriptChat { session_id: "s1".into(), title: "Triage".into(), agent_id: Some("a1".into()), ..Default::default() },
+            agents: vec![TranscriptAgent { id: "a1".into(), name: "Triage".into() }],
+            ..Default::default()
+        };
+        group(&mut out, &chat, transcript, |s| (s.kind == SenderKind::Agent).then(|| format!("{AVATAR_ICON_PREFIX}ide:agent:{}", s.id)));
+        let groups: Vec<_> = out.iter().map(|r| match r { ChatRowInput::Message { group, name, .. } => (group.clone().unwrap(), name.clone()), _ => panic!() }).collect();
+        assert_eq!(groups[0].0.side.as_deref(), Some("out"));
+        assert_eq!(groups[0].0.avatar, None);
+        assert_eq!((groups[1].0.side.as_deref(), groups[1].0.avatar.as_deref(), groups[1].0.indent), (Some("in"), Some("avatar:ide:agent:a1"), true));
+        assert_eq!(groups[1].1.as_deref(), Some("Triage"), "the name over the group's first bubble");
+        assert_eq!((groups[2].0.avatar.as_deref(), groups[2].1.as_deref(), groups[2].0.gap), (None, None, crate::transcript_grouping::layout().gap_in_group as u32));
     }
 
     #[test]

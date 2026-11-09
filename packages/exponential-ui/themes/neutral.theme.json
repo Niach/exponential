@@ -3615,6 +3615,16 @@
             "backgroundColor": "$color.popover"
           }
         }
+      ],
+      "button": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "gap": "$spacing.md"
+          }
+        }
       ]
     },
     "SearchList": {

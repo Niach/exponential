@@ -19,6 +19,36 @@ pub fn chatting(view: &uicore_model::chat::ChatView) -> serde_json::Value {
     value
 }
 
+/// #EDE-65 lane O: the goldens' rows grouped like the IDE's transcript
+/// (`domain::chat_document::group` for hand-made rows): the viewer's own
+/// out, the agent's in under `avatar` with `name` over a group's first
+/// bubble; 3 px inside a group, 12 between, none above the first row.
+pub fn demo_group(rows: &mut [uicore_model::chat::ChatRowInput], avatar: &str, agent_name: &str) {
+    use uicore_model::chat::{ChatGroup, ChatRowInput};
+    let layout = domain::transcript_grouping::layout();
+    let mut prev: Option<String> = None;
+    for (index, row) in rows.iter_mut().enumerate() {
+        let ChatRowInput::Message { author, name, group, .. } = row else {
+            prev = None;
+            continue;
+        };
+        let lead = prev.as_deref() != Some(author.as_str());
+        let gap = if index == 0 { 0.0 } else if lead { layout.gap_between } else { layout.gap_in_group };
+        let inbound = author != "user";
+        if inbound {
+            *name = lead.then(|| agent_name.to_string());
+        }
+        *group = Some(ChatGroup {
+            side: Some(if inbound { "in" } else { "out" }.into()),
+            avatar: (inbound && lead).then(|| format!("{AVATAR_ICON_PREFIX}{avatar}")),
+            indent: inbound,
+            link: None,
+            gap: gap as u32,
+        });
+        prev = Some(author.clone());
+    }
+}
+
 /// The goldens' people.
 pub fn demo_members() -> Vec<Member> {
     [("Dana Reyes", "dana@example.com"), ("Alex Kim", "alex@example.com"), ("Danny", "danny@example.com")].into_iter().map(|(name, email)| Member { name: name.into(), email: email.into() }).collect()

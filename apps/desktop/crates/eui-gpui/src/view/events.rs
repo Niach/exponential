@@ -302,6 +302,12 @@ impl SurfaceView {
         }
     }
 
+    /// #EDE-65 lane O: the host selects Markdown text at the window level
+    /// ([`crate::host::HostPlugin::markdown_window_selection`]).
+    pub(crate) fn host_window_selection(&self, cx: &gpui::App) -> bool {
+        self.host.markdown_window_selection(cx)
+    }
+
     pub(crate) fn press_cancel(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.pressed.as_deref() == Some(id) {
             self.pressed = None;
@@ -321,7 +327,20 @@ impl SurfaceView {
             self.host.on_hover(id, hovered, cx);
             return;
         }
+        // #EXP-1629: a row Select's value button lends its `hover` to the
+        // value/placeholder/chevron inside it (the IDE's ghost Button
+        // brightens its whole content); theirs alone is never reported.
+        let part = self.cache.index_of(id).and_then(|i| self.cache.node(i)).filter(|n| n.owner_component.as_deref() == Some("Select")).and_then(|n| n.part.clone());
+        if matches!(part.as_deref(), Some("value" | "placeholder" | "chevron")) && self.cache.index_of(id).and_then(|i| self.cache.node(i)).and_then(|n| n.parent).and_then(|p| self.cache.node(p)).is_some_and(|p| p.part.as_deref() == Some("button")) {
+            return;
+        }
         if self.set_interaction(id, |s| s.hover = hovered) {
+            if part.as_deref() == Some("button") {
+                let inner: Vec<String> = self.cache.index_of(id).and_then(|i| self.cache.node(i)).map(|n| n.children.clone()).unwrap_or_default().into_iter().filter_map(|c| self.cache.node(c).map(|n| n.id.clone())).collect();
+                for child in inner {
+                    self.set_interaction(&child, |s| s.hover = hovered);
+                }
+            }
             self.host.on_hover(id, hovered, cx);
             cx.notify();
         }
@@ -1042,6 +1061,7 @@ impl SurfaceView {
             };
             if y >= -0.5 {
                 if self.surface.scroll_to(&n.id, s.offset_x, y.clamp(0.0, max_y)) {
+                    self.reader_scrolled(n.index, s.offset_y, y.clamp(0.0, max_y));
                     self.scrolled(cx);
                 }
                 return true;
@@ -1283,11 +1303,14 @@ impl SurfaceView {
             let search = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.component == "SearchList" && n.part.as_deref() == Some("search")));
             target = search.or(selected).or(first).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
             // #EXP-1629: a Select opens as the IDE's picker: a fresh pick,
-            // the cursor on the FIRST enabled option, the search field (if
-            // any) focused, else that option.
+            // the cursor on the FIRST enabled option (a `multiple` one's on
+            // its first CHOSEN, none while nothing is: the IDE's multi
+            // picker), the search field (if any) focused, else that option.
             if top.kind == "Select" {
                 let item = |i: &u32| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("item") && !NodeFlags::of(n).disabled);
-                let first_item = candidates.iter().copied().find(item).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                let multiple = self.cache.index_of(&top.owner).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("multiple").and_then(Value::as_bool).unwrap_or(false));
+                let chosen = |i: &u32| item(i) && self.cache.node(*i).is_some_and(|n| n.props.get("selected").and_then(Value::as_bool).unwrap_or(false));
+                let first_item = if multiple { candidates.iter().copied().find(chosen) } else { candidates.iter().copied().find(item) }.and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
                 let field = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("search"))).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
                 if let Some(first) = &first_item {
                     self.move_select_cursor(first, cx);
@@ -1571,6 +1594,7 @@ impl SurfaceView {
         cx.stop_propagation();
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+            self.reader_scrolled(index, s.offset_y, y);
             self.scrolled(cx);
         }
     }
@@ -1597,6 +1621,7 @@ impl SurfaceView {
             let y = if s.scroll_y { y.clamp(0.0, (s.content_height - f.h).max(0.0)) } else { s.offset_y };
             if self.surface.scroll_to(&id, x, y) {
                 self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+                self.reader_scrolled(index, s.offset_y, y);
                 moved = true;
             }
         }

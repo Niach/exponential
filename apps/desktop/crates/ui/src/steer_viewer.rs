@@ -62,9 +62,9 @@ use std::time::{Duration, Instant};
 use domain::composer_send::ComposerContent;
 
 use gpui::{
-    div, list, prelude::FluentBuilder as _, px,
+    div, prelude::FluentBuilder as _, px,
     AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
-    Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
+    Focusable, InteractiveElement as _, IntoElement,
     ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
@@ -220,24 +220,6 @@ fn orphan_fingerprint(workflow_id: &str) -> u64 {
     workflow_id.hash(&mut hasher);
     hasher.finish()
 }
-
-/// EXP-776: how far beyond the viewport the transcript list renders and
-/// measures rows (`gpui::ListState` overdraw) — about a screen, so a wheel
-/// flick never lands on an unmeasured row.
-const FEED_OVERDRAW: gpui::Pixels = px(1024.);
-
-/// EXP-776: the height hint every UNMEASURED row carries after a bulk
-/// splice (a journal fold, a replayed backlog, a staged swap), so the
-/// scrollbar thumb is sane before the rows have been on screen. Rows vary
-/// wildly (a one-line tool call, a screen of prose); the list replaces the
-/// hint with the real height as each row is measured.
-const FEED_ROW_HINT: gpui::Pixels = px(40.);
-
-/// EXP-776: a splice inserting at least this many rows re-applies
-/// [`FEED_ROW_HINT`]. Streaming appends are one or two rows and skip it —
-/// re-applying the hint turns every measured row back into a hinted one,
-/// which the overdraw then re-measures.
-const FEED_BULK_SPLICE: usize = 16;
 
 /// EXP-783 — how many of the feed's newest items the transcript projects into
 /// rows. The feed itself keeps the WHOLE run; this is what makes keeping it
@@ -634,15 +616,12 @@ pub(crate) struct SteerSessionView {
     /// Numbers the request ids, so a late chunk from a superseded ask is
     /// dropped rather than prepended twice.
     history_requests: u64,
-    /// EXP-776: the virtualised transcript. `gpui::list` renders and
-    /// measures only the rows in and around the viewport, and its
-    /// [`FollowMode::Tail`] IS the auto-scroll: it snaps to the end on every
-    /// layout while following, stops on an upward wheel, re-arms when the
-    /// reader is back within a pixel of the bottom (a wheel or a scrollbar
-    /// drag), and clamps wheel deltas at event time — so a trackpad's
-    /// momentum over-scroll can never read as "the reader moved up" the way
-    /// it did with the hand-rolled follow this replaced (EXP-732).
-    list: ListState,
+    /// #EDE-65 lane O (was EXP-776's virtualised gpui list): the
+    /// transcript is the shared chat document, its List windowed to the
+    /// rows in and around the viewport. Its FOLLOW is the old list's
+    /// `FollowMode::Tail`: it snaps to the end while following, stops on an
+    /// upward wheel, re-arms when the reader is back at the bottom.
+    chat: crate::chat_tab_transcript::ChatTranscript,
     /// EXP-776: the cached row projection the list indexes into, refreshed
     /// once per frame by [`Self::sync_list`] together with `row_keys` (what
     /// the list was last told) and `active` (the answerable cards, read by
@@ -934,14 +913,10 @@ impl SteerSessionView {
             history_truncated: false,
             history_exhausted: false,
             history_requests: 0,
-            list: {
-                // A session tab opens on its newest rows (the question
-                // waiting for an answer, the composer's context) and every
-                // appended row keeps it there: the list starts FOLLOWING.
-                let list = ListState::new(0, ListAlignment::Top, FEED_OVERDRAW);
-                list.set_follow_mode(FollowMode::Tail);
-                list
-            },
+            // A session tab opens on its newest rows (the question waiting
+            // for an answer, the composer's context) and every appended row
+            // keeps it there: the transcript starts FOLLOWING.
+            chat: crate::chat_tab_transcript::ChatTranscript::new(),
             rows: Vec::new(),
             orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
@@ -998,7 +973,7 @@ impl SteerSessionView {
             this.connected = false;
             this.phase = ViewerPhase::Ended { outcome: None };
             // The whole run is already here: open on its end.
-            this.list.scroll_to_end();
+            this.chat.scroll_to_end();
         }
         if let Some(session) = this.source.session().cloned() {
             // EXP-746 review UI-2: seed the phase from the engine, so a view
@@ -1094,7 +1069,7 @@ impl SteerSessionView {
         self.connected = !matches!(self.phase, ViewerPhase::Ended { .. });
         self.subscribe_local(&next, window, cx);
         self.source = FeedSource::Local { session: next };
-        self.list.scroll_to_end();
+        self.chat.scroll_to_end();
         cx.notify();
     }
 
@@ -1143,7 +1118,7 @@ impl SteerSessionView {
         }
         self.refresh_derived();
         self.journal_seeded = true;
-        self.list.scroll_to_end();
+        self.chat.scroll_to_end();
         cx.notify();
     }
 
@@ -1651,7 +1626,7 @@ impl SteerSessionView {
     /// change exists to avoid. Returning to the bottom releases the pin, and
     /// the window falls back to the newest [`FEED_WINDOW`] items.
     fn reanchor_window(&mut self) {
-        if self.list.is_following_tail() {
+        if self.chat.following() {
             self.window_from = None;
             return;
         }
@@ -1834,30 +1809,142 @@ impl SteerSessionView {
         }
         // #EXP-1383 FOLLOW: an arrival keeps a reader inside the slack on
         // the tail (the chats' rule).
-        crate::chat_transcript::rearm_on_arrival(&self.list, &ops);
-        let mut bulk = false;
-        for op in ops {
-            match op {
-                ListOp::Splice { range, count } => {
-                    // EXP-783: a window extension is a FRONT splice, and the
-                    // uniform-height hint rewrites every item to `Unmeasured`
-                    // — which would teleport a reader who is sitting at the
-                    // top of the transcript. Only a splice further down may
-                    // re-hint.
-                    bulk |= range.start > 0 && count >= FEED_BULK_SPLICE;
-                    // EXP-788: no row carries a focus handle any more — the
-                    // answer is typed into the composer, which is not a list
-                    // row, so an off-screen card needs no keyboard.
-                    self.list.splice(range, count);
-                }
-                ListOp::Remeasure(range) => self.list.remeasure_items(range),
-            }
+        let arrival = ops
+            .iter()
+            .any(|op| matches!(op, ListOp::Splice { range, count } if *count > 0 && range.start > 0));
+        if arrival {
+            self.chat.arrival(cx);
         }
+        // #EDE-65 lane O: the Chat tab's document takes the rows on this
+        // frame ([`Self::sync_chat`]): a changed host row lays out again.
         self.row_keys = keys;
-        if bulk {
-            // `ListState` is a shared handle: hinting a clone hints the list.
-            let _ = self.list.clone().with_uniform_item_height(FEED_ROW_HINT);
+        self.chat.dirty = true;
+    }
+
+    /// #EDE-65 lane O: the transcript's rows into the Chat tab's document
+    /// ([`crate::chat_tab_transcript`]): a person's plain prompt and the
+    /// agent's narration as its bubbles, every other row the view's own
+    /// (a host row); then the rows the document is about to lay out
+    /// measured ahead of it, THE Dock's band under the newest row, and the
+    /// scroll this frame asks for. Returns the extent it read.
+    fn sync_chat(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<(f32, f32, f32)> {
+        use crate::chat_tab_transcript::{chat_row, host_id, row_key, ChatPush, HostRow, RowContent, RowFacts, SENDER_ICON};
+        if self.chat.view().is_none() {
+            let team_id = self.ref_team_id(cx);
+            self.chat.mount(cx.weak_entity(), team_id, window, cx);
         }
+        let revision = crate::markdown::store_revision(cx);
+        // #VAPP-258: the live reply (the run's last item, a narration, while
+        // live) streams, as `render_narration` did.
+        let streaming = self.streaming_row().and_then(|ix| self.row_keys.get(ix)).map(|key| row_key(key.id));
+        if self.chat.dirty || self.chat.revision() != revision || self.chat.streaming_key() != streaming.as_deref() {
+            let items = self.feed.items();
+            let agent = self.agent();
+            let mut rows = Vec::with_capacity(self.row_keys.len());
+            let mut host_rows = HashMap::new();
+            let mut senders = HashMap::new();
+            for (ix, key) in self.row_keys.iter().enumerate() {
+                let spec = self.rows.get(ix);
+                let content = match spec {
+                    Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
+                        Some(FeedKind::Narration { text, .. }) => RowContent::Narration(text),
+                        Some(FeedKind::UserMessage { text, .. })
+                            if domain::chats::command_divider(text).is_none() && parse_command(text, agent).is_none() =>
+                        {
+                            RowContent::Prompt(text)
+                        }
+                        _ => RowContent::Other,
+                    },
+                    _ => RowContent::Other,
+                };
+                // Session 58cb32df: the conversation cards a row's calls
+                // posted (and the head cards over the first row) are the
+                // view's to paint beside it.
+                let cards = spec.is_some_and(|spec| {
+                    (ix == 0 && !self.conv_head().is_empty())
+                        || spec
+                            .item_indices()
+                            .iter()
+                            .filter_map(|&index| items.get(index))
+                            .any(|item| self.conv_anchors.get(&item.id).is_some_and(|cards| !cards.is_empty()))
+                });
+                let row_key = row_key(key.id);
+                let layout = spec.and_then(|_| self.row_layout(ix));
+                let at = match spec {
+                    Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
+                        Some(FeedKind::UserMessage { at, .. }) => *at,
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let row = chat_row(&RowFacts { key: &row_key, content, layout, gap: f32::from(self.row_gap(ix)), cards, at });
+                match &row {
+                    uicore_model::chat::ChatRowInput::Host { .. } => {
+                        host_rows.insert(host_id(&row_key), HostRow::List { ix, fingerprint: key.fingerprint });
+                    }
+                    uicore_model::chat::ChatRowInput::Message { group: Some(group), .. } if group.avatar.is_some() => {
+                        if let Some(sender) = layout.and_then(|layout| layout.sender.clone()) {
+                            senders.insert(format!("{SENDER_ICON}{row_key}"), (sender, None));
+                        }
+                    }
+                    _ => {}
+                }
+                rows.push(row);
+            }
+            // A member's picture loads where the app is mutable.
+            for (sender, image) in senders.values_mut() {
+                *image = crate::session_chat::sender_image(sender, cx);
+            }
+            let team_id = self.ref_team_id(cx);
+            let resolver = self.chips.clone().filter(|_| team_id.is_some());
+            let on_open_issue: Option<crate::markdown::Callback> = match (&resolver, team_id.clone()) {
+                (Some(_), Some(team_id)) => Some(std::rc::Rc::new(move |identifier: &str, window: &mut Window, cx: &mut App| {
+                    crate::description_editor::open_issue_by_identifier(&team_id, identifier, window, cx);
+                })),
+                _ => None,
+            };
+            let prose = crate::markdown::DocumentProse {
+                resolver,
+                images: Some(self.images.clone()),
+                on_open_issue,
+                on_open_link: Some(std::rc::Rc::new(crate::links::link_opener(team_id.clone()))),
+                chip_team: team_id,
+            };
+            let push = ChatPush { session_id: self.session_id.clone(), prose, host_rows, senders, streaming };
+            // The new and changed host rows measure where the document is
+            // about to paint them (`host_leaf_prepaint`), in this frame.
+            self.chat.push(rows, push, cx);
+        }
+        // N-12: the last row clears THE Dock's band (its measured height).
+        let tail = self.dock.read(cx).band_height() + crate::dock::DOCK_GAP;
+        self.chat.set_tail(tail, cx);
+        self.chat.sync_scroll(cx)
+    }
+
+    /// #VAPP-258: the list row of the reply being written: the run's last
+    /// item when it is a narration and the run is live.
+    fn streaming_row(&self) -> Option<usize> {
+        if self.phase != ViewerPhase::Live {
+            return None;
+        }
+        let items = self.feed.items();
+        let last = items.len().checked_sub(1)?;
+        if !matches!(items[last].kind, FeedKind::Narration { .. }) {
+            return None;
+        }
+        self.rows.iter().rposition(|spec| matches!(spec, FeedRowSpec::Single { item, .. } if *item == last))
+    }
+
+    /// #EDE-65 lane O: the Chat tab's transcript document (tests, the
+    /// pictures).
+    pub(crate) fn chat_document(&self) -> Option<&Entity<eui_gpui::view::SurfaceView>> {
+        self.chat.view()
+    }
+
+    /// #EDE-65 lane O: the transcript's host rows (tests).
+    #[cfg(test)]
+    pub(crate) fn chat_transcript(&self) -> &crate::chat_tab_transcript::ChatTranscript {
+        &self.chat
     }
 
     /// EXP-1259 (DEV-ONLY): `EXP_DEV_SCROLL_TO=script-card` parks the
@@ -1899,26 +1986,13 @@ impl SteerSessionView {
             return;
         };
         if self.dev_scrolled_to == Some(row) {
-            // EXP-1558: the second step, once the parked row is measured:
-            // move it from the top edge to the viewport's middle.
-            if !self.dev_centred {
-                let viewport = self.list.viewport_bounds();
-                match self.list.bounds_for_item(row) {
-                    Some(bounds) if viewport.size.height > px(0.) => {
-                        self.list.scroll_by(bounds.center().y - viewport.center().y);
-                        self.dev_centred = true;
-                    }
-                    _ => window.request_animation_frame(),
-                }
-            }
             return;
         }
+        // EXP-1558: the parked row centred in the viewport (#EDE-65 lane O:
+        // the document centres it in one step).
         self.dev_scrolled_to = Some(row);
-        self.dev_centred = false;
-        self.list.scroll_to(gpui::ListOffset {
-            item_ix: row,
-            offset_in_item: px(0.),
-        });
+        self.dev_centred = true;
+        self.chat.reveal(row, "center");
         window.request_animation_frame();
     }
 
@@ -2702,7 +2776,12 @@ impl SteerSessionView {
             }
         };
         match ix {
-            Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, message_id, cx),
+            Some(ix) => {
+                // #EDE-65 lane O: the document centres the row.
+                self.chat.reveal(ix, "center");
+                cx.notify();
+                crate::waiting_cards::highlight(message_id, cx);
+            }
             None => crate::waiting_cards::highlight(message_id, cx),
         }
     }
@@ -3401,8 +3480,8 @@ impl SteerSessionView {
 
     /// EXP-1261: whether the transcript left its top (the work body's top
     /// fade waits for it).
-    pub(crate) fn body_scrolled(&self) -> bool {
-        crate::work_header::list_scrolled(&self.list)
+    pub(crate) fn body_scrolled(&self, cx: &App) -> bool {
+        self.chat.scrolled(cx)
     }
 
     /// EXP-1294 — re-read THE Guide: the tree ROOT's `guide` (the chat's
@@ -3414,7 +3493,7 @@ impl SteerSessionView {
             // EXP-1172: a `sessions_show` tile appears (or goes) under its
             // call when the Guide changes — the list re-measures its rows so
             // an off-screen one does not keep a stale height.
-            self.list.remeasure();
+            self.chat.remeasure_all(cx);
             cx.notify();
         }
     }
@@ -5239,7 +5318,7 @@ pub(crate) fn session_status_row(
 }
 
 impl SteerSessionView {
-    fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_feed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
             // S-3: no paused body; #EXP-1703: the away state below.
@@ -5330,25 +5409,15 @@ impl SteerSessionView {
         }
 
         crate::dev_ready::note_feed_painted();
-        // EXP-776: the virtualised transcript. The list holds `row_keys.len()`
-        // items ([`Self::sync_list`] ran at the top of this frame) and asks
-        // for each one it paints by index; the padding is the old column's,
-        // honoured by the list as its own (`last_padding`).
-        //
-        // EXP-787: the reading column (and, EXP-1191, the work gutter) is
-        // laid out per ROW ([`Self::transcript_row`]) rather than by wrapping
-        // the list in a narrower box, so the list keeps measuring and
-        // scrolling over the full pane width; it carries no side inset of
-        // its own, so its rows centre on the pane exactly as the header's
-        // column does.
-        let list = list(
-            self.list.clone(),
-            cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
-        )
-        .pt_2()
-        // N-12: the last row clears THE Dock's band (its measured height).
-        .pb(px(self.dock.read(cx).band_height() + crate::dock::DOCK_GAP));
-        crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
+        // #EDE-65 lane O: the transcript IS the shared chat document (its
+        // windowed list, its bubbles), the rows it does not draw painted by
+        // this view ([`Self::chat_host_row`]); [`Self::sync_list`] ran at the
+        // top of this frame. EXP-787: the list spans the pane (its scrollbar
+        // at the pane's edge), each row in the reading column.
+        let before = self.sync_chat(window, cx);
+        self.chat
+            .element(before, cx.entity_id())
+            .unwrap_or_else(|| div().flex_1().min_h_0().into_any_element())
     }
 
     /// EXP-1228 — the transcript's right-click menu: the composer's own
@@ -5405,24 +5474,39 @@ impl SteerSessionView {
         })
     }
 
-    /// EXP-787 — one row's outer box: the ladder gap above it, and the
-    /// content centred inside the token measure. The wrapper still spans the
-    /// list's full width (the list measures it that way), so only the reading
-    /// column is clamped.
-    ///
-    /// EXP-927 moved that clamp into [`work_column_row`] — the tabs above the
-    /// transcript and the strip blocks below it take the same one now, so a
-    /// row here is the ladder gap and nothing else.
-    fn transcript_row(&self, ix: usize, element: AnyElement) -> AnyElement {
-        work_column_row(element)
-            .pt(self.row_gap(ix))
+    /// #EDE-65 lane O: list row `ix` as the Chat tab's document paints it
+    /// (a host row): EXP-787's ladder gap above the row's content; the
+    /// document's row is the reading column (EXP-927's [`work_column_row`]).
+    pub(crate) fn chat_host_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let gap = self.row_gap(ix);
+        let element = self.render_list_row(ix, window, cx);
+        // Tests find the row the document painted by its row key.
+        let key = self.row_keys.get(ix).map(|key| crate::chat_tab_transcript::row_key(key.id)).unwrap_or_default();
+        div()
+            .w_full()
+            .min_w_0()
+            .pt(gap)
+            .debug_selector(move || format!("chat-host-row.{key}"))
+            .child(element)
             .into_any_element()
+    }
+
+    /// EXP-783 (#EDE-65 lane O: the document's paging row painted): the
+    /// reader reached the top of the window; pull the next page of the run
+    /// in behind it. The transcript keeps the reader's first row in place
+    /// across the front splice, so this fires again only if the reader keeps
+    /// scrolling up, and not at all once the whole run is in.
+    pub(crate) fn chat_page_painted(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.extend_window && self.can_grow_window() {
+            self.extend_window = true;
+            cx.notify();
+        }
     }
 
     /// One transcript row by list index: the cached spec resolved against
     /// the feed and rendered exactly as before, or — past the last spec —
     /// the synthetic "Working…" line. EXP-787: the row's own vertical padding
-    /// is gone; [`Self::transcript_row`] gives it the gap the ladder chose
+    /// is gone; [`Self::chat_host_row`] gives it the gap the ladder chose
     /// from the row before it.
     fn render_list_row(
         &mut self,
@@ -5430,15 +5514,6 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        // EXP-783: painting the first row means the reader reached the top of
-        // the window; pull the next page of the run in behind it. The
-        // extension front-splices, gpui rebases the scroll anchor, and row 0
-        // leaves the viewport — so this fires again only if the reader keeps
-        // scrolling up, and not at all once the whole run is in.
-        if ix == 0 && !self.extend_window && self.can_grow_window() {
-            self.extend_window = true;
-            cx.notify();
-        }
         let Some(spec) = self.rows.get(ix) else {
             // §3: past the transcript sit the orphan workflow cards, then the
             // synthetic "Working…" line.
@@ -5449,17 +5524,13 @@ impl SteerSessionView {
                 .and_then(|id| self.feed.workflow_for(id))
                 .cloned();
             if let Some(workflow) = orphan {
-                let card = self.render_workflow_card(&workflow, None, cx);
-                return self.transcript_row(ix, card);
+                return self.render_workflow_card(&workflow, None, cx);
             }
             // Session 58cb32df: the unanchored conversation cards.
             let tail = past.checked_sub(self.orphan_workflows.len()).and_then(|t| self.conv_tail().get(t).copied());
             return match tail {
-                Some(card) => {
-                    let element = self.render_conversation_cards(&[card], window, cx);
-                    self.transcript_row(ix, element)
-                }
-                None => self.transcript_row(ix, self.render_working_row(cx)),
+                Some(card) => self.render_conversation_cards(&[card], window, cx),
+                None => self.render_working_row(cx),
             };
         };
         let live = self.phase == ViewerPhase::Live;
@@ -5495,7 +5566,7 @@ impl SteerSessionView {
                 .when(!anchored.is_empty(), |column| column.child(self.render_conversation_cards(&anchored, window, cx)))
                 .into_any_element()
         };
-        self.transcript_row(ix, element)
+        element
     }
 
     fn render_row(
@@ -7691,8 +7762,7 @@ impl SteerSessionView {
         }
         self.focused_subagent = subagent_id;
         self.window_from = None;
-        self.list.set_follow_mode(FollowMode::Tail);
-        self.list.scroll_to_end();
+        self.chat.scroll_to_end();
         cx.notify();
     }
 
@@ -8052,21 +8122,28 @@ impl SteerSessionView {
     /// repaint when they differ (the button would otherwise linger).
     fn render_jump_to_bottom(
         &self,
-        list: &ListState,
         has_rows: bool,
         composer_visible: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         // #EXP-1383 (chats.json FOLLOW + JUMP): the run view reads the same
-        // `followSlack` as the chats.
-        let following = crate::chat_transcript::near_tail(list);
+        // `followSlack` as the chats. #EDE-65 lane O: over the Chat tab's
+        // document ([`crate::chat_tab_transcript`]); the probe compares the
+        // laid-out list with what this frame drew (the button would linger).
+        let following = self.chat.near_tail(cx);
         let shown = has_rows && !following;
-        let target = list.clone();
-        let list = list.clone();
+        let view = self.chat.view().cloned();
         let entity_id = cx.entity_id();
         let probe = gpui::canvas(
             move |_, _, cx| {
-                if crate::chat_transcript::near_tail(&list) != following {
+                let Some(view) = view.as_ref() else { return };
+                let near = view
+                    .read(cx)
+                    .scroll_extent(crate::chat_tab_transcript::SCROLL)
+                    .is_none_or(|(offset, viewport, content)| {
+                        ((content - viewport).max(0.) - offset).max(0.) <= domain::chats::CHATS.transcript.follow_slack
+                    });
+                if !following && near {
                     cx.defer(move |cx| cx.notify(entity_id));
                 }
             },
@@ -8087,9 +8164,8 @@ impl SteerSessionView {
                 .justify_center()
                 .child(crate::controls::jump_to_bottom_button(
                     "steer-jump-to-bottom",
-                    cx.listener(move |_, _: &ClickEvent, _window, cx| {
-                        target.set_follow_mode(FollowMode::Tail);
-                        target.scroll_to_end();
+                    cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        this.chat.scroll_to_end();
                         cx.notify();
                     }),
                     cx,
@@ -9555,10 +9631,9 @@ impl Render for SteerSessionView {
         // the band's height.
         let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
-        let feed = self.render_feed(cx);
+        let feed = self.render_feed(window, cx);
         let width_probe = self.view_width.clone();
-        let jump =
-            self.render_jump_to_bottom(&self.list, !self.feed.is_empty(), composer_visible, cx);
+        let jump = self.render_jump_to_bottom(!self.feed.is_empty(), composer_visible, cx);
         let conversation = v_flex()
             .flex_1()
             .h_full()
