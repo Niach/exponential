@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-desktop-diagnostics`,
+    date: `2026-11-09`,
+    title: `Send diagnostics, your choice`,
+    summary: `The desktop app and the CLI send crash and performance diagnostics through our own servers, with your user id only; turn it off in Settings → Account → Privacy.`,
+    body: `- **Diagnostics**: the desktop app and the \`exponential\` CLI send crash reports and performance traces, so we can find what makes the app slow. They only ever go through our own servers, carry your user id and nothing else, and are deleted after 30 days.
+- **Send diagnostics**: switch it off in Settings → Account → Privacy; for the CLI, set \`EXP_DIAGNOSTICS=0\` or run \`exponential diagnostics off\`.`,
+  },
+  {
     id: `2026-11-09-send-diagnostics`,
     date: `2026-11-09`,
     title: `Crash and performance diagnostics on the web`,

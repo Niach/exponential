@@ -200,6 +200,7 @@ impl CreateTeamDialogView {
 
 impl Render for CreateTeamDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "CreateTeamDialogView").entered();
         if !self.focused_once {
             self.focused_once = true;
             self.name.update(cx, |state, cx| state.focus(window, cx));

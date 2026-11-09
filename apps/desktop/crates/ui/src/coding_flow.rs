@@ -1652,6 +1652,7 @@ pub(crate) const NO_AGENT_SIGNED_IN_COPY: &str =
 
 impl Render for StartCodingControl {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "StartCodingControl").entered();
         // Coding gates purely on repository presence: a repo-less board
         // shows NO Start-coding affordance, while any repo-backed board
         // keeps the button. Hidden here before the probe so it never fetches

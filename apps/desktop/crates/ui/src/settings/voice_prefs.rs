@@ -1016,6 +1016,7 @@ impl VoicePrefsPane {
 
 impl Render for VoicePrefsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "VoicePrefsPane").entered();
         self.ensure_loaded(cx);
         let mut body = section(cx);
         match &self.load {

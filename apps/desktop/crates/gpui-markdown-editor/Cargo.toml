@@ -33,6 +33,8 @@ code-highlight-official = ["code-highlight-core"]
 code-highlight-config = ["code-highlight-core"]
 
 [dependencies]
+# #LOGS-2: lag spans (no subscriber = no cost).
+tracing = "0.1"
 anyhow = "1"
 cssparser = "0.37"
 gpui.workspace = true

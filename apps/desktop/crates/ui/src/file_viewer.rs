@@ -270,6 +270,7 @@ impl Focusable for FileViewerView {
 
 impl Render for FileViewerView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "FileViewerView").entered();
         let body: AnyElement = match &self.phase {
             Phase::Idle => self.render_notice("Open a file from the Files panel.", cx),
             // EXP-1259 D8: the file's lines as placeholders.

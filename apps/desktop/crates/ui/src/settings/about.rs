@@ -179,6 +179,7 @@ fn document(ink: &Ink, frame: &Frame) -> Value {
 
 impl Render for AboutPane {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AboutPane").entered();
         div().w_full().min_w_0().child(self.view.clone())
     }
 }

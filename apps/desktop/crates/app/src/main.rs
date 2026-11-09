@@ -61,7 +61,8 @@ fn main() {
     // data dir resolves exactly as `AuthStore::load` sees it below.
     let log_data_dir = api::default_data_dir();
     let logger = coding::logging::ExpLogger::new(coding::logging::level_from_env())
-        .with_file(&log_data_dir, "exponential.log");
+        .with_file(&log_data_dir, "exponential.log")
+        .with_tap(observability::log_tap);
     if let Some(logger) = coding::logging::install(logger) {
         log::info!(
             "Exponential desktop {} starting (pid {}, {}, log {})",
@@ -75,6 +76,17 @@ fn main() {
         );
     }
     coding::logging::install_panic_hook();
+    // #LOGS-2: diagnostics from the cached server config (before any
+    // network, so an early panic is caught), off unless the server and the
+    // person's "Send diagnostics" switch both say on. On this thread: it is
+    // the UI thread the lag instrumentation watches.
+    observability::init(observability::Setup {
+        product: observability::Product::Desktop,
+        version: domain::client_version::current_version().to_string(),
+        data_dir: log_data_dir.clone(),
+        http: api::http::shared,
+    });
+    observability::lag::mark_main_thread();
 
     // Build the app's ONE HTTP client here, first, on the foreground thread
     // (EXP-304). `reqwest::blocking` must not be constructed from inside an
@@ -276,6 +288,10 @@ fn main() {
         // pipeline once the window, the session and (signed in) every shape
         // have settled. No-op in normal runs.
         ui::install_dev_ready_probe(cx);
+
+        // #LOGS-2: frame timings, the main-thread heartbeat and the
+        // connected server's monitoring config (no-op while nothing listens).
+        ui::diagnostics::install(cx);
 
         // Dev hook: EXP_WINDOWS=N opens N shell windows at startup so the
         // §3.10 multi-window gate ("a second window opens sharing the global

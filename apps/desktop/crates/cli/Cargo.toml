@@ -28,6 +28,7 @@ engine = { path = "../engine" }
 sync = { path = "../sync", default-features = false }
 terminal = { path = "../terminal", default-features = false }
 updater = { path = "../updater" }
+observability = { path = "../observability" }
 
 anyhow = { workspace = true }
 # EXP-530: the automation host's local clock (schedule occurrences are
