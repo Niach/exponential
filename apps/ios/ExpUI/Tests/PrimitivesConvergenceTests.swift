@@ -102,6 +102,9 @@ final class PrimitivesConvergenceTests: XCTestCase {
         XCTAssertEqual(UserAvatarTokens.minimumScaleFactor, 0.6)
         XCTAssertEqual(UserAvatar.ink("user-1"), DesignTokens.Avatar.hues[avatarHueIndex("user-1")])
         XCTAssertEqual(UserAvatar.fill("user-1"), DesignTokens.Avatar.hues[avatarHueIndex("user-1")].opacity(0.2))
+        // #EXP-1754: no key = the muted chip (web `bg-muted text-muted-foreground`).
+        XCTAssertEqual(UserAvatar.ink(nil), DesignTokens.Palette.mutedForeground)
+        XCTAssertEqual(UserAvatar.fill(nil), DesignTokens.Palette.muted)
     }
 
     func testUsageTrackFractionClamps() {

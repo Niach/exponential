@@ -62,6 +62,20 @@ object AvatarFallback {
     private fun firstCodePoints(s: String, n: Int): String =
         s.substring(0, s.offsetByCodePoints(0, minOf(n, s.codePointCount(0, s.length))))
 
+    /**
+     * What the hue is keyed on (fixtures/avatar.json `keys`, #EXP-1754): the
+     * [id], else the trimmed [name], else the trimmed [email]; blank counts
+     * as absent. `null` = no key: the muted fallback.
+     */
+    fun hueKey(id: String?, name: String? = null, email: String? = null): String? {
+        if (!id.isNullOrBlank()) return id
+        for (label in listOf(name, email)) {
+            val trimmed = label.orEmpty().trim()
+            if (trimmed.isNotEmpty()) return trimmed
+        }
+        return null
+    }
+
     /** FNV-1a 32-bit over the seed's UTF-8 bytes, modulo the palette size. */
     fun hueIndex(seed: String): Int {
         var hash = 0x811C9DC5u

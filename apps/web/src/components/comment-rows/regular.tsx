@@ -1,6 +1,7 @@
 import { useAppName } from "@/hooks/use-apps"
 import type { Attachment, Comment, User } from "@/db/schema"
 import {
+  avatarHueKey,
   conceptIcon,
   Button,
   DropdownMenu,
@@ -56,6 +57,9 @@ export interface CommentCardProps {
   /** SLOP-4: the widget submission's reporter name — what a `reporter`
    *  comment is signed with (null = "Anonymous visitor"). */
   reporterName: string | null
+  /** #EXP-1754: the submission's reporter email — a name-less reporter's
+   *  avatar hue key. */
+  reporterEmail?: string | null
   editing: boolean
   onDelete: () => void
   onEdit: () => void
@@ -186,6 +190,7 @@ function CommentAvatar({
   authorAgent = null,
   comment,
   reporterName,
+  reporterEmail = null,
   size,
   className,
 }: {
@@ -193,6 +198,7 @@ function CommentAvatar({
   authorAgent?: CommentAuthorAgent | null
   comment: Comment
   reporterName: string | null
+  reporterEmail?: string | null
   size: UserAvatarSize
   className?: string
 }) {
@@ -203,10 +209,19 @@ function CommentAvatar({
       className={cn(`shrink-0`, className)}
       agent={authorAgent}
       user={{
-        id: comment.authorId ?? `reporter:${name}`,
+        id: comment.authorId,
         name,
+        email: author?.email,
         image: author?.image,
       }}
+      // #EXP-1754 (fixtures/avatar.json `keys`): a reporter (no user row) is
+      // keyed on their name, else email; the anonymous copy and a former
+      // member's label are never keys (grey).
+      hueKey={
+        comment.source === `reporter`
+          ? (avatarHueKey(null, reporterName, reporterEmail) ?? null)
+          : (avatarHueKey(comment.authorId) ?? null)
+      }
     />
   )
 }
@@ -220,7 +235,7 @@ export function RegularCommentRow({
   onSubmitReply,
   ...card
 }: RegularCommentRowProps) {
-  const { author, authorAgent, comment, users, reporterName } = card
+  const { author, authorAgent, comment, users, reporterName, reporterEmail } = card
 
   // EXP-698 r5: the comment is a BUBBLE — name, time and the ⋮ menu live
   // inside the card with the body, and the avatar rides the timeline gutter
@@ -238,6 +253,7 @@ export function RegularCommentRow({
           authorAgent={authorAgent}
           comment={comment}
           reporterName={reporterName}
+          reporterEmail={reporterEmail}
           size={28}
         />
       }
@@ -264,6 +280,7 @@ export function RegularCommentRow({
                   authorAgent={reply.authorAgent}
                   comment={reply.comment}
                   reporterName={reply.reporterName}
+                  reporterEmail={reply.reporterEmail}
                   size={20}
                   className="mt-0.5 [&_[data-slot=avatar-fallback]]:text-[10px]"
                 />

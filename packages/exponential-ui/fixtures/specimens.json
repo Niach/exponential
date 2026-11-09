@@ -3690,10 +3690,10 @@
                 }
               },
               {
-                "id": "c4_muted",
+                "id": "c4_by_name",
                 "component": "Avatar",
                 "props": {
-                  "name": "Jane Doe",
+                  "name": "Jane Reporter",
                   "size": "default"
                 }
               }
@@ -3712,16 +3712,15 @@
                 "id": "specimen_avatar_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "name · an email",
+                  "text": "name · empty",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c5_email",
+                "id": "c5_muted",
                 "component": "Avatar",
                 "props": {
-                  "name": "alex.smith@x.dev",
-                  "seed": "demo-jonas",
+                  "name": "",
                   "size": "default"
                 }
               }
@@ -3740,12 +3739,40 @@
                 "id": "specimen_avatar_case_6_label",
                 "component": "Text",
                 "props": {
+                  "text": "name · an email",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_email",
+                "component": "Avatar",
+                "props": {
+                  "name": "alex.smith@x.dev",
+                  "seed": "demo-jonas",
+                  "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_case_7_label",
+                "component": "Text",
+                "props": {
                   "text": "src · a picture",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c6_picture",
+                "id": "c7_picture",
                 "component": "Avatar",
                 "props": {
                   "name": "Jane Doe",

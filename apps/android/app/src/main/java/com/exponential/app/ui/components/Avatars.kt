@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -37,7 +36,6 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.TeamImage
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
 
 /**
  * Up-to-two-letter initials derived from a display name or email. Unifies the
@@ -78,6 +76,22 @@ fun avatarHueIndex(userId: String?): Int {
 }
 
 /**
+ * #EXP-1754 (packages/exponential-ui/fixtures/avatar.json `keys`): what an
+ * avatar's hue is keyed on: the person's id, else their name, else their email
+ * (trimmed; blank counts as absent). null = no key: the neutral grey chip,
+ * never a hash of "". A widget reporter keys on their name or email; an
+ * anonymous one (no name, no email) has no key, whatever copy is shown.
+ */
+fun avatarHueKey(id: String?, name: String? = null, email: String? = null): String? {
+    if (!id.isNullOrBlank()) return id
+    for (label in listOf(name, email)) {
+        val trimmed = label?.trim().orEmpty()
+        if (trimmed.isNotEmpty()) return trimmed
+    }
+    return null
+}
+
+/**
  * Circular initials avatar (iOS user avatar). With a [userId] the chip takes
  * that person's hashed hue — a 20%-alpha fill under the initials in the full
  * colour, no stroke (EXP-698 r4); without one it falls back to the neutral
@@ -101,8 +115,10 @@ fun InitialsAvatar(
         name = nameOrEmail.orEmpty(),
         modifier = modifier,
         size = size,
-        fill = hue?.copy(alpha = 0.2f) ?: GlassTokens.RowFillActive,
-        ink = hue ?: Color.White,
+        // #EXP-1754: no key = the muted chip (web `bg-muted
+        // text-muted-foreground`, iOS `Palette.muted`).
+        fill = hue?.copy(alpha = 0.2f) ?: DesignTokens.Palette.Muted,
+        ink = hue ?: DesignTokens.Palette.MutedForeground,
         fontSize = (size.value * 0.42f).sp,
         fontWeight = FontWeight.Medium,
         initials = initials,
@@ -120,6 +136,7 @@ fun InitialsAvatar(
  * comment or session whose author has not synced yet still carries the id, and
  * web/iOS hash exactly that, so passing it keeps one colour per person across
  * the four clients instead of a grey chip here and a coloured one there.
+ * #EXP-1754: with neither, the row's name, else email, keys it (`avatarHueKey`).
  */
 @Composable
 fun UserAvatar(
@@ -132,7 +149,7 @@ fun UserAvatar(
     MemberAvatar(
         imageUrl = user?.image,
         nameOrEmail = nameOrEmail,
-        userId = user?.id ?: userId,
+        userId = avatarHueKey(user?.id ?: userId, user?.name, user?.email),
         modifier = modifier,
         size = size,
     )
@@ -151,7 +168,7 @@ fun MemberAvatar(
     modifier: Modifier = Modifier,
     size: Dp = 28.dp,
 ) {
-    val hueId = userId
+    val hueId = avatarHueKey(userId)
     val url = imageUrl?.takeIf { it.isNotBlank() }
     if (url != null) {
         // Draw the initials underneath so a still-loading or failed image
