@@ -84,6 +84,8 @@ name: record-compose-fixtures
 # slots and the pasted-image `attach` (`Composer.png`, `components.json`).
 # EXP-1629 (2026-11-09): again for the row Select's value button (the IDE's
 # multi picker: chosen rows wash + stroke, no check) and the specimen's Apps row.
+# EXP-1629 (2026-11-09): again after merging #2505 (the value button inside
+# the description row's control column).
 on:
   workflow_dispatch: {}
   push:
