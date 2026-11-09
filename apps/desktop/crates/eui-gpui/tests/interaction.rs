@@ -1447,3 +1447,95 @@ fn a_box_fires_hover_on_entering(cx: &mut TestAppContext) {
     }
     }
 }
+
+/// #EXP-1629 (interactions-round1.json keyRecorder): every case with real
+/// input: a click on the field, key downs/ups through the window (the
+/// interceptor beats Tab and Escape), modifier changes, mouse buttons over
+/// the field, the window's focus taken away, and host writes.
+#[gpui::test]
+fn a_key_recorder_captures_like_the_fixture(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let k = &f["keyRecorder"];
+    let mods = |m: &Value| {
+        let held = |x: &str| m.as_array().is_some_and(|a| a.iter().any(|v| v == x));
+        Modifiers { control: held("ctrl"), alt: held("alt"), shift: held("shift"), platform: held("meta"), function: false }
+    };
+    let keystroke = |key: &str, m: &Value| {
+        let mut s = String::new();
+        for (flag, prefix) in [("ctrl", "ctrl-"), ("alt", "alt-"), ("shift", "shift-"), ("meta", "cmd-")] {
+            if m.as_array().is_some_and(|a| a.iter().any(|v| v == flag)) {
+                s.push_str(prefix);
+            }
+        }
+        s.push_str(key);
+        gpui::Keystroke::parse(&s).unwrap()
+    };
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [k["surface"].clone()]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let border = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| view.read_with(vcx, |v, _| v.surface().visual(v.index_of("ptt.field").unwrap()).and_then(|s| s.border_color.clone()));
+        let idle_border = border(&view, vcx);
+        for step in c["steps"].as_array().unwrap() {
+            let (kind, value) = step.as_object().unwrap().iter().next().unwrap();
+            let b = view.read_with(vcx, |v, _| v.painted_bounds("ptt.field")).unwrap_or_else(|| panic!("{name}: the field painted"));
+            match kind.as_str() {
+                "press" => {
+                    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+                }
+                "down" => vcx.simulate_event(gpui::KeyDownEvent { keystroke: keystroke(value.as_str().unwrap(), &step["mods"]), is_held: false, prefer_character_input: false }),
+                "up" => vcx.simulate_event(gpui::KeyUpEvent { keystroke: keystroke(value.as_str().unwrap(), &step["mods"]) }),
+                "modifiers" => vcx.simulate_modifiers_change(mods(value)),
+                "mouse" => {
+                    let button = match value.as_u64().unwrap() {
+                        1 => MouseButton::Left,
+                        2 => MouseButton::Right,
+                        3 => MouseButton::Middle,
+                        4 => MouseButton::Navigate(gpui::NavigationDirection::Back),
+                        _ => MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                    };
+                    vcx.simulate_mouse_down(b.center(), button, Modifiers::default());
+                    vcx.simulate_mouse_up(b.center(), button, Modifiers::default());
+                }
+                "blur" => vcx.update(|window, _| window.blur()),
+                "hostWrite" => view.update(vcx, |v, cx| v.set_data(value["path"].as_str().unwrap(), Some(value["value"].clone()), cx).unwrap()),
+                other => panic!("{name}: step {other}"),
+            }
+            draw(vcx);
+            if kind == "press" {
+                assert_eq!(focused(&view, vcx).as_deref(), Some("ptt.field"), "{name}: the field takes the focus");
+            }
+        }
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
+        let recording = view.read_with(vcx, |v, _| v.surface().get_data("/recording").cloned()).unwrap_or(Value::Null);
+        assert_eq!(recording, c["recording"], "{name}: /recording");
+        if recording == json!(true) {
+            assert_ne!(border(&view, vcx), idle_border, "{name}: the recording ring paints");
+        }
+    }
+}
+
+/// #EXP-1629: a key repeat while recording sends nothing; a shifted
+/// character sends its physical key with shift.
+#[gpui::test]
+fn a_key_recorder_drops_repeats_and_unshifts(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [f["keyRecorder"]["surface"].clone()]}), false);
+    view.update(vcx, |v, _| v.record_bounds(true));
+    draw(vcx);
+    let b = view.read_with(vcx, |v, _| v.painted_bounds("ptt.field")).unwrap();
+    vcx.simulate_mouse_down(b.center(), MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(b.center(), MouseButton::Left, Modifiers::default());
+    draw(vcx);
+    let down = |key: &str, held: bool| gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse(key).unwrap(), is_held: held, prefer_character_input: false };
+    vcx.simulate_event(down("k", false));
+    vcx.simulate_event(down("k", true));
+    vcx.simulate_event(down("shift-!", false));
+    vcx.simulate_event(down("home", false));
+    draw(vcx);
+    let keys: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name == "key").map(|a| json!([a.context["key"], a.context["shift"]])).collect();
+    assert_eq!(keys, vec![json!(["k", false]), json!(["1", true]), json!(["home", false])], "the repeat is dropped, `!` is shift+1");
+}
