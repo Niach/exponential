@@ -78,6 +78,8 @@ pub(crate) mod outline;
 pub(crate) mod tree;
 pub(crate) mod record_form;
 pub(crate) mod settings_row;
+// #EXP-1629: the shortcut field.
+pub(crate) mod key_recorder;
 pub(crate) mod record_table;
 pub(crate) mod mosaic;
 // VAPP-290: the window frame (the eUI Window macro).
@@ -195,6 +197,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: record_form::ID, owner: record_form::OWNER, render: record_form::render },
     Entry { id: record_table::ID, owner: record_table::OWNER, render: record_table::render },
     Entry { id: settings_row::ID, owner: settings_row::OWNER, render: settings_row::render },
+    Entry { id: key_recorder::ID, owner: key_recorder::OWNER, render: key_recorder::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },
