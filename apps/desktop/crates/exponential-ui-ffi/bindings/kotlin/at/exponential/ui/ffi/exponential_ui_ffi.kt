@@ -1192,6 +1192,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_popup_bounds(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding(
@@ -1589,6 +1591,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(`ptr`: Long,`hover`: Byte,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(`ptr`: Long,`x`: Float,`y`: Float,`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -7047,6 +7051,14 @@ public interface SurfaceInterface {
      */
     fun `setPointer`(`hover`: kotlin.Boolean, `reducedMotion`: kotlin.Boolean)
     
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */
+    fun `setPopupBounds`(`x`: kotlin.Float, `y`: kotlin.Float, `width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean
+    
     fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean
     
     /**
@@ -8103,6 +8115,29 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 }
     }
     
+    
+
+    
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */override fun `setPopupBounds`(`x`: kotlin.Float, `y`: kotlin.Float, `width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(
+        it,
+        
+        FfiConverterFloat.lower(`x`),
+        FfiConverterFloat.lower(`y`),
+        FfiConverterFloat.lower(`width`),
+        FfiConverterFloat.lower(`height`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean {
