@@ -15,38 +15,68 @@
 //! hand-back lands on the App and reaches this section through the
 //! [`SignInLinkOutcome`] global. The desktop registers no passkeys (no native
 //! WebAuthn ceremony): adding one is a web errand, removing one works here.
+//!
+//! #EXP-1629: the section is a document on eUI's native host binding
+//! (`eui_gpui::binding`): the section keeps its state, [`SignInMethodsSection::project`]
+//! is its data model at `/pane`, [`document`] the tree (the IDE's bands, flat
+//! rows and outline buttons written in), and every press an action back to
+//! the section (the confirms and the change-email dialog need its window).
+//! Apple's monochrome mark and Google's full-colour "G" are the IDE's own
+//! assets, painted through the host's icon hooks ([`MarksPlugin`]).
 
+use std::rc::Rc;
+
+use eui_gpui::{
+    binding::{Binding, BindingHost},
+    host::HostPlugin,
+    view::{SurfaceView, SurfaceViewOptions},
+};
 use gpui::{
-    div, prelude::FluentBuilder as _, AnyElement, App, ClipboardItem, Entity, FontWeight,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement as _, Render,
+    Styled as _, Subscription, Window,
 };
-use gpui_component::{
-    button::Button,
-    h_flex,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use gpui_component::{ActiveTheme as _, IconNamed as _};
+use serde_json::{json, Value};
 
 use crate::toast::Toast;
 use api::users::{SignInMethods, SignInPasskey, SignInProvider};
 
-use crate::controls::WebControl as _;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::ExpIcon;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::Navigation;
 use crate::oauth::SignInLinkOutcome;
 use crate::queries;
 
+use super::doc::{and, empty_state, failed_state, hex, not, path, skeleton, IdeToasts, Ink, SM, XS};
+use super::open_url;
 use super::storage::format_created_date;
-use super::{open_url, section, settings_skeleton};
 
 /// The methods band when its load failed (FEED-79: the empty state + Retry).
 const NO_SIGN_IN_METHODS: &str = "No sign-in methods";
+
+/// The data-model path the section's projection is written at.
+const PATH: &str = "/pane";
+
+/// The host icon names of the two marks the IDE paints itself.
+const MARK_APPLE: &str = "sign-in-apple";
+const MARK_GOOGLE: &str = "sign-in-google";
 
 enum Load {
     Idle,
     Loading,
     Ready(SignInMethods),
     Error,
+}
+
+/// A state the pictures show (`settings_bench`): no methods = the failed
+/// load, or the first load with `loading`.
+#[cfg(test)]
+pub(crate) struct SignInShot {
+    pub methods: Option<SignInMethods>,
+    pub pending_link: Option<String>,
+    pub copy_url: Option<String>,
+    pub manage_url: Option<String>,
+    pub loading: bool,
 }
 
 pub struct SignInMethodsSection {
@@ -61,17 +91,22 @@ pub struct SignInMethodsSection {
     /// The provider whose link attempt is waiting on the browser.
     pending_link: Option<String>,
     /// Opener-degradation: the link start URL to copy by hand.
-    copy_url: Option<SharedString>,
+    copy_url: Option<String>,
     /// The last [`SignInLinkOutcome::seq`] adopted.
     outcome_seq: u64,
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
+    /// The bench's web account page (headless has no team or account).
+    #[cfg(test)]
+    shot_manage_url: Option<String>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SignInMethodsSection {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let outcome_seq = cx
             .try_global::<SignInLinkOutcome>()
             .map(|outcome| outcome.seq)
@@ -82,6 +117,31 @@ impl SignInMethodsSection {
             // may even have been closed and reopened since the click.
             cx.observe_global::<SignInLinkOutcome>(|this, cx| this.adopt_link_outcome(cx)),
         ];
+        // Every action leaves the binding for the section: the confirms and
+        // the change-email dialog open on its window.
+        let section = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["row", "addPasskey", "copy", "retry"] {
+                let section = section.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = |key: &str| event.context.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+                    let (kind, key) = (context("kind"), context("key"));
+                    let section = section.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = section.update(cx, |section, cx| section.action(name, &kind, &key, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let view = mount(document(&Ink::of(cx), &Chrome::of(cx)), &binding, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -92,8 +152,26 @@ impl SignInMethodsSection {
             copy_url: None,
             outcome_seq,
             retry_pressed: false,
+            #[cfg(test)]
+            shot_manage_url: None,
+            binding,
+            view,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: SignInShot, cx: &mut gpui::Context<Self>) {
+        self.account_id = sync::Store::global(cx).session(cx).account_id().map(str::to_string);
+        self.load = match shot.methods {
+            Some(methods) => Load::Ready(methods),
+            None if shot.loading => Load::Loading,
+            None => Load::Error,
+        };
+        self.pending_link = shot.pending_link;
+        self.copy_url = shot.copy_url;
+        self.shot_manage_url = shot.manage_url;
+        cx.notify();
     }
 
     /// Server read — refetch on every pane entry.
@@ -234,6 +312,46 @@ impl SignInMethodsSection {
         }
     }
 
+    /// A document action: `row` (the `kind` of the row's button on the row
+    /// `key`), `addPasskey`, `copy`, `retry`.
+    fn action(&mut self, name: &str, kind: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match (name, kind) {
+            ("row", "change") => self.open_change_email(window, cx),
+            ("row", "link") => {
+                if let Some(provider) = self.provider(key).filter(|p| !p.linked && p.available) {
+                    self.link(&provider, cx);
+                }
+            }
+            ("row", "unlink") if !self.busy => {
+                if let Some(provider) = self.provider(key).filter(|p| p.linked) {
+                    self.confirm_unlink(&provider, window, cx);
+                }
+            }
+            ("row", "passkey") if !self.busy => {
+                let passkey = self.methods().and_then(|methods| methods.passkeys.iter().find(|p| p.id == key).cloned());
+                if let Some(passkey) = passkey {
+                    self.confirm_remove_passkey(&passkey, window, cx);
+                }
+            }
+            ("addPasskey", _) => {
+                if let Some(url) = self.manage_url(cx) {
+                    open_url(cx, url);
+                }
+            }
+            ("copy", _) => {
+                if let Some(url) = self.copy_url.clone() {
+                    cx.write_to_clipboard(ClipboardItem::new_string(url));
+                }
+            }
+            ("retry", _) => self.retry_load(cx),
+            _ => {}
+        }
+    }
+
+    fn provider(&self, id: &str) -> Option<SignInProvider> {
+        self.methods()?.providers.iter().find(|p| p.id == id).cloned()
+    }
+
     /// Link: mint a ticket, then open the browser handoff in LINK mode.
     fn link(&mut self, provider: &SignInProvider, cx: &mut gpui::Context<Self>) {
         let (Some(trpc), Some(account)) = (queries::trpc_client(cx), queries::active_account(cx))
@@ -294,7 +412,7 @@ impl SignInMethodsSection {
                     // URL; the pending link is recorded, so the copied link
                     // still completes in this process.
                     this.pending_link = None;
-                    this.copy_url = Some(url.into());
+                    this.copy_url = Some(url);
                 }
                 cx.notify();
             });
@@ -416,172 +534,41 @@ impl SignInMethodsSection {
         super::change_email_dialog::open(window, cx, current, section);
     }
 
-    // ---- rendering ----
-
-    fn render_email_row(&self, methods: &SignInMethods, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let subtitle: SharedString = if methods.email_otp_enabled {
-            methods.email.clone().into()
-        } else {
-            // ONE wording ×4: "{email} · Off on this server".
-            format!("{} · Off on this server", methods.email).into()
-        };
-        let trailing = methods.email_otp_enabled.then(|| {
-            Button::new("sign-in-email-change")
-                .outline()
-                .cursor_pointer()
-                .web_sm()
-                .label("Change")
-                .on_click(cx.listener(|this, _, window, cx| this.open_change_email(window, cx)))
-                .into_any_element()
-        });
-        method_row(
-            Some(glyph(Icon::from(registry::UI_MAIL), cx)),
-            "Email code".into(),
-            subtitle,
-            trailing,
-            cx,
-        )
+    /// The web account page the band's "Add passkey" hands the errand to.
+    fn manage_url(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if self.shot_manage_url.is_some() {
+            return self.shot_manage_url.clone();
+        }
+        manage_on_web(cx, &self.nav)
     }
 
-    fn render_provider_row(
-        &self,
-        methods: &SignInMethods,
-        provider: &SignInProvider,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let blocked = provider.linked && !api::users::can_unlink(methods, provider);
-        let subtitle: SharedString = provider_subtitle(provider, blocked).into();
-        let leading = match provider.kind.as_str() {
-            // Apple's mark is monochrome — the tinted Icon pipeline (login.rs).
-            "apple" => Some(glyph(Icon::from(ExpIcon::Apple), cx)),
-            // SLOP-7: GitHub as a sign-in method (GITHUB_LOGIN_ENABLED).
-            "github" => Some(glyph(Icon::from(registry::UI_GITHUB), cx)),
-            // The full-colour "G" goes through `img()` (login.rs, EXP-9).
-            "google" => Some(
-                gpui::img("icons/google.svg")
-                    .size_4()
-                    .flex_none()
-                    .into_any_element(),
-            ),
-            _ => None,
-        };
-        let id = SharedString::from(format!("sign-in-provider-{}", provider.id));
-        let trailing = if provider.linked {
-            let target = provider.clone();
-            Button::new(id)
-                .outline()
-                .cursor_pointer()
-                .web_sm()
-                .text_color(cx.theme().danger)
-                .label(if provider.kind == "password" {
-                    "Remove"
-                } else {
-                    "Unlink"
-                })
-                .disabled(blocked || self.busy)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.confirm_unlink(&target, window, cx);
-                }))
-                .into_any_element()
-        } else {
-            let target = provider.clone();
-            let waiting = self.pending_link.as_deref() == Some(provider.id.as_str());
-            Button::new(id)
-                .outline()
-                .cursor_pointer()
-                .web_sm()
-                .label(if waiting {
-                    "Waiting for your browser…"
-                } else {
-                    "Link"
-                })
-                .disabled(!provider.available)
-                .on_click(cx.listener(move |this, _, _, cx| this.link(&target, cx)))
-                .into_any_element()
-        };
-        method_row(
-            leading,
-            provider.name.clone().into(),
-            subtitle,
-            Some(trailing),
-            cx,
-        )
-    }
-
-    fn render_passkey_row(
-        &self,
-        methods: &SignInMethods,
-        passkey: &SignInPasskey,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        // A passkey counts as a way in only while passkeys are on.
-        let blocked = methods.passkey_enabled && methods.ways_in <= 1;
-        let target = passkey.clone();
-        let trailing = Button::new(SharedString::from(format!("passkey-remove-{}", passkey.id)))
-            .outline()
-            .cursor_pointer()
-            .web_sm()
-            .text_color(cx.theme().danger)
-            .label("Remove")
-            .disabled(blocked || self.busy)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.confirm_remove_passkey(&target, window, cx);
-            }))
-            .into_any_element();
-        method_row(
-            Some(glyph(Icon::from(registry::AUTH_PASSKEY), cx)),
-            passkey_name(passkey).into(),
-            passkey_subtitle(passkey, blocked).into(),
-            Some(trailing),
-            cx,
-        )
-    }
-
-    fn render_copy_url(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let url = self.copy_url.clone()?;
-        let url_for_copy = url.clone();
-        // The caption stays with the URL it explains; the transient messages
-        // of this section are toasts (EXP-1031).
-        let row = h_flex()
-            .gap_2()
-            .items_center()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .px_2()
-                    .py_1()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(super::row_stroke(cx))
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .overflow_x_hidden()
-                    .child(url),
-            )
-            .child(
-                crate::surface::glass_pill_button(
-                    "sign-in-copy-link-url",
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
-                .label("Copy")
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(url_for_copy.to_string()));
-                }),
-            );
-        Some(
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Couldn't open your browser. Open this link manually:"),
-                )
-                .child(row)
-                .into_any_element(),
-        )
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let ready = self.methods();
+        let mut methods = Vec::new();
+        let mut passkeys = Vec::new();
+        if let Some(m) = ready {
+            methods.push(email_row(m));
+            for provider in &m.providers {
+                methods.push(provider_row(m, provider, self.pending_link.as_deref(), self.busy));
+            }
+            passkeys = m.passkeys.iter().map(|passkey| passkey_row(m, passkey, self.busy)).collect();
+        }
+        let failed = matches!(self.load, Load::Error);
+        json!({
+            "loading": matches!(self.load, Load::Idle | Load::Loading),
+            "failed": failed,
+            "ready": ready.is_some(),
+            "methods": methods,
+            // A failed load reads the passkey list as empty under it.
+            "noPasskeys": failed || (ready.is_some() && passkeys.is_empty()),
+            "hasPasskeys": !passkeys.is_empty(),
+            "passkeys": passkeys,
+            "hasCopyUrl": ready.is_some() && self.copy_url.is_some(),
+            "copyUrl": self.copy_url.clone().unwrap_or_default(),
+            "addPasskey": self.manage_url(cx).is_some(),
+        })
     }
 }
 
@@ -589,143 +576,281 @@ impl Render for SignInMethodsSection {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SignInMethodsSection").entered();
         self.ensure_loaded(cx);
-
-        let mut methods_section = section(cx).child(crate::surface::glass_section_header(
-            "Sign-in methods",
-            None,
-            cx,
-        ));
-        // Web parity: the band's trailing "Add passkey" pill. The desktop
-        // has no native WebAuthn ceremony, so the pill hands the errand to
-        // the web account page.
-        let add_passkey = manage_on_web(cx, &self.nav).map(|url| {
-            crate::surface::glass_pill_button("passkeys-add", crate::surface::PillSize::Sm, cx)
-                .label("Add passkey")
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    open_url(cx, url.clone());
-                }))
-                .into_any_element()
-        });
-        let mut passkeys_section =
-            section(cx).child(crate::surface::glass_section_header("Passkeys", add_passkey, cx));
-
-        let methods = match &self.load {
-            Load::Ready(methods) => Some(methods.clone()),
-            _ => None,
-        };
-        match (&self.load, methods) {
-            (_, Some(methods)) => {
-                let mut rows = vec![self.render_email_row(&methods, cx)];
-                for provider in &methods.providers {
-                    rows.push(self.render_provider_row(&methods, provider, cx));
-                }
-                let list = rows.into_iter().map(crate::surface::list_row);
-                methods_section = methods_section
-                    .child(v_flex().w_full().min_w_0().children(list))
-                    .children(self.render_copy_url(cx));
-
-                if methods.passkeys.is_empty() {
-                    passkeys_section = passkeys_section.child(crate::controls::empty_state_list(
-                        gpui_component::Icon::new(crate::icons::registry::AUTH_PASSKEY),
-                        crate::empty_state_copy::PASSKEYS,
-                        cx,
-                    ));
-                } else {
-                    let list = methods
-                        .passkeys
-                        .iter()
-                        .map(|passkey| self.render_passkey_row(&methods, passkey, cx))
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .map(crate::surface::list_row);
-                    passkeys_section =
-                        passkeys_section.child(v_flex().w_full().min_w_0().children(list));
-                }
-            }
-            // A failed load (FEED-79): the empty state + Retry, no toast;
-            // the passkey list reads empty under it.
-            (Load::Error, None) => {
-                methods_section = methods_section.child(crate::action_error::load_failed_state(
-                    "sign-in-methods-retry",
-                    gpui_component::Icon::new(registry::SETTINGS_ACCOUNT),
-                    NO_SIGN_IN_METHODS,
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-                passkeys_section = passkeys_section.child(crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::AUTH_PASSKEY),
-                    crate::empty_state_copy::PASSKEYS,
-                    cx,
-                ));
-            }
-            _ => {
-                methods_section = methods_section.child(settings_skeleton("sign-in-methods-skeleton", cx));
-                passkeys_section = passkeys_section.child(settings_skeleton("passkeys-skeleton", cx));
-            }
-        }
-
-        v_flex()
-            .gap_6()
-            .child(methods_section)
-            .child(passkeys_section)
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
-/// The 32px leading slot's glyph, muted like the web's `text-muted-foreground`.
-fn glyph(icon: Icon, cx: &App) -> AnyElement {
-    icon.small()
-        .text_color(cx.theme().muted_foreground)
-        .into_any_element()
+/// One row of a list as the document binds it: the leading glyph (an
+/// `icons.json` concept, or one of the IDE's marks), title over subtitle,
+/// the trailing outline button (`kind` = what its press does).
+#[allow(clippy::too_many_arguments)]
+fn row(key: &str, glyph: Option<&str>, mark: Option<&str>, title: &str, subtitle: &str, action: Option<(&str, &str)>, danger: bool, disabled: bool) -> Value {
+    let (label, kind) = action.unwrap_or_default();
+    json!({
+        "key": key,
+        "hasGlyph": glyph.is_some(),
+        "glyph": glyph.unwrap_or_default(),
+        "hasMark": mark.is_some(),
+        "mark": mark.unwrap_or_default(),
+        "title": title,
+        "subtitle": subtitle,
+        "hasAction": action.is_some(),
+        "action": label,
+        "kind": kind,
+        "danger": danger,
+        "disabled": disabled,
+    })
 }
 
-/// One flat row: the leading slot (kept even when empty so titles align),
-/// title over a muted subtitle, the trailing control.
-fn method_row(
-    leading: Option<AnyElement>,
-    title: SharedString,
-    subtitle: SharedString,
-    trailing: Option<AnyElement>,
-    cx: &App,
-) -> gpui::Div {
-    crate::surface::flat_row()
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_3()
-        .px_3()
-        .py_2()
-        .child(
-            div()
-                .size_8()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .children(leading),
-        )
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .truncate()
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .truncate()
-                        .child(subtitle),
-                ),
-        )
-        .when_some(trailing, |row, trailing| {
-            row.child(div().flex_shrink_0().child(trailing))
-        })
+fn email_row(methods: &SignInMethods) -> Value {
+    let subtitle = if methods.email_otp_enabled {
+        methods.email.clone()
+    } else {
+        // ONE wording ×4: "{email} · Off on this server".
+        format!("{} · Off on this server", methods.email)
+    };
+    let action = methods.email_otp_enabled.then_some(("Change", "change"));
+    row("email", Some("ui-mail"), None, "Email code", &subtitle, action, false, false)
+}
+
+fn provider_row(methods: &SignInMethods, provider: &SignInProvider, pending_link: Option<&str>, busy: bool) -> Value {
+    let blocked = provider.linked && !api::users::can_unlink(methods, provider);
+    let (glyph, mark) = match provider.kind.as_str() {
+        // Apple's mark is monochrome — the tinted Icon pipeline (login.rs).
+        "apple" => (Some(MARK_APPLE), None),
+        // SLOP-7: GitHub as a sign-in method (GITHUB_LOGIN_ENABLED).
+        "github" => (Some("ui-github"), None),
+        // The full-colour "G" goes through `img()` (login.rs, EXP-9).
+        "google" => (None, Some(MARK_GOOGLE)),
+        _ => (None, None),
+    };
+    let (action, danger, disabled) = if provider.linked {
+        let label = if provider.kind == "password" { "Remove" } else { "Unlink" };
+        ((label, "unlink"), true, blocked || busy)
+    } else {
+        let waiting = pending_link == Some(provider.id.as_str());
+        let label = if waiting { "Waiting for your browser…" } else { "Link" };
+        ((label, "link"), false, !provider.available)
+    };
+    row(&provider.id, glyph, mark, &provider.name, &provider_subtitle(provider, blocked), Some(action), danger, disabled)
+}
+
+fn passkey_row(methods: &SignInMethods, passkey: &SignInPasskey, busy: bool) -> Value {
+    // A passkey counts as a way in only while passkeys are on.
+    let blocked = methods.passkey_enabled && methods.ways_in <= 1;
+    row(&passkey.id, Some("auth-passkey"), None, &passkey_name(passkey), &passkey_subtitle(passkey, blocked), Some(("Remove", "passkey")), true, blocked || busy)
+}
+
+/// The colours and radii the document needs beyond [`Ink`]: gpui-component's
+/// `theme.radius`, the rows' hairline and the outline `Button`'s paints.
+struct Chrome {
+    radius: f32,
+    stroke: String,
+    danger: String,
+    button_fg: String,
+    button_fill: String,
+    button_hover: String,
+    button_stroke: String,
+    button_fill_disabled: String,
+    button_stroke_disabled: String,
+    button_fg_disabled: String,
+}
+
+impl Chrome {
+    fn of(cx: &App) -> Self {
+        let theme = cx.theme();
+        Self {
+            radius: f32::from(theme.radius),
+            stroke: hex(super::row_stroke(cx)),
+            danger: hex(theme.danger),
+            button_fg: hex(theme.button_foreground),
+            // The washes' few-percent alphas have no exact byte:
+            // [`premultiplied_hex`]; the stroke is the token's own byte.
+            button_fill: premultiplied_hex(theme.input_background()),
+            button_hover: premultiplied_hex(gpui_component::Colorize::mix_oklab(&theme.input, theme.transparent, 0.5)),
+            button_stroke: hex(theme.input),
+            button_fill_disabled: premultiplied_hex(theme.input_background().opacity(0.5)),
+            button_stroke_disabled: hex(theme.input.opacity(0.5)),
+            button_fg_disabled: hex(theme.muted_foreground),
+        }
+    }
+}
+
+/// `#rrggbbaa` of a faint translucent colour that paints like the exact
+/// one: the alpha rounds to its byte and the channels absorb the rounding,
+/// so colour × alpha (what the quad adds over its ground) stays exact; at
+/// a few percent alpha one channel step is a thirtieth of a pixel level.
+fn premultiplied_hex(color: gpui::Hsla) -> String {
+    let c = color.to_rgb();
+    let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
+    let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;
+    format!("#{:02x}{:02x}{:02x}{:02x}", channel(c.r), channel(c.g), channel(c.b), alpha as u8)
+}
+
+/// A run of text cut to one line with an ellipsis.
+fn one_line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
+    let mut t = ink.text(id, text, rems, color);
+    t["props"]["lines"] = json!(1);
+    t["style"]["minWidth"] = json!(0);
+    t["style"]["flexShrink"] = json!(1);
+    t
+}
+
+/// The outline `Button` at `web_sm` (gpui-component's outline Default: the
+/// input wash and stroke, 32px tall, `px 12`, its `text_sm` label at line
+/// height 1, which gpui centres half a point lower than the flex centre:
+/// `paddingTop: 1`), in the danger tint where `danger`; disabled = the half
+/// wash, the half stroke, the faded muted label (the tint stays: it is the
+/// caller's own style). Drawn twice, `disabled` picks.
+fn outline_button(ink: &Ink, chrome: &Chrome, id: &str) -> [Value; 2] {
+    let disabled = path("disabled");
+    let draw = |dim: bool| {
+        let id = if dim { format!("{id}_dim") } else { id.to_string() };
+        let size = ink.r(SM);
+        let label = |color: &str, suffix: &str, visible: Value| json!({"id": format!("{id}_label{suffix}"), "component": "Text", "visible": visible, "props": {"text": path("action")}, "style": {"fontSize": size, "lineHeight": size, "paddingTop": 1, "color": color, "flexShrink": 0}});
+        let plain = if dim { &chrome.button_fg_disabled } else { &chrome.button_fg };
+        // The disabled ink is `muted_foreground` at half: the solid colour
+        // at the node's opacity (a `#rrggbbaa` byte rounds 0.5 to 0.502).
+        let faded_label = |color: &str, suffix: &str, visible: Value| if dim && suffix.is_empty() { super::doc::faded(label(color, suffix, visible), 0.5) } else { label(color, suffix, visible) };
+        let visible = and(path("hasAction"), if dim { disabled.clone() } else { not(disabled.clone()) });
+        let mut button = json!({"id": id, "component": "Box", "visible": visible,
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12,
+                "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": if dim { &chrome.button_stroke_disabled } else { &chrome.button_stroke }, "backgroundColor": if dim { &chrome.button_fill_disabled } else { &chrome.button_fill }},
+            "children": [label(&chrome.danger, "_danger", path("danger")), faded_label(plain, "", not(path("danger")))]});
+        if !dim {
+            button["props"] = json!({"pressable": true});
+            button["accessibility"] = json!({"label": path("action")});
+            button["on"] = json!({"press": {"event": {"name": "row", "context": {"key": path("key"), "kind": path("kind")}}}});
+            button["style"]["cursor"] = json!("pointer");
+            button["style"][":hover"] = json!({"backgroundColor": chrome.button_hover});
+        }
+        button
+    };
+    [draw(false), draw(true)]
+}
+
+/// One list (`methods` or `passkeys`): flat rows (`px_3` / `py_2`, `gap_3`)
+/// with no hairline between them (EXP-1320): the `size_8` leading slot (kept
+/// even when empty so titles align; a `small` glyph or the 16px mark, muted),
+/// the `text_sm` MEDIUM title over the `text_xs` muted subtitle, the button.
+fn list(ink: &Ink, chrome: &Chrome, list: &str, visible: Value) -> Value {
+    let glyph = ink.r(0.875);
+    let mark = ink.r(1.);
+    let mut title = one_line(ink, &format!("{list}_title"), path("title"), SM, &ink.foreground);
+    title["style"]["fontWeight"] = json!(500);
+    let [button, button_dim] = outline_button(ink, chrome, &format!("{list}_action"));
+    let row = json!({"id": format!("{list}_row"), "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [
+            {"id": format!("{list}_leading"), "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": ink.r(2.), "height": ink.r(2.)},
+                "children": [
+                    {"id": format!("{list}_glyph"), "component": "Icon", "visible": path("hasGlyph"), "props": {"name": path("glyph")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},
+                    {"id": format!("{list}_mark"), "component": "Icon", "visible": path("hasMark"), "props": {"name": path("mark")}, "style": {"width": mark, "height": mark, "color": ink.muted, "flexShrink": 0}},
+                ]},
+            {"id": format!("{list}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
+                "children": [title, one_line(ink, &format!("{list}_subtitle"), path("subtitle"), XS, &ink.muted)]},
+            button,
+            button_dim,
+        ]});
+    json!({"id": format!("{list}_rows"), "component": "List", "visible": visible, "props": {"gap": "none"},
+        "template": {"component": format!("{list}_wrap"), "path": format!("/pane/{list}"), "key": "key"},
+        "children": [{"id": format!("{list}_wrap"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]})
+}
+
+/// The section's tree.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    // Opener degradation: the caption over the URL in its hairline box
+    // (`px_2` / `py_1`, `text_xs` muted, clipped) and the Copy pill.
+    let mut caption = ink.text("copy_caption", json!("Couldn't open your browser. Open this link manually:"), SM, &ink.muted);
+    caption["style"]["width"] = json!("100%");
+    let [copy, _] = ink.pill_button("copy_button", None, json!("Copy"), json!(false), json!({"name": "copy"}));
+    let copy_band = json!({"id": "copy", "component": "Box", "visible": path("/pane/hasCopyUrl"),
+        "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
+        "children": [
+            caption,
+            {"id": "copy_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%"},
+                "children": [
+                    {"id": "copy_url", "component": "Box", "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.25), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.stroke, "overflow": "hidden"},
+                        "children": [ink.text("copy_url_text", path("/pane/copyUrl"), XS, &ink.muted)]},
+                    copy,
+                ]},
+        ]});
+
+    // `settings::section`: `gap_2` under the band.
+    let section = |id: &str, children: Vec<Value>| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": children});
+    let methods = section("methods", vec![
+        ink.band("methods_band", "Sign-in methods", None),
+        list(ink, chrome, "methods", path("/pane/ready")),
+        copy_band,
+        failed_state(ink, "methods_failed", "settings-account", NO_SIGN_IN_METHODS, path("/pane/failed")),
+        skeleton("methods_skeleton", path("/pane/loading")),
+    ]);
+    // Web parity: the band's trailing "Add passkey" pill. The desktop has no
+    // native WebAuthn ceremony, so the pill hands the errand to the web
+    // account page.
+    let [mut add, _] = ink.pill_button("passkeys_add", None, json!("Add passkey"), json!(false), json!({"name": "addPasskey"}));
+    add["visible"] = path("/pane/addPasskey");
+    let passkeys = section("passkeys", vec![
+        ink.band("passkeys_band", "Passkeys", Some(add)),
+        list(ink, chrome, "passkeys", path("/pane/hasPasskeys")),
+        empty_state(ink, "passkeys_empty", "auth-passkey", crate::empty_state_copy::PASSKEYS, path("/pane/noPasskeys")),
+        skeleton("passkeys_skeleton", path("/pane/loading")),
+    ]);
+    // The two sections, `gap_6` apart.
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%"},
+        "children": [methods, passkeys]})
+}
+
+/// The IDE's plugin, plus the two sign-in marks it paints itself: Apple's
+/// monochrome SVG tinted like any glyph, Google's full-colour "G" as an
+/// image (a glyph would flatten it to one tint).
+struct MarksPlugin(Rc<dyn HostPlugin>);
+
+impl HostPlugin for MarksPlugin {
+    fn icon(&self, name: &str) -> Option<gpui::SharedString> {
+        match name {
+            MARK_APPLE => Some(ExpIcon::Apple.path()),
+            _ => self.0.icon(name),
+        }
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        match name {
+            MARK_GOOGLE => Some(gpui::img("icons/google.svg").size(gpui::px(size)).flex_none().into_any_element()),
+            _ => self.0.icon_element(name, size, color, cx),
+        }
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.0.on_unknown(node)
+    }
+}
+
+/// The section's document as a [`SurfaceView`] in the Exponential theme, its
+/// actions routed to `binding`, everything else to [`MarksPlugin`].
+fn mount(tree: Value, binding: &Entity<Binding<Value>>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
+    let ide: Rc<dyn HostPlugin> = Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None });
+    let inner: Rc<dyn HostPlugin> = Rc::new(MarksPlugin(ide));
+    let host: Rc<dyn HostPlugin> = Rc::new(BindingHost::new(binding, inner));
+    let options = SurfaceViewOptions {
+        surface_id: "settings-sign-in-methods".into(),
+        theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
+        mode: eui_core::theme::Mode::Dark,
+        host,
+        settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
+        ..Default::default()
+    };
+    let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("the sign-in methods document parses");
+    let view = cx.new(|cx| {
+        let mut view = SurfaceView::new(options, window, cx);
+        let outcome = view.set_nested(tree, cx);
+        debug_assert!(outcome.issues.is_empty(), "the sign-in methods document: {:?}", outcome.issues);
+        view
+    });
+    binding.update(cx, |binding, cx| binding.attach(&view, cx));
+    view
 }
 
 /// Web copy, word for word (`sign-in-methods-section.tsx`).
