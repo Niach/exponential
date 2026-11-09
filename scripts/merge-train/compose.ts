@@ -51,7 +51,7 @@ export function readConfig(git: Git, baseSha: string): TrainRepoConfig {
   const text = git.show(baseSha, `.exponential/merge-train.json`)
   if (!text) return { generated: [] }
   const parsed = JSON.parse(text) as Partial<TrainRepoConfig>
-  return { setup: parsed.setup, ci: parsed.ci, generated: parsed.generated ?? [] }
+  return { setup: parsed.setup, ci: parsed.ci, generated: parsed.generated ?? [], ...(parsed.lockfiles ? { lockfiles: parsed.lockfiles } : {}) }
 }
 
 class UnitConflict extends Error {
@@ -73,19 +73,21 @@ export function compose(input: ComposeInput): ComposeResult {
     const before = git.must(`rev-parse`, `HEAD`)
     const prs = unit.prs.map((p) => p.number)
     const resolved = new Set<string>()
+    const drifted = new Set<string>()
     try {
       for (const pr of unit.prs) {
-        for (const name of squash(git, pr.head_sha, config, run, () => {
+        const squashed = squash(git, pr.head_sha, config, run, () => {
           if (setupDone || !config.setup) return true
           setupDone = true
           return run(config.setup, input.dir)
-        }))
-          resolved.add(name)
+        })
+        for (const name of squashed.resolved) resolved.add(name)
+        for (const path of squashed.drifted) drifted.add(path)
         const message = `${pr.title} (#${pr.number})`
         if (git.run(`diff`, `--cached`, `--quiet`).ok) continue // already in the base
         git.must(`commit`, `--quiet`, `--no-verify`, `-m`, message, ...(pr.author ? [`--author`, pr.author] : []))
       }
-      units.push({ prs, outcome: `composed`, files: [], resolved: [...resolved] })
+      units.push({ prs, outcome: `composed`, files: [], resolved: [...resolved], ...(drifted.size > 0 ? { drifted: [...drifted] } : {}) })
     } catch (e) {
       if (!(e instanceof UnitConflict)) throw e
       git.must(`reset`, `--quiet`, `--hard`, before)
@@ -108,12 +110,14 @@ export function compose(input: ComposeInput): ComposeResult {
   if (!composed) git.must(`commit`, `--quiet`, `--allow-empty`, `-m`, `exp-train ${input.trainId}: nothing composed`)
   const head = git.must(`rev-parse`, `HEAD`)
   const workflows = config.ci?.workflows ?? []
-  // #LOGS-2: a Merge now is untested only when nothing was resolved; a
-  // rewritten conflict is a tree nobody tested, so CI runs on it.
+  // #LOGS-2: a Merge now is untested only when nothing was resolved and no
+  // lockfile drifted from its head; else the tree is one nobody tested.
+  const riding = units.filter((u) => u.outcome === `composed`)
   const checks: TrainChecksMode = trainChecksMode({
     mode: input.mode,
     composed,
-    resolved: units.some((u) => u.outcome === `composed` && u.resolved.length > 0),
+    resolved: riding.some((u) => u.resolved.length > 0),
+    drifted: riding.some((u) => (u.drifted ?? []).length > 0),
     proven: composed && proven(git, input.units, units, head),
     workflows,
   })
@@ -158,14 +162,15 @@ function proven(git: Git, input: TrainPipelineUnit[], units: TrainUnitOutcome[],
 }
 
 /** Squash one head onto the tip, resolving generated files; → the rule
- *  names applied. Throws UnitConflict with the files that bounce it. */
+ *  names applied + the drifted lockfiles (`lockDrift`). Throws
+ *  UnitConflict with the files that bounce it. */
 function squash(
   git: Git,
   head: string,
   config: TrainRepoConfig,
   run: (command: string, dir: string) => boolean,
   setup: () => boolean
-): string[] {
+): { resolved: string[]; drifted: string[] } {
   const tip = git.must(`rev-parse`, `HEAD`)
   const merge = git.run(`merge`, `--squash`, `--no-commit`, head)
   const conflicted = git.lines(`diff`, `--name-only`, `--diff-filter=U`)
@@ -184,7 +189,7 @@ function squash(
       ourChanges.some((q) => ruleOf(q) === rule)
     )
   })
-  if (conflicted.length === 0 && stale.length === 0) return []
+  if (conflicted.length === 0 && stale.length === 0) return { resolved: [], drifted: lockDrift(git, head, config, ourChanges, theirChanges) }
 
   const verdict = resolveConflicts([...conflicted, ...stale], config.generated)
   if (!verdict.ok) throw new UnitConflict(verdict.files)
@@ -228,7 +233,32 @@ function squash(
   }
   const left = git.lines(`diff`, `--name-only`, `--diff-filter=U`)
   if (left.length > 0) throw new UnitConflict(left)
-  return verdict.steps.map((s) => s.name)
+  return { resolved: verdict.steps.map((s) => s.name), drifted: lockDrift(git, head, config, ourChanges, theirChanges) }
+}
+
+/** #LOGS-2 (`repoPolicy.lockfiles`): the unit's lockfiles whose composed blob
+ *  is not the one at its head (git merged a lock cleanly onto a base that
+ *  moved it: a lock nobody resolved), + the paired locks the train moved
+ *  under a manifest the unit changed. */
+function lockDrift(git: Git, head: string, config: TrainRepoConfig, ourChanges: string[], theirChanges: string[]): string[] {
+  const policy = config.lockfiles
+  if (!policy) return []
+  const isLock = (p: string) => policy.paths.some((g) => globMatch(g, p))
+  const blob = (rev: string, p: string) => {
+    const r = git.run(`rev-parse`, `--verify`, `--quiet`, `${rev}:${p}`)
+    return r.ok ? r.out.trim() : null
+  }
+  const drifted = theirChanges.filter((p) => isLock(p) && blob(``, p) !== blob(head, p))
+  const dirOf = (p: string) => (p.includes(`/`) ? p.slice(0, p.lastIndexOf(`/`)) : ``)
+  for (const pair of policy.manifests ?? []) {
+    const changed = theirChanges.filter((p) => pair.paths.some((g) => globMatch(g, p)))
+    for (const lock of ourChanges) {
+      if (lock.split(`/`).pop() !== pair.lock || !isLock(lock) || drifted.includes(lock)) continue
+      const root = dirOf(lock)
+      if (changed.some((m) => root === `` || m.startsWith(`${root}/`))) drifted.push(lock)
+    }
+  }
+  return drifted
 }
 
 function remove(git: Git, path: string): void {

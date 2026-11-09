@@ -110,5 +110,53 @@
       "strategy": "regenerate",
       "command": "bun run notices"
     }
-  ]
+  ],
+  "lockfiles": {
+    "paths": [
+      "**/Cargo.lock",
+      "bun.lock",
+      "**/package-lock.json",
+      "**/Package.resolved",
+      "**/gradle.lockfile",
+      "**/libs.versions.toml"
+    ],
+    "manifests": [
+      {
+        "paths": [
+          "**/Cargo.toml"
+        ],
+        "lock": "Cargo.lock"
+      },
+      {
+        "paths": [
+          "**/package.json"
+        ],
+        "lock": "bun.lock"
+      },
+      {
+        "paths": [
+          "**/package.json"
+        ],
+        "lock": "package-lock.json"
+      },
+      {
+        "paths": [
+          "**/Package.swift"
+        ],
+        "lock": "Package.resolved"
+      },
+      {
+        "paths": [
+          "**/build.gradle.kts"
+        ],
+        "lock": "gradle.lockfile"
+      },
+      {
+        "paths": [
+          "**/build.gradle.kts"
+        ],
+        "lock": "libs.versions.toml"
+      }
+    ]
+  }
 }

@@ -124,6 +124,37 @@ describe(`compose: changelogs prepended at one spot (#LOGS-2)`, () => {
   })
 })
 
+describe(`compose: a Merge now whose lockfile drifted runs CI (#LOGS-2)`, () => {
+  const LOCKS: TrainRepoConfig = {
+    ...POLICY,
+    lockfiles: { paths: [`**/Cargo.lock`], manifests: [{ paths: [`**/Cargo.toml`], lock: `Cargo.lock` }] },
+  }
+  const lock = (top: string, bottom: string) => `${top}\n${[`b`, `c`, `d`, `e`, `f`, `g`].join(`\n`)}\n${bottom}\n`
+  const BASE = { "ede/Cargo.lock": lock(`smithay 1`, `sentry 0`), "ede/crates/x/Cargo.toml": `[deps]\n` }
+
+  it(`a clean lockfile merge onto a moved base = dispatched; onto an unmoved base = skipped`, () => {
+    const r = repo(BASE, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": lock(`smithay git`, `sentry 0`) })
+    const unit = r.branch({ "ede/Cargo.lock": lock(`smithay 1`, `sentry 1`) })
+    const onMoved = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onMoved.outcome.units[0]).toMatchObject({ outcome: `composed`, resolved: [], drifted: [`ede/Cargo.lock`] })
+    expect([onMoved.outcome.checks, onMoved.dispatch]).toEqual([`dispatched`, [`ci.yml`]])
+    const onBase = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onBase.outcome.units[0]).toEqual({ prs: [2], outcome: `composed`, files: [], resolved: [] })
+    expect([onBase.outcome.checks, onBase.dispatch]).toEqual([`skipped`, []])
+  })
+
+  it(`a manifest changed while the base moved its paired lock = dispatched`, () => {
+    const r = repo(BASE, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": lock(`smithay git`, `sentry 0`) })
+    const unit = r.branch({ "ede/crates/x/Cargo.toml": `[deps]\nsentry = "1"\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect([outcome.units[0]!.drifted, outcome.checks]).toEqual([[`ede/Cargo.lock`], `dispatched`])
+    const onBase = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onBase.outcome.checks).toBe(`skipped`)
+  })
+})
+
 describe(`compose`, () => {
   it(`squashes every PR in order with its title, a stack bottom first`, () => {
     const r = repo({ "a.txt": `a\n`, "b.txt": `b\n` }, POLICY)
