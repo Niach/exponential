@@ -6792,15 +6792,15 @@
         "file": "shots/settings-assistant/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 40154,
-        "sha256": "23aa4dda9b7c1441bb484cee942c81f22b0c0e94acc400b9a03fbc0b6860e7c2"
+        "bytes": 41008,
+        "sha256": "936521701dfa75b32a41932f656d0ba754999aa4488541fe6b9e86ce43f1a040"
       },
       "web-mobile": {
         "file": "shots/settings-assistant/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 38850,
-        "sha256": "0dab8ed7f3b0bd9e49f90d2efdce5b38bfc6547ce972d0ea4ae66247dc500cec"
+        "bytes": 38836,
+        "sha256": "79e6dfe2c90097b4db93c4d148b1e378004a999a05e059a744f2c4846621b22e"
       }
     },
     "settings-assistant-meeting": {
