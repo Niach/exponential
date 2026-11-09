@@ -72,6 +72,7 @@ import at.exponential.ui.json.num
 import at.exponential.ui.json.str
 import at.exponential.ui.model.carouselPage
 import at.exponential.ui.paint.DateModel
+import at.exponential.ui.primitives.AvatarFallback
 import at.exponential.ui.primitives.AvatarView
 import at.exponential.ui.primitives.Rgba
 import at.exponential.ui.primitives.RingView
@@ -376,14 +377,15 @@ internal fun IconLeaf(cx: LeafContext) {
  * `Avatar` (fixtures/avatar.json, #EXP-1629): the picture when `src` loads,
  * wearing the `Avatar/image` ring over its fill (the whole round box,
  * #EXP-1629); else the initials of `name`, tinted from
- * `seed` (a user id: the palette hue at 20% under the letters in the hue) or,
- * with no seed, in the `Avatar/fallback` recipe's colours. The letters take
+ * the hue key (#EXP-1754: the `seed`, a user id, else the trimmed `name`,
+ * which may be an email: the palette hue at 20% under the letters in the hue)
+ * or, with no key, in the `Avatar/fallback` recipe's colours. The letters take
  * the fallback recipe's size and weight.
  */
 @Composable
 internal fun AvatarLeaf(cx: LeafContext) {
     val name = cx.props.str("name")
-    val seed = cx.props.str("seed")
+    val seed = AvatarFallback.hueKey(cx.props.str("seed"), name).orEmpty()
     val fallback = cx.part("Avatar", "fallback")
     val size = min(cx.size.width, cx.size.height)
     val fs = fallback.px("fontSize")

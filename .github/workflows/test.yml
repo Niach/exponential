@@ -67,6 +67,7 @@ jobs:
       merge_train: ${{ steps.f.outputs.merge_train }}
       engine_ts: ${{ steps.f.outputs.engine_ts }}
       contract_ts: ${{ steps.f.outputs.contract_ts }}
+      release_scripts: ${{ steps.f.outputs.release_scripts }}
     steps:
       # The train's diff: two shallow commits are enough for a name-only tree diff.
       - uses: actions/checkout@v4
@@ -85,7 +86,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
@@ -96,12 +97,12 @@ jobs:
           desktop='^(apps/desktop/|samples/apps/photobook|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
-          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
+          eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/gpui-pre-wgpu/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
-          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore)/|apps/desktop/vendor/(gpui-component|gpui-pre-wgpu)/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
@@ -148,6 +149,8 @@ jobs:
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
           echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          release_scripts='^(scripts/release/|\.github/workflows/test\.yml$)'
+          echo "release_scripts=$(grep -qE "$release_scripts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-269: the Engine's TS twin and the web runner, with what they import.
           engine_ts='^(packages/(eengine|emcp|domain-contract|exponential-ui|exponential-ui-react|icons)/|apps/runner/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
           echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -292,7 +295,8 @@ jobs:
       # #VAPP-266: the desktop runner's glue (headless) and its dependency gate;
       # the suites that hold launch behaviour and the shared fixtures (the full
       # `cargo test` stays in release-suite.yml); #EDE-55: the Local desktop
-      # store, its parity replay and the api Transport seam.
+      # store, its parity replay and the api Transport seam; the CLI's own
+      # tests (exp-cli: unit + `tests/data_dir.rs`, EXP_DATA_DIR isolation).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding and ui stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -300,7 +304,7 @@ jobs:
         run: >-
           cargo nextest run --locked --no-fail-fast
           -p ecore -p eengine -p eengine-ffi -p eengine-desktop -p eengine-runner -p eengine-bundle
-          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http
+          -p eagent -p coding -p ui -p engine -p elocal -p api -p exp-http -p exp-cli
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui))'
 
@@ -720,11 +724,21 @@ jobs:
       - run: bun test ./src
         working-directory: packages/domain-contract
 
+  # The release shepherd's deploy scripts (scripts/release/): a dry run proves a pinned
+  # prod is never moved onto `latest` by an advert or a deploy, plus bash -n on all.
+  release-scripts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.release_scripts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/release/test-tagkeep.sh
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -1541,3 +1541,100 @@ fn a_key_recorder_drops_repeats_and_unshifts(cx: &mut TestAppContext) {
     let keys: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name == "key").map(|a| json!([a.context["key"], a.context["shift"]])).collect();
     assert_eq!(keys, vec![json!(["k", false]), json!(["1", true]), json!(["home", false])], "the repeat is dropped, `!` is shift+1");
 }
+
+/// #EDE-65 (interactions-round1.json composerKeys): with menuKeys on, Up,
+/// Down, Enter, Tab and Escape (no modifier, no IME composition) fire
+/// `key` {key} only; off, Enter submits. A key the Composer leaves goes on
+/// to the textarea, whose own Enter (no modifier) is `submit_composer`.
+#[gpui::test]
+fn a_composer_hands_menu_keys_to_the_host_like_the_fixture(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let k = &f["composerKeys"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [k["surface"].clone()]}), false);
+        view.update(vcx, |v, cx| {
+            for (path, value) in c["data"].as_object().unwrap() {
+                v.set_data(&format!("/{path}"), Some(value.clone()), cx).unwrap();
+            }
+        });
+        draw(vcx);
+        for step in c["steps"].as_array().unwrap() {
+            if let Some(text) = step["type"].as_str() {
+                let text = text.to_string();
+                cx_type(&view, vcx, &text);
+            } else if let Some(name_key) = step["key"].as_str() {
+                let held = |x: &str| step["mods"].as_array().is_some_and(|a| a.iter().any(|v| v == x));
+                let m = Modifiers { control: held("ctrl"), alt: held("alt"), shift: held("shift"), platform: held("meta"), function: false };
+                let composing = step["composing"].as_bool().unwrap_or(false);
+                let key = gpui_key(name_key);
+                let handled = vcx.update(|window, cx| {
+                    view.update(cx, |v, cx| {
+                        if v.composer_key("c", key, &m, composing, window, cx) {
+                            return true;
+                        }
+                        // The textarea's own Enter (an IME's Enter never reaches it).
+                        if name_key == "Enter" && m == Modifiers::default() && !composing {
+                            v.submit_composer("c", window, cx);
+                            return true;
+                        }
+                        false
+                    })
+                });
+                assert_eq!(handled, step["handled"].as_bool().unwrap(), "{name}: {name_key} handled");
+            } else if let Some(w) = step.get("hostWrite") {
+                view.update(vcx, |v, cx| v.set_data(w["path"].as_str().unwrap(), Some(w["value"].clone()), cx).unwrap());
+            }
+            vcx.executor().advance_clock(Duration::from_millis(20));
+            draw(vcx);
+        }
+        vcx.executor().advance_clock(Duration::from_millis(400));
+        draw(vcx);
+        let fired: Vec<Value> = log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect();
+        assert_eq!(fired, c["events"].as_array().unwrap().clone(), "{name}: events");
+        let draft = view.read_with(vcx, |v, _| v.surface().get_data("/draft").cloned()).unwrap_or(Value::Null);
+        assert_eq!(draft, c["draft"], "{name}: /draft");
+    }
+}
+
+/// The gpui key of a fixture key name (SearchList's DOM-style names).
+fn gpui_key(name: &str) -> &'static str {
+    match name {
+        "ArrowUp" => "up",
+        "ArrowDown" => "down",
+        "Enter" => "enter",
+        "Tab" => "tab",
+        "Escape" => "escape",
+        other => panic!("composerKeys: unknown key {other}"),
+    }
+}
+
+fn cx_type(view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, text: &str) {
+    vcx.update(|window, cx| view.update(cx, |v, cx| assert!(v.type_into("c", text, window, cx))));
+}
+
+/// #EDE-65: through the window, the interceptor beats the textarea's own
+/// bindings on a focused Composer: Down and Enter fire `key`, never a
+/// caret move or a submit; menuKeys off, Enter submits again.
+#[gpui::test]
+fn a_focused_composer_with_menu_keys_intercepts_the_window_keys(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [f["composerKeys"]["surface"].clone()]}), false);
+    view.update(vcx, |v, cx| v.set_data("/menu", Some(json!(true)), cx).unwrap());
+    draw(vcx);
+    vcx.update(|window, cx| view.update(cx, |v, cx| assert!(v.focus_field("c", window, cx))));
+    cx_type(&view, vcx, "/he");
+    draw(vcx);
+    let down = |key: &'static str| gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse(key).unwrap(), is_held: false, prefer_character_input: false };
+    vcx.simulate_event(down("down"));
+    vcx.simulate_event(down("enter"));
+    draw(vcx);
+    let names = |log: &Recorder| log.0.borrow().actions.iter().map(|a| json!({"name": a.name, "context": a.context})).collect::<Vec<_>>();
+    assert_eq!(names(&log), vec![json!({"name": "key", "context": {"key": "ArrowDown"}}), json!({"name": "key", "context": {"key": "Enter"}})]);
+    assert_eq!(view.read_with(vcx, |v, cx| v.field_text("c", cx)).as_deref(), Some("/he"), "the field kept its text");
+    view.update(vcx, |v, cx| v.set_data("/menu", Some(json!(false)), cx).unwrap());
+    draw(vcx);
+    vcx.simulate_event(down("enter"));
+    draw(vcx);
+    assert_eq!(names(&log).last(), Some(&json!({"name": "send", "context": {"value": "/he"}})), "menuKeys off: Enter submits");
+}

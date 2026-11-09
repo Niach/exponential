@@ -172,8 +172,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     let viewportHeight: CGFloat?
     /// #VAPP-258: the surface's type scale (the Markdown parts the recipes size scale by it).
     let fontScale: CGFloat
+    /// #EDE-65: an Embed leaf's nested surface laid out at a content wrap
+    /// width (id, props, wrap → its size); nil = an Embed measures nothing.
+    let embedSize: ((String, Props, CGFloat?) -> CGSize)?
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions(), viewportHeight: CGFloat? = nil, fontScale: CGFloat = 1) {
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil, markdownOptions: MarkdownOptions = MarkdownOptions(), viewportHeight: CGFloat? = nil, fontScale: CGFloat = 1, embedSize: ((String, Props, CGFloat?) -> CGSize)? = nil) {
+        self.embedSize = embedSize
         self.markdownOptions = markdownOptions
         self.fontScale = fontScale
         self.viewportHeight = viewportHeight
@@ -357,6 +361,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("QrScanner", _): content = MeasuredContent(qrScanner(leaf, wrap: inner))
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
         case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
+        // #EDE-65: the nested surface at the content width, as tall as it lays out.
+        case ("Embed", _): content = MeasuredContent(embedSize?(leaf.id, props, inner) ?? .zero)
         case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))
         case ("TreeGuides", _):
             // depth × `treeGuideColumn` wide; no height of its own (it
@@ -841,8 +847,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 /// id), the theme, the mode, the measure generation and the installed
 /// fonts: a re-windowed list row, a rebound template item with a text
 /// seen before, a Table's repeated badge pay a dictionary lookup instead
-/// of TextKit. Extensions (their painter decides) and Markdown (its
-/// images pass the host's media policy) are never memoised. Cleared when
+/// of TextKit. Extensions (their painter decides), Markdown (its
+/// images pass the host's media policy) and Embed (its nested surface
+/// lays out on its own) are never memoised. Cleared when
 /// any input of the answer changes, and when it outgrows `limit`.
 final class MeasureMemo: @unchecked Sendable {
     struct HeightKey: Hashable {
@@ -858,7 +865,7 @@ final class MeasureMemo: @unchecked Sendable {
 
     /// The record as the memo keys it: slot and id dropped (nil = never memoised).
     static func key(_ leaf: FfiLeaf) -> FfiLeaf? {
-        if leaf.component == "Extension" || leaf.component == "Markdown" { return nil }
+        if leaf.component == "Extension" || leaf.component == "Markdown" || leaf.component == "Embed" { return nil }
         var k = leaf
         k.index = 0
         // The id-keyed tabular part (`TextStyle.forPart`) keeps its suffix.

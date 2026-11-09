@@ -2,7 +2,6 @@ import { createAuthClient } from "better-auth/react"
 import {
   deviceAuthorizationClient,
   emailOTPClient,
-  genericOAuthClient,
   inferAdditionalFields,
 } from "better-auth/client/plugins"
 import { passkeyClient } from "@better-auth/passkey/client"
@@ -14,8 +13,9 @@ export const authClient = createAuthClient({
     typeof window !== `undefined`
       ? window.location.origin
       : undefined,
+  // better-auth 1.7: generic OIDC providers sign in and link through the
+  // social endpoints (signIn.social / linkSocial), no client plugin.
   plugins: [
-    genericOAuthClient(),
     inferAdditionalFields<typeof auth>(),
     creemClient(),
     // /auth/device verification page (EXP-403 CLI device-code login).

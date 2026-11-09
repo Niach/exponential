@@ -4,7 +4,7 @@ import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   mcpGrants,
-  oauthApplications,
+  oauthClients,
   boards,
   teamMembers,
   teams,
@@ -47,32 +47,63 @@ async function getMemberTeams(userId: string) {
     .orderBy(asc(teams.name))
 }
 
-// The better-auth consent hop: mints the authorization code (accept) or the
-// access_denied redirect (deny); throws on an expired or replayed code.
+// The better-auth consent hop (oauth-provider's /oauth2/consent): mints the
+// authorization code (accept) or the access_denied redirect (deny). The
+// consent page hands back the SIGNED query it was redirected with; the
+// provider verifies the signature and expiry, so a stale, forged or replayed
+// request throws. The client the grant is written for must be the one that
+// signed query names.
+const consentExpired = () =>
+  new TRPCError({
+    code: `BAD_REQUEST`,
+    message: `The consent request is no longer valid. Re-run authentication from your MCP client.`,
+  })
+
+/** Pure: the client a signed consent query names (null when it names none). */
+export function consentQueryClientId(oauthQuery: string): string | null {
+  return new URLSearchParams(oauthQuery.replace(/^\?/, ``)).get(`client_id`)
+}
+
+/** Before anything else: the grant is written for the client the signed
+ *  query names, never for one the page claims. */
+function assertConsentClient(input: { oauthQuery: string; clientId: string }) {
+  if (consentQueryClientId(input.oauthQuery) !== input.clientId) throw consentExpired()
+}
+
 async function completeConsent(
   ctx: Context,
   accept: boolean,
-  consentCode: string
+  oauthQuery: string,
+  clientId: string
 ): Promise<{ redirectURI: string }> {
-  const result = await auth.api.oAuthConsent({
-    body: { accept, consent_code: consentCode },
-    headers: ctx.request.headers,
-  })
-  const redirectURI = (result as { redirectURI?: string }).redirectURI
-  if (!redirectURI) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `The consent request is no longer valid. Re-run authentication from your MCP client.`,
+  if (consentQueryClientId(oauthQuery) !== clientId) throw consentExpired()
+  let result: unknown
+  try {
+    // The provider resumes /oauth2/authorize from here, which needs the
+    // request itself, not only its headers.
+    result = await auth.api.oauth2Consent({
+      body: { accept, oauth_query: oauthQuery.replace(/^\?/, ``) },
+      headers: ctx.request.headers,
+      request: ctx.request,
     })
+    // Handed a request, Better Auth answers with a Response.
+    if (result instanceof Response) {
+      if (!result.ok) throw consentExpired()
+      result = await result.json()
+    }
+  } catch {
+    throw consentExpired()
   }
+  const redirectURI = (result as { url?: string }).url
+  if (!redirectURI) throw consentExpired()
   return { redirectURI }
 }
 
 async function assertKnownClient(clientId: string) {
   const [client] = await db
-    .select({ clientId: oauthApplications.clientId })
-    .from(oauthApplications)
-    .where(eq(oauthApplications.clientId, clientId))
+    .select({ clientId: oauthClients.clientId })
+    .from(oauthClients)
+    .where(eq(oauthClients.clientId, clientId))
     .limit(1)
   if (!client) {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Unknown OAuth client` })
@@ -99,12 +130,12 @@ export const mcpGrantsRouter = router({
     .query(async ({ input }) => {
       const [client] = await db
         .select({
-          name: oauthApplications.name,
-          icon: oauthApplications.icon,
-          disabled: oauthApplications.disabled,
+          name: oauthClients.name,
+          icon: oauthClients.icon,
+          disabled: oauthClients.disabled,
         })
-        .from(oauthApplications)
-        .where(eq(oauthApplications.clientId, input.clientId))
+        .from(oauthClients)
+        .where(eq(oauthClients.clientId, input.clientId))
         .limit(1)
       if (!client || client.disabled) {
         throw new TRPCError({
@@ -157,13 +188,15 @@ export const mcpGrantsRouter = router({
     .input(
       scopeSelectionInput.extend({
         clientId: z.string().min(1).max(255),
-        consentCode: z.string().min(1).max(255),
+        // The consent page's signed query (`location.search`).
+        oauthQuery: z.string().min(1).max(16_384),
         accept: z.boolean(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      assertConsentClient(input)
       const completeConsentOnce = () =>
-        completeConsent(ctx, input.accept, input.consentCode)
+        completeConsent(ctx, input.accept, input.oauthQuery, input.clientId)
 
       if (!input.accept) return completeConsentOnce()
 
@@ -185,7 +218,7 @@ export const mcpGrantsRouter = router({
       )
 
       // Consent first: this mints the authorization code and throws when the
-      // consent code is expired or already redeemed, in which case the existing
+      // signed consent request is expired, forged or already redeemed, in which case the existing
       // grant must stay untouched. The code is handed to the client only via
       // the returned redirectURI, so writing the grant before returning still
       // closes the mint→grant gap. If this upsert somehow fails after a
@@ -231,7 +264,8 @@ export const mcpGrantsRouter = router({
     .input(
       z.object({
         clientId: z.string().min(1).max(255),
-        consentCode: z.string().min(1).max(255),
+        // The consent page's signed query (`location.search`).
+        oauthQuery: z.string().min(1).max(16_384),
         accept: z.boolean(),
         teamId: z.string().uuid().optional(),
         allApps: z.boolean().default(false),
@@ -240,7 +274,8 @@ export const mcpGrantsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (!input.accept) return completeConsent(ctx, false, input.consentCode)
+      assertConsentClient(input)
+      if (!input.accept) return completeConsent(ctx, false, input.oauthQuery, input.clientId)
       await assertKnownClient(input.clientId)
       const selection = input.teamId
         ? await clampAppsSelection(ctx.session.user.id, {
@@ -254,7 +289,7 @@ export const mcpGrantsRouter = router({
         throw new TRPCError({ code: `BAD_REQUEST`, message: `Choose a team and at least one app.` })
       }
       // Consent first (see grantAndConsent): a failed hop never rewrites a grant.
-      const consent = await completeConsent(ctx, true, input.consentCode)
+      const consent = await completeConsent(ctx, true, input.oauthQuery, input.clientId)
       await writeAppsGrant(ctx.session.user.id, input.clientId, selection)
       return consent
     }),

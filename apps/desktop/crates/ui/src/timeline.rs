@@ -31,9 +31,11 @@ use std::collections::{HashMap, HashSet};
 use domain::composer_send::{ComposerContent, SendOutcome};
 use std::path::PathBuf;
 
+use crate::lazy_rows::{lazy_rows, LazyRow, LazyRowsState};
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Entity, Focusable as _, FontWeight, InteractiveElement as _,
+    div, px, AnyElement, App, AppContext as _, Entity, Focusable as _, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
@@ -291,6 +293,8 @@ pub struct IssueTimeline {
     /// fetch through the account transport).
     images: Entity<ImageCache>,
     submitting: bool,
+    /// #LOGS-6: how much of the activity column the last frame laid out.
+    lazy_rows: LazyRowsState,
     editing: Option<EditState>,
     /// EXP-741: the open reply composer, if any.
     reply: Option<ReplyState>,
@@ -328,6 +332,10 @@ pub(crate) struct ReporterContact {
     /// Whether the submission carries a `reporterEmail` — the gate for the
     /// "Reply to reporter" pill (nothing to email otherwise).
     pub has_email: bool,
+    /// #EXP-1754: the avatar's hue key — the submission's `reporterName`,
+    /// else its `reporterEmail` (`user_avatar::avatar_hue_key`); `None` =
+    /// anonymous, the muted disc.
+    pub avatar_key: Option<String>,
 }
 
 /// The bottom composer's placeholder while the pill is OFF (and on every
@@ -409,6 +417,7 @@ impl IssueTimeline {
             composer_mention,
             images,
             submitting: false,
+            lazy_rows: Default::default(),
             editing: None,
             reply: None,
             emoji_picker,
@@ -1437,6 +1446,10 @@ impl IssueTimeline {
                 .as_ref()
                 .map(|reporter| reporter.name.as_str())
                 .unwrap_or(domain::reporter_reply::ANONYMOUS_NAME),
+            reporter_avatar_key: self
+                .reporter
+                .as_ref()
+                .and_then(|reporter| reporter.avatar_key.as_deref()),
             can_edit,
             can_delete,
             editing: edit.map(|edit| &edit.mention),
@@ -1572,7 +1585,7 @@ fn with_time(phrase: &str, time: &str) -> String {
 }
 
 impl Render for IssueTimeline {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "IssueTimeline").entered();
         // EXP-741: replies ride inside their parent's card, so only top-level
         // comments are timeline entries; the header count still counts every
@@ -1643,9 +1656,12 @@ impl Render for IssueTimeline {
         // `centered_column` — `max_w` + `mx_auto` here made taffy size the
         // column fit-content, mis-measuring wrapped comment text (EXP-179).
         // The gutter rides the wrapper below (EXP-1191), outside the rule.
-        let mut body = v_flex()
-            .py_3()
-            .child(
+        // #LOGS-6: the heading, the rows and the composer form one lazy
+        // column (`lazy_rows`): an issue's first frame lays out only the rows
+        // that can reach the viewport.
+        let mut rows: Vec<LazyRow> = Vec::new();
+        let lazy = |element: AnyElement, lower: f32, force: bool| LazyRow { element, lower: px(lower), force };
+        rows.push(lazy(
                 // EXP-417: a real section title (was `text_xs` muted) — the
                 // Linear reference reads it as a heading, not a caption.
                 // EXP-468: the "Show all" / "Show less" toggle rides its
@@ -1663,8 +1679,11 @@ impl Render for IssueTimeline {
                             .text_color(cx.theme().foreground)
                             .child(SharedString::from(header_label)),
                     )
-                    .children(fold_toggle),
-            );
+                    .children(fold_toggle)
+                    .into_any_element(),
+            0.,
+            false,
+        ));
 
         // #EXP-1383: agent actors (events, comments, the creation row) and
         // agent assignees resolve against the synced agents.
@@ -1720,15 +1739,20 @@ impl Render for IssueTimeline {
         // EXP-417: "X created the issue" goes FIRST, above every event.
         let creation_row = self.creation_row(&user_map, &agents, now_epoch, !rendered.is_empty(), cx);
         let has_creation_row = creation_row.is_some();
-        body = body.children(creation_row);
+        rows.extend(creation_row.map(|creation| lazy(creation.into_any_element(), TIMELINE_ROW_MIN_H, false)));
 
         // With the creation row present this is unreachable; it stays for the
         // race where the issue itself hasn't synced yet.
         if rendered.is_empty() && !has_creation_row {
-            body = body.child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::UI_CLOCK),
-                crate::empty_state_copy::ACTIVITY,
-                cx,
+            rows.push(lazy(
+                crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::UI_CLOCK),
+                    crate::empty_state_copy::ACTIVITY,
+                    cx,
+                )
+                .into_any_element(),
+                0.,
+                false,
             ));
         }
 
@@ -1740,7 +1764,7 @@ impl Render for IssueTimeline {
             let line_below = index < last_index;
             match item {
                 TimelineItem::Event(event) => {
-                    if let Some(row) = event_row(
+                    if let Some(event_row) = event_row(
                         event,
                         &user_map,
                         &label_map,
@@ -1753,10 +1777,18 @@ impl Render for IssueTimeline {
                         line_below,
                         cx,
                     ) {
-                        body = body.child(row);
+                        rows.push(lazy(event_row.into_any_element(), TIMELINE_ROW_MIN_H, false));
                     }
                 }
                 TimelineItem::Comment(comment) => {
+                    // An open reply or edit form lays out wherever it is.
+                    let open_form = self.reply.as_ref().is_some_and(|reply| reply.parent_id == comment.id)
+                        || self.editing.as_ref().is_some_and(|editing| {
+                            editing.comment_id == comment.id
+                                || replies_by_parent
+                                    .get(&comment.id)
+                                    .is_some_and(|list| list.iter().any(|reply| reply.id == editing.comment_id))
+                        });
                     let card = self.card_props(
                         comment,
                         &user_map,
@@ -1815,6 +1847,11 @@ impl Render for IssueTimeline {
                         cx,
                     )
                     .into_any_element();
+                    // So does a comment a link asked for.
+                    let focus_pending = self
+                        .issue_id
+                        .as_deref()
+                        .is_some_and(|issue_id| comments::comment_focus_pending(issue_id, &focus_ids, cx));
                     let row = match self.issue_id.as_deref() {
                         Some(issue_id) => comments::with_comment_focus(
                             row,
@@ -1825,7 +1862,7 @@ impl Render for IssueTimeline {
                         ),
                         None => row,
                     };
-                    body = body.child(row);
+                    rows.push(lazy(row, TIMELINE_ROW_MIN_H, open_form || focus_pending));
                 }
             }
         }
@@ -1869,7 +1906,15 @@ impl Render for IssueTimeline {
                     // otherwise free to be squeezed to nothing (the same guard
                     // the rail divider uses).
                     .child(div().w_full().h_px().flex_shrink_0().bg(cx.theme().border))
-                    .child(body.child(composer)),
+                    .child(v_flex().py_3().children({
+                        rows.push(lazy(composer.into_any_element(), 0., false));
+                        // The viewport's bottom below the column's top, at least.
+                        let reach = match self.scroll.as_ref().map(|scroll| (scroll.bounds().size.height, scroll.offset().y)) {
+                            Some((height, offset)) if height > px(1.) => height - offset,
+                            _ => window.viewport_size().height,
+                        };
+                        lazy_rows(&mut self.lazy_rows, self.issue_id.as_deref(), rows, reach, window)
+                    })),
             ))
     }
 }
@@ -2386,7 +2431,11 @@ mod tests {
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
                 view.set_reporter(
-                    Some(ReporterContact { name: "Ada".to_string(), has_email: true }),
+                    Some(ReporterContact {
+                        name: "Ada".to_string(),
+                        has_email: true,
+                        avatar_key: Some("Ada".to_string()),
+                    }),
                     window,
                     cx,
                 );

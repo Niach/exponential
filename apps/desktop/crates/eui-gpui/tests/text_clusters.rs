@@ -107,42 +107,86 @@ fn covered_text_keeps_its_runs() {
     assert_eq!(runs, vec![run]);
 }
 
-/// #EDE-65 (the IDE's EXP-600): an emoji draws in the COLOUR emoji face on
-/// Linux, a single-codepoint pictograph and an FE0F sequence alike, after
-/// the painter's fallback chain has loaded: gpui's cosmic text system drops
-/// any face it loads by family without an `m` glyph, so naming the colour
-/// face in the chain removed it and every emoji drew as a box. Needs the
-/// system's Noto Color Emoji (skipped without it).
-#[test]
-fn emoji_shape_in_the_colour_face() {
-    let has_emoji = std::process::Command::new("fc-match")
+fn has_colour_emoji() -> bool {
+    let found = std::process::Command::new("fc-match")
         .args(["-f", "%{family}", "Noto Color Emoji"])
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .is_some_and(|f| f.split(',').any(|f| f.trim() == "Noto Color Emoji"));
-    if !has_emoji {
+    // CI installs the font and sets this: a skip there would guard nothing.
+    let required = std::env::var("EUI_REQUIRE_COLOUR_EMOJI").is_ok_and(|v| v == "1");
+    assert!(found || !required, "EUI_REQUIRE_COLOUR_EMOJI=1 but fc-match finds no Noto Color Emoji");
+    if !found {
         eprintln!("no Noto Color Emoji on this machine: skipped");
+    }
+    found
+}
+
+fn sans(family: &str, fallbacks: Option<gpui::FontFallbacks>) -> Font {
+    Font { family: family.to_string().into(), features: Default::default(), fallbacks, weight: FontWeight(400.0), style: FontStyle::Normal }
+}
+
+/// Whether the glyph at byte `at` of `text`, shaped the painter's way in
+/// `font`, comes from gpui's colour emoji face (`is_emoji`, painted as a
+/// colour bitmap; a monochrome face or the box is not).
+fn colour_at(ts: &Arc<TextSystem>, font: &Font, text: &str, at: usize) -> bool {
+    let window_ts = WindowTextSystem::new(ts.clone());
+    let run = TextRun { len: text.len(), font: font.clone(), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+    let runs = cluster_runs(ts, text, &[run], &default_chain());
+    let line = window_ts.shape_line(SharedString::from(text.to_string()), px(32.0), &runs, None);
+    let glyph = line.runs.iter().flat_map(|r| r.glyphs.iter()).find(|g| g.index == at);
+    assert!(glyph.is_some(), "{text}: a glyph at {at}: {:?}", line.runs.iter().map(|r| r.glyphs.iter().map(|g| g.index).collect::<Vec<_>>()).collect::<Vec<_>>());
+    glyph.is_some_and(|g| g.is_emoji)
+}
+
+/// #EDE-65 (the IDE's EXP-600): an emoji draws in the COLOUR emoji face on
+/// Linux after the painter's fallback chain has loaded: a pictograph a
+/// monochrome face also covers (Noto Sans Symbols2's 👍), an FE0F sequence
+/// of a text-default symbol DejaVu Sans has (❤️, ✔️) and a plain pictograph
+/// (🎉). vendor/gpui-pre-wgpu keeps the colour face (upstream deleted any face
+/// without an `m` glyph once named) and shapes emoji-presentation clusters in
+/// it first. Needs the system's Noto Color Emoji (skipped without it).
+#[test]
+fn emoji_shape_in_the_colour_face() {
+    if !has_colour_emoji() {
         return;
     }
     let platform = Arc::new(gpui_wgpu::CosmicTextSystem::new("Inter"));
     let ts = Arc::new(TextSystem::new(platform));
-    let window_ts = WindowTextSystem::new(ts.clone());
     // The painter's chain loads first, the way every painted run asks for it.
     for family in default_chain().fallback_list() {
-        let _ = ts.resolve_font(&Font { family: family.clone().into(), features: Default::default(), fallbacks: None, weight: FontWeight(400.0), style: FontStyle::Normal });
+        let _ = ts.resolve_font(&sans(family, None));
     }
-    let font = Font { family: "DejaVu Sans".into(), features: Default::default(), fallbacks: Some(default_chain()), weight: FontWeight(400.0), style: FontStyle::Normal };
-    // A single pictograph and an FE0F sequence of one. (A text-default
-    // symbol a text face also has, `✔️`, still takes that face's glyph:
-    // reaching the colour face by name is what gpui refuses.)
-    for (text, emoji_at) in [("Shipped \u{1F389}", 8)] {
-        let run = TextRun { len: text.len(), font: font.clone(), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
-        let runs = cluster_runs(&ts, text, &[run], &default_chain());
-        let line = window_ts.shape_line(SharedString::from(text), px(32.0), &runs, None);
-        // gpui marks a glyph of its colour emoji face (`is_emoji`, painted as
-        // a colour bitmap); a monochrome face or the box is not.
-        let glyph = line.runs.iter().flat_map(|r| r.glyphs.iter()).find(|g| g.index == emoji_at);
-        assert!(glyph.is_some_and(|g| g.is_emoji), "{text}: the emoji's glyph comes from the colour face: {:?}", line.runs.iter().map(|r| r.glyphs.iter().map(|g| (g.index, g.is_emoji)).collect::<Vec<_>>()).collect::<Vec<_>>());
+    for primary in ["DejaVu Sans", "Inter"] {
+        let font = sans(primary, Some(default_chain()));
+        for (text, at) in [("Shipped \u{1F389}", 8), ("Nice \u{1F44D}", 5), ("Love \u{2764}\u{FE0F}", 5), ("Done \u{2714}\u{FE0F}", 5), ("\u{1F44D}\u{1F3FD} ok", 0)] {
+            assert!(colour_at(&ts, &font, text, at), "{primary}: {text}: the emoji's glyph comes from the colour face");
+        }
+        // Text presentation stays in a text face: no FE0F, or FE0E.
+        for (text, at) in [("Done \u{2714}", 5), ("Love \u{2764}\u{FE0E}", 5)] {
+            assert!(!colour_at(&ts, &font, text, at), "{primary}: {text}: a text-presentation symbol keeps its text face");
+        }
+    }
+}
+
+/// The IDE's EXP-600 path: the picker and autocomplete name the colour face
+/// as the run's family (`emoji::EMOJI_FONT_FAMILY`). Upstream gpui used to
+/// delete it on that load (no `m`), so the picker drew boxes on Linux. Since
+/// zed #65269 the face stays in the database but a family load without an
+/// `m` falls back (it resolves to the default family), so the colour comes
+/// from the vendored shaping preference (vendor/gpui-pre-wgpu): what the
+/// picker needs is colour emoji, whichever family the run resolves to.
+#[test]
+fn the_colour_face_named_still_draws_colour() {
+    if !has_colour_emoji() {
+        return;
+    }
+    let platform = Arc::new(gpui_wgpu::CosmicTextSystem::new("Inter"));
+    let ts = Arc::new(TextSystem::new(platform));
+    let font = sans("Noto Color Emoji", None);
+    let _ = ts.resolve_font(&font);
+    for text in ["\u{1F600}", "\u{2764}\u{FE0F}", "\u{1F44D}"] {
+        assert!(colour_at(&ts, &font, text, 0), "{text}: drawn in the colour face");
     }
 }

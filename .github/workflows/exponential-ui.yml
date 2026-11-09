@@ -102,7 +102,8 @@ jobs:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
         run: bun run --filter @exponential_app/eui-react test:conformance
       - name: Size gate (npm entries, VAPP-106)
-        if: ${{ !inputs.conformance_only }}
+        # Also on the PR gate: a catalog PR carries its own measured delta,
+        # so the release suite never meets growth nobody budgeted.
         run: bun packages/exponential-ui/release/size.ts npm --check
       - name: Guides (React, agent, define, theme) from a fresh project
         if: ${{ !inputs.conformance_only }}
@@ -111,8 +112,11 @@ jobs:
           bun packages/exponential-ui/guides/check.ts agent
           bun packages/exponential-ui/guides/check.ts define
           bun packages/exponential-ui/guides/check.ts theme
-      - name: Bench scenarios are generated and the ratchet's tests pass
-        if: ${{ !inputs.conformance_only }}
+      - name: Bench scenarios are generated, the derived count budgets hold, the ratchet's tests pass
+        # Also on the PR gate (VAPP-289, like the size gate): every derived
+        # count budget = counts.json (the core's canonical counts, gated by the
+        # rust leg's cargo test -p eui-core: tests/bench_counts.rs) + its
+        # renderer's offset, so a catalog PR carries its own counts.
         run: bun run --filter @exponential_app/eui-bench test
       - name: Bench (React, headless Chromium)
         if: ${{ !inputs.conformance_only }}
@@ -273,7 +277,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config \
-            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
+            fontconfig fonts-noto-color-emoji
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
@@ -281,6 +286,8 @@ jobs:
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Core + facade tests (core conformance)
+        # Includes tests/bench_counts.rs (VAPP-289): the bench's canonical
+        # counts from the committed scenarios = packages/exponential-ui-bench/counts.json.
         working-directory: apps/desktop
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui.json
@@ -304,6 +311,9 @@ jobs:
         working-directory: apps/desktop
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
+          # #EDE-65: text_clusters' colour-emoji tests guard vendor/gpui-pre-wgpu;
+          # here they fail instead of skipping without Noto Color Emoji.
+          EUI_REQUIRE_COLOUR_EMOJI: "1"
         run: cargo test --locked -p eui-gpui
       - uses: ./.github/actions/setup-bun
       - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)

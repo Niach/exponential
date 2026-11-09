@@ -31,6 +31,10 @@ export type Budgets = {
   rendererTimings?: Record<string, `gate` | `warn`>
   /** A count metric's tolerance by metric id (`allocations`: 0.01 = ±1 %): within it, neither worse nor better. */
   countTolerance?: Record<string, number>
+  /** Why `derivedCounts` exists (a note, never read). */
+  $derivedCounts?: string
+  /** VAPP-289: `<scenario>.<metric>` → canonical count (counts.json) → renderer → offset (src/counts.ts). */
+  derivedCounts?: Record<string, Record<string, Record<string, number>>>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 

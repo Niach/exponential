@@ -9970,6 +9970,42 @@
       }
     ]
   },
+  "Composer\/menuKeys=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/menuKeys=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
   "DatePicker\/example" : {
     "height" : 60,
     "nodes" : [
@@ -12589,6 +12625,21 @@
           0
         ],
         "id" : "drawer"
+      }
+    ]
+  },
+  "Embed\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Embed",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "embed"
       }
     ]
   },

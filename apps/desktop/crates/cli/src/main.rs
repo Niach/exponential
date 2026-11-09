@@ -127,7 +127,9 @@ Options for run:
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
   token; non-interactive login), EXP_INSTALL_TOKEN (one-time expi_… token from
-  the web's Add device dialog), EXP_LOG=debug, EXP_DIAGNOSTICS=0
+  the web's Add device dialog), EXP_ACCOUNT (email or id when several are signed
+  in), EXP_DATA_DIR (data dir for accounts, tokens, settings and the daemon;
+  default shared with the desktop app), EXP_LOG=debug, EXP_DIAGNOSTICS=0
 ";
 
 /// `exponential diagnostics [on|off]`: the desktop's "Send diagnostics"

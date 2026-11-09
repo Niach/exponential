@@ -40,12 +40,11 @@ const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
 /// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
 ///
-/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system drops
-/// a face it is asked to load by family when the face has no `m` glyph
-/// (`load_family`), which removes Noto Color Emoji from its font database,
-/// and with it the colour face its own per-character emoji fallback reaches
-/// for: every emoji then drew as a box or a monochrome outline. Unnamed, the
-/// platform's emoji fallback finds it.
+/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system
+/// (vendor/gpui-pre-wgpu) shapes every cluster with emoji presentation in the
+/// colour face itself, ahead of any face in this chain; upstream it dropped a
+/// face loaded by family without an `m` glyph, so naming Noto Color Emoji
+/// here once removed it from the font database.
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub(crate) const SANS_FALLBACKS: &[&str] = &[
     ".SystemUIFont",
@@ -249,6 +248,36 @@ impl Fonts {
         }
         w.insert(key, lines);
     }
+}
+
+/// #LOGS-6: the fonts a surface with `default_family` paints with (the
+/// sans face, the first mono face the system loads, each with its glyph
+/// fallback chain, in every weight and style), resolved through
+/// `text_system`. Resolving a face the first time loads its family and
+/// builds its fallback cascade (milliseconds each); a host calls this on a
+/// background thread so a surface's first frame finds them loaded.
+pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font> {
+    let loads = |family: &SharedString| {
+        family.starts_with('.') || {
+            let id = text_system.resolve_font(&plain_font(family.clone(), 400, false, None));
+            text_system.get_font_for_id(id).is_some_and(|f| f.family == *family)
+        }
+    };
+    let mono = MONO_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"));
+    let sans = SharedString::from(default_family.to_string());
+    let sans_fallbacks = FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect());
+    let mono_fallbacks = FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect());
+    let mut fonts = Vec::new();
+    for (family, fallbacks) in [(sans, sans_fallbacks), (mono, mono_fallbacks)] {
+        for weight in [400, 500, 600, 700] {
+            for italic in [false, true] {
+                let font = plain_font(family.clone(), weight, italic, Some(fallbacks.clone()));
+                text_system.resolve_font(&font);
+                fonts.push(font);
+            }
+        }
+    }
+    fonts
 }
 
 /// A font of `family` at `weight` (italic when asked).
@@ -683,6 +712,8 @@ pub struct GpuiMeasure<'a> {
     shaped: u64,
     /// Extension leaves measured before their kind was known.
     pub(crate) unknown_extensions: Vec<u32>,
+    /// #EDE-65: the host view's Embed children and how to make them.
+    embeds: Option<(&'a crate::view::embed::Embeds, &'a crate::view::embed::EmbedSpawn)>,
 }
 
 /// Content size and the first baseline from the CONTENT top.
@@ -701,7 +732,7 @@ impl<'a> GpuiMeasure<'a> {
         live: &'a HashMap<String, String>,
     ) -> Self {
         let identity = fonts.identity();
-        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
+        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new(), embeds: None }
     }
 
     /// Text widths round up to whole pixels like gpui's text element
@@ -710,6 +741,12 @@ impl<'a> GpuiMeasure<'a> {
     pub(crate) fn ceil_text(mut self, on: bool) -> Self {
         self.ceil_text = on;
         self.identity = if on { self.identity ^ 0x9e37_79b9_7f4a_7c15 } else { self.identity };
+        self
+    }
+
+    /// #EDE-65: measure Embed leaves as their nested surfaces (else 0 × 0).
+    pub(crate) fn embeds(mut self, embeds: &'a crate::view::embed::Embeds, spawn: &'a crate::view::embed::EmbedSpawn) -> Self {
+        self.embeds = Some((embeds, spawn));
         self
     }
 
@@ -1331,6 +1368,15 @@ impl<'a> GpuiMeasure<'a> {
     }
 
     fn answer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32, Option<f32>) {
+        // #EDE-65: an Embed is as wide as its slot and as tall as its
+        // nested surface at that width.
+        if leaf.component == "Embed" && leaf.part.is_none() {
+            self.calls += 1;
+            let Some((embeds, spawn)) = self.embeds else { return (0.0, 0.0, None) };
+            let surface = leaf.props.get("surface").cloned().unwrap_or(Value::Null);
+            let (w, h) = spawn.measure(embeds, leaf.id, &surface, wrap, self.window, self.cx);
+            return (w, h, None);
+        }
         if leaf.component == "Extension" {
             self.calls += 1;
             let (w, h) = self.extension(leaf, wrap).unwrap_or((0.0, 0.0));

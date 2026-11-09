@@ -213,6 +213,9 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
     val owner = node.ownerComponent
     return when {
         node.isTextField -> fieldErrorSemantics(node, model)
+        // #EDE-65 (a11y.json `Embed`): no role of its own; the nested
+        // surface's nodes join the host's order in place.
+        c == "Embed" -> this
         c == "Image" || c == "Avatar" || c == "Video" || c == "Chart" -> {
             val alt = label ?: chartSummary(node, model)
             if (c == "Image" && alt.isNullOrEmpty()) hiddenFromAccessibility() else clearAndSetSemantics {

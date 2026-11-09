@@ -3690,10 +3690,10 @@
                 }
               },
               {
-                "id": "c4_muted",
+                "id": "c4_by_name",
                 "component": "Avatar",
                 "props": {
-                  "name": "Jane Doe",
+                  "name": "Jane Reporter",
                   "size": "default"
                 }
               }
@@ -3712,16 +3712,15 @@
                 "id": "specimen_avatar_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "name · an email",
+                  "text": "name · empty",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c5_email",
+                "id": "c5_muted",
                 "component": "Avatar",
                 "props": {
-                  "name": "alex.smith@x.dev",
-                  "seed": "demo-jonas",
+                  "name": "",
                   "size": "default"
                 }
               }
@@ -3740,12 +3739,40 @@
                 "id": "specimen_avatar_case_6_label",
                 "component": "Text",
                 "props": {
+                  "text": "name · an email",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_email",
+                "component": "Avatar",
+                "props": {
+                  "name": "alex.smith@x.dev",
+                  "seed": "demo-jonas",
+                  "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_avatar_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_avatar_case_7_label",
+                "component": "Text",
+                "props": {
                   "text": "src · a picture",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c6_picture",
+                "id": "c7_picture",
                 "component": "Avatar",
                 "props": {
                   "name": "Jane Doe",
@@ -14953,6 +14980,278 @@
                     }
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-embed",
+      "component": "Embed",
+      "title": "Embed",
+      "node": {
+        "id": "specimen_embed",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_embed_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_embed_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_embed",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "card",
+                      "component": "Button",
+                      "props": {
+                        "label": "Approve"
+                      },
+                      "on": {
+                        "press": {
+                          "event": {
+                            "name": "reply",
+                            "context": {
+                              "text": "Approve"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "data": {}
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_embed_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_embed_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "result card · own data",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_result",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "stack",
+                      "component": "Stack",
+                      "props": {
+                        "gap": "sm"
+                      },
+                      "children": [
+                        {
+                          "id": "row",
+                          "component": "Row",
+                          "props": {
+                            "title": "Tests",
+                            "subtitle": {
+                              "@path": "/suite"
+                            }
+                          },
+                          "slots": {
+                            "trailing": {
+                              "id": "badge",
+                              "component": "Badge",
+                              "props": {
+                                "text": "Green",
+                                "variant": "secondary"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "id": "stats",
+                          "component": "Grid",
+                          "props": {
+                            "columns": 2,
+                            "gap": "sm"
+                          },
+                          "children": [
+                            {
+                              "id": "passed",
+                              "component": "StatTile",
+                              "props": {
+                                "label": "Passed",
+                                "value": {
+                                  "@path": "/passed"
+                                }
+                              }
+                            },
+                            {
+                              "id": "took",
+                              "component": "StatTile",
+                              "props": {
+                                "label": "Took",
+                                "value": "4m 12s"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "data": {
+                      "suite": "web unit ×4 shards",
+                      "passed": "2,730"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_embed_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_embed_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "question card · reply",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_question",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "stack",
+                      "component": "Stack",
+                      "props": {
+                        "gap": "sm"
+                      },
+                      "children": [
+                        {
+                          "id": "q",
+                          "component": "Text",
+                          "props": {
+                            "text": "Ship the Embed PR now?"
+                          }
+                        },
+                        {
+                          "id": "actions",
+                          "component": "Toolbar",
+                          "children": [
+                            {
+                              "id": "no",
+                              "component": "Button",
+                              "props": {
+                                "label": "Not yet",
+                                "variant": "outline"
+                              },
+                              "on": {
+                                "press": {
+                                  "event": {
+                                    "name": "reply",
+                                    "context": {
+                                      "text": "Not yet"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "id": "yes",
+                              "component": "Button",
+                              "props": {
+                                "label": "Ship it"
+                              },
+                              "on": {
+                                "press": {
+                                  "event": {
+                                    "name": "reply",
+                                    "context": {
+                                      "text": "Ship it"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "on": {
+                  "action": {
+                    "event": {
+                      "name": "card"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_embed_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_embed_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "bad surface · error box",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_broken",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "x"
+                    }
+                  }
+                }
               }
             ]
           }

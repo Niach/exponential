@@ -60,7 +60,7 @@ import {
   mcpCalls,
   mcpServers,
   messages,
-  oauthApplications,
+  oauthClients,
   conversations,
   notifications,
   boards,
@@ -1915,13 +1915,13 @@ async function seedMcpActivity(ctx: { teamId: string; demoId: string; mira: stri
     { id: `demo-mcp-claude-code`, name: `Claude Code` },
     { id: `demo-mcp-cursor`, name: `Cursor` },
   ]
-  await db.insert(oauthApplications).values(
+  await db.insert(oauthClients).values(
     clients.map(({ id, name }) => ({
       id,
       name,
       clientId: id,
-      redirectUrls: `http://localhost/callback`,
-      type: `public`,
+      redirectUris: [`http://localhost/callback`],
+      tokenEndpointAuthMethod: `none`,
       userId: ctx.demoId,
       createdAt: daysAgo(10),
       updatedAt: daysAgo(10),
@@ -3186,6 +3186,18 @@ async function main() {
         `That fixed it — thank you for the quick turnaround!`
       ),
       createdAt: hoursAgo(1),
+    },
+    // #EXP-1754: a team note whose author was deleted (author_id SET NULL,
+    // not a reporter): "Former member" with NO key at all, the one avatar
+    // the thread paints grey (fixtures/avatar.json `keys`), beside the
+    // reporter coloured from their name.
+    {
+      issueId: widgetIssue.id,
+      teamId: ws.id,
+      boardId: board.id,
+      authorId: null,
+      body: `Same spinner on an iPad Air here; 2.4.1 fixed it too.`,
+      createdAt: hoursAgo(0.5),
     },
   ])
 

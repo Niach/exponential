@@ -24,6 +24,18 @@ public enum AvatarFallback {
         return Int(hash % UInt32(palette.count))
     }
 
+    /// What the hue is keyed on (fixtures/avatar.json `keys`, #EXP-1754): the
+    /// id, else the trimmed name, else the trimmed email; blank counts as
+    /// absent. `nil` = no key: the muted fallback.
+    public static func hueKey(id: String?, name: String? = nil, email: String? = nil) -> String? {
+        if let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return id }
+        for label in [name, email] {
+            let trimmed = (label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
     /// The cross-client initials: an email reduces to its local part, the
     /// rest splits on space . _ - +; two or more parts give their first
     /// letters, one part its first two characters; uppercased; nothing = `?`.

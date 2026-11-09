@@ -459,3 +459,112 @@ fn embedded_row_width_image_does_not_collapse_neighbors_to_min_content() {
         );
     }
 }
+
+/// #LOGS-6: an issue description in its host's scroll container — a 600px
+/// viewport over a long document, with the host's handle handed over.
+struct WindowedHostHarness {
+    editor: Entity<Editor>,
+    handle: gpui::ScrollHandle,
+    /// The column's children bounds at the last prepaint: the editor, then
+    /// the trailer the host places after it.
+    children: std::rc::Rc<std::cell::RefCell<Vec<gpui::Bounds<gpui::Pixels>>>>,
+}
+
+impl Render for WindowedHostHarness {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let children = self.children.clone();
+        div().flex().flex_col().w(px(400.)).h_full().child(
+            div()
+                .id("host-scroll")
+                .flex_1()
+                .overflow_y_scroll()
+                .track_scroll(&self.handle)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .on_children_prepainted(move |bounds, _, _| *children.borrow_mut() = bounds)
+                        .child(self.editor.clone())
+                        .child(div().h(px(40.)).w_full()),
+                ),
+        )
+    }
+}
+
+fn long_description() -> String {
+    (0..120)
+        .map(|ix| match ix % 4 {
+            0 => format!("paragraph {ix}: the quick brown fox jumps over the lazy dog and keeps running until it wraps.\n\n"),
+            1 => format!("- list item {ix}\n- and another one {ix}\n\n"),
+            2 => format!("## Heading {ix}\n\n"),
+            _ => format!("short {ix}\n\n"),
+        })
+        .collect()
+}
+
+/// Draws `frames` frames of a windowed (`handle_over`) or fully mounted
+/// editor; returns (blocks painted on frame 1, the trailer's top relative
+/// to the editor's top, after `frames` frames).
+fn draw_windowed(handle_over: bool, frames: usize, scroll_to: Option<f32>) -> (usize, usize, f32) {
+    let mut cx = TestAppContext::single();
+    let (harness, cx) = cx.add_window_view(move |_window, cx| {
+        let handle = gpui::ScrollHandle::new();
+        let editor = cx.new(|cx| {
+            let mut editor =
+                Editor::with_environment(long_description(), MarkdownEditorEnvironment::default(), cx);
+            editor.embedded = true;
+            if handle_over {
+                editor.set_external_scroll_handle(handle.clone());
+            }
+            editor
+        });
+        WindowedHostHarness { editor, handle, children: Default::default() }
+    });
+    cx.simulate_resize(size(px(400.), px(600.)));
+    let painted = |cx: &mut gpui::VisualTestContext| {
+        harness.read_with(cx, |harness, cx| {
+            let editor = harness.editor.read(cx);
+            editor
+                .document
+                .visible_blocks()
+                .iter()
+                .filter(|visible| visible.entity.read(cx).last_bounds.is_some())
+                .count()
+        })
+    };
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.run_until_parked();
+    let first = painted(cx);
+    let total = harness.read_with(cx, |harness, cx| harness.editor.read(cx).document.visible_blocks().len());
+    for frame in 1..frames {
+        if frame == frames / 2 {
+            if let Some(y) = scroll_to {
+                harness.read_with(cx, |harness, _| harness.handle.set_offset(gpui::point(px(0.), px(-y))));
+            }
+        }
+        harness.update(cx, |harness, cx| harness.editor.update(cx, |_, cx| cx.notify()));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+    let children = harness.read_with(cx, |harness, _| harness.children.borrow().clone());
+    (first, total, f32::from(children[1].top() - children[0].top()))
+}
+
+#[test]
+fn a_windowed_description_mounts_only_the_viewport_and_converges_to_the_full_layout() {
+    let (full_first, total, full_trailer) = draw_windowed(false, 4, None);
+    assert_eq!(full_first, total, "without the host handle every row mounts");
+    let (first, _, trailer) = draw_windowed(true, 80, None);
+    assert!(first < total / 2, "the first frame mounted {first} of {total} blocks");
+    // Every stride measured: the host places what follows exactly where the
+    // fully mounted editor puts it.
+    assert!((trailer - full_trailer).abs() < 0.5, "trailer at {trailer}, fully mounted {full_trailer}");
+}
+
+#[test]
+fn a_windowed_description_keeps_its_layout_after_a_scroll() {
+    let (_, _, full_trailer) = draw_windowed(false, 4, None);
+    let (_, _, trailer) = draw_windowed(true, 80, Some(1500.));
+    assert!((trailer - full_trailer).abs() < 0.5, "trailer at {trailer}, fully mounted {full_trailer}");
+}

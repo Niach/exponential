@@ -3,6 +3,7 @@ package at.exponential.ui.primitives
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
@@ -32,6 +33,19 @@ class PrimitivesTest {
     fun avatarHuesReplayTheFixture() {
         for ((seed, index) in avatarFixture()["hues"].pairs()) {
             assertEquals("hue of '$seed'", (index as Number).toInt(), AvatarFallback.hueIndex(seed as String))
+        }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun avatarKeysReplayTheFixture() {
+        val keys = avatarFixture()["keys"] as List<Map<String, Any?>>
+        assertTrue(keys.isNotEmpty())
+        for (c in keys) {
+            val label = c["case"] as String
+            val key = AvatarFallback.hueKey(c["id"] as String?, c["name"] as String?, c["email"] as String?)
+            assertEquals(label, c["key"], key)
+            assertEquals(label, (c["hue"] as Number?)?.toInt(), key?.let(AvatarFallback::hueIndex))
         }
     }
 

@@ -23,7 +23,7 @@ describe(`sanitizeRedirectPath`, () => {
     `/t/acme/boards/exp/issues/EXP-42`,
     `/t/acme/inbox?tab=my-issues&status=backlog`,
     // MCP OAuth resume-shaped relative URL
-    `/api/auth/mcp/authorize?client_id=x&response_type=code&state=a`,
+    `/api/auth/oauth2/authorize?client_id=x&response_type=code&state=a`,
     // consent.tsx beforeLoad producer shape (ParsedLocation.href is relative)
     `/auth/consent?client_id=x&scope=a%20b`,
     // colon only inside the query string is fine — no scheme

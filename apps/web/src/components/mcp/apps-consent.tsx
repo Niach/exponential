@@ -45,11 +45,13 @@ const ACCESS_OPTIONS = [
   { value: `full` as const, label: `Full` },
 ]
 
-const storageKey = (consentCode: string) => `exp:apps-consent:${consentCode}`
+// One saved choice per consent request: keyed by its signature.
+const storageKey = (oauthQuery: string) =>
+  `exp:apps-consent:${new URLSearchParams(oauthQuery).get(`sig`) ?? oauthQuery}`
 
-function savedChoice(consentCode: string): Choice | null {
+function savedChoice(oauthQuery: string): Choice | null {
   try {
-    const raw = sessionStorage.getItem(storageKey(consentCode))
+    const raw = sessionStorage.getItem(storageKey(oauthQuery))
     return raw ? (JSON.parse(raw) as Choice) : null
   } catch {
     return null
@@ -71,11 +73,11 @@ function appCaption(app: ConsentApp): string {
 export function AppsConsent({
   clientId,
   clientName,
-  consentCode,
+  oauthQuery,
 }: {
   clientId: string
   clientName: string | null
-  consentCode: string
+  oauthQuery: string
 }) {
   const [tree, setTree] = useState<ConsentTeam[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -87,7 +89,7 @@ export function AppsConsent({
     setLoadAttempt((n) => n + 1)
   }
   const [choice, setChoice] = useState<Choice>(
-    () => savedChoice(consentCode) ?? { teamId: null, allApps: true, appIds: [], access: `full` }
+    () => savedChoice(oauthQuery) ?? { teamId: null, allApps: true, appIds: [], access: `full` }
   )
   const [pending, setPending] = useState<`allow` | `deny` | string | null>(null)
 
@@ -126,7 +128,7 @@ export function AppsConsent({
       return
     }
     setPending(serverId)
-    sessionStorage.setItem(storageKey(consentCode), JSON.stringify(choice))
+    sessionStorage.setItem(storageKey(oauthQuery), JSON.stringify(choice))
     try {
       const here = `${window.location.pathname}${window.location.search}`
       const { authorizeUrl } = await trpc.mcpServers.connect.mutate({ serverId, returnTo: here }, SKIP_ERROR_TOAST)
@@ -143,7 +145,7 @@ export function AppsConsent({
       const { redirectURI } = await trpc.mcpGrants.grantAppsAndConsent.mutate(
         {
           clientId,
-          consentCode,
+          oauthQuery,
           accept,
           teamId: choice.teamId ?? undefined,
           allApps: choice.allApps,
@@ -152,7 +154,7 @@ export function AppsConsent({
         },
         SKIP_ERROR_TOAST
       )
-      sessionStorage.removeItem(storageKey(consentCode))
+      sessionStorage.removeItem(storageKey(oauthQuery))
       window.location.href = redirectURI
     } catch (e) {
       failedAction(accept ? `allow` : `deny`, `access`, e)

@@ -15,6 +15,7 @@ import { CodeBlockNative } from "./code"
 import { DatePickerNative, DateRangePickerNative, TimePickerNative } from "./dates"
 import { MotionNative } from "./motion"
 import { CanvasNative } from "./canvas"
+import { EmbedNative } from "./embed"
 import { ResizableNative } from "./resizable"
 import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative, VoiceWaveNative } from "./feedback"
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
@@ -60,6 +61,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   VoiceWave: VoiceWaveNative,
   Motion: MotionNative,
   Canvas: CanvasNative,
+  Embed: EmbedNative,
   Table: TableNative,
   Chart: ChartNative,
   Button: ButtonNative,

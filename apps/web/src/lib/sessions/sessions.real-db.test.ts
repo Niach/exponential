@@ -965,6 +965,7 @@ describe.skipIf(!ready.ok)(`chat issues, the Guide and the trigger mirrors`, () 
       .select({ card: messages.card })
       .from(messages)
       .where(and(inSession(root.sessionId), eq(messages.authorKind, `system`)))
+      .orderBy(messages.createdAt, messages.id)
     expect(events.map((e) => e.card as { event?: string; sessionId?: string | null }).filter((c) => c.event)).toEqual([
       { kind: `event`, event: `issue_filed`, issueId: a, sessionId: child.sessionId },
       { kind: `event`, event: `issue_unlinked`, issueId: a, sessionId: null },

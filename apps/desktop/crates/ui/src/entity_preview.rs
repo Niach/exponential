@@ -439,10 +439,23 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
         .as_deref()
         .and_then(|author_id| collections.users.read(cx).get(author_id).cloned());
     let author_label = crate::comments::author_label(author.as_ref());
-    let author_id = comment
-        .author_id
-        .clone()
-        .unwrap_or_else(|| "anonymous".to_string());
+    // A reporter's comment has no author row: the byline reads like every
+    // platform (reporter-reply.json `anonymousName`); the avatar stays as is.
+    let byline_label = if comment.author_id.is_none() {
+        domain::reporter_reply::ANONYMOUS_NAME.to_string()
+    } else {
+        author_label.clone()
+    };
+    // #EXP-1754 (fixtures/avatar.json `keys`): the author's id, else their
+    // name, else email; a reporter's comment (no author row here) = no key,
+    // the muted disc (web `entity-preview-card.tsx`).
+    let author_id = crate::user_avatar::avatar_hue_key(
+        comment.author_id.as_deref(),
+        author.as_ref().and_then(|user| user.name.as_deref()),
+        author.as_ref().and_then(|user| user.email.as_deref()),
+    )
+    .unwrap_or_default()
+    .to_string();
     let image = crate::user_avatar::cached_avatar_image(
         cx,
         author.as_ref().and_then(|user| user.image.as_deref()),
@@ -470,7 +483,7 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
                 .truncate()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .child(SharedString::from(author_label)),
+                .child(SharedString::from(byline_label)),
         );
     if !when.is_empty() {
         byline = byline.child(div().text_xs().text_color(muted).child(SharedString::from(when)));

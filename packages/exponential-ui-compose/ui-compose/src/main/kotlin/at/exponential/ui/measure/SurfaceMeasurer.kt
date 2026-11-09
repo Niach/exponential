@@ -132,6 +132,8 @@ class SurfaceMeasurer(
     val fontScale: Float = 1f,
     /** The surface's viewport height an uncapped Markdown image stops at (`imageMaxHeight: null`); null = unknown. */
     val viewportHeight: Float? = null,
+    /** #EDE-65: an Embed's nested surface laid out at a content width (component id, resolved `surface`, wrap; null = max-content) → its size; null = 0×0. */
+    val embedSize: ((String, JsonValue?, Float?) -> Size)? = null,
     /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
     val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
@@ -243,6 +245,11 @@ class SurfaceMeasurer(
                 // EXP-1604 (contract §4): the composition's px size, shrinking to the width, aspect kept.
                 // Round 8 (layout.json `canvas`): a Canvas boxes like a Motion (intrinsic = `size`).
                 "Motion", "Canvas" -> at.exponential.ui.compose.motionBox(props, inner).let { plain(it.width, it.height) }
+                // #EDE-65: the nested surface at the width it gets (a card fills it), as tall as its content.
+                "Embed" -> if (p == null) {
+                    val s = embedSize?.invoke(leaf.id, props["surface"], inner) ?: Size.Zero
+                    plain(s.width, s.height)
+                } else plain(0f, 0f)
                 "AudioPlayer" -> {
                     // Round 2 §7: the title line + xs + a controls row of `$control.row`.
                     val track = if (props.str("title").isEmpty()) 0f else ts.lineHeight + spacing("xs")

@@ -11,6 +11,7 @@ import {
 import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
+import { hashOAuthToken } from "@/lib/auth/oauth-token-hash"
 
 // What an /api/mcp request may touch. Session-cookie and UNSCOPED personal
 // `expu_` api-key requests are the user's own credentials and get `full`
@@ -100,9 +101,9 @@ export async function resolveMcpAccessForGrant(
 }
 
 // Resolve an OAuth access token (already stripped of "Bearer ") to its user +
-// scope. Returns null for unknown or expired tokens. Unlike better-auth's
-// getMcpSession this DOES enforce access-token expiry — clients hold a
-// refresh token and recover from the resulting 401.
+// scope. Returns null for unknown, expired or revoked tokens: clients hold a
+// refresh token and recover from the resulting 401. The provider stores only
+// the token's hash (better-auth 1.7 oauth-provider, opaque tokens).
 export async function resolveMcpTokenAccess(
   bearerToken: string
 ): Promise<{ userId: string; clientId: string; access: McpAccess } | null> {
@@ -110,13 +111,13 @@ export async function resolveMcpTokenAccess(
     .select({
       userId: oauthAccessTokens.userId,
       clientId: oauthAccessTokens.clientId,
-      expiresAt: oauthAccessTokens.accessTokenExpiresAt,
     })
     .from(oauthAccessTokens)
     .where(
       and(
-        eq(oauthAccessTokens.accessToken, bearerToken),
-        gt(oauthAccessTokens.accessTokenExpiresAt, new Date())
+        eq(oauthAccessTokens.token, hashOAuthToken(bearerToken)),
+        gt(oauthAccessTokens.expiresAt, new Date()),
+        isNull(oauthAccessTokens.revoked)
       )
     )
     .limit(1)
