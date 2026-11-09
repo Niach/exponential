@@ -6,6 +6,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - `IconPicker` + `ColorPicker` (#EXP-1760): a pick (a cell, a swatch, the No icon row) closes the picker's Popover (`ClosePickerContext`), as the core does; `pickerPick` replays here.
+- Select option `trailing` + event `open` (#EXP-1629): the popup row reads `label trailing` (Radix's `ItemText` keeps the label alone), the trigger the label; `open` fires as the popup opens.
+- Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).
 - Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
 - Select (#EXP-1629, the IDE's multi picker): a `row` trigger's value and chevron sit in the `button` part, which lends its pointer hover to them; a `multiple` popup opens with the cursor on its first chosen option. Snapshot `Select/triggerVariant=row` re-recorded (the `button` span).

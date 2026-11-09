@@ -17,7 +17,8 @@
 // `align` / `popupWidth`, the value + chevron `button` part (its hover is
 // theirs too), the opening at the top with the cursor on the first enabled
 // option (a `multiple` one's on its first chosen), the list's bottom fade, item `hover` = the cursor,
-// `selected` = chosen.
+// `selected` = chosen; an option's `trailing` after its label in the popup
+// row only, `open` as the popup opens.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
@@ -35,7 +36,12 @@ export interface SelectOption {
   value: string
   icon?: string
   disabled?: boolean
+  /** #EXP-1629: reads on after the label in the popup row (`main · default`). */
+  trailing?: string
 }
+
+/** #EXP-1629: an option's `trailing` after its label, one space apart (the item's own style). */
+const trailingText = (o: SelectOption) => (str(o.trailing) ? ` ${str(o.trailing)}` : ``)
 
 const asList = (raw: unknown): string[] => (Array.isArray(raw) ? raw.map(String) : raw === undefined || raw === null || raw === `` ? [] : String(raw).split(`,`))
 
@@ -122,6 +128,13 @@ export function SelectNative(props: NativeProps): JSX.Element {
     f.touch()
     void props.emit(`change`, { value: out }, { value: out })
   }
+
+  // #EXP-1629: `open` as the popup opens (the IDE picker's lazy fetch).
+  createEffect(
+    on(open, (o) => {
+      if (o) void props.emit(`open`)
+    }, { defer: true })
+  )
 
   // `search {query}` debounced; a host source answers the same query.
   createEffect(
@@ -458,7 +471,14 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                   }}
                 >
                   {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  <span id={textId}>{str(o.label)}</span>
+                  {trailingText(o) ? (
+                    <span>
+                      <span id={textId}>{str(o.label)}</span>
+                      {trailingText(o)}
+                    </span>
+                  ) : (
+                    <span id={textId}>{str(o.label)}</span>
+                  )}
                   <Show when={selected()}>
                     <span aria-hidden="true" {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />
@@ -688,7 +708,7 @@ function ComboboxContent(props: {
                   onClick={() => props.pick(i())}
                 >
                   {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  <span>{str(o.label)}</span>
+                  <span>{str(o.label)}{trailingText(o)}</span>
                   {isSel() ? (
                     <span {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />

@@ -3832,7 +3832,8 @@
         "error"
       ],
       "props": [
-        "disabled"
+        "disabled",
+        "variant"
       ]
     },
     {

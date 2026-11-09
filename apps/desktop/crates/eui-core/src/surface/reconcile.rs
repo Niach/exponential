@@ -74,7 +74,7 @@ impl Surface {
         let checkbox = token("checkbox", 16.0);
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
-            let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
+            let template = |id: &str| -> Option<&UiNode> { templates.get(id).and_then(Option::as_ref) };
             let gap = |name: &str| -> f32 { gaps.get(name).copied().unwrap_or(0.0) };
             let failures = self.failures.clone();
             let on_failure = move |failure: &crate::data::Failure, id: &str| {

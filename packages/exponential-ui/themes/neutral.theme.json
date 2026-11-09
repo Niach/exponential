@@ -2703,6 +2703,31 @@
             "backgroundColor": "#00000000",
             "boxShadow": "$shadow.none"
           }
+        },
+        {
+          "when": {
+            "variant": [
+              "bare",
+              "code"
+            ]
+          },
+          "style": {
+            "height": 20,
+            "paddingHorizontal": 0,
+            "paddingVertical": 0,
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "code"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono"
+          }
         }
       ],
       "label": [
@@ -2769,7 +2794,6 @@
       "field": [
         {
           "style": {
-            "height": "$control.input",
             "paddingHorizontal": "$spacing.md",
             "borderRadius": "$radius.md",
             "borderWidth": "$border.hairline",
@@ -2780,8 +2804,16 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontFamily": "$type.family.sans",
             "boxShadow": "$shadow.sm",
-            "minHeight": "$control.textarea",
             "paddingVertical": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "variant": "field"
+          },
+          "style": {
+            "height": "$control.input",
+            "minHeight": "$control.textarea"
           }
         },
         {
@@ -2806,6 +2838,32 @@
           },
           "style": {
             "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "variant": [
+              "row",
+              "code"
+            ]
+          },
+          "style": {
+            "paddingHorizontal": "$spacing.lg",
+            "paddingVertical": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "code"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs"
           }
         }
       ],

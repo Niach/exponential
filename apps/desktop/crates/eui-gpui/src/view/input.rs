@@ -479,6 +479,17 @@ impl SurfaceView {
         let f = self.fields.get(&n.id)?;
         let (x, y, w, h) = lcx.inner();
         let [_, _, _, _] = lcx.style.insets();
+        // #EXP-1629: a `row`/`code` Textarea is the IDE's chromeless group
+        // field, whose recipe padding INCLUDES gpui-component's own editor
+        // inset (`Size::Medium`: `input_px` × `input_py`): the widget is
+        // placed that inset outside the content box, so its text lands on it.
+        let inset_variant = f.kind == FieldKind::Textarea && matches!(n.props.get("variant").and_then(Value::as_str), Some("row" | "code"));
+        let (x, y, w, h) = if inset_variant {
+            let (ex, ey) = (f32::from(gpui_component::Size::Medium.input_px()), f32::from(gpui_component::Size::Medium.input_py()));
+            (x - ex, y - ey, w + 2.0 * ex, h + 2.0 * ey)
+        } else {
+            (x, y, w, h)
+        };
         let disabled = matches!(n.props.get("disabled"), Some(Value::Bool(true))) || n.states.iter().any(|s| s == "disabled");
         let font = lcx.font.clone();
         let size = lcx.text_style.font_size;

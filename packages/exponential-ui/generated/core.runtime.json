@@ -375,7 +375,14 @@
     ],
     "inputVariant": [
       "field",
-      "row"
+      "row",
+      "bare",
+      "code"
+    ],
+    "textareaVariant": [
+      "field",
+      "row",
+      "code"
     ]
   },
   "defs": {
@@ -397,6 +404,9 @@
           "type": "boolean"
         },
         "description": {
+          "type": "string"
+        },
+        "trailing": {
           "type": "string"
         },
         "image": {
@@ -3712,6 +3722,11 @@
           "type": "string",
           "bindable": true
         },
+        "variant": {
+          "type": "enum",
+          "enum": "textareaVariant",
+          "default": "field"
+        },
         "disabled": {
           "type": "boolean",
           "default": false
@@ -4114,7 +4129,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ]
     },
     "SearchList": {

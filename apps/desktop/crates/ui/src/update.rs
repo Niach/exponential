@@ -1,7 +1,7 @@
 //! In-app update check + self-update pipeline (masterplan v5 §11.2, EXP-22).
 //!
-//! The app hits the GitHub Releases API at launch and then every
-//! [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when a
+//! The app reads the instance's advert (`/api/version` → `desktop.latest`,
+//! EXP-1761) at launch and then every [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when a
 //! published `desktop-v*` release is newer than the compiled version it
 //! flips a global that the [`crate::shell::Shell`] shell renders as a
 //! dismissible banner. The old launch-only, daily-debounced check meant a
@@ -35,7 +35,10 @@ use std::{
 use gpui::{App, AppContext as _, Entity, Global};
 use serde::Deserialize;
 
-/// GitHub's release list (EXP-1693: `releases/latest` is one release, which
+/// GitHub's release list: the FALLBACK only (EXP-1761: the unauthenticated API
+/// allows 60 calls/h per IP, shared by every app on the machine), for when the
+/// advert is unreachable or unset, or names a release without our asset
+/// (EXP-1693: `releases/latest` is one release, which
 /// may lack this platform's asset, and it can point at any tag family). 30
 /// releases hold about ten desktop ones across the repo's release trains, at a
 /// third of the 100-release payload. `EXP_UPDATE_API` overrides it at runtime so
@@ -48,8 +51,8 @@ const RELEASES_PAGE: &str = "https://github.com/Niach/exponential/releases/lates
 /// Only desktop releases (`desktop-v1.2.3`) drive the desktop banner — the repo
 /// also ships web `v*` and `android-v*` tags whose versions are unrelated.
 const DESKTOP_TAG_PREFIX: &str = "desktop-v";
-/// Re-check cadence while the app runs. One unauthenticated Releases-API call
-/// per interval (limit: 60/h/IP) — an IDE left open for days still learns
+/// Re-check cadence while the app runs. One advert read (plus three HEADs on
+/// plain download URLs when a release is newer) per interval — an IDE left open for days still learns
 /// about new releases, which the old launch-only check never did (EXP-68).
 /// EXP-1489: 30 minutes, so a release reaches running apps promptly.
 const RECHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -58,8 +61,7 @@ const RECHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 /// GitHub release (426s start while the release assets are still building or
 /// uploading), and the check itself can transiently fail — a blocked user must
 /// not stare at the browser fallback for a whole [`RECHECK_INTERVAL`]
-/// (EXP-316). One unauthenticated API call per minute stays well inside the
-/// 60/h/IP limit.
+/// (EXP-316). The advert and the download URLs carry no API rate limit.
 const BLOCKED_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 /// GitHub rejects API calls without a User-Agent.
 const USER_AGENT: &str = "exp-desktop-update-check";
@@ -565,6 +567,19 @@ fn run_pipeline(
     use anyhow::Context as _;
 
     let staging = updater::staging_dir().context("no user data dir")?;
+    run_pipeline_in(plan, tx, &staging)
+}
+
+/// [`run_pipeline`] staging into `staging`. #EXP-1763: the tests pass their
+/// fixture's own dir, so parallel test processes never share (and clean up)
+/// the user's real staging dir.
+fn run_pipeline_in(
+    plan: &UpdatePlan,
+    tx: &flume::Sender<UpdateEvent>,
+    staging: &std::path::Path,
+) -> anyhow::Result<Option<PathBuf>> {
+    use anyhow::Context as _;
+
     // Signature checked before any download (EXP-1430): a tampered feed fails fast.
     let sums = updater::fetch_verified_sums(&plan.sums_url, plan.sig_url.as_deref())
         .context("fetch the signed SHA256SUMS.txt")?;
@@ -614,7 +629,90 @@ struct ReleaseAsset {
 /// Blocking fetch + compare. `Ok(Some)` = a newer desktop release,
 /// `Ok(None)` = up to date, `Err(())` = network/parse failure (don't record
 /// the check so we retry).
+///
+/// EXP-1761: the advert decides; the Releases API is asked only when the
+/// advert is unknown, or when the advertised release lacks our asset and an
+/// older newer-than-us one might carry it (EXP-1693).
 fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
+    let advertised = updater::feed::advertised_latest("desktop")
+        .map_err(|err| log::warn!("[ui] update: advert check failed: {err:#}"))
+        .ok()
+        .flatten();
+    let info = match check_advert(advertised.as_deref(), current_version(), plan_from_downloads) {
+        AdvertCheck::UpToDate => return Ok(None),
+        AdvertCheck::Newer(info) if info.plan.is_some() || !can_self_update() => Some(info),
+        AdvertCheck::Newer(info) => match fetch_from_api() {
+            Ok(Some(listed)) if listed.plan.is_some() => Some(listed),
+            _ => Some(info),
+        },
+        AdvertCheck::Unknown => fetch_from_api()?,
+    };
+    if info.as_ref().is_some_and(|info| info.plan.is_none()) {
+        // Answer the "why is there only a browser button" question from the
+        // log too (EXP-316) — the blocking view surfaces the same reason.
+        match updater::self_update_unavailable_reason() {
+            Some(reason) => log::info!("[ui] update: self-update unavailable: {reason}"),
+            None => log::info!("[ui] update: no newer release carries this platform's asset — banner-only"),
+        }
+    }
+    Ok(info)
+}
+
+fn can_self_update() -> bool {
+    matches!(updater::capability(), updater::Capability::SelfUpdate(_))
+}
+
+/// What the advert says about this build.
+enum AdvertCheck {
+    /// No advert (unreachable, unset): ask the Releases API.
+    Unknown,
+    /// The advertised release is not newer than this build.
+    UpToDate,
+    /// A newer release; `plan` is `None` when it can't be installed here.
+    Newer(UpdateInfo),
+}
+
+/// EXP-1761: decide on the advertised version alone; `plan_for` (given the
+/// version) builds the plan from the release's download URLs.
+fn check_advert(
+    advertised: Option<&str>,
+    current: &str,
+    plan_for: impl FnOnce(&str) -> Option<UpdatePlan>,
+) -> AdvertCheck {
+    let Some(version) = advertised.map(|version| version.trim_start_matches('v')) else {
+        return AdvertCheck::Unknown;
+    };
+    if !is_newer(version, current) {
+        return AdvertCheck::UpToDate;
+    }
+    AdvertCheck::Newer(UpdateInfo {
+        version: version.to_string(),
+        url: updater::feed::release_page(&format!("{DESKTOP_TAG_PREFIX}{version}")),
+        plan: plan_for(version),
+    })
+}
+
+/// The plan for `desktop-v<version>` from plain download URLs, the asset
+/// probed (HEAD) first: a release still missing it is banner-only (EXP-1693).
+fn plan_from_downloads(version: &str) -> Option<UpdatePlan> {
+    let updater::Capability::SelfUpdate(strategy) = updater::capability() else {
+        return None;
+    };
+    let asset_name = updater::expected_asset_name(&strategy);
+    let files = updater::feed::probe_release(&format!("{DESKTOP_TAG_PREFIX}{version}"), &asset_name)
+        .map_err(|err| log::warn!("[ui] update: release probe failed: {err:#}"))
+        .ok()??;
+    Some(UpdatePlan {
+        asset_name,
+        asset_url: files.asset_url,
+        sums_url: files.sums_url,
+        sig_url: files.sig_url,
+        strategy,
+    })
+}
+
+/// The Releases-API path (the fallback): list, pick by [`select_release`].
+fn fetch_from_api() -> Result<Option<UpdateInfo>, ()> {
     // The app's one shared HTTP client (EXP-304). GitHub is a different host
     // from the instance, so this just gets its own pooled connection — but it
     // is still one client, one TLS stack, one place to configure.
@@ -638,17 +736,7 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
     let releases: Vec<Release> = serde_json::from_str(&body).map_err(|err| {
         log::warn!("[ui] update: release check returned malformed JSON: {err}");
     })?;
-
-    let info = select_release(&releases, current_version(), build_plan);
-    if info.as_ref().is_some_and(|info| info.plan.is_none()) {
-        // Answer the "why is there only a browser button" question from the
-        // log too (EXP-316) — the blocking view surfaces the same reason.
-        match updater::self_update_unavailable_reason() {
-            Some(reason) => log::info!("[ui] update: self-update unavailable: {reason}"),
-            None => log::info!("[ui] update: no newer release carries this platform's asset — banner-only"),
-        }
-    }
-    Ok(info)
+    Ok(select_release(&releases, current_version(), build_plan))
 }
 
 /// EXP-1693: what to offer from the published desktop releases newer than
@@ -815,24 +903,108 @@ mod tests {
         assert_eq!(pick(&list, "1.0.0"), Some(("1.2.0".to_string(), true)));
     }
 
-    /// Headless end-to-end (Linux): a fixture "GitHub" serves the release
-    /// JSON, SHA256SUMS.txt, and the AppImage bytes; `$APPIMAGE` points at a
-    /// temp file. check → plan → pipeline must swap the file and finish with
-    /// a `Ready` event carrying the AppImage as the restart path.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn end_to_end_pipeline_against_fixture_release() {
-        use std::io::{Read as _, Write as _};
-        use std::net::TcpListener;
+    fn plan_stub(name: &str) -> UpdatePlan {
+        UpdatePlan {
+            asset_name: name.to_string(),
+            asset_url: String::new(),
+            sums_url: String::new(),
+            sig_url: None,
+            strategy: updater::Strategy::AppImage { appimage: PathBuf::new() },
+        }
+    }
 
-        let dir = std::env::temp_dir().join(format!("exp-update-e2e-{}", std::process::id()));
+    /// EXP-1761: the advert decides, without the Releases API.
+    #[test]
+    fn the_advert_decides_newer_or_up_to_date() {
+        let newer = check_advert(Some("0.14.144"), "0.14.143", |version| {
+            assert_eq!(version, "0.14.144");
+            Some(plan_stub("ours"))
+        });
+        let AdvertCheck::Newer(info) = newer else { panic!("0.14.144 is newer") };
+        assert_eq!(info.version, "0.14.144");
+        assert_eq!(info.url, "https://github.com/Niach/exponential/releases/tag/desktop-v0.14.144");
+        assert!(info.plan.is_some());
+
+        // Never a downgrade, never a re-install: the plan isn't even probed.
+        for current in ["0.14.144", "0.14.145"] {
+            let check = check_advert(Some("0.14.144"), current, |_| panic!("no probe when up to date"));
+            assert!(matches!(check, AdvertCheck::UpToDate));
+        }
+        // No advert = ask the API.
+        assert!(matches!(check_advert(None, "0.14.143", |_| panic!("no probe")), AdvertCheck::Unknown));
+    }
+
+    /// EXP-1693 on the advert path: a release still missing our asset is
+    /// banner-only, never a broken install.
+    #[test]
+    fn an_advertised_release_without_our_asset_is_banner_only() {
+        let AdvertCheck::Newer(info) = check_advert(Some("2.0.0"), "1.0.0", |_| None) else {
+            panic!("2.0.0 is newer")
+        };
+        assert_eq!(info.version, "2.0.0");
+        assert!(info.plan.is_none());
+    }
+
+    /// The e2e tests share process-wide env vars (`EXP_UPDATE_*`, `APPIMAGE`).
+    #[cfg(target_os = "linux")]
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A fixture "GitHub + instance": `route(method, path)` answers each
+    /// request (`None` = 404), one request per connection, until the test ends.
+    /// Returns the base URL and the log of `METHOD path` lines served.
+    #[cfg(target_os = "linux")]
+    fn fixture_server(
+        route: impl Fn(&str, &str) -> Option<Vec<u8>> + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let served = log.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let mut line = request.split_whitespace();
+                let (method, path) = (line.next().unwrap_or("").to_string(), line.next().unwrap_or("").to_string());
+                served.lock().unwrap().push(format!("{method} {path}"));
+                let (status, body) = match route(&method, &path) {
+                    Some(body) => ("200 OK", body),
+                    None => ("404 Not Found", Vec::new()),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                if method != "HEAD" {
+                    let _ = stream.write_all(&body);
+                }
+            }
+        });
+        (base, log)
+    }
+
+    /// The payload, its sums line and a temp AppImage for the e2e runs.
+    #[cfg(target_os = "linux")]
+    struct Fixture {
+        dir: PathBuf,
+        appimage: PathBuf,
+        asset_name: String,
+        payload: Vec<u8>,
+        sums: String,
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fixture(tag: &str) -> Fixture {
+        let dir = std::env::temp_dir().join(format!("exp-update-e2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let appimage = dir.join("Exponential.AppImage");
         std::fs::write(&appimage, b"old-version").unwrap();
-
-        let strategy = updater::Strategy::AppImage { appimage: appimage.clone() };
-        let asset_name = updater::expected_asset_name(&strategy);
+        let asset_name = updater::expected_asset_name(&updater::Strategy::AppImage { appimage: appimage.clone() });
         let payload = vec![9u8; 150_000];
         let digest = {
             use sha2::Digest as _;
@@ -840,65 +1012,136 @@ mod tests {
             hasher.update(&payload);
             hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
         };
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let release_json = format!(
-            r#"[{{"tag_name":"desktop-v99.0.0","html_url":"http://{addr}/releases",
-                "assets":[
-                  {{"name":"{}","browser_download_url":"http://{addr}/sums"}},
-                  {{"name":"{asset_name}","browser_download_url":"http://{addr}/asset"}}
-                ]}}]"#,
-            updater::SUMS_ASSET
-        );
         let sums = format!("{digest}  {asset_name}\n");
-        let payload_for_server = payload.clone();
-        let server = std::thread::spawn(move || {
-            // One request per connection: release JSON, sums, asset (order-free).
-            for _ in 0..3 {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).unwrap();
-                let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                let body: Vec<u8> = if request.starts_with("GET /sums") {
-                    sums.clone().into_bytes()
-                } else if request.starts_with("GET /asset") {
-                    payload_for_server.clone()
-                } else {
-                    release_json.clone().into_bytes()
-                };
-                let header = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    body.len()
-                );
-                stream.write_all(header.as_bytes()).unwrap();
-                stream.write_all(&body).unwrap();
-            }
-        });
+        Fixture { dir, appimage, asset_name, payload, sums }
+    }
 
-        std::env::set_var("EXP_UPDATE_API", format!("http://{addr}/release"));
-        std::env::set_var("APPIMAGE", &appimage);
-        let info = fetch_latest().unwrap().expect("newer release found");
-        std::env::remove_var("EXP_UPDATE_API");
-        std::env::remove_var("APPIMAGE");
-
-        assert_eq!(info.version, "99.0.0");
+    /// Run the found plan's pipeline: the AppImage must be swapped and the
+    /// events must show progress and the install step.
+    #[cfg(target_os = "linux")]
+    fn install_and_check(info: UpdateInfo, fx: &Fixture) {
         let plan = info.plan.expect("self-update plan built");
-        assert_eq!(plan.asset_name, asset_name);
-
+        assert_eq!(plan.asset_name, fx.asset_name);
         let (tx, rx) = flume::unbounded();
-        let restart_path = run_pipeline(&plan, &tx).unwrap();
-        server.join().unwrap();
-
-        assert_eq!(restart_path, Some(appimage.clone()));
-        assert_eq!(std::fs::read(&appimage).unwrap(), payload);
+        // The fixture's own staging dir, never the user's (#EXP-1763).
+        let restart_path = run_pipeline_in(&plan, &tx, &fx.dir.join("staging")).unwrap();
+        assert_eq!(restart_path, Some(fx.appimage.clone()));
+        assert_eq!(std::fs::read(&fx.appimage).unwrap(), fx.payload);
         let events: Vec<_> = rx.drain().collect();
         assert!(events
             .iter()
             .any(|e| matches!(e, UpdateEvent::Progress { received, .. } if *received > 0)));
         assert!(events.iter().any(|e| matches!(e, UpdateEvent::Installing)));
+        let _ = std::fs::remove_dir_all(&fx.dir);
+    }
 
-        let _ = std::fs::remove_dir_all(&dir);
+    /// EXP-1761, headless end-to-end (Linux): the advert names 99.0.0, the
+    /// plan comes from plain download URLs (HEAD-probed), the Releases API is
+    /// never asked, and the pipeline swaps the AppImage.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn end_to_end_from_the_advert_without_the_releases_api() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fx = fixture("advert");
+        let (asset, sums, payload) = (fx.asset_name.clone(), fx.sums.clone(), fx.payload.clone());
+        let (base, served) = fixture_server(move |_, path| {
+            let release = "/download/desktop-v99.0.0/";
+            match path.strip_prefix(release) {
+                _ if path == "/api/version" => {
+                    Some(br#"{"desktop":{"min":null,"latest":"99.0.0"}}"#.to_vec())
+                }
+                Some(name) if name == asset => Some(payload.clone()),
+                Some(name) if name == updater::SUMS_ASSET => Some(sums.clone().into_bytes()),
+                _ => None,
+            }
+        });
+
+        std::env::set_var("EXP_UPDATE_ADVERT", format!("{base}/api/version"));
+        std::env::set_var("EXP_UPDATE_DOWNLOAD_BASE", format!("{base}/download"));
+        std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
+        std::env::set_var("APPIMAGE", &fx.appimage);
+        let info = fetch_latest().unwrap().expect("newer release found");
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE"] {
+            std::env::remove_var(key);
+        }
+
+        assert_eq!(info.version, "99.0.0");
+        let plan = info.plan.as_ref().expect("plan from the download URLs");
+        assert_eq!(plan.asset_url, format!("{base}/download/desktop-v99.0.0/{}", fx.asset_name));
+        assert_eq!(plan.sums_url, format!("{base}/download/desktop-v99.0.0/{}", updater::SUMS_ASSET));
+        assert_eq!(plan.sig_url, None, "the fixture release is unsigned (404)");
+        install_and_check(info, &fx);
+        let served = served.lock().unwrap().clone();
+        assert!(served.iter().all(|line| !line.contains("releases-api")), "{served:?}");
+        assert!(served.iter().any(|line| line.starts_with("HEAD /download/desktop-v99.0.0/")), "{served:?}");
+    }
+
+    /// EXP-1761: an advertised release missing our asset asks the Releases
+    /// API for an older one that has it (EXP-1693); the API failing too (rate
+    /// limited) leaves the advertised release as banner-only.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_advertised_release_without_our_asset_falls_back_to_banner_only() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fx = fixture("banner");
+        let (base, _served) = fixture_server(move |_, path| {
+            (path == "/api/version").then(|| br#"{"desktop":{"latest":"99.0.0"}}"#.to_vec())
+        });
+        std::env::set_var("EXP_UPDATE_ADVERT", format!("{base}/api/version"));
+        std::env::set_var("EXP_UPDATE_DOWNLOAD_BASE", format!("{base}/download"));
+        std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
+        std::env::set_var("APPIMAGE", &fx.appimage);
+        let info = fetch_latest();
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_DOWNLOAD_BASE", "EXP_UPDATE_API", "APPIMAGE"] {
+            std::env::remove_var(key);
+        }
+        let info = info.unwrap().expect("the advertised release is still offered");
+        assert_eq!(info.version, "99.0.0");
+        assert!(info.plan.is_none(), "banner-only, never a broken install");
+        let _ = std::fs::remove_dir_all(&fx.dir);
+    }
+
+    /// The fallback (Linux): no advert (404), so the Releases API list drives
+    /// check → plan → pipeline as before EXP-1761.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn end_to_end_from_the_releases_api_when_the_advert_is_unknown() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fx = fixture("api");
+        let (asset, sums, payload) = (fx.asset_name.clone(), fx.sums.clone(), fx.payload.clone());
+        let listener_base = std::sync::Arc::new(std::sync::OnceLock::<String>::new());
+        let base_for_route = listener_base.clone();
+        let (base, _served) = fixture_server(move |_, path| {
+            let base = base_for_route.get().unwrap();
+            match path {
+                "/releases-api" => Some(
+                    format!(
+                        r#"[{{"tag_name":"desktop-v99.0.0","html_url":"{base}/releases",
+                            "assets":[
+                              {{"name":"{}","browser_download_url":"{base}/sums"}},
+                              {{"name":"{asset}","browser_download_url":"{base}/asset"}}
+                            ]}}]"#,
+                        updater::SUMS_ASSET
+                    )
+                    .into_bytes(),
+                ),
+                "/sums" => Some(sums.clone().into_bytes()),
+                "/asset" => Some(payload.clone()),
+                _ => None,
+            }
+        });
+        listener_base.set(base.clone()).unwrap();
+
+        std::env::set_var("EXP_UPDATE_ADVERT", format!("{base}/api/version"));
+        std::env::set_var("EXP_UPDATE_API", format!("{base}/releases-api"));
+        std::env::set_var("APPIMAGE", &fx.appimage);
+        let info = fetch_latest().unwrap().expect("newer release found");
+        for key in ["EXP_UPDATE_ADVERT", "EXP_UPDATE_API", "APPIMAGE"] {
+            std::env::remove_var(key);
+        }
+        assert_eq!(info.version, "99.0.0");
+        assert_eq!(info.url, format!("{base}/releases"));
+        install_and_check(info, &fx);
     }
 
     #[test]

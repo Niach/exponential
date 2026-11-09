@@ -10222,6 +10222,34 @@
       }
     },
     {
+      "name": "Input/variant=bare",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "bare"
+        }
+      }
+    },
+    {
+      "name": "Input/variant=code",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "code"
+        }
+      }
+    },
+    {
       "name": "Input/disabled=true",
       "node": {
         "id": "input",
@@ -10326,6 +10354,45 @@
           "name": "notes",
           "rows": 4,
           "autosize": false
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=field",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "field"
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=row",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "row"
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=code",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "code"
         }
       }
     },

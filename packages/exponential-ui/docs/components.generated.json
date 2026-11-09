@@ -5479,12 +5479,12 @@
         },
         {
           "name": "variant",
-          "type": "field | row",
+          "type": "field | row | bare | code",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
         },
         {
           "name": "disabled",
@@ -5605,6 +5605,15 @@
           "bindable": true,
           "responsive": false,
           "description": "Text; bind it to a data path."
+        },
+        {
+          "name": "variant",
+          "type": "field | row | code",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "field",
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
         },
         {
           "name": "disabled",
@@ -6333,7 +6342,8 @@
       "slots": [],
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "basic": [
         "ChoicePicker (filterable, multipleSelection)"
