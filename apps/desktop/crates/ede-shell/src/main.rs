@@ -3160,11 +3160,13 @@ fn main() {
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         // The goldens: the sample conversation (Local, or a demo team's).
         let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
-        let chat = match (demo, on_team) {
+        let mut chat = match (demo, on_team) {
             (true, false) => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
+        // #EDE-65 lane O: the "+" (Photo or file; the prompts arrive with a team's rows).
+        chat.plus = chat::plus_rows(&[]);
         feed.set("/chatting", chat::chatting(&uicore_model::chat::chat_view(&chat)));
         feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
