@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { TrainRepoConfig } from "../../packages/domain-contract/src/merge-train"
+import { rustChangelog, webChangelog } from "./changelog-shapes"
 import { compose } from "./compose"
 import { Git, sh } from "./git"
 
@@ -53,7 +54,7 @@ const CHANGELOG = `export const CHANGELOG = [\n  { v: 1 },\n]\n`
 const POLICY: TrainRepoConfig = {
   ci: { workflows: [`ci.yml`] },
   generated: [
-    { name: `changelog`, paths: [`changelog.ts`], strategy: `prepend-union` },
+    { name: `changelog`, paths: [`changelog.ts`, `changelog.rs`], strategy: `prepend-union` },
     { name: `bindings`, paths: [`gen/**`], strategy: `regenerate`, command: `cp src/enum.txt gen/enum.txt` },
     { name: `migrations`, paths: [`db/*.sql`, `db/meta/**`], strategy: `renumber`, command: `bash gen-migration.sh`, verify: [`db/*.sql`] },
     { name: `index`, paths: [`shots/index.json`], strategy: `json-union` },
@@ -78,6 +79,79 @@ describe(`compose: a sibling in the way is no bounce (#EXP-1711)`, () => {
     const other = r.branch({ "c.txt": `c1\n` }, moved)
     const { outcome } = compose({ dir: r.dir, trainId: `s2`, baseSha: moved, mode: `test`, units: [{ prs: [pr(3, other)] }, { prs: [pr(4, stale)] }] })
     expect(outcome.units.map((u) => [u.outcome, u.against ?? null])).toEqual([[`composed`, null], [`conflict`, null]])
+  })
+})
+
+describe(`compose: changelogs prepended at one spot (#LOGS-2)`, () => {
+  const web = (ids: string[]) => webChangelog(ids)
+  const rs = (id: string) => rustChangelog(id, [[233, `a`], [232, `z`]])
+  const files = (id: string) => ({ "changelog.ts": web([id, `a`]), "changelog.rs": rs(id) })
+  const BASE = { "changelog.ts": web([`a`]), "changelog.rs": rustChangelog(`a`, [[232, `z`]]) }
+
+  it(`three units = three whole entries, newest first, the mirror renumbered`, () => {
+    const r = repo(BASE, POLICY)
+    const [b, c, d] = [`b`, `c`, `d`].map((id) => r.branch(files(id)))
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, b!)] }, { prs: [pr(2, c!)] }, { prs: [pr(3, d!)] }] })
+    expect(outcome.units.map((u) => [u.outcome, u.resolved])).toEqual([[`composed`, []], [`composed`, [`changelog`]], [`composed`, [`changelog`]]])
+    expect(r.read(`changelog.ts`)).toBe(web([`d`, `c`, `b`, `a`]))
+    expect(r.read(`changelog.rs`)).toBe(rustChangelog(`d`, [[235, `c`], [234, `b`], [233, `a`], [232, `z`]]))
+    // the old resolver, a line union, fused them into one object
+    const dir = mkdtempSync(join(tmpdir(), `union-`))
+    dirs.push(dir)
+    for (const [n, body] of Object.entries({ base: web([`a`]), ours: web([`b`, `a`]), theirs: web([`c`, `a`]) })) writeFileSync(join(dir, n), body)
+    const fused = sh(dir, [`git`, `merge-file`, `-p`, `--union`, `theirs`, `base`, `ours`]).out
+    expect(fused).toContain(`    title: \`C\`,\n    id: \`b\`,`)
+  })
+
+  it(`an edit beside the prepend bounces the unit instead of a line union`, () => {
+    const r = repo(BASE, POLICY)
+    const b = r.branch(files(`b`))
+    const c = r.branch({ "changelog.ts": web([`c`, `a`]).replace(`title: \`A\``, `title: \`A2\``) })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, b)] }, { prs: [pr(2, c)] }] })
+    expect(outcome.units[1]).toMatchObject({ outcome: `conflict`, files: [`changelog.ts`] })
+    expect(r.read(`changelog.ts`)).toBe(web([`b`, `a`]))
+  })
+
+  it(`a Merge now that had to resolve a conflict runs CI; a clean one stays instant`, () => {
+    const r = repo(BASE, POLICY)
+    const landed = r.branch(files(`b`))
+    const c = r.branch(files(`c`))
+    const resolved = compose({ dir: r.dir, trainId: `t`, baseSha: landed, mode: `untested`, units: [{ prs: [pr(2, c)] }] })
+    expect(resolved.outcome.units[0]!.resolved).toEqual([`changelog`])
+    expect([resolved.outcome.checks, resolved.dispatch]).toEqual([`dispatched`, [`ci.yml`]])
+    const clean = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, c)] }] })
+    expect([clean.outcome.checks, clean.dispatch]).toEqual([`skipped`, []])
+  })
+})
+
+describe(`compose: a Merge now whose lockfile drifted runs CI (#LOGS-2)`, () => {
+  const LOCKS: TrainRepoConfig = {
+    ...POLICY,
+    lockfiles: { paths: [`**/Cargo.lock`], manifests: [{ paths: [`**/Cargo.toml`], lock: `Cargo.lock` }] },
+  }
+  const lock = (top: string, bottom: string) => `${top}\n${[`b`, `c`, `d`, `e`, `f`, `g`].join(`\n`)}\n${bottom}\n`
+  const BASE = { "ede/Cargo.lock": lock(`smithay 1`, `sentry 0`), "ede/crates/x/Cargo.toml": `[deps]\n` }
+
+  it(`a clean lockfile merge onto a moved base = dispatched; onto an unmoved base = skipped`, () => {
+    const r = repo(BASE, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": lock(`smithay git`, `sentry 0`) })
+    const unit = r.branch({ "ede/Cargo.lock": lock(`smithay 1`, `sentry 1`) })
+    const onMoved = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onMoved.outcome.units[0]).toMatchObject({ outcome: `composed`, resolved: [], drifted: [`ede/Cargo.lock`] })
+    expect([onMoved.outcome.checks, onMoved.dispatch]).toEqual([`dispatched`, [`ci.yml`]])
+    const onBase = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onBase.outcome.units[0]).toEqual({ prs: [2], outcome: `composed`, files: [], resolved: [] })
+    expect([onBase.outcome.checks, onBase.dispatch]).toEqual([`skipped`, []])
+  })
+
+  it(`a manifest changed while the base moved its paired lock = dispatched`, () => {
+    const r = repo(BASE, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": lock(`smithay git`, `sentry 0`) })
+    const unit = r.branch({ "ede/crates/x/Cargo.toml": `[deps]\nsentry = "1"\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect([outcome.units[0]!.drifted, outcome.checks]).toEqual([[`ede/Cargo.lock`], `dispatched`])
+    const onBase = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, unit)] }] })
+    expect(onBase.outcome.checks).toBe(`skipped`)
   })
 })
 
@@ -131,6 +205,25 @@ describe(`compose`, () => {
     const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `test`, units: [{ prs: [pr(1, a)] }, { prs: [pr(2, b)] }] })
     expect(outcome.units[1].outcome).toBe(`composed`)
     expect(r.read(`gen/enum.txt`)).toBe(`a\nb\nm\ny\nz\n`)
+  })
+
+  it(`a regenerate that keeps the base's blob for a path the unit changed bounces it (#FEED-212)`, () => {
+    // The lockfiles rule claimed both workspaces' locks but regenerated only
+    // one: the other came out as master's, the unit's change silently gone.
+    const LOCKS: TrainRepoConfig = {
+      generated: [{ name: `lockfiles`, paths: [`desktop/Cargo.lock`, `ede/Cargo.lock`], strategy: `regenerate`, command: `cp desktop/want desktop/Cargo.lock` }],
+    }
+    const r = repo({ "desktop/want": `d0\n`, "desktop/Cargo.lock": `d0\n`, "ede/Cargo.lock": `e0\n` }, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": `e-master\n` })
+    const unit = r.branch({ "ede/Cargo.lock": `e-unit\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `test`, units: [{ prs: [pr(1, unit)] }] })
+    expect(outcome.units[0]).toMatchObject({ outcome: `conflict`, files: [`ede/Cargo.lock`] })
+    expect(outcome.head).not.toBe(moved)
+    expect(r.read(`ede/Cargo.lock`)).toBe(`e-master\n`)
+    // a regenerate that does rewrite it (here: to the unit's side) still composes
+    const fixed: TrainRepoConfig = { generated: [{ ...LOCKS.generated[0]!, command: `git checkout ${unit} -- ede/Cargo.lock` }] }
+    const ok = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `test`, units: [{ prs: [pr(1, unit)] }], config: fixed })
+    expect(ok.outcome.units[0]).toMatchObject({ outcome: `composed`, resolved: [`lockfiles`] })
   })
 
   it(`any other conflict drops that whole unit, naming only the unmatched files, and the next unit still rides`, () => {
