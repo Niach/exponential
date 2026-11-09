@@ -232,7 +232,7 @@ pub(crate) struct Spinner {
 
 impl Spinner {
     pub(crate) fn new() -> Self {
-        Self { size: gpui_component::Size::Medium, icon: Icon::new(gpui_component::IconName::Loader), color: None }
+        Self { size: gpui_component::Size::Medium, icon: Icon::new(crate::icons::registry::UI_LOADING), color: None }
     }
 
     pub(crate) fn icon(mut self, icon: impl Into<Icon>) -> Self {
