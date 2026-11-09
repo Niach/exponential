@@ -137,6 +137,7 @@ mod tests {
                 window: &mut Window,
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Gallery").entered();
                 let mut gallery = div();
                 for entry in entries::ENTRIES {
                     gallery = gallery.child((entry.render)(window, cx));

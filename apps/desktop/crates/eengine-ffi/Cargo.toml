@@ -37,6 +37,8 @@ eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.19.0", 
 emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.2.0", optional = true }
 # The version already in apps/desktop/Cargo.lock (genUI's, P2P's and Voice's facades): ONE uniffi in the tree.
 uniffi = { version = "0.31" }
+# #LOGS-2: spans around the FFI entry points (no subscriber = no cost).
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

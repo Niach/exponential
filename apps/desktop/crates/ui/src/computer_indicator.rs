@@ -153,6 +153,7 @@ struct Banner {
 
 impl Render for Banner {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Banner").entered();
         // The window has no `Root`: its rem and font are set here, the ones
         // [`banner_size`] shaped the words in.
         window.set_rem_size(rem_size(cx));
@@ -382,6 +383,7 @@ mod tests {
 
     impl Render for Probe {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Probe").entered();
             window.set_rem_size(rem_size(cx));
             let drawn = self.drawn.clone();
             // Unconstrained (an 8000 px row), so the bar takes its own width.

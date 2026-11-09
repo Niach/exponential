@@ -378,6 +378,7 @@ impl ExponentialUiKitchenSink {
 
 impl Render for ExponentialUiKitchenSink {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ExponentialUiKitchenSink").entered();
         // DEV-ONLY: the pre-scroll lands once the previous frame gave the
         // pane something to scroll (max_offset is known after a paint).
         if let Some(y) = self.pending_scroll {
@@ -702,6 +703,7 @@ impl ExponentialUiSpecimen {
 
 impl Render for ExponentialUiSpecimen {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ExponentialUiSpecimen").entered();
         // The painter lays out at the pane's width from the first frame and
         // reads the pane's clip itself (round 1: no viewport probe).
         div()

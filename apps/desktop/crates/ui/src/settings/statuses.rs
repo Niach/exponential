@@ -969,6 +969,7 @@ impl StatusesPane {
 
 impl Render for StatusesPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "StatusesPane").entered();
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
@@ -1134,6 +1135,7 @@ struct DeleteStatusContent {
 
 impl Render for DeleteStatusContent {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DeleteStatusContent").entered();
         // Web copy: the alert's own description carries the hedged sentence
         // while the server count is in flight, so this line only speaks once
         // the real number lands.

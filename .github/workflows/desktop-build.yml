@@ -80,8 +80,13 @@ jobs:
           EXP_DESKTOP_VERSION: ${{ steps.ver.outputs.version }}
           EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
           TARGET: ${{ matrix.target }}
+          # #LOGS-2: line tables for GlitchTip's symbolication, kept OUT of
+          # the shipped binary: macOS splits them into a dSYM, Windows into
+          # its PDB, Linux strips them after the upload below.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: |
           set -euo pipefail
+          if [ "$RUNNER_OS" = "macOS" ]; then export CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed; fi
           cargo_build() {
             cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p app ${{ steps.feat.outputs.flags }} "$@"
           }
@@ -97,6 +102,30 @@ jobs:
             bins="${bins}apps/desktop/target/$t/release/exp-desktop"$'\n'
           done
           { echo "MACOS_BINARIES<<EOF"; printf '%s' "$bins"; echo "EOF"; } >> "$GITHUB_ENV"
+
+      # #LOGS-2: the debug files of this build → GlitchTip (tag builds; no
+      # GLITCHTIP_AUTH_TOKEN = skipped, a failed upload only warns).
+      - name: Collect debug files
+        id: dif
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            macOS) paths=$(for t in aarch64-apple-darwin x86_64-apple-darwin; do d="apps/desktop/target/$t/release/exp-desktop.dSYM"; [ -e "$d" ] && echo "$d"; done) ;;
+            Linux) paths="apps/desktop/target/release/exp-desktop" ;;
+            Windows) paths="apps/desktop/target/release/exp_desktop.pdb" ;;
+          esac
+          { echo "paths<<EOF"; echo "${paths:-}"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+      - name: Upload debug files to GlitchTip
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: ./.github/actions/glitchtip-debug-files
+        with:
+          paths: ${{ steps.dif.outputs.paths }}
+          auth-token: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      - name: Strip the line tables (Linux)
+        if: runner.os == 'Linux'
+        run: strip --strip-debug apps/desktop/target/release/exp-desktop
 
       # Linux → package a single-file AppImage. The raw `.AppImage` is the
       # ONLY Linux asset (EXP-68 — no `.tar.gz` twin): it is both the
