@@ -1,6 +1,6 @@
 //! NEW-67 — `voice-settings` (3 Special components): Settings → Personal →
-//! Voice (`fixtures/voice.json`), drawn by the pane's own
-//! [`crate::settings::voice_prefs::voice_rows`] over static values: mint as
+//! Voice (`fixtures/voice.json`), drawn by the pane's own document
+//! ([`crate::settings::voice_prefs::VoicePrefsPane::twin`]) over static values: mint as
 //! the voice device, Studio as the agent (S-3: replies are always spoken, no
 //! Speak replies row), the tray group with Push to talk bound to Ctrl +
 //! Space (read-only keycaps, as on another device; the voice device's own
@@ -41,24 +41,21 @@
 //! runs with the wake word off (the dot, the meeting's row as the tooltip,
 //! Meeting mode checked, Pause listening).
 
-use gpui::{div, prelude::FluentBuilder as _, px, App, IntoElement, ParentElement as _, Styled as _, Window};
+use gpui::{div, prelude::FluentBuilder as _, px, App, ParentElement as _, Styled as _, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::InputState,
     v_flex, ActiveTheme as _, Sizable as _,
 };
 
 use etalk::voice::{
     agent_options, rail_voice, voice_device_options, ScreenMemoryState, TrayContext, TrayItem, VoiceAgent, VoiceDevice,
-    VoiceSettings, VOICE,
+    VoiceSettings,
 };
 
 use super::composer_dialog::OpenMenu;
 use crate::icons::registry;
 
-use crate::controls::glass_input;
-use crate::settings::voice_prefs::{apps_control, voice_rows, MeetingRows, ShortcutRecorder, VoiceInputs};
-use crate::surface;
+use crate::settings::voice_prefs::{Fixed, VoicePrefsPane};
 
 pub(crate) const ID: &str = "voice-settings";
 pub(crate) const OWNER: &str = "NEW-67";
@@ -69,10 +66,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         VoiceDevice { device_id: "d-mac".into(), name: "macbook".into(), kind: "desktop".into() },
         VoiceDevice { device_id: "d-phone".into(), name: "iPhone".into(), kind: "phone".into() },
     ]);
-    let agents = agent_options(&[
+    let agent_rows = vec![
         VoiceAgent { id: "a1".into(), name: "Studio".into(), team: "Acme".into() },
         VoiceAgent { id: "a2".into(), name: "Helper".into(), team: "Acme".into() },
-    ]);
+    ];
+    let agents = agent_options(&agent_rows);
     let settings = VoiceSettings {
         voice_device_id: Some("d-mint".into()),
         agent_id: Some("a1".into()),
@@ -92,28 +90,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> gpui::Div {
         // #FEED-163: Stop after 4 hours (the default).
         meeting_auto_stop_hours: 4,
     };
-    let mut field = |key: &'static str, placeholder: String, value: &'static str| {
-        let input = window.use_keyed_state(key, cx, |window, cx| {
-            let mut state = InputState::new(window, cx).placeholder(placeholder);
-            state.set_value(value, window, cx);
-            state
-        });
-        surface::glass_row_input(glass_input(&input, window, cx)).into_any_element()
-    };
-    let inputs = VoiceInputs {
-        wake_phrase: field("sg-voice-settings-wake", etalk::voice::wake_phrase_placeholder("Studio"), ""),
-        voice_file: field("sg-voice-settings-file", VOICE.copy.voice_file_placeholder.clone(), ""),
-        voice_transcript: field("sg-voice-settings-transcript", VOICE.copy.voice_transcript_placeholder.clone(), ""),
-    };
-    let mut body = v_flex().w_full().gap_2();
-    let meeting = MeetingRows {
-        capability: etalk::meeting::DesktopAudioCapability::PerApp,
-        apps: apps_control(&settings, &[], None, window, cx),
-        on_meeting: None,
-    };
-    for row in voice_rows(&settings, &devices, &agents, inputs, meeting, ShortcutRecorder::default(), None, false, cx) {
-        body = body.child(row);
-    }
+    // #EXP-1629: the pane's own document over these values, inert.
+    let fixed = Fixed { devices, agents, agent_rows, capability: etalk::meeting::DesktopAudioCapability::PerApp };
+    let pane = window.use_keyed_state("sg-voice-settings-pane", cx, move |window, cx| VoicePrefsPane::twin(settings, fixed, window, cx));
+    let body = v_flex().w_full().child(pane);
     div().w_full().max_w(px(560.)).child(body).child(div().mt_8().child(rail_voice_specimen(window, cx))).child(div().mt_8().child(rail_meeting_specimen(window, cx)))
 }
 

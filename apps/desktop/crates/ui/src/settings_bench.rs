@@ -18,6 +18,7 @@ use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::sign_in_methods::{SignInMethodsSection, SignInShot};
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
+use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -397,4 +398,56 @@ fn settings_all_boards_put_away() {
 #[ignore]
 fn settings_all_boards_empty() {
     shoot_pane("all-boards-empty", AllBoardsPane::for_shots, |pane, cx| pane.show(Vec::new(), Vec::new(), cx));
+}
+
+fn voice_settings(ptt: &str) -> etalk::voice::VoiceSettings {
+    etalk::voice::VoiceSettings {
+        voice_device_id: Some("d-mint".into()),
+        agent_id: Some("a1".into()),
+        ptt_shortcut: ptt.into(),
+        language: "en".into(),
+        ..Default::default()
+    }
+}
+
+fn voice(name: &str, settings: etalk::voice::VoiceSettings, capture: Option<etalk::voice::CaptureState>) {
+    shoot_pane(name, VoicePrefsPane::for_shots, move |pane, cx| pane.show(VoiceShot { settings, capture }, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_voice_unbound() {
+    voice("voice-unbound", voice_settings(""), None);
+}
+
+#[test]
+#[ignore]
+fn settings_voice_bound() {
+    let settings = etalk::voice::VoiceSettings {
+        wake_word: true,
+        wake_phrase: "Hey Studio".into(),
+        voice_file: "~/voices/me.wav".into(),
+        ..voice_settings("ctrl+shift+space")
+    };
+    voice("voice-bound", settings, None);
+}
+
+#[test]
+#[ignore]
+fn settings_voice_recording_pending() {
+    use etalk::voice::{capture_start, capture_step, CaptureEvent};
+    let capture = [CaptureEvent::Down("ctrl".into()), CaptureEvent::Down("shift".into())].iter().fold(capture_start("ctrl+space"), |c, e| capture_step(&c, e));
+    voice("voice-recording-pending", voice_settings("ctrl+space"), Some(capture));
+}
+
+#[test]
+#[ignore]
+fn settings_voice_error() {
+    let capture = etalk::voice::CaptureState {
+        status: etalk::voice::CaptureStatus::Recording,
+        value: "ctrl+space".into(),
+        held: Vec::new(),
+        error: Some(etalk::voice::VOICE.ptt_copy.shortcut_needs_modifier.clone()),
+    };
+    voice("voice-error", voice_settings("ctrl+space"), Some(capture));
 }
