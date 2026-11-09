@@ -3525,6 +3525,13 @@
         "bytes": 39054,
         "sha256": "a2ef93e80a3400bd08779c172ad97d0573af1969ab58d5642521659c886c414f"
       },
+      "ios": {
+        "file": "shots/exponential-ui-key-recorder/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 19626,
+        "sha256": "8af1ff94949c004dfec037d9a93454d684f3b918d51a9b24919fb0dc7a498ce2"
+      },
       "web": {
         "file": "shots/exponential-ui-key-recorder/web.webp",
         "width": 1800,
