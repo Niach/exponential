@@ -30,13 +30,13 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1334`,
   title: `Strip chip`,
-  blurb: `The one chip of every strip of chips, identical in the chat header (issue and session chips) and the work tab strip (web md+, the IDE): the strip tab box (32 px, text-sm, rounded-md, a hairline at rest, the glass wash while active), inside it the lead glyph (an issue's status glyph, a session's agent mark), the mono identifier, the label truncating at 15rem, then the open nested item as "chip › open one" and a chevron-down on a chip that opens its subtree on a click instead of itself. A trailing control (the work tab's x) sits inside the box after the open button. "short" is the identifier alone, the tier a strip falls to before it folds; what does not fit folds into the "+N" overflow button, the same box at rest holding the count, the trigger of THE Menu listing the hidden chips.`,
+  blurb: `The one chip of every strip of chips, identical in the work tab strip (web md+, the IDE): the strip tab box (32 px, text-sm, rounded-md, a hairline at rest, the glass wash while active), inside it the lead glyph (an issue's status glyph, a session's agent mark), the mono identifier, the label truncating at 15rem, then the open nested item as "chip › open one" and a chevron-down on a chip that opens its subtree on a click instead of itself. A trailing control (the work tab's x) sits inside the box after the open button. "short" is the identifier alone, the tier a strip falls to before it folds; what does not fit folds into the "+N" overflow button, the same box at rest holding the count, the trigger of THE Menu listing the hidden chips.`,
   status: {
     web: {
       state: `ok`,
       symbol: `StripChip / StripOverflowButton`,
       file: `packages/ui/src/strip-chip.tsx`,
-      note: `the chat header binds it as ChatIssueTab / ChatStripGroup (session-chat-view.tsx); the work tab strip as its tabs`,
+      note: `the work tab strip binds it as its tabs (#EXP-1732: the chat header's chip strip is gone, THE session screen's SegmentedControl replaced it)`,
     },
     desktop: {
       state: `ok`,

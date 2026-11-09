@@ -1,17 +1,7 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useState } from "react"
 import { answerSessionCard } from "@/lib/enet/send-sealed"
-import { useKeyVersion } from "@/lib/enet/use-key-holder"
-import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { messageCollection } from "@/lib/collections"
-import {
-  buildSessionChat,
-  toTreeMessages,
-  toTreeSession,
-  type MessageRow,
-  type SessionRow,
-  type SessionChatRow,
-} from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
 // The card answer paths every conversation shares (the chat screen, its
@@ -78,52 +68,5 @@ export function useUnqueueMessage(): (messageId: string) => Promise<void> {
       failedAction(`remove`, `the message`, error)
     }
   }, [])
-}
-
-/** A conversation's rows: `buildSessionChat` over the conversation root
- *  (EXP-1334: no root card)
- *  and its `tabs` (#EXP-1407: the Dock's asking-session names). */
-export function useConversationRows({
-  conversation,
-  messages,
-  teamSessions,
-}: {
-  conversation: SessionRow | null
-  messages: readonly MessageRow[]
-  teamSessions: readonly SessionRow[]
-}): { rows: readonly SessionChatRow[]; tabs: ReturnType<typeof buildSessionChat>[`tabs`] } {
-  // #EXP-1380 (chats.json PERF): the clock only drives the session cards'
-  // elapsed time, so it ticks only while a card's session is live.
-  const liveCard = useMemo(() => {
-    const targets = new Set<string>()
-    for (const message of messages) {
-      const card = message.card as { kind?: unknown; sessionId?: unknown } | null
-      // #EXP-1399: an escalated card (`ask`) heads with its origin's card too.
-      if ((card?.kind === `session` || card?.kind === `thread_started` || card?.kind === `ask`) && typeof card.sessionId === `string`) {
-        targets.add(card.sessionId)
-      }
-    }
-    return teamSessions.some((row) => targets.has(row.id) && row.status !== `ended`)
-  }, [messages, teamSessions])
-  const now = useNow(liveCard ? 1_000 : 3_600_000)
-  // EXP-1459: sealed rows re-open when a key arrives.
-  const keyVersion = useKeyVersion()
-  const view = useMemo(
-    () =>
-      conversation
-        ? buildSessionChat({
-            root: toTreeSession(conversation),
-            sessions: teamSessions.map(toTreeSession),
-            sessionIssues: [],
-            issues: [],
-            messages: toTreeMessages(messages),
-            pullRequests: [],
-            now: now.toISOString(),
-          })
-        : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversation, teamSessions, messages, now, keyVersion]
-  )
-  return useMemo(() => ({ rows: view?.rows ?? [], tabs: view?.tabs ?? [] }), [view])
 }
 
