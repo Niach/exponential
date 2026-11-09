@@ -2898,6 +2898,15 @@
         "sha256": "1b1640d3e7bb40584f13a134c4e43ac45e43e5ec9d282749dad4a0b16b41789e"
       }
     },
+    "exponential-ui-color-picker": {
+      "android": {
+        "file": "shots/exponential-ui-color-picker/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 13234,
+        "sha256": "ea041f065ac644c68f3d80096e873243074bfd8047246fb2aed6f944bcafd155"
+      }
+    },
     "exponential-ui-composer": {
       "android": {
         "file": "shots/exponential-ui-composer/android.webp",
@@ -3425,6 +3434,15 @@
         "height": 1800,
         "bytes": 13244,
         "sha256": "860cd13b8ed28f348749858602aaec6e8e219554aa326386d1291f779f318da1"
+      }
+    },
+    "exponential-ui-icon-picker": {
+      "android": {
+        "file": "shots/exponential-ui-icon-picker/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 28754,
+        "sha256": "600c4aac6fb639e0bd153d9c740fc49227a5193fc04b6f0f9ba5e27a00468ba7"
       }
     },
     "exponential-ui-image": {

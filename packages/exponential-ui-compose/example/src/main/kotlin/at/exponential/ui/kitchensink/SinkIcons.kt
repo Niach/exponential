@@ -18,7 +18,10 @@ import androidx.compose.ui.unit.dp
  * A 24-unit outline glyph from SVG path data (Lucide geometry, 2-unit
  * stroke, round caps and joins: lucide-react's own SVG attributes).
  */
-private fun outline(name: String, vararg paths: String): ImageVector {
+private fun outline(name: String, vararg paths: String): ImageVector = sinkOutline(name, *paths)
+
+/** [outline] for the generated board set (SinkPickableIcons.kt). */
+internal fun sinkOutline(name: String, vararg paths: String): ImageVector {
     val b = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
     for (d in paths) {
         b.addPath(
@@ -383,7 +386,7 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
  * lacks.
  */
 fun sinkIcon(name: String, size: Float): (@Composable () -> Unit)? {
-    val vector = sinkIcons[name] ?: return null
+    val vector = sinkIcons[name] ?: sinkPickableIcons[name] ?: return null
     return {
         Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
             Icon(vector, contentDescription = null, modifier = Modifier.size(size.dp))
