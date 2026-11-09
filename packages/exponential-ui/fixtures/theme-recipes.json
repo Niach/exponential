@@ -73524,22 +73524,22 @@
         "exponential": {
           "light": {
             "default": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7
             },
             "hover": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7,
               "backgroundColor": "#f5f5f5"
             }
           },
           "dark": {
             "default": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7
             },
             "hover": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7,
               "backgroundColor": "#ffffff0e"
             }
@@ -73562,22 +73562,22 @@
         "orange": {
           "light": {
             "default": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7
             },
             "hover": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7,
               "backgroundColor": "#f5f5f5"
             }
           },
           "dark": {
             "default": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7
             },
             "hover": {
-              "height": 17.75,
+              "height": 18.75,
               "paddingHorizontal": 7,
               "backgroundColor": "#ffffff0e"
             }
@@ -73609,14 +73609,14 @@
             "default": {
               "fontWeight": 500,
               "fontSize": 10.5,
-              "lineHeight": 15
+              "lineHeight": 14
             }
           },
           "dark": {
             "default": {
               "fontWeight": 500,
               "fontSize": 10.5,
-              "lineHeight": 15
+              "lineHeight": 14
             }
           }
         },
@@ -73637,14 +73637,14 @@
             "default": {
               "fontWeight": 500,
               "fontSize": 10.5,
-              "lineHeight": 15
+              "lineHeight": 14
             }
           },
           "dark": {
             "default": {
               "fontWeight": 500,
               "fontSize": 10.5,
-              "lineHeight": 15
+              "lineHeight": 14
             }
           }
         }
