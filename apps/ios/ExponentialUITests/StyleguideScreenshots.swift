@@ -1803,7 +1803,11 @@ final class StyleguideScreenshots: XCTestCase {
         // seeded question + the child's plan stay inline, not in the Dock).
         let chatSegment = anyElement(app, identified: "session-tabs-chat")
         expect(chatSegment, within: Wait.sync, "The session screen drew no Chat tab")
-        XCTAssertTrue(chatSegment.isHittable, "The Chat tab is off screen")
+        // On screen = inside the window: with the root's feed scrolled under
+        // the header band XCUITest stops calling the tab hittable, though it
+        // draws (and the Sessions tab below still takes its tap).
+        settle(1)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(chatSegment.frame), "The Chat tab is off screen")
         // #EXP-1732 (owner): the Chat tab = the ROOT's own session view
         // (its raw-work feed, its cards, THE Dock, THE composer); a child's
         // plan and question live in that child's session (the Sessions tab).
