@@ -33,5 +33,14 @@ export function withCurrentAuthPath(request: Request): Request {
   const current = currentAuthPath(url.pathname)
   if (!current) return request
   url.pathname = current
-  return new Request(url, request)
+  const hasBody = request.method !== `GET` && request.method !== `HEAD`
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    body: hasBody ? request.body : undefined,
+    redirect: request.redirect,
+    signal: request.signal,
+    // Required by undici for a streamed body (Bun ignores it).
+    ...(hasBody ? { duplex: `half` } : {}),
+  } as RequestInit)
 }

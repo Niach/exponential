@@ -338,6 +338,9 @@ const IDENTITY_PATHS = new Set([
   `/email-otp/request-email-change`,
   `/email-otp/change-email`,
   `/link-social`,
+  // 1.6's generic-OIDC link (gone in 1.7: OIDC links via /link-social);
+  // kept so a route that ever comes back stays refused to keys.
+  `/oauth2/link`,
   `/unlink-account`,
 ])
 

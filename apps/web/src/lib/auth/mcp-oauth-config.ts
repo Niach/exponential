@@ -22,10 +22,12 @@ import type { McpOptions } from "@better-auth/mcp"
 export const MCP_ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24
 export const MCP_REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 90
 
+// Better Auth's own fallback base when BETTER_AUTH_URL is unset (tests, a
+// bare boot smoke); every real deployment sets it.
+const DEFAULT_BASE_URL = `http://localhost:3000`
+
 function baseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const url = env.BETTER_AUTH_URL
-  if (!url) throw new Error(`BETTER_AUTH_URL must be set: it names the MCP OAuth resource`)
-  return url.replace(/\/$/, ``)
+  return (env.BETTER_AUTH_URL || DEFAULT_BASE_URL).replace(/\/$/, ``)
 }
 
 /** The RFC 8707 resource of the builtin MCP endpoint. */
