@@ -48,6 +48,7 @@ mod chat_actions;
 mod chat_list;
 mod chat_transcript;
 mod chat_screen;
+mod dawn_mark;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
 mod coding_readiness;
@@ -285,6 +286,8 @@ use gpui_component::dock::{panel_handle, register_panel};
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     eui_gpui::view::init(cx);
+    // #LOGS-5: Home is the landing screen; its dawn mark rasters meanwhile.
+    chat_screen::warm_dawn(cx);
     // Session 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
