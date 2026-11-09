@@ -999,8 +999,7 @@ mod tests {
             }
         }
         let shot = |text: &'static str| {
-            let platform = gpui_platform::current_platform(true);
-            let mut cx = HeadlessAppContext::with_platform(platform.text_system(), Arc::new(DiskAssets), gpui_platform::current_headless_renderer);
+                        let mut cx = HeadlessAppContext::with_platform(crate::test_text_system(), Arc::new(DiskAssets), gpui_platform::current_headless_renderer);
             cx.update(|cx| {
                 gpui_component::init(cx);
                 theme::init(cx);

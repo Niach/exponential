@@ -255,6 +255,21 @@ pub mod window_size;
 mod shell;
 mod shell_regions;
 mod local_desktops;
+/// The platform text system for headless test contexts. On macOS it is
+/// built alone: gpui-pre creates `MacPlatform` only on the process main
+/// thread, and libtest runs tests on worker threads.
+#[cfg(test)]
+pub(crate) fn test_text_system() -> std::sync::Arc<dyn gpui::PlatformTextSystem> {
+    #[cfg(target_os = "macos")]
+    {
+        std::sync::Arc::new(gpui_apple::AppleTextSystem::new())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        gpui_platform::current_platform(true).text_system()
+    }
+}
+
 #[cfg(test)]
 mod alert_gallery;
 #[cfg(test)]

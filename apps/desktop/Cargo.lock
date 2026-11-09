@@ -12662,6 +12662,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-markdown-editor",
  "gpui-pre",
+ "gpui-pre-apple",
  "gpui-pre-platform",
  "iana-time-zone",
  "image",
