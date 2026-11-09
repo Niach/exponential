@@ -611,3 +611,60 @@ fn overlay_anchor_cases_close_on_scroll_move_and_removal_like_the_reference() {
         assert_eq!(open(&mut s, &mut m), c["after"].as_bool().unwrap(), "{name}");
     }
 }
+
+/// #EXP-1629 keyRecorder at the core: what every painter sends for a step
+/// (`press`, `record` with the canonical payload, `blur`) and the guards the
+/// core keeps (a press only while idle; `record` and `blur` only while
+/// recording). The capture half (platform keys → payload, focus) replays in
+/// each painter.
+#[test]
+fn key_recorder_cases_start_record_and_stop_like_the_reference() {
+    let f = fixture();
+    let k = &f["keyRecorder"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(k["surface"].clone());
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        let flags = |mods: &Value| {
+            let held = |m: &str| mods.as_array().is_some_and(|a| a.iter().any(|x| x == m));
+            json!({"ctrl": held("ctrl"), "alt": held("alt"), "shift": held("shift"), "meta": held("meta")})
+        };
+        for step in c["steps"].as_array().unwrap() {
+            let field = s.nodes().iter().position(|n| n.id == "ptt.field").unwrap_or_else(|| panic!("{name}: no field")) as u32;
+            let (kind, value) = step.as_object().unwrap().iter().next().unwrap();
+            let out = match kind.as_str() {
+                "press" => s.event(field, "press", None),
+                "blur" => s.event(field, "blur", None),
+                "down" | "up" => {
+                    let mut p = flags(&step["mods"]);
+                    p["type"] = json!(kind);
+                    p["key"] = value.clone();
+                    s.event(field, "record", Some(p))
+                }
+                "modifiers" => {
+                    let mut p = flags(value);
+                    p["type"] = json!("modifiers");
+                    s.event(field, "record", Some(p))
+                }
+                "mouse" => {
+                    let button = value.as_u64().unwrap();
+                    let mut p = flags(&Value::Null);
+                    p["type"] = json!("mouse");
+                    p["button"] = json!(button);
+                    if (3..=5).contains(&button) { s.event(field, "record", Some(p)) } else { vec![] }
+                }
+                "hostWrite" => {
+                    s.set_data(value["path"].as_str().unwrap(), Some(value["value"].clone())).unwrap();
+                    vec![]
+                }
+                other => panic!("{name}: step {other}"),
+            };
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/recording").cloned().unwrap_or(Value::Null), c["recording"], "{name}: /recording");
+    }
+}

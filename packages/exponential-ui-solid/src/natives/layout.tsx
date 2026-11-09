@@ -5,7 +5,7 @@
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
 import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, TemplateItemView, latest, mergeStyle, templateItems, type NativeProps } from "../node-view"
@@ -21,14 +21,45 @@ export function BoxNative(props: NativeProps): JSX.Element {
   const onPointerEnter = () => {
     if (props.node.on?.hover) void props.emit(`hover`)
   }
+  // #EXP-1629: a KeyRecorder field, while its `recording` recipe prop (read
+  // live, the resolved `data-m-recording`) is on, takes every key and mouse
+  // buttons 3-5 as `record`; a press only starts it; leaving it = `blur`.
+  const recorder = () => isKeyRecorderField(props.node.recipe)
+  const recording = () => recorder() && (props.rootProps as Record<string, unknown>)[`data-m-recording`] === `true`
+  let field: HTMLDivElement | undefined
+  createEffect(() => {
+    if (recording() && field && document.activeElement !== field) field.focus()
+  })
   const press = (e?: MouseEvent) => {
     // #VAPP-284: a press target inside another (a foldable Row's fold
     // button in its head) fires only its own press.
     e?.stopPropagation()
+    if (recording()) return
     if (href()) ctx.openUrl(href())
     void props.emit(`press`)
   }
+  const record = (e: KeyboardEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const payload = keyRecorderKeyPayload(e)
+    if (payload) void props.emit(`record`, { ...payload })
+  }
+  const onMouseDown = (e: MouseEvent) => {
+    if (!recording() || e.button === 0 || e.button === 2) return
+    e.preventDefault()
+    e.stopPropagation()
+    const payload = keyRecorderMousePayload(e)
+    if (payload) void props.emit(`record`, { ...payload })
+  }
+  // The back / forward buttons' release would navigate; the middle one's click.
+  const swallowAux = (e: MouseEvent) => {
+    if (recording() && e.button !== 0 && e.button !== 2) e.preventDefault()
+  }
+  const onBlur = (e: FocusEvent) => {
+    if (recording() && !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) void props.emit(`blur`)
+  }
   const onKey = (e: KeyboardEvent) => {
+    if (recording()) return record(e)
     if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
@@ -54,7 +85,7 @@ export function BoxNative(props: NativeProps): JSX.Element {
   }
   return (
     <Show when={pressable()} fallback={<div {...props.rootProps} onPointerEnter={onPointerEnter}>{props.children}</div>}>
-      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter}>
+      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} ref={(el: HTMLDivElement) => (field = el)} {...(recorder() ? { onKeyUp: (e: KeyboardEvent) => recording() && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
         {props.children}
       </div>
     </Show>

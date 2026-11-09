@@ -1,6 +1,5 @@
 package com.exponential.app.ui.apps
 
-import android.util.Log
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,6 +25,8 @@ import at.exponential.engine.ffi.SyncTransport
 import at.exponential.engine.ffi.SyncedListener
 import at.exponential.engine.ffi.SyncedRecordStore
 import at.exponential.ui.json.JsonValue
+import com.exponential.app.NativeGuard
+import com.exponential.app.Observability
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
@@ -49,6 +50,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -93,7 +95,12 @@ class AppRecordOutbox @Inject constructor(
     private val health: SyncHealthTracker,
     private val sync: SyncManager,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // A failure no call site caught is reported, never the crash handler's.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> Observability.nonFatal(TAG, "outbox job failed", e) },
+    )
+    /** The Engine (`eengine-ffi`): its `.so` loads with the first store; off = no outbox, the app keeps running. */
+    internal val engine = NativeGuard("Engine")
     /** Each account's store over the database it opened on (a new database = a new queue). */
     private val stores = HashMap<String, Pair<ExponentialDatabase, SyncedRecordStore>>()
     private val refusalChannel = Channel<Refusal>(Channel.BUFFERED)
@@ -144,6 +151,10 @@ class AppRecordOutbox @Inject constructor(
 
     private fun signedIn(): Set<String> = auth.accounts.value.filter { it.token != null }.map { it.id }.toSet()
 
+    /** [block] on [account]'s store; null = the Engine is off or the call failed (the next trigger retries). */
+    private fun <T> withStore(account: String, what: String, block: (SyncedRecordStore) -> T): T? =
+        engine.call(what) { block(store(account)) }
+
     private fun store(account: String): SyncedRecordStore {
         val db = holder.database(account)
         synchronized(stores) {
@@ -157,7 +168,8 @@ class AppRecordOutbox @Inject constructor(
     /** Queue one host call (`records_upsert` | `records_delete` | `records_batch`):
      *  alone in the queue it awaits its first outcome, else it answers at once. */
     suspend fun submit(account: String, app: String, function: String, args: Map<String, JsonValue>): Answer = withContext(Dispatchers.IO) {
-        when (val answer = store(account).submitCall(app, function, JsonValue.Obj(args).json, true)) {
+        when (val answer = withStore(account, "submit") { it.submitCall(app, function, JsonValue.Obj(args).json, true) }) {
+            null -> Answer.Refused(null)
             is Submitted.Done -> Answer.Done(jsonValue(answer.answerJson))
             is Submitted.Refused -> Answer.Refused(answer.message, answer.invalid)
             is Submitted.Queued -> {
@@ -172,25 +184,15 @@ class AppRecordOutbox @Inject constructor(
     }
 
     /** Replay [account]'s pending entries, oldest first, until one must retry. */
-    suspend fun flush(account: String) = withContext(Dispatchers.IO) {
-        try {
-            store(account).flush()
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            // A closed (signed-out / switched) account's database: the next trigger retries.
-            Log.w("AppRecordOutbox", "flush failed: ${e.message}")
-        }
+    suspend fun flush(account: String) {
+        // A closed (signed-out / switched) account's database: the next trigger retries.
+        withContext(Dispatchers.IO) { withStore(account, "flush") { it.flush() } }
     }
 
     /** The synced [rows] of [app] a binding read: acked entries they reflect (or past the grace) leave. */
     fun reflect(account: String, app: String, rows: List<AppRecords.Row>) {
         scope.launch {
-            try {
-                store(account).setRows(app, Json.encodeToString(JsonArray.serializer(), JsonArray(rows.map(::rowJson))))
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                Log.w("AppRecordOutbox", "prune failed: ${e.message}")
-            }
+            withStore(account, "prune") { it.setRows(app, Json.encodeToString(JsonArray.serializer(), JsonArray(rows.map(::rowJson)))) }
         }
     }
 
@@ -235,6 +237,10 @@ class AppRecordOutbox @Inject constructor(
                     }.toString()
                     else -> """{"transport":true}"""
                 }
+            } catch (e: Throwable) {
+                // An Error on the Engine's flusher thread: a transport failure (retried), never a crash.
+                Observability.nonFatal(TAG, "outbox push failed", e)
+                """{"transport":true}"""
             }
         }
     }
@@ -248,6 +254,8 @@ class AppRecordOutbox @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "AppRecordOutbox"
+
         /** The entries of [appId] in [db], oldest first. */
         fun entries(db: ExponentialDatabase, appId: String): Flow<List<AppRecords.OutboxEntry>> =
             db.appRecordOutboxDao().observeByApp(appId).map { rows -> rows.map(::entryOf) }

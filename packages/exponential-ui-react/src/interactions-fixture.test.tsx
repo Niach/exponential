@@ -15,6 +15,7 @@ import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
+import { keyRecorderCode } from "@exponential_app/eui/web"
 
 afterEach(() => cleanup())
 
@@ -612,6 +613,71 @@ describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.
         else fireEvent.click(box(s.press))
       }
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})
+
+// #EXP-1629 keyRecorder: a press while idle starts recording (`start` +
+// recording true), then every key and mouse buttons 3-5 go to `key`; blur
+// stops it; a host write of recording false stops it silently.
+type KeyRecorderMod = `ctrl` | `alt` | `shift` | `meta`
+interface KeyRecorderStep {
+  press?: boolean
+  down?: string
+  up?: string
+  mods?: KeyRecorderMod[]
+  modifiers?: KeyRecorderMod[]
+  mouse?: number
+  blur?: boolean
+  hostWrite?: { path: string; value: unknown }
+}
+interface KeyRecorderCase {
+  name: string
+  steps: KeyRecorderStep[]
+  events: { name: string; context: Record<string, unknown> }[]
+  recording: boolean | null
+}
+const keyRecorderFixture = (fixture as unknown as { keyRecorder: { surface: NestedNode; cases: KeyRecorderCase[] } }).keyRecorder
+const MOD_CODES: Record<KeyRecorderMod, string> = { ctrl: `ControlLeft`, alt: `AltLeft`, shift: `ShiftLeft`, meta: `MetaLeft` }
+const DOM_BUTTON: Record<number, number> = { 1: 0, 2: 2, 3: 1, 4: 3, 5: 4 }
+const modFlags = (mods: readonly KeyRecorderMod[]) => ({ ctrlKey: mods.includes(`ctrl`), altKey: mods.includes(`alt`), shiftKey: mods.includes(`shift`), metaKey: mods.includes(`meta`) })
+
+function KeyRecorderSurface({ onState, onAction }: { onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `kr`, data: {}, initial: keyRecorderFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="kr" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json keyRecorder`, () => {
+  for (const c of keyRecorderFixture.cases) {
+    it(`keyRecorder: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<KeyRecorderSurface onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const field = () => container.querySelector(`[data-xui-id="ptt.field"]`) as HTMLElement
+      let held: KeyRecorderMod[] = []
+      for (const s of c.steps) {
+        if (s.press) fireEvent.click(field())
+        else if (s.down !== undefined) fireEvent.keyDown(field(), { code: keyRecorderCode(s.down), key: s.down, ...modFlags(s.mods ?? []) })
+        else if (s.up !== undefined) fireEvent.keyUp(field(), { code: keyRecorderCode(s.up), key: s.up, ...modFlags(s.mods ?? []) })
+        else if (s.modifiers) {
+          // One platform modifier-change event: a keydown of an added key, else a keyup of a released one.
+          const added = s.modifiers.find((m) => !held.includes(m))
+          const released = held.find((m) => !s.modifiers!.includes(m))
+          const flags = modFlags(s.modifiers)
+          if (added) fireEvent.keyDown(field(), { code: MOD_CODES[added], key: added, ...flags })
+          else if (released) fireEvent.keyUp(field(), { code: MOD_CODES[released], key: released, ...flags })
+          held = s.modifiers
+        } else if (s.mouse !== undefined) fireEvent.mouseDown(field(), { button: DOM_BUTTON[s.mouse] })
+        else if (s.blur) fireEvent.blur(field())
+        else if (s.hostWrite) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `kr`, path: s.hostWrite!.path, value: s.hostWrite!.value } }))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect((state.data as Record<string, unknown>).recording ?? null).toBe(c.recording)
+      if (c.recording !== null) expect(field().getAttribute(`aria-pressed`)).toBe(String(c.recording))
+      if (c.recording) expect(document.activeElement).toBe(field())
     })
   }
 })

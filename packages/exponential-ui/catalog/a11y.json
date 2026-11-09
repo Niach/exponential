@@ -559,6 +559,14 @@
         "ArrowDown: open the suggestions (as Select)"
       ]
     },
+    "KeyRecorder": {
+      "role": "group",
+      "notes": "field = button named `label`, aria-pressed while recording; the error line is an alert",
+      "keys": [
+        "Enter, Space: start recording",
+        "While recording every key, modifier change and mouse button 3-5 goes to `key`; Tab and Escape included (the host decides)"
+      ]
+    },
     "DatePicker": {
       "role": "combobox",
       "notes": "combobox opening a dialog with a grid of days",
