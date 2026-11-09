@@ -12577,7 +12577,7 @@
     ]
   },
   "Embed\/example" : {
-    "height" : 0,
+    "height" : 32,
     "nodes" : [
       {
         "component" : "Embed",
@@ -12585,7 +12585,7 @@
           0,
           0,
           390,
-          0
+          32
         ],
         "id" : "embed"
       }
