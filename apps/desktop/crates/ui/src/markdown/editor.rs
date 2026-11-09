@@ -2409,6 +2409,7 @@ fn render_editor_preview(
 
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MarkdownEditor").entered();
         if self.preview_when_blurred
             && self.typeahead.is_none()
             && self.link_editor.is_none()
@@ -2755,6 +2756,7 @@ mod tests {
         }
         impl Render for Host {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 div().size_full().children(
                     self.image
                         .clone()
@@ -2931,6 +2933,7 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 div().size_full().child(
                     MarkdownView::new(
                         SharedString::from("pill-paint-test"),

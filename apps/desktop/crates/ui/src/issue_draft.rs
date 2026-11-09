@@ -496,6 +496,7 @@ impl IssueDraft {
 /// The entity never paints itself — the host arranges [`Self::chips`].
 impl Render for IssueDraft {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueDraft").entered();
         div()
     }
 }

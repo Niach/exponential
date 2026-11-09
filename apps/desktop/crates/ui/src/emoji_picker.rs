@@ -237,6 +237,7 @@ fn push_cells(rows: &mut Vec<GridRow>, indices: &[usize]) {
 
 impl Render for EmojiPicker {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "EmojiPicker").entered();
         let row_count = self.rows.len();
         v_flex()
             .key_context("EmojiPicker")

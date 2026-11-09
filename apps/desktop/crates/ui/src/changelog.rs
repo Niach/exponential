@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-desktop-diagnostics",
+    date: "2026-11-09",
+    title: "Send diagnostics, your choice",
+    summary: "The desktop app and the CLI send crash and performance diagnostics through our own servers, with your user id only; turn it off in Settings → Account → Privacy.",
+    body: r#"- **Diagnostics**: the desktop app and the `exponential` CLI send crash reports and performance traces, so we can find what makes the app slow. They only ever go through our own servers, carry your user id and nothing else, and are deleted after 30 days.
+- **Send diagnostics**: switch it off in Settings → Account → Privacy; for the CLI, set `EXP_DIAGNOSTICS=0` or run `exponential diagnostics off`."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_235: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-send-diagnostics",
     date: "2026-11-09",
     title: "Crash and performance diagnostics on the web",
@@ -54,6 +65,11 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Only to our own servers**: reports go through Exponential to our self-hosted error tracker in Germany, carry your user id and never your name or email, and are deleted after 30 days.
 - **Privacy policy**: it says what diagnostics collect, why, and for how long.
 - **Send diagnostics**: Settings → Account → Privacy on the web turns it off in this browser."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_234: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-exponential-desktop-diagnostics",
     date: "2026-11-09",
     title: "Exponential Desktop diagnostics, through our servers",
@@ -61,6 +77,11 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     body: r#"- **Diagnostics through our servers**: Exponential Desktop reports crashes, errors and slow frames only through your Exponential server, never straight to a third party. Reports carry your user id and nothing else about you (no email, name or IP address), and are deleted after 30 days.
 - **Send diagnostics**: Settings → About has a switch to turn it off, or start with `EXP_DIAGNOSTICS=0`.
 - **Settings stick again**: settings like the keyboard layout are no longer ignored after you pick a theme."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_233: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-ios-crash-reports",
     date: "2026-11-09",
     title: "Crash reports from iPhone",

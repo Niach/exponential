@@ -427,6 +427,7 @@ impl ServerCard {
 
 impl Render for ServerCard {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ServerCard").entered();
         use crate::getting_started::copy as gs;
         let mut card = card_shell()
             .child(card_header(registry::UI_SERVER, gs::SERVER_TITLE))

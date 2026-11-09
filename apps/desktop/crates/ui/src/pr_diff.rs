@@ -173,6 +173,7 @@ impl Focusable for PrDiffView {
 
 impl Render for PrDiffView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "PrDiffView").entered();
         let files = self.pane_files(cx);
         let selected = self.selected;
         crate::diff_pane::render(

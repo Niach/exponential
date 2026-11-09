@@ -29,6 +29,7 @@ fn key(devices: &[&'static str]) -> u64 {
 
 impl Render for Scene {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Scene").entered();
         let devices = self.devices.clone();
         let menu = crate::controls::PointerMenu::new(
             "plus-menu",

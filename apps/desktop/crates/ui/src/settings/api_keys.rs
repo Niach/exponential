@@ -733,6 +733,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
 
 impl Render for ApiKeysPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ApiKeysPane").entered();
         self.ensure_loaded(cx);
         let projection = self.project();
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));

@@ -933,6 +933,7 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsView").entered();
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -1258,6 +1259,7 @@ impl SettingsNavPanel {
 
 impl Render for SettingsNavPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);

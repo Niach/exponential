@@ -752,6 +752,7 @@ impl FileTreeView {
 
 impl Render for FileTreeView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "FileTreeView").entered();
         let scope_before = self.repository_id.clone();
         self.ensure_loaded(cx);
         // EXP-288: a repo-scope change invalidates the file selection (the

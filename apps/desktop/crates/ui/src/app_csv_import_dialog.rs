@@ -404,6 +404,7 @@ impl AppCsvImportView {
 
 impl Render for AppCsvImportView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AppCsvImportView").entered();
         if !self.focused {
             self.focused = true;
             self.text.update(cx, |state, cx| state.focus(window, cx));

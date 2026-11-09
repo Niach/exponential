@@ -639,6 +639,7 @@ impl Engine {
     /// Load a package file (`{package, signature?}`) or a bare package:
     /// verify its signature, validate it, reconcile its grants.
     pub fn load(self: Arc<Self>, file_json: String) -> Result<Arc<AppInstance>, EngineError> {
+        let _span = tracing::debug_span!("eengine_ffi.load", bytes = file_json.len()).entered();
         let file = parse("file", &file_json)?;
         match eengine::AppInstance::load(self.config.clone(), &file) {
             Ok(instance) => Ok(Arc::new(AppInstance { engine: self.clone(), inner: Mutex::new(instance) })),
@@ -892,6 +893,7 @@ impl AppInstance {
     /// Open, persist and flush are carried out; answers every effect (JSON
     /// array: sources and automations are the host's).
     pub fn event(&self, event_json: String) -> Result<String, EngineError> {
+        let _span = tracing::debug_span!("eengine_ffi.event").entered();
         let event: LifecycleEvent = serde_json::from_str(&event_json).map_err(|e| invalid(format!("event: {e}")))?;
         Ok(self.with(|i| text(&i.event(&event))))
     }
@@ -907,6 +909,7 @@ impl AppInstance {
     /// (`<capability>.<tool>`, through the broker). `newIds` = the client
     /// ids of the creates, in order.
     pub fn call(&self, name: String, args_json: String, new_ids: Vec<String>) -> Result<CallResult, EngineError> {
+        let _span = tracing::debug_span!("eengine_ffi.call", name = name.as_str()).entered();
         let args = parse("args", &args_json)?;
         Ok(self.with(|i| i.call(&name, &args, &new_ids)).into())
     }

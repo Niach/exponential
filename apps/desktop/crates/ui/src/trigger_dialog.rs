@@ -311,6 +311,7 @@ impl TriggerDialogView {
 
 impl Render for TriggerDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "TriggerDialogView").entered();
         self.fit_window(window, cx);
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());

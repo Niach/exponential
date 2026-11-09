@@ -158,6 +158,7 @@ fn document(ink: &Ink) -> Value {
 
 impl Render for SessionsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionsPane").entered();
         self.ensure_loaded(cx);
         let projection = json!({"label": choice_label(self.days).to_string(), "value": choice_value(self.days)});
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
