@@ -87,6 +87,9 @@ pub(crate) struct RowFacts<'a> {
     /// Conversation cards ride it (anchored to its calls, or the head cards
     /// over the first row): it stays the IDE's row.
     pub cards: bool,
+    /// #EXP-1756: a person's prompt carries its `HH:mm` (epoch ms); the
+    /// agent's narration none.
+    pub at: Option<i64>,
 }
 
 /// A prompt the document's bubble shows as the IDE did: no picture
@@ -129,7 +132,10 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
         author: if own { "user" } else { "agent" }.to_string(),
         body,
         name: facts.layout.filter(|layout| layout.name).and(sender).map(TranscriptSender::display_name),
-        time: String::new(),
+        time: match facts.content {
+            RowContent::Prompt(_) => facts.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
+            _ => String::new(),
+        },
         queued: false,
         group: Some(ChatGroup {
             side: Some(if own { "out" } else { "in" }.to_string()),
@@ -293,7 +299,12 @@ impl ChatTranscript {
         // The FOLLOW and the reader's place (paging, rows measured above
         // them) are the document's, settled in the frame it lays out; the
         // paging sentinel is never the reader's row.
-        view.update(cx, |view, cx| view.keep_list_place(SCROLL, true, 1, cx));
+        // A short transcript ends right above THE Dock (the old gpui list
+        // sat at the pane's bottom), a long one scrolls.
+        view.update(cx, |view, cx| {
+            view.keep_list_place(SCROLL, true, 1, cx);
+            view.anchor_list_end(SCROLL, true, cx);
+        });
         {
             let mut state = self.state.borrow_mut();
             state.steer = Some(steer);
@@ -548,18 +559,15 @@ pub(crate) fn document() -> uicore_gpui::inline::Document {
         uicore_gpui::inline::set_style(&mut doc, "chat", key, Value::Null);
     }
     uicore_gpui::inline::set_prop(&mut doc, SCROLL, "style", json!({"flexGrow": 1, "minHeight": 0, "width": "100%", "overflowY": "auto"}));
-    uicore_gpui::inline::set_prop(
-        &mut doc,
-        "chat_row",
-        "style",
-        json!({
-            "width": "100%",
-            "maxWidth": crate::work_header::CHAT_COLUMN_W,
-            "alignSelf": "center",
-            "paddingLeft": crate::work_header::WORK_GUTTER,
-            "paddingRight": crate::work_header::WORK_GUTTER,
-        }),
-    );
+    for (key, value) in [
+        ("width", json!("100%")),
+        ("maxWidth", json!(crate::work_header::CHAT_COLUMN_W)),
+        ("alignSelf", json!("center")),
+        ("paddingLeft", json!(crate::work_header::WORK_GUTTER)),
+        ("paddingRight", json!(crate::work_header::WORK_GUTTER)),
+    ] {
+        uicore_gpui::inline::set_style(&mut doc, "chat_row", key, value);
+    }
     doc
 }
 
@@ -797,7 +805,7 @@ mod tests {
     }
 
     fn facts<'a>(content: RowContent<'a>, layout: Option<&'a TranscriptRowLayout>, gap: f32, cards: bool) -> RowFacts<'a> {
-        RowFacts { key: "r7", content, layout, gap, cards }
+        RowFacts { key: "r7", content, layout, gap, cards, at: None }
     }
 
     #[test]
@@ -846,6 +854,20 @@ mod tests {
         assert!(host(chat_row(&facts(RowContent::Prompt(&long), None, 12., false))));
         let picture = steer::build_steer_image_message("Look", &["a1".to_string()]);
         assert!(host(chat_row(&facts(RowContent::Prompt(&picture), None, 12., false))));
+    }
+
+    /// #EXP-1756: a person's bubble carries its `HH:mm`, the agent's
+    /// narration none.
+    #[test]
+    fn a_prompt_carries_its_time() {
+        let at = 1_762_700_000_000;
+        let prompt = RowFacts { at: Some(at), ..facts(RowContent::Prompt("Ship it"), None, 0., false) };
+        let ChatRowInput::Message { time, .. } = chat_row(&prompt) else { panic!("a bubble") };
+        assert_eq!(time, crate::session_chat::clock_ms(at));
+        assert!(!time.is_empty());
+        let narration = RowFacts { at: Some(at), ..facts(RowContent::Narration("Done."), None, 0., false) };
+        let ChatRowInput::Message { time, .. } = chat_row(&narration) else { panic!("a bubble") };
+        assert!(time.is_empty());
     }
 
     #[test]

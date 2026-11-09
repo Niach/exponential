@@ -29,6 +29,11 @@ pub(crate) struct KeepPlace {
     anchor: Option<(String, f32)>,
     /// The offset the last frame settled at (`None` = the reader moved it).
     settled: Option<f32>,
+    /// Rows that do not fill the viewport sit at its END (a chat's short
+    /// transcript ends right above its composer), not at its top.
+    end: bool,
+    /// The space above the first row this frame (`end` only).
+    slack: f32,
 }
 
 impl SurfaceView {
@@ -45,6 +50,27 @@ impl SurfaceView {
             keep.settled = None;
             cx.notify();
         }
+    }
+
+    /// #EDE-65 lane O: the kept List `id`'s rows, when they do not fill its
+    /// viewport, sit at its end (paint only: the slack goes above the first
+    /// row; a list that overflows scrolls as before).
+    pub fn anchor_list_end(&mut self, id: &str, end: bool, cx: &mut Context<Self>) {
+        let keep = self.keeps.entry(id.to_string()).or_default();
+        if keep.end != end {
+            keep.end = end;
+            cx.notify();
+        }
+    }
+
+    /// The space above the end-anchored List `index`'s first row (0 when it
+    /// is not, or its rows fill it).
+    pub(crate) fn end_slack(&self, index: u32) -> f32 {
+        if self.keeps.is_empty() {
+            return 0.0;
+        }
+        let Some(node) = self.cache.node(index) else { return 0.0 };
+        self.keeps.get(&node.id).filter(|keep| keep.end).map_or(0.0, |keep| keep.slack)
     }
 
     /// Whether the kept List `id` follows its end (`None` = not kept).
@@ -167,9 +193,16 @@ impl SurfaceView {
                 (skip..keys.len()).find(|&pos| tops[pos + 1] > offset + 0.5).map(|pos| (keys[pos].clone(), tops[pos] - offset))
             })
         };
+        // The rows' own extent (the scroll's content is never shorter than
+        // its viewport): what an end-anchored list leaves above them.
+        let slack = match (self.keeps.get(id).is_some_and(|keep| keep.end), self.scroll_extent(id)) {
+            (true, Some((_, viewport, _))) => self.surface.list_rows(id).and_then(|(_, tops)| tops.last().copied()).map_or(0.0, |rows| (viewport - rows).max(0.0)),
+            _ => 0.0,
+        };
         if let Some(keep) = self.keeps.get_mut(id) {
             keep.settled = Some(offset);
             keep.anchor = anchor;
+            keep.slack = slack;
         }
     }
 }

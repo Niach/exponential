@@ -389,7 +389,9 @@ impl SurfaceView {
         // Children: the content origin shifts by the scroll offset.
         let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
-        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0), dim: child_dim };
+        // #EDE-65 lane O: an end-anchored List's short rows sit at its end.
+        let slack = self.end_slack(index);
+        let mut child_place = Place { origin: (f.x + sx, f.y + sy - slack), abs, clip, scale: ps, shift: (0.0, 0.0), dim: child_dim };
         let mut kids_shown = true;
         if n.component == "VoiceWave" && !leaf && natives::voice_wave_is_bars(&n.props) {
             // VAPP-162: the `bars` meter has no child (it stays in the tree,

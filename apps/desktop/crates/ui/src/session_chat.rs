@@ -4652,6 +4652,15 @@ mod tests {
         assert!(f32::from(bounds.size.height) > 0., "the host row has its height");
         let measured = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().read(cx).chat_transcript().host_height(&id));
         assert!(measured.is_some_and(|height| height > 0.), "the host measured its row: {measured:?}");
+        // The row's own content PAINTED inside the frame the document gave it
+        // (a host row whose element failed or was clipped away left its
+        // space blank).
+        let key = id.strip_prefix("chat_row_host.").expect("a host id");
+        let selector: &'static str = Box::leak(format!("chat-host-row.{key}").into_boxed_str());
+        let content = cx.debug_bounds(selector).expect("the host row's content paints");
+        assert!(f32::from(content.size.height) > 0., "{content:?}");
+        assert!((f32::from(content.origin.y) - f32::from(bounds.origin.y)).abs() < 1., "it paints in its frame: {content:?} vs {bounds:?}");
+        assert!(f32::from(content.size.height) <= f32::from(bounds.size.height) + 0.5, "inside its frame: {content:?} vs {bounds:?}");
     }
 
     /// #VAPP-258 (#EDE-65 lane O): the live reply (the run's last item, a
@@ -5277,5 +5286,100 @@ mod tests {
         for option in domain::ask_dock::plan_options() {
             assert!(!option.label.to_lowercase().contains("thread"), "{}", option.label);
         }
+    }
+
+    /// #EDE-65 lane O: the Chat tab drawn HEADLESS under the platform's real
+    /// text system, one picture (the inner loop for its look). Run with
+    /// `EXP_CHAT_SHOTS=/tmp/chat cargo test -p ui -- --ignored chat_tab_picture --nocapture`.
+    #[test]
+    #[ignore]
+    fn chat_tab_picture() {
+        use std::sync::Arc;
+        use sync::ShapeRow as _;
+        let dir = std::env::var("EXP_CHAT_SHOTS").expect("EXP_CHAT_SHOTS = the output folder");
+        let mut cx = gpui::HeadlessAppContext::with_platform(
+            crate::test_text_system(),
+            Arc::new(gpui_component_assets::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1", "team_id": "t1", "root_id": "r1", "agent_id": "ag1", "status": "idle", "shared": true,
+                "title": "Triage",
+                "created_at": "2026-11-04T09:00:00.000Z", "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |c, cx| {
+                c.seed(root.key(), root);
+                cx.notify();
+            });
+            let agent: domain::rows::AgentDefRow = serde_json::from_value(serde_json::json!({
+                "id": "ag1", "team_id": "t1", "name": "Triage", "icon": "bug", "color": "#a855f7",
+            }))
+            .unwrap();
+            collections.agents.update(cx, |c, cx| {
+                c.seed(agent.key(), agent);
+                cx.notify();
+            });
+            let board: domain::rows::Board = serde_json::from_value(serde_json::json!({"id": "b1", "team_id": "t1", "name": "Product Feedback", "slug": "fb", "prefix": "FB", "sort_order": 0})).unwrap();
+            collections.boards.update(cx, |c, cx| {
+                c.seed(board.key(), board);
+                cx.notify();
+            });
+            for (id, n, title) in [("i3", 3, "Syntax highlighting ships every language in the editor bundle"), ("i8", 8, "Editor takes seconds to open on older phones"), ("i9", 9, "Screenshots attached to feedback are cut off on Android")] {
+                let issue: domain::rows::Issue = serde_json::from_value(serde_json::json!({"id": id, "board_id": "b1", "number": n, "identifier": format!("FB-{n}"), "title": title, "status": "backlog"})).unwrap();
+                collections.issues.update(cx, |c, cx| {
+                    c.seed(issue.key(), issue);
+                    cx.notify();
+                });
+            }
+        });
+        let long = vec![
+            steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+            steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Check Product Feedback for new widget reports.")),
+            steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_list", Some("Product Feedback · 2 new".into()))),
+            steer::ViewerEvent::Activity(3, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_get", Some("FB-8".into()))),
+            steer::ViewerEvent::Activity(4, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_get", Some("FB-9".into()))),
+            steer::ViewerEvent::Activity(5, steer::ActivityEvent::narration("Two new widget reports on Product Feedback.\nFB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:")),
+            steer::ViewerEvent::Activity(6, steer::ActivityEvent::tool("mcp__exponential__exponential_sessions_send", Some("Sort today's widget reports".into()))),
+            steer::ViewerEvent::Activity(7, steer::ActivityEvent::user_message("Message from Release (session s9): The 2.4 build is green, ship it?")),
+            steer::ViewerEvent::Activity(8, steer::ActivityEvent::user_message("Label the Android ones too, and check the board every hour.")),
+            steer::ViewerEvent::Activity(9, steer::ActivityEvent::tool("Grep", Some("subscribeShapes( · 6 matches across 3 files".into()))),
+            steer::ViewerEvent::Activity(10, steer::ActivityEvent::narration("Done, 3 issues labelled android.")),
+        ];
+        let short = vec![
+            steer::ViewerEvent::Phase(steer::ViewerPhase::Live),
+            steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Label the Android ones too, and check the board every hour.")),
+            steer::ViewerEvent::Activity(2, steer::ActivityEvent::tool("mcp__exponential__exponential_issues_list", Some("search: android · 3 issues".into()))),
+            steer::ViewerEvent::Activity(3, steer::ActivityEvent::narration("Done, 3 issues labelled android. The board now carries the android label on every report that names a phone, and the hourly check runs from the next full hour on, so a new report never waits longer than an hour.")),
+        ];
+        for (name, events) in [("chat-tab-long", long), ("chat-tab-short", short)] {
+            let window = cx
+                .open_window(gpui::size(gpui::px(1100.), gpui::px(760.)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
+                .expect("a headless window");
+            let view = window.root(&mut cx).expect("the view");
+            cx.update_window(window.into(), |_, _, cx| {
+                let inner = view.read(cx).root_view.read(cx).inner().clone();
+                inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
+            })
+            .expect("events");
+            for _ in 0..6 {
+                cx.update_window(window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .expect("a frame draws");
+                cx.run_until_parked();
+            }
+            let shot = cx.capture_screenshot(window.into()).expect("a capture");
+            shot.save(format!("{dir}/{name}.png")).expect("saved");
+        }
+        std::mem::forget(cx);
     }
 }

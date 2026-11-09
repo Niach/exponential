@@ -207,3 +207,29 @@ fn rows_loading_above_keep_the_readers_row_in_place(cx: &mut TestAppContext) {
     assert!(now.is_some_and(|now| (now - y).abs() < 0.5), "{reader} never drifts after: {y} → {now:?}");
     assert!((f32::from(painted(&view, cx, &reader).origin.y - painted_y)).abs() < 0.5, "painted where it was");
 }
+
+/// #EDE-65 lane O: an end-anchored List whose rows do not fill it paints
+/// them at its end (the last row's bottom on the list's), a list that
+/// overflows scrolls as before; without the anchor they sit at its top.
+#[gpui::test]
+fn short_rows_of_an_end_anchored_list_sit_at_its_end(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx, rows(0..2));
+    settle(cx);
+    let list = painted(&view, cx, "feed");
+    assert!((painted(&view, cx, "leaf.k0").origin.y - list.origin.y).abs() < px(0.5), "top-anchored by default");
+    view.update(cx, |v, cx| {
+        v.keep_list_place("feed", true, 0, cx);
+        v.anchor_list_end("feed", true, cx);
+    });
+    settle(cx);
+    let last = painted(&view, cx, "leaf.k1");
+    assert!((last.bottom() - list.bottom()).abs() < px(0.5), "the last row ends at the list's end: {last:?} vs {list:?}");
+    let first = painted(&view, cx, "leaf.k0");
+    assert!(first.origin.y > list.origin.y + px(100.0), "the slack sits above the first row: {first:?}");
+    // Rows that overflow it: no slack, the list follows its end.
+    view.update(cx, |v, cx| v.set_data("/rows", Some(rows(0..30)), cx).unwrap());
+    settle(cx);
+    assert!(at_end(&view, cx));
+    let last = painted(&view, cx, "leaf.k29");
+    assert!((last.bottom() - list.bottom()).abs() < px(0.5), "{last:?} vs {list:?}");
+}

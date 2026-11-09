@@ -1870,7 +1870,14 @@ impl SteerSessionView {
                 });
                 let row_key = row_key(key.id);
                 let layout = spec.and_then(|_| self.row_layout(ix));
-                let row = chat_row(&RowFacts { key: &row_key, content, layout, gap: f32::from(self.row_gap(ix)), cards });
+                let at = match spec {
+                    Some(FeedRowSpec::Single { item, .. }) => match items.get(*item).map(|item| &item.kind) {
+                        Some(FeedKind::UserMessage { at, .. }) => *at,
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let row = chat_row(&RowFacts { key: &row_key, content, layout, gap: f32::from(self.row_gap(ix)), cards, at });
                 match &row {
                     uicore_model::chat::ChatRowInput::Host { .. } => {
                         host_rows.insert(host_id(&row_key), HostRow::List { ix, fingerprint: key.fingerprint });
@@ -5473,7 +5480,15 @@ impl SteerSessionView {
     pub(crate) fn chat_host_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let gap = self.row_gap(ix);
         let element = self.render_list_row(ix, window, cx);
-        div().w_full().min_w_0().pt(gap).child(element).into_any_element()
+        // Tests find the row the document painted by its row key.
+        let key = self.row_keys.get(ix).map(|key| crate::chat_tab_transcript::row_key(key.id)).unwrap_or_default();
+        div()
+            .w_full()
+            .min_w_0()
+            .pt(gap)
+            .debug_selector(move || format!("chat-host-row.{key}"))
+            .child(element)
+            .into_any_element()
     }
 
     /// EXP-783 (#EDE-65 lane O: the document's paging row painted): the
