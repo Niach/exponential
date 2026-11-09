@@ -47,6 +47,11 @@ upstream carries them).
 - #EXP-1752, an open menu updates live: `src/menu/popup_menu.rs`
   `PopupMenu::refresh` is `rebuild` keeping the selected row (and so the
   open submenu) when the rebuilt menu still has it.
+- #EXP-1629, one spinner: `src/spinner.rs` `Spinner::new()` draws the arc
+  (`IconName::LoaderCircle`) on a linear 0.8 s turn, genUI's `Spinner` and
+  the IDE's `controls::spinner`, instead of the spoked `Loader` easing in
+  and out. A `Button::loading(true)` draws it in its icon slot
+  (`src/button/button_icon.rs`), so a pending pill spins the same arc.
 - Packaging only: dropped `tests/` (and the manifest's `[[test]]` entry that
   pointed into it), `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`.
   No other source is modified.

@@ -1,7 +1,7 @@
 use crate::{Icon, IconName, Sizable, Size};
 use gpui::{
     Animation, AnimationExt as _, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled as _,
-    Transformation, Window, div, ease_in_out, percentage, prelude::FluentBuilder as _,
+    Transformation, Window, div, linear, percentage, prelude::FluentBuilder as _,
 };
 use instant::Duration;
 
@@ -17,19 +17,23 @@ pub struct Spinner {
 
 impl Spinner {
     /// Create a new loading spinner.
+    ///
+    /// Exponential patch (#EXP-1629): the arc (`LoaderCircle`) on one linear
+    /// turn per 0.8 s, genUI's `Spinner` and the IDE's `controls::spinner`,
+    /// instead of upstream's spoked `Loader` easing in and out.
     pub fn new() -> Self {
         Self {
             size: Size::Medium,
             speed: Duration::from_secs_f64(0.8),
-            easing: Box::new(ease_in_out),
-            icon: Icon::new(IconName::Loader),
+            easing: Box::new(linear),
+            icon: Icon::new(IconName::LoaderCircle),
             color: None,
         }
     }
 
     /// Set specified icon for the spinner.
     ///
-    /// Default is [`IconName::Loader`].
+    /// Default is [`IconName::LoaderCircle`].
     ///
     /// Please ensure the icon used is suitable for a loading spinner.
     pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
