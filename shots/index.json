@@ -3409,8 +3409,8 @@
         "file": "shots/exponential-ui-icon/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14688,
-        "sha256": "3a31b93e0d2012a12699fd90e51e43ceaeb191c3f8075cae8e7aad2738a1699d"
+        "bytes": 14548,
+        "sha256": "a5e230b6e32d9b736ab07c5ad043cf0f70dd931c9d266a1ccb10aca800b6f175"
       },
       "web": {
         "file": "shots/exponential-ui-icon/web.webp",
