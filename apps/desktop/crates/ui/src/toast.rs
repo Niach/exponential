@@ -468,6 +468,7 @@ fn phase(now: Instant, since: Option<Instant>, duration: Duration, ease: impl Fn
 
 impl Render for ToastLayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ToastLayer").entered();
         if self.manager.is_empty() {
             return div().into_any_element();
         }
@@ -765,6 +766,7 @@ mod tests {
 
     impl Render for Host {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Host").entered();
             div().relative().size_full().child(self.layer.clone())
         }
     }

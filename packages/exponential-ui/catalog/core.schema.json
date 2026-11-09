@@ -14,7 +14,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "A styled container laid out by the whitelisted style object; what every macro expands into. `on.hover` fires when the pointer enters it.",
+      "description": "Container laid out by the whitelisted style object; every macro expands into it. `on.hover` fires on pointer enter.",
       "properties": {
         "component": {
           "const": "Box"
@@ -58,7 +58,7 @@
     },
     "Stack": {
       "type": "object",
-      "description": "A flex container that lays its children out in one direction with a gap.",
+      "description": "Flex container: children in one direction with a gap.",
       "properties": {
         "component": {
           "const": "Stack"
@@ -121,7 +121,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "A row or a column (`{base: \"vertical\", md: \"horizontal\"}`).",
+          "description": "Row or a column (`{base: \"vertical\", md: \"horizontal\"}`).",
           "default": "vertical"
         },
         "gap": {
@@ -196,7 +196,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "The space between children.",
+          "description": "Space between children.",
           "default": "md"
         },
         "align": {
@@ -416,7 +416,7 @@
     },
     "Grid": {
       "type": "object",
-      "description": "An equal-column grid for cards and tiles.",
+      "description": "Equal-column grid for cards and tiles.",
       "properties": {
         "component": {
           "const": "Grid"
@@ -526,7 +526,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "The space between cells.",
+          "description": "Space between cells.",
           "default": "md"
         },
         "style": {
@@ -556,22 +556,22 @@
     },
     "Card": {
       "type": "object",
-      "description": "A bordered card with an optional title and description, for grouped content, not page headers.",
+      "description": "Bordered card, optional title and description, for grouped content (not page headers).",
       "properties": {
         "component": {
           "const": "Card"
         },
         "title": {
           "type": "string",
-          "description": "The card heading."
+          "description": "Card heading."
         },
         "description": {
           "type": "string",
-          "description": "A muted line under the heading."
+          "description": "Muted line under the heading."
         },
         "padded": {
           "type": "boolean",
-          "description": "Pads the body; off for edge-to-edge rows.",
+          "description": "Pads the body; off = edge-to-edge rows.",
           "default": true
         },
         "style": {
@@ -580,7 +580,7 @@
         },
         "pressable": {
           "type": "boolean",
-          "description": "A press target firing `press` (an `on.press` implies it).",
+          "description": "Press target firing `press` (an `on.press` implies it).",
           "default": false
         },
         "children": {
@@ -612,14 +612,14 @@
     },
     "Window": {
       "type": "object",
-      "description": "A window frame: a chrome bar with three dots and an optional caption over one child that fills the body.",
+      "description": "Window frame: a three-dot chrome bar with an optional caption over one child filling the body.",
       "properties": {
         "component": {
           "const": "Window"
         },
         "title": {
           "type": "string",
-          "description": "The centred caption in the chrome bar."
+          "description": "Centred caption in the chrome bar."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -648,7 +648,7 @@
     },
     "Separator": {
       "type": "object",
-      "description": "A hairline that divides content.",
+      "description": "Hairline that divides content.",
       "properties": {
         "component": {
           "const": "Separator"
@@ -658,7 +658,7 @@
             "horizontal",
             "vertical"
           ],
-          "description": "A horizontal rule or a vertical bar.",
+          "description": "Horizontal rule or a vertical bar.",
           "default": "horizontal"
         },
         "style": {
@@ -685,7 +685,7 @@
     },
     "List": {
       "type": "object",
-      "description": "A windowed scrolling list for anything longer than a screen; children may come from a data template.",
+      "description": "Windowed list for anything past a screen; children may come from a data template.",
       "properties": {
         "component": {
           "const": "List"
@@ -707,7 +707,7 @@
             "lg",
             "xl"
           ],
-          "description": "The space between items.",
+          "description": "Space between items.",
           "default": "none"
         },
         "divided": {
@@ -717,7 +717,7 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups consecutive items by this field; slot `section` = each header ({value, count})."
+          "description": "Groups runs of items by this field; slot `section` = header ({value, count})."
         },
         "stickyHeaders": {
           "type": "boolean",
@@ -758,7 +758,7 @@
     },
     "Resizable": {
       "type": "object",
-      "description": "Panels split by draggable handles; each child is one panel.",
+      "description": "Panels split by drag handles; each child is a panel.",
       "properties": {
         "component": {
           "const": "Resizable"
@@ -876,7 +876,7 @@
     },
     "ScrollArea": {
       "type": "object",
-      "description": "A scrolling region of bounded height or width.",
+      "description": "Scrolling region of bounded height or width.",
       "properties": {
         "component": {
           "const": "ScrollArea"
@@ -892,7 +892,7 @@
         },
         "maxHeight": {
           "type": "number",
-          "description": "Px it scrolls within; omit to fill the parent."
+          "description": "Px before it scrolls; omit to fill the parent."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -921,7 +921,7 @@
     },
     "Sidebar": {
       "type": "object",
-      "description": "A shell: a nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
+      "description": "Shell: nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
       "properties": {
         "component": {
           "const": "Sidebar"
@@ -931,7 +931,7 @@
             "left",
             "right"
           ],
-          "description": "The column's edge.",
+          "description": "Column's edge.",
           "default": "left"
         },
         "width": {
@@ -952,7 +952,7 @@
         },
         "collapsed": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "Hides the column; bind it to a toggle.",
+          "description": "Hides the column; bind to a toggle.",
           "default": false
         },
         "rail": {
@@ -992,7 +992,7 @@
     },
     "SplitView": {
       "type": "object",
-      "description": "List (`list` slot) + detail (children); phones show one at a time, the detail with a back button.",
+      "description": "List (`list` slot) + detail (children); phones show one, the detail with a back button.",
       "properties": {
         "component": {
           "const": "SplitView"
@@ -1004,7 +1004,7 @@
         },
         "width": {
           "type": "number",
-          "description": "The list column width in px.",
+          "description": "List column width in px.",
           "default": 320
         },
         "children": {
@@ -1045,18 +1045,18 @@
     },
     "AppBar": {
       "type": "object",
-      "description": "A top bar: title, optional subtitle and back button, `leading`/`trailing` slots.",
+      "description": "Top bar: title, optional subtitle and back button, `leading`/`trailing` slots.",
       "properties": {
         "component": {
           "const": "AppBar"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The screen title."
+          "description": "Screen title."
         },
         "subtitle": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted line under the title."
+          "description": "Muted line under the title."
         },
         "back": {
           "type": "boolean",
@@ -1100,18 +1100,18 @@
     },
     "Page": {
       "type": "object",
-      "description": "A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body.",
+      "description": "Screen: AppBar row (back, title, trailing actions) over a padded scrolling body.",
       "properties": {
         "component": {
           "const": "Page"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The screen title."
+          "description": "Screen title."
         },
         "subtitle": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted line under the title."
+          "description": "Muted line under the title."
         },
         "back": {
           "type": "boolean",
@@ -1120,7 +1120,7 @@
         },
         "padded": {
           "type": "boolean",
-          "description": "Pads the body; off for edge-to-edge lists.",
+          "description": "Pads the body; off = edge-to-edge lists.",
           "default": true
         },
         "children": {
@@ -1163,7 +1163,7 @@
     },
     "Toolbar": {
       "type": "object",
-      "description": "Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action.",
+      "description": "Controls in one row, bottom-aligned, wrapping on phones; `trailing` = end action.",
       "properties": {
         "component": {
           "const": "Toolbar"
@@ -1177,7 +1177,7 @@
             "lg",
             "xl"
           ],
-          "description": "The space between controls.",
+          "description": "Space between controls.",
           "default": "sm"
         },
         "children": {
@@ -1212,14 +1212,14 @@
     },
     "Section": {
       "type": "object",
-      "description": "A band header over hairline-divided rows: title, caption, count and glyph, foldable, tinted; no title = just the rows.",
+      "description": "Band header (title, caption, count, glyph; foldable, tinted) over hairline-divided rows; no title = rows only.",
       "properties": {
         "component": {
           "const": "Section"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The band's label; omit it for a bare run of rows."
+          "description": "Band's label; omit it for a bare run of rows."
         },
         "caption": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -1227,7 +1227,7 @@
         },
         "count": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "A count after the title; off unless given."
+          "description": "Count after the title; off unless given."
         },
         "icon": {
           "type": "string",
@@ -1824,11 +1824,11 @@
             "x",
             "zap"
           ],
-          "description": "A glyph before the title (the `leading` slot replaces it)."
+          "description": "Glyph before the title (the `leading` slot replaces it)."
         },
         "collapsible": {
           "type": "boolean",
-          "description": "The header folds the rows (chevron, press).",
+          "description": "Header folds the rows (chevron, press).",
           "default": false
         },
         "open": {
@@ -1845,17 +1845,17 @@
             "danger",
             "info"
           ],
-          "description": "The band's colour tone.",
+          "description": "Band's colour tone.",
           "default": "neutral"
         },
         "tree": {
           "type": "boolean",
-          "description": "The rows form a tree: each `Row.depth` indents and draws its guides.",
+          "description": "Rows form a tree: `Row.depth` indents and draws guides.",
           "default": false
         },
         "loading": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "A refetch is running: a small spinner before the count. The first load is a Skeleton instead.",
+          "description": "Refetch is running: a small spinner before the count. The first load is a Skeleton instead.",
           "default": false
         },
         "style": {
@@ -1898,18 +1898,18 @@
     },
     "Group": {
       "type": "object",
-      "description": "A form-field container: a rounded group of rows with an optional title and footnote.",
+      "description": "Rounded group of form rows with an optional title and footnote.",
       "properties": {
         "component": {
           "const": "Group"
         },
         "title": {
           "type": "string",
-          "description": "A caption above the group."
+          "description": "Caption above the group."
         },
         "footer": {
           "type": "string",
-          "description": "A muted note under the group."
+          "description": "Muted note under the group."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -1937,14 +1937,14 @@
     },
     "Text": {
       "type": "object",
-      "description": "A run of text in one of the type styles; prefer dedicated components over inline markdown.",
+      "description": "Text in one type style; prefer dedicated components over inline markdown.",
       "properties": {
         "component": {
           "const": "Text"
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text to show."
+          "description": "Text to show."
         },
         "variant": {
           "enum": [
@@ -1956,7 +1956,7 @@
             "label",
             "title"
           ],
-          "description": "The type style.",
+          "description": "Type style.",
           "default": "body"
         },
         "align": {
@@ -1965,7 +1965,7 @@
             "center",
             "end"
           ],
-          "description": "Horizontal alignment inside its box."
+          "description": "Horizontal alignment in its box."
         },
         "lines": {
           "type": "number",
@@ -1980,11 +1980,11 @@
             "danger",
             "info"
           ],
-          "description": "A colour tone instead of the default foreground."
+          "description": "Colour tone instead of the default foreground."
         },
         "shimmer": {
           "type": "boolean",
-          "description": "Animates a highlight across the text while work runs.",
+          "description": "Highlight sweeps the text while work runs.",
           "default": false
         },
         "live": {
@@ -2022,14 +2022,14 @@
     },
     "Heading": {
       "type": "object",
-      "description": "A section or page heading at one of four levels.",
+      "description": "Section or page heading, four levels.",
       "properties": {
         "component": {
           "const": "Heading"
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The heading text."
+          "description": "Heading text."
         },
         "level": {
           "enum": [
@@ -2038,7 +2038,7 @@
             "h3",
             "h4"
           ],
-          "description": "h1 is the page title, h4 the smallest.",
+          "description": "h1 = page title, h4 = smallest.",
           "default": "h2"
         },
         "style": {
@@ -2073,14 +2073,14 @@
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The GFM source."
+          "description": "GFM source."
         },
         "profile": {
           "enum": [
             "document",
             "inline"
           ],
-          "description": "`inline` = a run of text (no outer block gap, paragraphs in the Text type of `variant`), `document` = full prose.",
+          "description": "`inline` = a text run (no outer block gap, paragraphs in `variant`'s Text type), `document` = full prose.",
           "default": "document"
         },
         "variant": {
@@ -2088,7 +2088,7 @@
             "body",
             "caption"
           ],
-          "description": "The paragraph type of the inline profile.",
+          "description": "Paragraph type of the inline profile.",
           "default": "body"
         },
         "lines": {
@@ -2121,14 +2121,14 @@
     },
     "CodeBlock": {
       "type": "object",
-      "description": "Source code in a mono block: syntax colouring, optional line numbers, a copy button.",
+      "description": "Mono source code: syntax colouring, optional line numbers, a copy button.",
       "properties": {
         "component": {
           "const": "CodeBlock"
         },
         "code": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The source text."
+          "description": "Source text."
         },
         "language": {
           "enum": [
@@ -2149,12 +2149,12 @@
             "markdown",
             "ansi"
           ],
-          "description": "The syntax colouring.",
+          "description": "Syntax colouring.",
           "default": "plain"
         },
         "title": {
           "type": "string",
-          "description": "A header line (a file name)."
+          "description": "Header line (a file name)."
         },
         "lineNumbers": {
           "type": "boolean",
@@ -2163,12 +2163,12 @@
         },
         "wrap": {
           "type": "boolean",
-          "description": "Wraps long lines instead of scrolling sideways.",
+          "description": "Wraps long lines instead of side-scrolling.",
           "default": false
         },
         "copyable": {
           "type": "boolean",
-          "description": "Shows the copy-to-clipboard button.",
+          "description": "Copy button.",
           "default": true
         },
         "highlight": {
@@ -2180,7 +2180,7 @@
         },
         "maxLines": {
           "type": "number",
-          "description": "Lines shown before the block scrolls."
+          "description": "Lines before the block scrolls."
         },
         "variant": {
           "oneOf": [
@@ -2233,14 +2233,14 @@
     },
     "Kbd": {
       "type": "object",
-      "description": "A keyboard shortcut drawn as a key cap.",
+      "description": "Keyboard shortcut drawn as a key cap.",
       "properties": {
         "component": {
           "const": "Kbd"
         },
         "keys": {
           "type": "string",
-          "description": "The shortcut text (`⌘K`, `Ctrl+Shift+P`)."
+          "description": "Shortcut text (`⌘K`, `Ctrl+Shift+P`)."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -2267,18 +2267,18 @@
     },
     "Label": {
       "type": "object",
-      "description": "A caption for a control that has no label of its own, with an optional required mark.",
+      "description": "Caption for an unlabelled control, with an optional required mark.",
       "properties": {
         "component": {
           "const": "Label"
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The caption."
+          "description": "Caption."
         },
         "for": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "The id of the control it labels."
+          "description": "Id of the control it labels."
         },
         "required": {
           "type": "boolean",
@@ -2310,7 +2310,7 @@
     },
     "Image": {
       "type": "object",
-      "description": "A picture from a URL, or a placeholder box when it has none.",
+      "description": "Picture from a URL, else a placeholder box.",
       "properties": {
         "component": {
           "const": "Image"
@@ -2318,11 +2318,11 @@
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The image URL; omit for a placeholder."
+          "description": "Image URL; omit for a placeholder."
         },
         "alt": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The accessibility description."
+          "description": "Accessibility description."
         },
         "fit": {
           "enum": [
@@ -2332,7 +2332,7 @@
             "none",
             "scaleDown"
           ],
-          "description": "How the picture fills its box.",
+          "description": "How the picture fills the box.",
           "default": "cover"
         },
         "width": {
@@ -2942,7 +2942,7 @@
             "x",
             "zap"
           ],
-          "description": "An icon shown when the picture fails or is missing."
+          "description": "Icon when the picture fails or is missing."
         },
         "loading": {
           "enum": [
@@ -2954,11 +2954,11 @@
         },
         "focalX": {
           "type": "number",
-          "description": "Horizontal focal point 0..1 kept when cropped (0.5)."
+          "description": "Horizontal focal point 0..1 kept on crop (0.5)."
         },
         "focalY": {
           "type": "number",
-          "description": "Vertical focal point 0..1 kept when cropped (0.5)."
+          "description": "Vertical focal point 0..1 kept on crop (0.5)."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -2986,7 +2986,7 @@
     },
     "ZoomableImage": {
       "type": "object",
-      "description": "A picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
+      "description": "Picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
       "properties": {
         "component": {
           "const": "ZoomableImage"
@@ -2994,11 +2994,11 @@
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The image URL."
+          "description": "Image URL."
         },
         "alt": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The accessibility description."
+          "description": "Accessibility description."
         },
         "naturalWidth": {
           "type": "number",
@@ -3029,7 +3029,7 @@
             "always",
             "none"
           ],
-          "description": "The zoom pill.",
+          "description": "Zoom pill.",
           "default": "auto"
         },
         "scale": {
@@ -3680,7 +3680,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The icon name (an icons.json concept or Lucide name)."
+          "description": "Icon name (an icons.json concept or Lucide name)."
         },
         "size": {
           "enum": [
@@ -3710,11 +3710,11 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "A colour tone instead of the current text colour."
+          "description": "Colour tone instead of the current text colour."
         },
         "label": {
           "type": "string",
-          "description": "An accessibility label when the icon stands alone."
+          "description": "Accessibility label when the icon stands alone."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -3741,7 +3741,7 @@
     },
     "Video": {
       "type": "object",
-      "description": "A video player: the poster until play, then the platform player with its controls.",
+      "description": "The poster until play, then the platform player with controls.",
       "properties": {
         "component": {
           "const": "Video"
@@ -3749,12 +3749,12 @@
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The video URL (H.264 + AAC MP4 plays everywhere)."
+          "description": "Video URL (H.264 + AAC MP4 plays everywhere)."
         },
         "poster": {
           "type": "string",
           "format": "uri-reference",
-          "description": "A still shown before playback."
+          "description": "Still shown before playback."
         },
         "durationMs": {
           "type": "number",
@@ -3796,7 +3796,7 @@
     },
     "AudioPlayer": {
       "type": "object",
-      "description": "An audio player with a title and a play control.",
+      "description": "Audio player: title and play control.",
       "properties": {
         "component": {
           "const": "AudioPlayer"
@@ -3804,7 +3804,7 @@
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The audio URL."
+          "description": "Audio URL."
         },
         "title": {
           "type": "string",
@@ -3839,19 +3839,19 @@
     },
     "Avatar": {
       "type": "object",
-      "description": "A round user picture that falls back to initials on a stable hue.",
+      "description": "Round user picture; falls back to initials on a stable hue.",
       "properties": {
         "component": {
           "const": "Avatar"
         },
         "name": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The person's name or email; initials come from it."
+          "description": "Name or email; initials come from it."
         },
         "src": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The picture URL."
+          "description": "Picture URL."
         },
         "size": {
           "enum": [
@@ -3865,7 +3865,7 @@
         },
         "seed": {
           "type": "string",
-          "description": "A user id: hashes the fallback's palette hue; none = muted."
+          "description": "A user id: the palette hue; none = muted."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -3892,14 +3892,14 @@
     },
     "QrCode": {
       "type": "object",
-      "description": "A QR code of a value, dark on a light plate.",
+      "description": "QR code of a value, dark on a light plate.",
       "properties": {
         "component": {
           "const": "QrCode"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text to encode."
+          "description": "Text to encode."
         },
         "size": {
           "type": "number",
@@ -3918,7 +3918,7 @@
         },
         "label": {
           "type": "string",
-          "description": "A caption under it and its accessibility label."
+          "description": "Caption under it and its accessibility label."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -3945,14 +3945,14 @@
     },
     "Carousel": {
       "type": "object",
-      "description": "A horizontally paging scroller; each child is one page.",
+      "description": "Horizontal pager; each child is one page.",
       "properties": {
         "component": {
           "const": "Carousel"
         },
         "page": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The active page index.",
+          "description": "Active page index.",
           "default": 0
         },
         "loop": {
@@ -3976,7 +3976,7 @@
             "type": "string",
             "format": "uri-reference"
           },
-          "description": "A thumbnail URL per page."
+          "description": "Thumbnail URL per page."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -4020,11 +4020,11 @@
           "items": {
             "$ref": "#/$defs/picture"
           },
-          "description": "The pictures in order."
+          "description": "Pictures in order."
         },
         "label": {
           "type": "string",
-          "description": "The a11y label."
+          "description": "A11y label."
         },
         "on": {
           "$ref": "#/$defs/On_Mosaic"
@@ -4057,7 +4057,7 @@
     },
     "Tabs": {
       "type": "object",
-      "description": "Tab navigation; the child at index i is the panel of tab i.",
+      "description": "Tab navigation; child i is the panel of tab i.",
       "properties": {
         "component": {
           "const": "Tabs"
@@ -4067,11 +4067,11 @@
           "items": {
             "$ref": "#/$defs/tab"
           },
-          "description": "The tab headers in order."
+          "description": "Tab headers in order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The active tab's value; bind it for two-way state."
+          "description": "Active tab's value; bind it for two-way state."
         },
         "variant": {
           "enum": [
@@ -4097,7 +4097,7 @@
         },
         "addable": {
           "type": "boolean",
-          "description": "A + button firing `new`.",
+          "description": "+ button firing `new`.",
           "default": false
         },
         "swipeable": {
@@ -4142,7 +4142,7 @@
     },
     "Segmented": {
       "type": "object",
-      "description": "ONE row or column of segments: a pill track, toggles, joined outline buttons, a bottom bar or a rail.",
+      "description": "ONE row or column of segments: pill track, toggles, joined outline buttons, bottom bar or rail.",
       "properties": {
         "component": {
           "const": "Segmented"
@@ -4152,7 +4152,7 @@
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "The segments in order."
+          "description": "Segments in order."
         },
         "type": {
           "enum": [
@@ -4164,7 +4164,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The selected value (comma-joined when multiple); bind it."
+          "description": "Selected value (comma-joined when multiple); bind it."
         },
         "variant": {
           "enum": [
@@ -4173,7 +4173,7 @@
             "outline",
             "bar"
           ],
-          "description": "Pill track, bare toggles, joined outline buttons, or a full-width icon `bar`.",
+          "description": "Pill track, bare toggles, joined outline buttons, or full-width icon `bar`.",
           "default": "segmented"
         },
         "size": {
@@ -4187,7 +4187,7 @@
         },
         "fill": {
           "type": "boolean",
-          "description": "Stretches the segments across the width (a `bar` always does).",
+          "description": "Segments span the width (a `bar` always does).",
           "default": false
         },
         "orientation": {
@@ -4229,7 +4229,7 @@
     },
     "Accordion": {
       "type": "object",
-      "description": "Collapsible sections; the child at index i is the body of item i.",
+      "description": "Collapsible sections; child i is the body of item i.",
       "properties": {
         "component": {
           "const": "Accordion"
@@ -4239,19 +4239,19 @@
           "items": {
             "$ref": "#/$defs/accordionItem"
           },
-          "description": "The section headers in order."
+          "description": "Section headers in order."
         },
         "type": {
           "enum": [
             "single",
             "multiple"
           ],
-          "description": "One section open at a time, or any number.",
+          "description": "One section open, or any number.",
           "default": "single"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The open section's value (comma-joined when multiple); bind it."
+          "description": "Open section's value (comma-joined when multiple); bind it."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -4286,14 +4286,14 @@
     },
     "Collapsible": {
       "type": "object",
-      "description": "One disclosure section with a title row that shows or hides its children.",
+      "description": "One disclosure section: a title row shows or hides its children.",
       "properties": {
         "component": {
           "const": "Collapsible"
         },
         "title": {
           "type": "string",
-          "description": "The header text."
+          "description": "Header text."
         },
         "open": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -4302,7 +4302,7 @@
         },
         "count": {
           "type": "number",
-          "description": "A count shown in the header."
+          "description": "Count shown in the header."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -4337,7 +4337,7 @@
     },
     "Trace": {
       "type": "object",
-      "description": "A column of TraceItem lines (an agent's steps).",
+      "description": "Column of TraceItem lines (an agent's steps).",
       "properties": {
         "component": {
           "const": "Trace"
@@ -4376,7 +4376,7 @@
     },
     "TraceItem": {
       "type": "object",
-      "description": "One step line: icon, title, muted detail; may expand to show its children.",
+      "description": "One step: icon, title, muted detail; may expand to its children.",
       "properties": {
         "component": {
           "const": "TraceItem"
@@ -4980,11 +4980,11 @@
             "x",
             "zap"
           ],
-          "description": "The lead glyph."
+          "description": "Lead glyph."
         },
         "description": {
           "type": "string",
-          "description": "A muted detail (a duration)."
+          "description": "Muted detail (a duration)."
         },
         "status": {
           "enum": [
@@ -5006,7 +5006,7 @@
         },
         "collapsible": {
           "type": "boolean",
-          "description": "The line toggles its children.",
+          "description": "Line toggles its children.",
           "default": false
         },
         "open": {
@@ -5047,25 +5047,25 @@
     },
     "Plan": {
       "type": "object",
-      "description": "A plan card: steps to approve, then progress and Stop.",
+      "description": "Plan card: steps to approve, then progress and Stop.",
       "properties": {
         "component": {
           "const": "Plan"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The plan's heading."
+          "description": "Plan's heading."
         },
         "description": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted line under it."
+          "description": "Muted line under it."
         },
         "steps": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/planStep"
           },
-          "description": "The steps."
+          "description": "Steps."
         },
         "state": {
           "oneOf": [
@@ -5139,7 +5139,7 @@
     },
     "Pagination": {
       "type": "object",
-      "description": "Previous, next and the current page out of a total.",
+      "description": "Previous, next, and current page of a total.",
       "properties": {
         "component": {
           "const": "Pagination"
@@ -5150,7 +5150,7 @@
         },
         "page": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The current 1-based page; bind it.",
+          "description": "Current 1-based page; bind it.",
           "default": 1
         },
         "on": {
@@ -5184,7 +5184,7 @@
     },
     "Breadcrumb": {
       "type": "object",
-      "description": "The path to the current page; every item but the last is a link firing `select`.",
+      "description": "Path to the current page; all but the last item are links firing `select`.",
       "properties": {
         "component": {
           "const": "Breadcrumb"
@@ -5194,7 +5194,7 @@
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "The path from the root to the current page."
+          "description": "Path from the root to the current page."
         },
         "on": {
           "$ref": "#/$defs/On_Breadcrumb"
@@ -5237,15 +5237,15 @@
           "items": {
             "$ref": "#/$defs/outlineItem"
           },
-          "description": "The rows in order."
+          "description": "Rows in order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The active row id."
+          "description": "Active row id."
         },
         "caption": {
           "type": "string",
-          "description": "The heading."
+          "description": "Heading."
         },
         "on": {
           "$ref": "#/$defs/On_Outline"
@@ -5278,7 +5278,7 @@
     },
     "Stepper": {
       "type": "object",
-      "description": "Wizard progress: numbered steps, finished ones ticked.",
+      "description": "Wizard progress: numbered steps, done ones ticked.",
       "properties": {
         "component": {
           "const": "Stepper"
@@ -5288,11 +5288,11 @@
           "items": {
             "$ref": "#/$defs/step"
           },
-          "description": "The steps in order."
+          "description": "Steps in order."
         },
         "current": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The 0-based index of the active step.",
+          "description": "0-based index of the active step.",
           "default": 0
         },
         "orientation": {
@@ -5309,7 +5309,7 @@
             "auto",
             "always"
           ],
-          "description": "One line \"Step n of m · label\"; auto when narrower than sm.",
+          "description": "One line \"Step n of m · label\"; auto below sm.",
           "default": "never"
         },
         "style": {
@@ -5337,18 +5337,18 @@
     },
     "Dialog": {
       "type": "object",
-      "description": "A centred modal over the surface, opened by its trigger slot or by binding `open`.",
+      "description": "Centred modal, opened by its trigger slot or by binding `open`.",
       "properties": {
         "component": {
           "const": "Dialog"
         },
         "title": {
           "type": "string",
-          "description": "The dialog heading."
+          "description": "Dialog heading."
         },
         "description": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted line under the heading."
+          "description": "Muted line under the heading."
         },
         "open": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -5399,18 +5399,18 @@
     },
     "Drawer": {
       "type": "object",
-      "description": "A panel sliding in from an edge (a bottom sheet on phones).",
+      "description": "Panel sliding in from an edge (a bottom sheet on phones).",
       "properties": {
         "component": {
           "const": "Drawer"
         },
         "title": {
           "type": "string",
-          "description": "The drawer heading."
+          "description": "Drawer heading."
         },
         "description": {
           "type": "string",
-          "description": "A muted line under the heading."
+          "description": "Muted line under the heading."
         },
         "open": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -5477,7 +5477,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "The edge it slides from; `{base: \"bottom\", md: \"right\"}` turns the phone sheet into a side panel on wide surfaces.",
+          "description": "Edge it slides from; `{base: \"bottom\", md: \"right\"}` turns the phone sheet into a side panel on wide surfaces.",
           "default": "bottom"
         },
         "dismissible": {
@@ -5487,7 +5487,7 @@
         },
         "dragToDismiss": {
           "type": "boolean",
-          "description": "Lets a swipe toward its edge close it.",
+          "description": "Swipe toward its edge closes it.",
           "default": true
         },
         "children": {
@@ -5529,18 +5529,18 @@
     },
     "DockCard": {
       "type": "object",
-      "description": "A floating one-row card whose children open in a bottom sheet with a pinned footer.",
+      "description": "Floating one-row card; its children open in a bottom sheet with a pinned footer.",
       "properties": {
         "component": {
           "const": "DockCard"
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The tinted header word."
+          "description": "Tinted header word."
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The one line under the header."
+          "description": "One line under the header."
         },
         "caption": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -6145,7 +6145,7 @@
             "x",
             "zap"
           ],
-          "description": "The glyph before the label."
+          "description": "Glyph before the label."
         },
         "tone": {
           "enum": [
@@ -6156,7 +6156,7 @@
             "danger",
             "info"
           ],
-          "description": "The glyph's and the label's tone.",
+          "description": "Glyph's and the label's tone.",
           "default": "neutral"
         },
         "open": {
@@ -6205,14 +6205,14 @@
     },
     "AlertDialog": {
       "type": "object",
-      "description": "A modal that asks for a confirmation and ignores clicks outside; fires `confirm` or `cancel`.",
+      "description": "Confirmation modal that ignores outside clicks; fires `confirm` or `cancel`.",
       "properties": {
         "component": {
           "const": "AlertDialog"
         },
         "title": {
           "type": "string",
-          "description": "The question."
+          "description": "Question."
         },
         "description": {
           "type": "string",
@@ -6220,17 +6220,17 @@
         },
         "confirmLabel": {
           "type": "string",
-          "description": "The confirming button's text.",
+          "description": "Confirming button's text.",
           "default": "$string.confirm"
         },
         "cancelLabel": {
           "type": "string",
-          "description": "The cancelling button's text.",
+          "description": "Cancelling button's text.",
           "default": "$string.cancel"
         },
         "destructive": {
           "type": "boolean",
-          "description": "Styles the confirming button as dangerous.",
+          "description": "Confirm button looks dangerous.",
           "default": false
         },
         "open": {
@@ -6279,7 +6279,7 @@
     },
     "Popover": {
       "type": "object",
-      "description": "A small panel anchored to its trigger, opened on press.",
+      "description": "Small panel anchored to its trigger, opens on press.",
       "properties": {
         "component": {
           "const": "Popover"
@@ -6310,14 +6310,14 @@
         },
         "anchor": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "A node id to open at; it toggles it."
+          "description": "Node id to open at; it toggles it."
         },
         "openOn": {
           "enum": [
             "press",
             "hover"
           ],
-          "description": "Press, or hover over the trigger (press on touch).",
+          "description": "Press, or hover (press on touch).",
           "default": "press"
         },
         "children": {
@@ -6358,14 +6358,14 @@
     },
     "Tooltip": {
       "type": "object",
-      "description": "A short hint shown on hover or long-press over its children.",
+      "description": "Short hint on hover or long-press over its children.",
       "properties": {
         "component": {
           "const": "Tooltip"
         },
         "content": {
           "type": "string",
-          "description": "The hint text."
+          "description": "Hint text."
         },
         "side": {
           "enum": [
@@ -6404,14 +6404,14 @@
     },
     "Menu": {
       "type": "object",
-      "description": "A menu of actions, checkboxes, groups and submenus, opened by pressing its child or right-click / long-press.",
+      "description": "Actions, checkboxes, groups and submenus, opened by pressing its child or right-click / long-press.",
       "properties": {
         "component": {
           "const": "Menu"
         },
         "label": {
           "type": "string",
-          "description": "The default trigger's text when no child is given."
+          "description": "Default trigger's text when no child is given."
         },
         "icon": {
           "type": "string",
@@ -7008,14 +7008,14 @@
             "x",
             "zap"
           ],
-          "description": "The default trigger's icon."
+          "description": "Default trigger's icon."
         },
         "items": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/menuItem"
           },
-          "description": "The entries in order."
+          "description": "Entries in order."
         },
         "side": {
           "enum": [
@@ -7038,14 +7038,14 @@
         },
         "anchor": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "A node id to open at; it toggles it."
+          "description": "Node id to open at; it toggles it."
         },
         "openOn": {
           "enum": [
             "press",
             "contextmenu"
           ],
-          "description": "A press on the child, or the context gesture over it.",
+          "description": "Press on the child, or the context gesture.",
           "default": "press"
         },
         "children": {
@@ -7081,14 +7081,14 @@
     },
     "Toast": {
       "type": "object",
-      "description": "A transient notice in the toast layer; render one per notice with `open` bound.",
+      "description": "Transient notice; one per notice with `open` bound.",
       "properties": {
         "component": {
           "const": "Toast"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The notice."
+          "description": "Notice."
         },
         "description": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -7116,7 +7116,7 @@
         },
         "actionLabel": {
           "type": "string",
-          "description": "A button label; pressing it fires `action`."
+          "description": "Button label; press fires `action`."
         },
         "dismissible": {
           "type": "boolean",
@@ -7156,14 +7156,14 @@
     },
     "Badge": {
       "type": "object",
-      "description": "A small count or status label.",
+      "description": "Small count or status label.",
       "properties": {
         "component": {
           "const": "Badge"
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The label or number."
+          "description": "Label or number."
         },
         "variant": {
           "oneOf": [
@@ -7782,7 +7782,7 @@
             "x",
             "zap"
           ],
-          "description": "An icon before the text."
+          "description": "Icon before the text."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -7809,14 +7809,14 @@
     },
     "Alert": {
       "type": "object",
-      "description": "An inline banner with an icon, a title and a message.",
+      "description": "Inline banner: icon, title, message.",
       "properties": {
         "component": {
           "const": "Alert"
         },
         "title": {
           "type": "string",
-          "description": "The banner heading."
+          "description": "Banner heading."
         },
         "message": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -7829,7 +7829,7 @@
             "warning",
             "error"
           ],
-          "description": "The severity, which picks the icon and tone.",
+          "description": "Severity: icon and tone.",
           "default": "info"
         },
         "style": {
@@ -7857,21 +7857,21 @@
     },
     "Chip": {
       "type": "object",
-      "description": "A small token: a pill (filter, label, state) or a rect naming an entity with a glyph or image; removable.",
+      "description": "Small token: a pill (filter, label, state) or a rect naming an entity with glyph or image; removable.",
       "properties": {
         "component": {
           "const": "Chip"
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The chip text."
+          "description": "Chip text."
         },
         "shape": {
           "enum": [
             "pill",
             "rect"
           ],
-          "description": "A rounded pill or a squarer entity chip.",
+          "description": "Rounded pill or squarer entity chip.",
           "default": "pill"
         },
         "selected": {
@@ -7904,7 +7904,7 @@
         "dot": {
           "type": "string",
           "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
-          "description": "A colour dot before the text (a label chip)."
+          "description": "Colour dot before the text (label chip)."
         },
         "icon": {
           "type": "string",
@@ -8501,12 +8501,12 @@
             "x",
             "zap"
           ],
-          "description": "An icon before the text."
+          "description": "Icon before the text."
         },
         "image": {
           "type": "string",
           "format": "uri-reference",
-          "description": "A round picture instead of the icon."
+          "description": "Round picture instead of the icon."
         },
         "detail": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -8514,7 +8514,7 @@
         },
         "removable": {
           "type": "boolean",
-          "description": "Shows a remove control that fires `remove`.",
+          "description": "Remove control firing `remove`.",
           "default": false
         },
         "pressable": {
@@ -8559,7 +8559,7 @@
     },
     "EmptyState": {
       "type": "object",
-      "description": "What an empty screen or list says: a short title; `page` adds the icon disc, a sentence and an action, `list` one muted line.",
+      "description": "Empty screen or list: a short title; `page` adds an icon disc, a sentence and an action, `list` one muted line.",
       "properties": {
         "component": {
           "const": "EmptyState"
@@ -9159,7 +9159,7 @@
             "x",
             "zap"
           ],
-          "description": "The glyph: in the disc on `page`, bare on `list`."
+          "description": "Glyph: in the disc on `page`, bare on `list`."
         },
         "title": {
           "type": "string",
@@ -9167,11 +9167,11 @@
         },
         "description": {
           "type": "string",
-          "description": "The next step, `page` only."
+          "description": "Next step, `page` only."
         },
         "actionLabel": {
           "type": "string",
-          "description": "A button label, `page` only; pressing it fires `press`."
+          "description": "Button label (`page` only); press fires `press`."
         },
         "size": {
           "enum": [
@@ -9213,23 +9213,23 @@
     },
     "Progress": {
       "type": "object",
-      "description": "A horizontal progress bar with an optional label.",
+      "description": "Horizontal progress bar, optional label.",
       "properties": {
         "component": {
           "const": "Progress"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The current amount, 0 to max."
+          "description": "Current amount, 0 to max."
         },
         "max": {
           "type": "number",
-          "description": "The full amount.",
+          "description": "Full amount.",
           "default": 100
         },
         "label": {
           "type": "string",
-          "description": "A caption above the bar."
+          "description": "Caption above the bar."
         },
         "valueText": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -9248,7 +9248,7 @@
             "danger",
             "info"
           ],
-          "description": "The fill colour tone.",
+          "description": "Fill colour tone.",
           "default": "primary"
         },
         "style": {
@@ -9276,7 +9276,7 @@
     },
     "Meter": {
       "type": "object",
-      "description": "A usage track: a bar of coloured segments against a maximum, with a caption and a value.",
+      "description": "Usage bar of coloured segments against a maximum, with a caption and a value.",
       "properties": {
         "component": {
           "const": "Meter"
@@ -9296,20 +9296,20 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The slices in order."
+          "description": "Slices in order."
         },
         "max": {
           "type": "number",
-          "description": "The full amount.",
+          "description": "Full amount.",
           "default": 100
         },
         "label": {
           "type": "string",
-          "description": "A caption before the track."
+          "description": "Caption before the track."
         },
         "value": {
           "type": "string",
-          "description": "A formatted value after the track."
+          "description": "Formatted value after the track."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -9336,14 +9336,14 @@
     },
     "Ring": {
       "type": "object",
-      "description": "A circular progress ring for a fraction, sized like an icon.",
+      "description": "Progress ring for a fraction, icon-sized.",
       "properties": {
         "component": {
           "const": "Ring"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The fraction 0 to 1."
+          "description": "Fraction 0 to 1."
         },
         "size": {
           "enum": [
@@ -9363,12 +9363,12 @@
             "danger",
             "info"
           ],
-          "description": "The arc colour tone.",
+          "description": "Arc colour tone.",
           "default": "primary"
         },
         "label": {
           "type": "string",
-          "description": "An accessibility label."
+          "description": "Accessibility label."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -9395,7 +9395,7 @@
     },
     "Spinner": {
       "type": "object",
-      "description": "An indeterminate activity indicator.",
+      "description": "Indeterminate activity indicator.",
       "properties": {
         "component": {
           "const": "Spinner"
@@ -9412,7 +9412,7 @@
         },
         "label": {
           "type": "string",
-          "description": "A caption or accessibility label."
+          "description": "Caption or accessibility label."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -9438,22 +9438,22 @@
     },
     "Skeleton": {
       "type": "object",
-      "description": "A pulsing placeholder: a block, or `rows` rows.",
+      "description": "Pulsing placeholder: a block or `rows` rows.",
       "properties": {
         "component": {
           "const": "Skeleton"
         },
         "width": {
           "type": "string",
-          "description": "A length (px or %); defaults to the full width."
+          "description": "Length (px or %); defaults to the full width."
         },
         "height": {
           "type": "string",
-          "description": "A length (px); defaults to one text line."
+          "description": "Length (px); defaults to one text line."
         },
         "rounded": {
           "type": "boolean",
-          "description": "A circle instead of a bar.",
+          "description": "Circle instead of a bar.",
           "default": false
         },
         "rows": {
@@ -9462,11 +9462,11 @@
         },
         "rowHeight": {
           "type": "number",
-          "description": "A row's height in px."
+          "description": "Row's height in px."
         },
         "dot": {
           "type": "boolean",
-          "description": "A dot per row.",
+          "description": "Dot per row.",
           "default": true
         },
         "style": {
@@ -9493,7 +9493,7 @@
     },
     "VoiceWave": {
       "type": "object",
-      "description": "A live voice level: three waves around an optional decorative child.",
+      "description": "Live voice level: three waves around an optional decorative child.",
       "properties": {
         "component": {
           "const": "VoiceWave"
@@ -9561,7 +9561,7 @@
         },
         "label": {
           "type": "string",
-          "description": "An accessibility label."
+          "description": "Accessibility label."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -9589,7 +9589,7 @@
     },
     "CallSurface": {
       "type": "object",
-      "description": "A voice call screen: wave, avatar, name, status, caption, call buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, caption, call buttons.",
       "properties": {
         "component": {
           "const": "CallSurface"
@@ -9602,6 +9602,10 @@
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
           "description": "Picture URL."
+        },
+        "seed": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "description": "Their id: the avatar hue."
         },
         "state": {
           "oneOf": [
@@ -9641,7 +9645,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The wave when talking.",
+          "description": "Wave when talking.",
           "default": "speaking"
         },
         "level": {
@@ -9671,7 +9675,7 @@
         },
         "caption": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The live line."
+          "description": "Live line."
         },
         "muted": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -9725,15 +9729,15 @@
           "items": {
             "$ref": "#/$defs/column"
           },
-          "description": "The columns in order."
+          "description": "Columns in order."
         },
         "rows": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "One object per row keyed by column key; bind it for live data."
+          "description": "One object per row keyed by column key; bind for live data."
         },
         "rowKey": {
           "type": "string",
-          "description": "The row field that identifies a row.",
+          "description": "Row field identifying a row.",
           "default": "id"
         },
         "sort": {
@@ -9748,7 +9752,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The active sort; bound = you order `rows`, unbound = sorted locally."
+          "description": "Active sort; bound = you order `rows`, else sorted locally."
         },
         "selectable": {
           "enum": [
@@ -9761,11 +9765,11 @@
         },
         "selected": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "The selected row keys; bind them."
+          "description": "Selected row keys; bind them."
         },
         "caption": {
           "type": "string",
-          "description": "A caption under the table."
+          "description": "Caption under the table."
         },
         "emptyText": {
           "type": "string",
@@ -9835,7 +9839,7 @@
     },
     "Chart": {
       "type": "object",
-      "description": "A bar, stacked-bar, line, area, pie, donut or sparkline chart with axes, legend and tooltip.",
+      "description": "Bar, stacked-bar, line, area, pie, donut or sparkline, with axes, legend and tooltip.",
       "properties": {
         "component": {
           "const": "Chart"
@@ -9850,11 +9854,11 @@
             "donut",
             "sparkline"
           ],
-          "description": "The chart form."
+          "description": "Chart form."
         },
         "categories": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "The x-axis labels, or the pie slices; omit for a sparkline."
+          "description": "X-axis labels or pie slices; omit for a sparkline."
         },
         "series": {
           "oneOf": [
@@ -9875,36 +9879,36 @@
         },
         "rows": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "A query's `groups`; series read their `field`."
+          "description": "Query's `groups`; series read their `field`."
         },
         "categoryField": {
           "type": "string",
-          "description": "The rows' category field."
+          "description": "Rows' category field."
         },
         "title": {
           "type": "string",
-          "description": "A title above the chart."
+          "description": "Title above the chart."
         },
         "height": {
           "type": "number",
-          "description": "The whole chart's height in px (title, legend, axes inside); the width is the box's.",
+          "description": "Whole chart's height in px (title, legend, axes inside); the width is the box's.",
           "default": 200
         },
         "xLabel": {
           "type": "string",
-          "description": "A caption under the x axis."
+          "description": "Caption under the x axis."
         },
         "yLabel": {
           "type": "string",
-          "description": "A caption beside the y axis."
+          "description": "Caption beside the y axis."
         },
         "min": {
           "type": "number",
-          "description": "The y-axis floor; defaults to 0."
+          "description": "Y-axis floor; defaults to 0."
         },
         "max": {
           "type": "number",
-          "description": "The y-axis ceiling; defaults to the largest value."
+          "description": "Y-axis ceiling; defaults to the largest value."
         },
         "valueFormat": {
           "$ref": "#/$defs/valueFormat",
@@ -9912,22 +9916,22 @@
         },
         "showAxes": {
           "type": "boolean",
-          "description": "Draws the axes with tick labels.",
+          "description": "Axes with tick labels.",
           "default": true
         },
         "showGrid": {
           "type": "boolean",
-          "description": "Draws horizontal grid lines at the ticks.",
+          "description": "Horizontal grid lines at the ticks.",
           "default": true
         },
         "showLegend": {
           "type": "boolean",
-          "description": "Draws the legend (2+ series or slices).",
+          "description": "Legend (2+ series or slices).",
           "default": true
         },
         "showValues": {
           "type": "boolean",
-          "description": "Writes each value on its bar, point or slice.",
+          "description": "Labels each bar, point or slice with its value.",
           "default": false
         },
         "style": {
@@ -9956,7 +9960,7 @@
     },
     "Sparkline": {
       "type": "object",
-      "description": "A tiny inline trend line of recent values, no axes or legend.",
+      "description": "Tiny inline trend line, no axes or legend.",
       "properties": {
         "component": {
           "const": "Sparkline"
@@ -9976,7 +9980,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The points, oldest first."
+          "description": "Points, oldest first."
         },
         "tone": {
           "enum": [
@@ -9987,12 +9991,12 @@
             "danger",
             "info"
           ],
-          "description": "The line colour tone.",
+          "description": "Line colour tone.",
           "default": "primary"
         },
         "height": {
           "type": "number",
-          "description": "The height in px.",
+          "description": "Height in px.",
           "default": 24
         },
         "style": {
@@ -10020,7 +10024,7 @@
     },
     "StatTile": {
       "type": "object",
-      "description": "A dashboard tile: label, big value, toned change, trend sparkline.",
+      "description": "Dashboard tile: label, big value, toned change, trend sparkline.",
       "properties": {
         "component": {
           "const": "StatTile"
@@ -10031,11 +10035,11 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The formatted value."
+          "description": "Formatted value."
         },
         "delta": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The change (`+12 %`)."
+          "description": "Change (`+12 %`)."
         },
         "tone": {
           "oneOf": [
@@ -10056,7 +10060,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The change's tone.",
+          "description": "Change's tone.",
           "default": "neutral"
         },
         "trend": {
@@ -10078,7 +10082,7 @@
         },
         "pressable": {
           "type": "boolean",
-          "description": "A press target firing `press` (an `on.press` implies it).",
+          "description": "Press target firing `press` (an `on.press` implies it).",
           "default": false
         },
         "on": {
@@ -10113,7 +10117,7 @@
     },
     "Button": {
       "type": "object",
-      "description": "A press target with a label and optional icon (or one custom child).",
+      "description": "Press target: label and optional icon (or one custom child).",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -10125,7 +10129,7 @@
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The button text (omit for an icon-only button)."
+          "description": "Button text (omit for an icon-only button)."
         },
         "icon": {
           "oneOf": [
@@ -10732,12 +10736,12 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "An icon before the label, or alone with size `icon`."
+          "description": "Icon before the label, or alone with size `icon`."
         },
         "href": {
           "type": "string",
           "format": "uri-reference",
-          "description": "The URL a press opens; `press` still fires."
+          "description": "URL a press opens; `press` still fires."
         },
         "variant": {
           "enum": [
@@ -10748,7 +10752,7 @@
             "destructive",
             "link"
           ],
-          "description": "`default` = the primary action, `destructive` = dangerous, `ghost`/`link` = quiet.",
+          "description": "`default` = primary action, `destructive` = dangerous, `ghost`/`link` = quiet.",
           "default": "default"
         },
         "size": {
@@ -10831,12 +10835,12 @@
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The link text."
+          "description": "Link text."
         },
         "href": {
           "type": "string",
           "format": "uri-reference",
-          "description": "The URL to open; omit to handle `press` yourself."
+          "description": "URL to open; omit to handle `press` yourself."
         },
         "external": {
           "type": "boolean",
@@ -10874,14 +10878,14 @@
     },
     "Toggle": {
       "type": "object",
-      "description": "A two-state button that stays pressed.",
+      "description": "Two-state button that stays pressed.",
       "properties": {
         "component": {
           "const": "Toggle"
         },
         "label": {
           "type": "string",
-          "description": "The button text or accessibility label."
+          "description": "Button text or accessibility label."
         },
         "icon": {
           "type": "string",
@@ -11478,11 +11482,11 @@
             "x",
             "zap"
           ],
-          "description": "An icon before or instead of the label."
+          "description": "Icon before or instead of the label."
         },
         "pressed": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "The state; bind it.",
+          "description": "State; bind it.",
           "default": false
         },
         "variant": {
@@ -11533,14 +11537,14 @@
     },
     "Form": {
       "type": "object",
-      "description": "Collects its fields by `name` and fires `submit` with their values once every check passes.",
+      "description": "Collects fields by `name`; fires `submit` with their values once every check passes.",
       "properties": {
         "component": {
           "const": "Form"
         },
         "name": {
           "type": "string",
-          "description": "The form's key in the submit payload."
+          "description": "Form's key in the submit payload."
         },
         "disabled": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -11554,7 +11558,7 @@
         },
         "summary": {
           "type": "boolean",
-          "description": "Also lists every failed check above the fields.",
+          "description": "Also lists failed checks above the fields.",
           "default": false
         },
         "children": {
@@ -11628,23 +11632,23 @@
     },
     "FormActions": {
       "type": "object",
-      "description": "The end-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "description": "End-aligned button row: children, Cancel, then THE submit (the one primary).",
       "properties": {
         "component": {
           "const": "FormActions"
         },
         "submit": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The submit label."
+          "description": "Submit label."
         },
         "cancel": {
           "type": "boolean",
-          "description": "An outline Cancel firing `cancel`.",
+          "description": "Outline Cancel firing `cancel`.",
           "default": false
         },
         "destructive": {
           "type": "boolean",
-          "description": "A dangerous submit.",
+          "description": "Dangerous submit.",
           "default": false
         },
         "children": {
@@ -11680,18 +11684,18 @@
     },
     "SettingsRow": {
       "type": "object",
-      "description": "A settings line: label (+ description) at the start, the control (children) at the end; stacks on phones.",
+      "description": "Settings line: label (+ description) at the start, control (children) at the end; stacks on phones.",
       "properties": {
         "component": {
           "const": "SettingsRow"
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The setting's name."
+          "description": "Setting's name."
         },
         "description": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted line under the label."
+          "description": "Muted line under the label."
         },
         "stackBelow": {
           "enum": [
@@ -11701,7 +11705,7 @@
             "lg",
             "xl"
           ],
-          "description": "Puts the control under the label below this breakpoint.",
+          "description": "Control under the label below this breakpoint.",
           "default": "sm"
         },
         "children": {
@@ -11731,7 +11735,7 @@
     },
     "Input": {
       "type": "object",
-      "description": "A single-line text field.",
+      "description": "Single-line text field.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -11743,11 +11747,11 @@
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "type": {
           "enum": [
@@ -11759,7 +11763,7 @@
             "url",
             "tel"
           ],
-          "description": "The keyboard and masking kind.",
+          "description": "Keyboard and masking kind.",
           "default": "text"
         },
         "placeholder": {
@@ -11768,7 +11772,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text; bind it to a data path."
+          "description": "Text; bind it to a data path."
         },
         "disabled": {
           "type": "boolean",
@@ -11819,7 +11823,7 @@
     },
     "Textarea": {
       "type": "object",
-      "description": "A multi-line text field.",
+      "description": "Multi-line text field.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -11831,11 +11835,11 @@
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "placeholder": {
           "type": "string",
@@ -11843,12 +11847,12 @@
         },
         "rows": {
           "type": "number",
-          "description": "Visible lines (the minimum when autosizing).",
+          "description": "Visible lines (minimum when autosizing).",
           "default": 3
         },
         "autosize": {
           "type": "boolean",
-          "description": "Grows with the text from `rows` up to `maxRows`.",
+          "description": "Grows from `rows` up to `maxRows`.",
           "default": false
         },
         "maxRows": {
@@ -11857,7 +11861,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text; bind it to a data path."
+          "description": "Text; bind it to a data path."
         },
         "disabled": {
           "type": "boolean",
@@ -11907,7 +11911,7 @@
     },
     "NumberField": {
       "type": "object",
-      "description": "A numeric field with steppers, min/max/step clamping and locale formatting.",
+      "description": "Numeric field: steppers, min/max/step clamping, locale formatting.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -11919,23 +11923,23 @@
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The number; bind it."
+          "description": "Number; bind it."
         },
         "min": {
           "type": "number",
-          "description": "The lowest value."
+          "description": "Lowest value."
         },
         "max": {
           "type": "number",
-          "description": "The highest value."
+          "description": "Highest value."
         },
         "step": {
           "type": "number",
@@ -11944,11 +11948,11 @@
         },
         "precision": {
           "type": "number",
-          "description": "Decimal places shown; defaults to the step's."
+          "description": "Decimals shown; default the step's."
         },
         "unit": {
           "type": "string",
-          "description": "A suffix after the number (`kg`, `%`)."
+          "description": "Suffix after the number (`kg`, `%`)."
         },
         "placeholder": {
           "type": "string",
@@ -12003,7 +12007,7 @@
     },
     "Checkbox": {
       "type": "object",
-      "description": "A labelled checkbox; bind `checked`.",
+      "description": "Labelled checkbox; bind `checked`.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12015,11 +12019,11 @@
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text beside the box."
+          "description": "Text beside the box."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -12068,7 +12072,7 @@
     },
     "Radio": {
       "type": "object",
-      "description": "A labelled group of radio options choosing one value; bind `value`.",
+      "description": "Labelled radio group choosing one value; bind `value`.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12080,22 +12084,22 @@
         },
         "label": {
           "type": "string",
-          "description": "The group label."
+          "description": "Group label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "options": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "The choices in order."
+          "description": "Choices in order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The chosen value; bind it."
+          "description": "Chosen value; bind it."
         },
         "orientation": {
           "enum": [
@@ -12137,7 +12141,7 @@
     },
     "ChoiceTiles": {
       "type": "object",
-      "description": "Picture tiles picking one or many values; options show `image` and `description`.",
+      "description": "Picture tiles picking one or many values (options' `image`, `description`).",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12149,14 +12153,14 @@
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "options": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "The choices in order."
+          "description": "Choices in order."
         },
         "type": {
           "enum": [
@@ -12168,7 +12172,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The pick (comma-joined when multiple); bind it."
+          "description": "Pick (comma-joined when multiple); bind it."
         },
         "columns": {
           "type": "number",
@@ -12212,18 +12216,18 @@
     },
     "Switch": {
       "type": "object",
-      "description": "A labelled on/off switch; bind `checked`.",
+      "description": "Labelled on/off switch; bind `checked`.",
       "properties": {
         "component": {
           "const": "Switch"
         },
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text beside the switch."
+          "description": "Text beside the switch."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -12232,7 +12236,7 @@
         },
         "description": {
           "type": "string",
-          "description": "A muted line under the label."
+          "description": "Muted line under the label."
         },
         "disabled": {
           "type": "boolean",
@@ -12279,32 +12283,32 @@
     },
     "Slider": {
       "type": "object",
-      "description": "A slider from min to max.",
+      "description": "Slider from min to max.",
       "properties": {
         "component": {
           "const": "Slider"
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "min": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The lowest value.",
+          "description": "Lowest value.",
           "default": 0
         },
         "max": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The highest value."
+          "description": "Highest value."
         },
         "step": {
           "type": "number",
-          "description": "The increment.",
+          "description": "Increment.",
           "default": 1
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The current value; bind it."
+          "description": "Current value; bind it."
         },
         "icon": {
           "type": "string",
@@ -12943,14 +12947,14 @@
     },
     "Rating": {
       "type": "object",
-      "description": "A row of stars scoring out of `max`; `readOnly` only displays.",
+      "description": "Row of stars scoring out of `max`; `readOnly` only displays.",
       "properties": {
         "component": {
           "const": "Rating"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "The score, 0 to max.",
+          "description": "Score, 0 to max.",
           "default": 0
         },
         "max": {
@@ -13004,7 +13008,7 @@
     },
     "Select": {
       "type": "object",
-      "description": "A dropdown picker of one or many options; `searchable` = a filtering combobox, `source` = a host list.",
+      "description": "Picks one or many options; `searchable` = a filtering combobox, `source` = a host list.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -13016,11 +13020,11 @@
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "options": {
           "oneOf": [
@@ -13037,11 +13041,11 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Inline choices, or a path the host refills on `search`; omit with `source`."
+          "description": "Inline choices or a path the host refills on `search`; omit with `source`."
         },
         "source": {
           "type": "string",
-          "description": "A host list id (e.g. `exp:statuses`) that supplies the options."
+          "description": "Host list id supplying the options (e.g. `exp:statuses`)."
         },
         "placeholder": {
           "type": "string",
@@ -13049,7 +13053,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The chosen value (comma-joined when multiple); bind it."
+          "description": "Chosen value (comma-joined when multiple); bind it."
         },
         "multiple": {
           "type": "boolean",
@@ -13058,7 +13062,7 @@
         },
         "searchable": {
           "type": "boolean",
-          "description": "Adds a filter field; typing fires `search`.",
+          "description": "A filter field; typing fires `search`.",
           "default": false
         },
         "emptyText": {
@@ -13112,7 +13116,7 @@
     },
     "SearchList": {
       "type": "object",
-      "description": "A search field over rows: typing filters, arrows move, Enter picks.",
+      "description": "Search field over rows: typing filters, arrows move, Enter picks.",
       "properties": {
         "component": {
           "const": "SearchList"
@@ -13132,20 +13136,20 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The rows; refill on `search`."
+          "description": "Rows; refill on `search`."
         },
         "query": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The input text."
+          "description": "Input text."
         },
         "placeholder": {
           "type": "string",
-          "description": "The placeholder.",
+          "description": "Placeholder.",
           "default": "$string.search"
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The picked value (a check)."
+          "description": "Picked value (a check)."
         },
         "emptyText": {
           "type": "string",
@@ -13159,7 +13163,7 @@
         },
         "showCount": {
           "type": "boolean",
-          "description": "A count while typing.",
+          "description": "Count while typing.",
           "default": true
         },
         "on": {
@@ -13194,7 +13198,7 @@
     },
     "ChipInput": {
       "type": "object",
-      "description": "A multi-value field of removable chips (Enter or comma adds); bind `values`.",
+      "description": "Removable chips (Enter or comma adds); bind `values`.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -13206,15 +13210,15 @@
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "values": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "The entries; bind them."
+          "description": "Entries; bind them."
         },
         "suggestions": {
           "oneOf": [
@@ -13239,7 +13243,7 @@
         },
         "max": {
           "type": "number",
-          "description": "The most entries allowed."
+          "description": "Most entries allowed."
         },
         "disabled": {
           "type": "boolean",
@@ -13279,33 +13283,33 @@
     },
     "DatePicker": {
       "type": "object",
-      "description": "A calendar date field (ISO yyyy-mm-dd).",
+      "description": "Calendar date field (ISO yyyy-mm-dd).",
       "properties": {
         "component": {
           "const": "DatePicker"
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The chosen day as yyyy-mm-dd, or empty."
+          "description": "Chosen day as yyyy-mm-dd, or empty."
         },
         "min": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The earliest allowed day."
+          "description": "Earliest allowed day."
         },
         "max": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The latest allowed day."
+          "description": "Latest allowed day."
         },
         "placeholder": {
           "type": "string",
@@ -13317,7 +13321,7 @@
         },
         "inline": {
           "type": "boolean",
-          "description": "The month grid in place, no field.",
+          "description": "Month grid in place, no field.",
           "default": false
         },
         "marks": {
@@ -13330,7 +13334,7 @@
         "today": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The ringed day; else the host's."
+          "description": "Ringed day; else the host's."
         },
         "on": {
           "$ref": "#/$defs/On_DatePicker"
@@ -13364,38 +13368,38 @@
     },
     "DateRangePicker": {
       "type": "object",
-      "description": "A two-date range field with one calendar (ISO dates).",
+      "description": "Two-date range field with one calendar (ISO dates).",
       "properties": {
         "component": {
           "const": "DateRangePicker"
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data (`{start, end}`)."
+          "description": "Field's key in the submitted data (`{start, end}`)."
         },
         "start": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The first day as yyyy-mm-dd, or empty."
+          "description": "First day as yyyy-mm-dd, or empty."
         },
         "end": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The last day as yyyy-mm-dd, or empty."
+          "description": "Last day as yyyy-mm-dd, or empty."
         },
         "min": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The earliest allowed day."
+          "description": "Earliest allowed day."
         },
         "max": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The latest allowed day."
+          "description": "Latest allowed day."
         },
         "placeholder": {
           "type": "string",
@@ -13436,30 +13440,30 @@
     },
     "TimePicker": {
       "type": "object",
-      "description": "A time-of-day field (`HH:mm`) picked from a list every `step` minutes, or typed.",
+      "description": "Time field (`HH:mm`): a list every `step` minutes, or typed.",
       "properties": {
         "component": {
           "const": "TimePicker"
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The time as `HH:mm`, or empty."
+          "description": "Time as `HH:mm`, or empty."
         },
         "min": {
           "type": "string",
-          "description": "The earliest time, `HH:mm`."
+          "description": "Earliest time, `HH:mm`."
         },
         "max": {
           "type": "string",
-          "description": "The latest time, `HH:mm`."
+          "description": "Latest time, `HH:mm`."
         },
         "step": {
           "type": "number",
@@ -13506,18 +13510,18 @@
     },
     "FileUpload": {
       "type": "object",
-      "description": "A drop zone with a browse button; files reach the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse button; files reach the host via `upload`, listed back in `files`.",
       "properties": {
         "component": {
           "const": "FileUpload"
         },
         "label": {
           "type": "string",
-          "description": "The field label."
+          "description": "Field label."
         },
         "name": {
           "type": "string",
-          "description": "The field's key in the submitted data."
+          "description": "Field's key in the submitted data."
         },
         "accept": {
           "type": "string",
@@ -13530,7 +13534,7 @@
         },
         "maxSize": {
           "type": "number",
-          "description": "Max bytes per file; bigger ones are refused."
+          "description": "Max bytes per file; larger are refused."
         },
         "files": {
           "oneOf": [
@@ -13547,7 +13551,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The attached files, each removable."
+          "description": "Attached files, each removable."
         },
         "hint": {
           "type": "string",
@@ -13590,7 +13594,7 @@
     },
     "QrScanner": {
       "type": "object",
-      "description": "A QR scanner viewfinder; the host camera fires `scanned {value}`.",
+      "description": "QR viewfinder; the host camera fires `scanned {value}`.",
       "properties": {
         "component": {
           "const": "QrScanner"
@@ -13611,7 +13615,7 @@
         },
         "label": {
           "type": "string",
-          "description": "An accessibility label.",
+          "description": "Accessibility label.",
           "default": "$string.scanQrCode"
         },
         "disabled": {
@@ -13649,7 +13653,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "The chat input box: a growing text field with a submit button and optional attachments.",
+      "description": "Chat input: a growing text field, a submit button, optional attachments.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -13660,11 +13664,11 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The draft text; bind it."
+          "description": "Draft text; bind it."
         },
         "submitLabel": {
           "type": "string",
-          "description": "The submit button's accessibility label.",
+          "description": "Submit button's accessibility label.",
           "default": "$string.send"
         },
         "attachments": {
@@ -13709,22 +13713,22 @@
     },
     "Row": {
       "type": "object",
-      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable; with children a foldable parent.",
+      "description": "THE list row: lead glyph or slot, mono identifier, title, subtitle, trailing meta or value, slot, chevron; flat or card, nestable; with children it folds.",
       "properties": {
         "component": {
           "const": "Row"
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The main text."
+          "description": "Main text."
         },
         "identifier": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A mono identifier before the title (`EXP-12`)."
+          "description": "Mono identifier before the title (`EXP-12`)."
         },
         "subtitle": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A muted second line."
+          "description": "Muted second line."
         },
         "meta": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -13732,7 +13736,7 @@
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "A trailing readable value (a property, a pick)."
+          "description": "Trailing readable value (a property, a pick)."
         },
         "placeholder": {
           "type": "string",
@@ -14343,7 +14347,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "The lead glyph (the `leading` slot replaces it)."
+          "description": "Lead glyph (the `leading` slot replaces it)."
         },
         "chevron": {
           "oneOf": [
@@ -14382,7 +14386,7 @@
             "flat",
             "card"
           ],
-          "description": "A flat row, or a padded card with its own fill and border.",
+          "description": "Flat, or a padded card with its own fill and border.",
           "default": "flat"
         },
         "pressable": {
@@ -14393,7 +14397,7 @@
         "href": {
           "type": "string",
           "format": "uri-reference",
-          "description": "The URL a press opens; implies `pressable`."
+          "description": "URL a press opens; implies `pressable`."
         },
         "depth": {
           "type": "number",
@@ -14446,7 +14450,7 @@
     },
     "Tree": {
       "type": "object",
-      "description": "A file-style tree: branches fold, leaves select, lazy branches load; keyboard per WAI-ARIA.",
+      "description": "File-style tree: branches fold, leaves select, lazy branches load; WAI-ARIA keys.",
       "properties": {
         "component": {
           "const": "Tree"
@@ -14456,19 +14460,19 @@
           "items": {
             "$ref": "#/$defs/treeItem"
           },
-          "description": "The root nodes."
+          "description": "Root nodes."
         },
         "expanded": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "The open branch ids; bind it."
+          "description": "Open branch ids; bind it."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The selected leaf id."
+          "description": "Selected leaf id."
         },
         "label": {
           "type": "string",
-          "description": "The accessible name."
+          "description": "Accessible name."
         },
         "on": {
           "$ref": "#/$defs/On_Tree"
@@ -14503,14 +14507,14 @@
     },
     "MessageBubble": {
       "type": "object",
-      "description": "A chat message bubble, in (left, after an avatar) or out (right).",
+      "description": "Chat bubble, in (left, after an avatar) or out (right).",
       "properties": {
         "component": {
           "const": "MessageBubble"
         },
         "text": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The message."
+          "description": "Message."
         },
         "side": {
           "enum": [
@@ -14548,13 +14552,13 @@
         },
         "pressable": {
           "type": "boolean",
-          "description": "A press target firing `press` (`on.press` or `href` imply it).",
+          "description": "Press target firing `press` (`on.press` or `href` imply it).",
           "default": false
         },
         "href": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "format": "uri-reference",
-          "description": "The URL a press opens; implies `pressable`."
+          "description": "URL a press opens; implies `pressable`."
         },
         "slots": {
           "$ref": "#/$defs/Slots_MessageBubble"
@@ -14593,18 +14597,18 @@
     },
     "TreeGuides": {
       "type": "object",
-      "description": "The tree gutter a nested Row draws (filled by the core); never authored directly.",
+      "description": "Tree gutter a nested Row draws (filled by the core); never authored directly.",
       "properties": {
         "component": {
           "const": "TreeGuides"
         },
         "depth": {
           "type": "number",
-          "description": "The row's nesting depth (0 = root)."
+          "description": "Row's nesting depth (0 = root)."
         },
         "elbowAt": {
           "type": "number",
-          "description": "The gutter index that draws the elbow into this row; omit for a root."
+          "description": "Gutter index that draws the elbow into this row; omit for a root."
         },
         "tee": {
           "type": "boolean",
@@ -14644,7 +14648,7 @@
     },
     "Unknown": {
       "type": "object",
-      "description": "A renderer's placeholder for an undefined component; never authored directly.",
+      "description": "Renderer's placeholder for an undefined component; never authored directly.",
       "properties": {
         "component": {
           "const": "Unknown"
@@ -14674,7 +14678,7 @@
     },
     "Motion": {
       "type": "object",
-      "description": "A vector animation (Lottie-compatible) drawn identically everywhere: loaders, success states, illustrated empty states, small explainers.",
+      "description": "Lottie-compatible vector animation, identical everywhere: loaders, success and empty states, explainers.",
       "properties": {
         "component": {
           "const": "Motion"
@@ -14684,14 +14688,14 @@
           "items": {
             "type": "object"
           },
-          "description": "The animation, top layer first, in the composition's px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints every shape before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (follow light/dark), #hex, or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on their first pose. No expressions."
+          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
         },
         "size": {
           "type": "array",
           "items": {
             "type": "number"
           },
-          "description": "The composition [width, height] px (with layers)."
+          "description": "Composition [width, height] px (with layers)."
         },
         "duration": {
           "type": "number",
@@ -14720,16 +14724,16 @@
         "src": {
           "type": "string",
           "format": "uri-reference",
-          "description": "An attached .json or .lottie instead of layers."
+          "description": "Attached .json or .lottie instead of layers."
         },
         "autoplay": {
           "type": "boolean",
-          "description": "Plays when visible; false shows the poster.",
+          "description": "Plays when visible; false = poster.",
           "default": true
         },
         "loop": {
           "type": "boolean",
-          "description": "Repeats; false plays once and holds.",
+          "description": "Repeats; false = play once and hold.",
           "default": true
         },
         "plays": {
@@ -14772,7 +14776,7 @@
         },
         "poster": {
           "type": "number",
-          "description": "The still frame (ms) for reduced motion and before play."
+          "description": "Still frame (ms) for reduced motion and pre-play."
         },
         "fit": {
           "enum": [
@@ -14789,11 +14793,11 @@
         },
         "stateMachine": {
           "type": "object",
-          "description": "A dotLottie state machine driving playback (a .lottie src brings its own)."
+          "description": "DotLottie state machine for playback (a .lottie src has its own)."
         },
         "inputs": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "State-machine inputs {name: value}; bind to drive states from data."
+          "description": "State-machine inputs {name: value}; bind to drive states."
         },
         "label": {
           "type": "string",
@@ -14834,7 +14838,7 @@
     },
     "Canvas": {
       "type": "object",
-      "description": "A static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
+      "description": "Static drawing (chart, diagram, illustration) of shapes and text; Motion animates.",
       "properties": {
         "component": {
           "const": "Canvas"
@@ -14848,7 +14852,7 @@
         },
         "shapes": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "Motion's shapes, no keys, + text {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color} on top, always upright."
+          "description": "Motion's shapes without keys, + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
         },
         "fit": {
           "enum": [
@@ -14903,7 +14907,7 @@
     },
     "Calendar": {
       "type": "object",
-      "description": "A month or week of records: spans as chart-coloured bars in lanes; on phones dots and the day's agenda.",
+      "description": "Month or week of records as chart-coloured bars in lanes; phones: dots and the day's agenda.",
       "properties": {
         "component": {
           "const": "Calendar"
@@ -14922,17 +14926,17 @@
         },
         "labelField": {
           "type": "string",
-          "description": "The row field a bar shows.",
+          "description": "Row field a bar shows.",
           "default": "title"
         },
         "detailField": {
           "type": "string",
-          "description": "The agenda subtitle field.",
+          "description": "Agenda subtitle field.",
           "default": "detail"
         },
         "metaField": {
           "type": "string",
-          "description": "The agenda meta field.",
+          "description": "Agenda meta field.",
           "default": "status"
         },
         "style": {
@@ -14967,7 +14971,7 @@
     },
     "Timeline": {
       "type": "object",
-      "description": "Records over time: rows of chart-coloured bars across week, month or quarter columns.",
+      "description": "Records over time: chart-coloured bars across week, month or quarter columns.",
       "properties": {
         "component": {
           "const": "Timeline"
@@ -14978,12 +14982,12 @@
         },
         "labelField": {
           "type": "string",
-          "description": "The row field a bar shows.",
+          "description": "Row field a bar shows.",
           "default": "title"
         },
         "rowTitle": {
           "type": "string",
-          "description": "The row labels' heading."
+          "description": "Row labels' heading."
         },
         "showCount": {
           "type": "boolean",
@@ -15021,22 +15025,22 @@
     },
     "RecordForm": {
       "type": "object",
-      "description": "A form over one record kind: a field per schema field with its checks; submit saves the record.",
+      "description": "Form for one record kind: a field per schema field with its checks; submit saves.",
       "properties": {
         "component": {
           "const": "RecordForm"
         },
         "kind": {
           "type": "string",
-          "description": "The package's record kind."
+          "description": "Package's record kind."
         },
         "recordId": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The record to update; none = a new record."
+          "description": "Record to update; none = new."
         },
         "submitLabel": {
           "type": "string",
-          "description": "The submit label.",
+          "description": "Submit label.",
           "default": "$string.save"
         },
         "readOnly": {
@@ -15046,12 +15050,12 @@
         },
         "cancel": {
           "type": "boolean",
-          "description": "An outline Cancel firing `cancel`.",
+          "description": "Outline Cancel firing `cancel`.",
           "default": false
         },
         "path": {
           "type": "string",
-          "description": "The draft's data path (default /recordForm/<id>); seed it to edit."
+          "description": "Draft data path (default /recordForm/<id>); seed it to edit."
         },
         "fields": {
           "type": "array",
@@ -15129,11 +15133,11 @@
         },
         "kind": {
           "type": "string",
-          "description": "The package's record kind."
+          "description": "Package's record kind."
         },
         "query": {
           "type": "string",
-          "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
+          "description": "Records query (`sort=name&order=asc`, `query=<name>`); default newest first."
         },
         "columns": {
           "type": "array",
@@ -15782,7 +15786,7 @@
     },
     "percent": {
       "type": "object",
-      "description": "The share of max as \"N%\", clamped to 0..100, two decimals; 0% when max is not positive.",
+      "description": "Share of max as \"N%\", clamped to 0..100, two decimals; 0% when max is not positive.",
       "properties": {
         "@call": {
           "const": "percent"
@@ -15990,7 +15994,7 @@
     },
     "concat": {
       "type": "object",
-      "description": "The values joined into one string (undefined and null as empty).",
+      "description": "Values joined into one string (undefined and null as empty).",
       "properties": {
         "@call": {
           "const": "concat"
@@ -16024,7 +16028,7 @@
     },
     "coalesce": {
       "type": "object",
-      "description": "The first truthy value.",
+      "description": "First truthy value.",
       "properties": {
         "@call": {
           "const": "coalesce"
@@ -16058,7 +16062,7 @@
     },
     "text": {
       "type": "object",
-      "description": "The value as a string; no value when it is missing.",
+      "description": "Value as a string; no value when it is missing.",
       "properties": {
         "@call": {
           "const": "text"
@@ -16116,7 +16120,7 @@
     },
     "len": {
       "type": "object",
-      "description": "An array's or a string's length, else 0.",
+      "description": "Array's or a string's length, else 0.",
       "properties": {
         "@call": {
           "const": "len"
@@ -16200,7 +16204,7 @@
     },
     "formatPercent": {
       "type": "object",
-      "description": "A ratio as a locale percent through the surface Formatter (0.256 → 26%); decimals = fixed fraction digits.",
+      "description": "Ratio as a locale percent through the surface Formatter (0.256 → 26%); decimals = fixed fraction digits.",
       "properties": {
         "@call": {
           "const": "formatPercent"
@@ -16227,7 +16231,7 @@
     },
     "formatRelativeTime": {
       "type": "object",
-      "description": "A date (yyyy-mm-dd, ISO date-time or epoch ms) relative to now (epoch ms or a date; default the clock) through the surface Formatter: 3 minutes ago, yesterday, in 2 hours.",
+      "description": "Date (yyyy-mm-dd, ISO date-time or epoch ms) relative to now (epoch ms or a date; default the clock) through the surface Formatter: 3 minutes ago, yesterday, in 2 hours.",
       "properties": {
         "@call": {
           "const": "formatRelativeTime"
@@ -16250,7 +16254,7 @@
     },
     "filter": {
       "type": "object",
-      "description": "The items that match, in order: every `where` field equals its value (an empty value matches all) and `query` is a case-insensitive substring of one of `fields` (default every text field); bind a List or Table to it.",
+      "description": "Items that match, in order: every `where` field equals its value (an empty value matches all) and `query` is a case-insensitive substring of one of `fields` (default every text field); bind a List or Table to it.",
       "properties": {
         "@call": {
           "const": "filter"
@@ -16509,7 +16513,7 @@
     },
     "abs": {
       "type": "object",
-      "description": "The absolute value.",
+      "description": "Absolute value.",
       "properties": {
         "@call": {
           "const": "abs"
@@ -16533,7 +16537,7 @@
     },
     "min": {
       "type": "object",
-      "description": "The smallest of values.",
+      "description": "Smallest of values.",
       "properties": {
         "@call": {
           "const": "min"
@@ -16567,7 +16571,7 @@
     },
     "max": {
       "type": "object",
-      "description": "The largest of values.",
+      "description": "Largest of values.",
       "properties": {
         "@call": {
           "const": "max"
@@ -16641,7 +16645,7 @@
     },
     "dateTime": {
       "type": "object",
-      "description": "A day (YYYY-MM-DD) at a wall-clock time (HH:MM; none = midnight) in the team time zone, as an ISO instant.",
+      "description": "Day (YYYY-MM-DD) at a wall-clock time (HH:MM; none = midnight) in the team time zone, as an ISO instant.",
       "properties": {
         "@call": {
           "const": "dateTime"
@@ -16728,7 +16732,7 @@
     },
     "startOf": {
       "type": "object",
-      "description": "The first day (or instant) of date's day, week (Monday), month, quarter or year.",
+      "description": "First day (or instant) of date's day, week (Monday), month, quarter or year.",
       "properties": {
         "@call": {
           "const": "startOf"
@@ -16755,7 +16759,7 @@
     },
     "endOf": {
       "type": "object",
-      "description": "The last day (or instant) of that unit.",
+      "description": "Last day (or instant) of that unit.",
       "properties": {
         "@call": {
           "const": "endOf"
@@ -16806,7 +16810,7 @@
     },
     "isoWeek": {
       "type": "object",
-      "description": "The ISO week number.",
+      "description": "ISO week number.",
       "properties": {
         "@call": {
           "const": "isoWeek"
@@ -16881,7 +16885,7 @@
     },
     "orElse": {
       "type": "object",
-      "description": "The value, or default when it is missing (null): narrows an optional value.",
+      "description": "Value, or default when it is missing (null): narrows an optional value.",
       "properties": {
         "@call": {
           "const": "orElse"
@@ -22335,11 +22339,11 @@
       "properties": {
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The text shown for the option."
+          "description": "Text shown for the option."
         },
         "value": {
           "type": "string",
-          "description": "The stable value the selection reports."
+          "description": "Stable value the selection reports."
         },
         "icon": {
           "type": "string",
@@ -22936,7 +22940,7 @@
             "x",
             "zap"
           ],
-          "description": "An icon shown before the label."
+          "description": "Icon shown before the label."
         },
         "disabled": {
           "type": "boolean",
@@ -22944,16 +22948,16 @@
         },
         "description": {
           "type": "string",
-          "description": "A second line."
+          "description": "Second line."
         },
         "image": {
           "type": "string",
           "format": "uri-reference",
-          "description": "A tile picture."
+          "description": "Tile picture."
         },
         "count": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "A badge on a bar item."
+          "description": "Badge on a bar item."
         }
       },
       "required": [
@@ -22964,7 +22968,7 @@
     },
     "check": {
       "type": "object",
-      "description": "A client-side validation rule.",
+      "description": "Client-side validation rule.",
       "properties": {
         "condition": {
           "oneOf": [
@@ -22975,11 +22979,11 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "A binding or a function call that must hold (true, or a validation result) for the input to be valid."
+          "description": "Binding or a function call that must hold (true, or a validation result) for the input to be valid."
         },
         "message": {
           "type": "string",
-          "description": "The error shown when the condition fails."
+          "description": "Error shown when the condition fails."
         }
       },
       "required": [
@@ -22993,11 +22997,11 @@
       "properties": {
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The tab title."
+          "description": "Tab title."
         },
         "value": {
           "type": "string",
-          "description": "The value reported when the tab is active."
+          "description": "Value reported when the tab is active."
         },
         "icon": {
           "type": "string",
@@ -23594,11 +23598,11 @@
             "x",
             "zap"
           ],
-          "description": "An icon before the title."
+          "description": "Icon before the title."
         },
         "count": {
           "type": "number",
-          "description": "A count badge after the title."
+          "description": "Count badge after the title."
         }
       },
       "required": [
@@ -23613,11 +23617,11 @@
       "properties": {
         "label": {
           "type": "string",
-          "description": "The entry text (a separator has none)."
+          "description": "Entry text (a separator has none)."
         },
         "value": {
           "type": "string",
-          "description": "The value reported on select (actions and checkboxes)."
+          "description": "Value reported on select (actions and checkboxes)."
         },
         "kind": {
           "enum": [
@@ -24225,15 +24229,15 @@
             "x",
             "zap"
           ],
-          "description": "An icon before the text."
+          "description": "Icon before the text."
         },
         "shortcut": {
           "type": "string",
-          "description": "A key-cap hint after the text (`⌘K`)."
+          "description": "Key-cap hint after the text (`⌘K`)."
         },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "A checkbox entry's state; bind it."
+          "description": "Checkbox entry's state; bind it."
         },
         "destructive": {
           "type": "boolean",
@@ -24258,7 +24262,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "A submenu's entries (one level deep); bind it to rows a host source feeds (statuses, members, labels)."
+          "description": "Submenu's entries (one level deep); bind it to rows a host source feeds (statuses, members, labels)."
         },
         "searchable": {
           "type": "boolean",
@@ -24266,7 +24270,7 @@
         },
         "placeholder": {
           "type": "string",
-          "description": "A searchable submenu's placeholder."
+          "description": "Searchable submenu's placeholder."
         }
       },
       "additionalProperties": false
@@ -24277,11 +24281,11 @@
       "properties": {
         "label": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The row title."
+          "description": "Row title."
         },
         "value": {
           "type": "string",
-          "description": "The value a pick reports."
+          "description": "Value a pick reports."
         },
         "icon": {
           "type": "string",
@@ -24878,11 +24882,11 @@
             "x",
             "zap"
           ],
-          "description": "A leading glyph."
+          "description": "Leading glyph."
         },
         "identifier": {
           "type": "string",
-          "description": "A mono id before the title (`EXP-12`)."
+          "description": "Mono id before the title (`EXP-12`)."
         },
         "disabled": {
           "type": "boolean",
@@ -24901,15 +24905,15 @@
       "properties": {
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The section title."
+          "description": "Section title."
         },
         "value": {
           "type": "string",
-          "description": "The value reported when the section is open."
+          "description": "Value reported when the section is open."
         },
         "count": {
           "type": "number",
-          "description": "A count shown in the header."
+          "description": "Count shown in the header."
         }
       },
       "required": [
@@ -24924,7 +24928,7 @@
       "properties": {
         "value": {
           "type": "number",
-          "description": "The slice's share of max."
+          "description": "Slice's share of max."
         },
         "tone": {
           "enum": [
@@ -24935,7 +24939,7 @@
             "danger",
             "info"
           ],
-          "description": "The slice's colour tone."
+          "description": "Slice's colour tone."
         },
         "label": {
           "type": "string",
@@ -24953,7 +24957,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "The legend label."
+          "description": "Legend label."
         },
         "values": {
           "type": "array",
@@ -24975,7 +24979,7 @@
             "danger",
             "info"
           ],
-          "description": "The series' colour tone; charts default to the chart hues in order."
+          "description": "Series' colour tone; charts default to the chart hues in order."
         }
       },
       "required": [
@@ -24994,7 +24998,7 @@
             "percent",
             "compact"
           ],
-          "description": "The format.",
+          "description": "Format.",
           "default": "number"
         },
         "currency": {
@@ -25014,7 +25018,7 @@
       "properties": {
         "title": {
           "type": "string",
-          "description": "A caption over the page."
+          "description": "Caption over the page."
         }
       },
       "additionalProperties": false
@@ -25025,11 +25029,11 @@
       "properties": {
         "label": {
           "type": "string",
-          "description": "The step name."
+          "description": "Step name."
         },
         "description": {
           "type": "string",
-          "description": "A muted line under the name."
+          "description": "Muted line under the name."
         }
       },
       "required": [
@@ -25043,11 +25047,11 @@
       "properties": {
         "key": {
           "type": "string",
-          "description": "The row field it shows."
+          "description": "Row field it shows."
         },
         "label": {
           "type": "string",
-          "description": "The header text."
+          "description": "Header text."
         },
         "type": {
           "enum": [
@@ -25071,7 +25075,7 @@
         },
         "width": {
           "type": "number",
-          "description": "A fixed width in px; otherwise columns share the width, never under 120 (a wider table scrolls)."
+          "description": "Fixed width in px; otherwise columns share the width, never under 120 (a wider table scrolls)."
         },
         "align": {
           "enum": [
@@ -25113,11 +25117,11 @@
     },
     "sort": {
       "type": "object",
-      "description": "A table sort.",
+      "description": "Table sort.",
       "properties": {
         "key": {
           "type": "string",
-          "description": "The sorted column's key."
+          "description": "Sorted column's key."
         },
         "direction": {
           "enum": [
@@ -25158,7 +25162,7 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "The file name."
+          "description": "File name."
         },
         "size": {
           "type": "number",
@@ -25166,7 +25170,7 @@
         },
         "type": {
           "type": "string",
-          "description": "The MIME type."
+          "description": "MIME type."
         },
         "url": {
           "type": "string",
@@ -25189,7 +25193,7 @@
         },
         "detail": {
           "type": "string",
-          "description": "A muted detail."
+          "description": "Muted detail."
         },
         "icon": {
           "type": "string",
@@ -25786,7 +25790,7 @@
             "x",
             "zap"
           ],
-          "description": "The lead glyph."
+          "description": "Lead glyph."
         },
         "status": {
           "enum": [
@@ -25796,7 +25800,7 @@
             "done",
             "skipped"
           ],
-          "description": "The step's state."
+          "description": "Step's state."
         }
       },
       "required": [
@@ -25814,11 +25818,11 @@
         },
         "title": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "The row text."
+          "description": "Row text."
         },
         "count": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "A muted count."
+          "description": "Muted count."
         }
       },
       "required": [
@@ -25834,11 +25838,11 @@
         "src": {
           "type": "string",
           "format": "uri-reference",
-          "description": "The image URL."
+          "description": "Image URL."
         },
         "alt": {
           "type": "string",
-          "description": "The accessibility description."
+          "description": "Accessibility description."
         }
       },
       "required": [
@@ -25848,12 +25852,12 @@
     },
     "dateMark": {
       "type": "object",
-      "description": "An event dot on a day.",
+      "description": "Event dot on a day.",
       "properties": {
         "date": {
           "type": "string",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "The day (yyyy-mm-dd)."
+          "description": "Day (yyyy-mm-dd)."
         },
         "tone": {
           "enum": [
@@ -25864,7 +25868,7 @@
             "danger",
             "info"
           ],
-          "description": "The dot's tone."
+          "description": "Dot's tone."
         }
       },
       "required": [
@@ -25882,7 +25886,7 @@
         },
         "title": {
           "type": "string",
-          "description": "The row text."
+          "description": "Row text."
         },
         "icon": {
           "type": "string",
@@ -26479,7 +26483,7 @@
             "x",
             "zap"
           ],
-          "description": "The glyph (default: a folder or a file)."
+          "description": "Glyph (default: a folder or a file)."
         },
         "meta": {
           "type": "string",
@@ -26494,7 +26498,7 @@
         },
         "hasChildren": {
           "type": "boolean",
-          "description": "A branch whose children load on open (`load`)."
+          "description": "Branch whose children load on open (`load`)."
         }
       },
       "required": [

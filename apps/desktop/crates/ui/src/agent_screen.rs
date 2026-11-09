@@ -1264,6 +1264,7 @@ impl AgentScreenView {
 
 impl Render for AgentScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AgentScreenView").entered();
         let editor = matches!(self.subject, ChannelSubject::App(_));
         // S-3: one session screen. An agent's conversation renders on THE
         // chat screen (chat bubbles, its header, composer with the "+",

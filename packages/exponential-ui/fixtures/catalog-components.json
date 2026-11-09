@@ -7571,6 +7571,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7586,6 +7587,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "ringing",
           "activity": "speaking",
           "level": 0.6,
@@ -7601,6 +7603,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "connecting",
           "activity": "speaking",
           "level": 0.6,
@@ -7616,6 +7619,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7631,6 +7635,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "ended",
           "activity": "speaking",
           "level": 0.6,
@@ -7646,6 +7651,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "idle",
           "level": 0.6,
@@ -7661,6 +7667,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "listening",
           "level": 0.6,
@@ -7676,6 +7683,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "thinking",
           "level": 0.6,
@@ -7691,6 +7699,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7706,6 +7715,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "muted",
           "level": 0.6,
@@ -7721,6 +7731,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7737,6 +7748,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7753,6 +7765,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,
@@ -7769,6 +7782,7 @@
         "component": "CallSurface",
         "props": {
           "name": "Assistant",
+          "seed": "agent-assistant",
           "state": "talking",
           "activity": "speaking",
           "level": 0.6,

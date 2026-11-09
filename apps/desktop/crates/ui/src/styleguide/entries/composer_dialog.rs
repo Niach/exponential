@@ -126,6 +126,7 @@ impl ComposerSpecimen {
 
 impl Render for ComposerSpecimen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ComposerSpecimen").entered();
         let prefix = self.prefix;
         let phase = self.phase;
         let id = |part: &str| SharedString::from(format!("{prefix}-{part}"));
@@ -224,6 +225,7 @@ impl OpenMenu {
 
 impl Render for OpenMenu {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "OpenMenu").entered();
         crate::controls::with_pointer_layer(self.menu.clone())
     }
 }

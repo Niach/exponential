@@ -121,6 +121,7 @@ struct Transcript {
 
 impl Render for Transcript {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Transcript").entered();
         gpui::list(
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| {
@@ -228,6 +229,7 @@ struct Doc {
 
 impl Render for Doc {
     fn render(&mut self, _: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Doc").entered();
         let view = crate::markdown::MarkdownView::new(format!("bench-doc-{}", self.id), self.text.clone())
             .selectable(true)
             .chat(self.chat)

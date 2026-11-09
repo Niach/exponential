@@ -3112,6 +3112,10 @@
           "type": "url",
           "bindable": true
         },
+        "seed": {
+          "type": "string",
+          "bindable": true
+        },
         "state": {
           "type": "enum",
           "enum": "callState",

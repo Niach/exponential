@@ -4445,6 +4445,7 @@ impl Focusable for SessionChatScreenView {
 
 impl Render for SessionChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionChatScreenView").entered();
         // EXP-1346: an Rc handle, never a deep clone of the model.
         let Some(model) = self.model.clone() else {
             let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
@@ -4878,6 +4879,7 @@ mod tests {
         struct Shell(Entity<SessionChatScreenView>);
         impl Render for Shell {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Shell").entered();
                 div()
                     .size_full()
                     .child(gpui_base::TextSelectionLayer)

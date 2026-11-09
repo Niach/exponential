@@ -113,6 +113,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Ada Lovelace",
+                      "seed": "demo-ada",
                       "size": "sm"
                     }
                   },
@@ -166,6 +167,7 @@
                     "component": "Avatar",
                     "props": {
                       "name": "Ada Lovelace",
+                      "seed": "demo-ada",
                       "size": "sm"
                     }
                   },
@@ -8412,6 +8414,7 @@
                 "component": "CallSurface",
                 "props": {
                   "name": "Assistant",
+                  "seed": "agent-assistant",
                   "state": "ringing",
                   "status": "Calling…"
                 },
@@ -8447,6 +8450,7 @@
                 "component": "CallSurface",
                 "props": {
                   "name": "Assistant",
+                  "seed": "agent-assistant",
                   "state": "talking",
                   "activity": "speaking",
                   "level": 0.6,
@@ -8492,6 +8496,7 @@
                 "component": "CallSurface",
                 "props": {
                   "name": "Assistant",
+                  "seed": "agent-assistant",
                   "state": "talking",
                   "status": "03:10",
                   "muted": true

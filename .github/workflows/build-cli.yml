@@ -73,9 +73,30 @@ jobs:
         env:
           EXP_CLI_VERSION: ${{ steps.ver.outputs.version }}
           EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
+          # #LOGS-2: line tables for GlitchTip (a dSYM on macOS; stripped off
+          # the Linux binary below, after the upload): the asset never grows.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+        shell: bash
         run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then export CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed; fi
           cargo build --release --locked --manifest-path apps/desktop/Cargo.toml \
             -p exp-cli --target ${{ matrix.target }}
+      - name: Collect debug files
+        id: dif
+        shell: bash
+        run: |
+          dir="apps/desktop/target/${{ matrix.target }}/release"
+          if [ "$RUNNER_OS" = "macOS" ]; then echo "paths=$dir/exponential.dSYM" >> "$GITHUB_OUTPUT"; else echo "paths=$dir/exponential" >> "$GITHUB_OUTPUT"; fi
+      # The CLI shares the desktop project. No token = skipped; a failed
+      # upload only warns.
+      - name: Upload debug files to GlitchTip
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: ./.github/actions/glitchtip-debug-files
+        with:
+          paths: ${{ steps.dif.outputs.paths }}
+          auth-token: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       - name: Stage asset
         shell: bash
         run: |

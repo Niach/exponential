@@ -386,6 +386,7 @@ impl IssuesPane {
 
 impl Render for IssuesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssuesPane").entered();
         let statuses = self.scoped_statuses(cx);
         let mut pane = v_flex().gap_6();
         if let Some(card) = self.render_estimates(cx) {

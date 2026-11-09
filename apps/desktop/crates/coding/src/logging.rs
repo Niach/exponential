@@ -209,6 +209,8 @@ pub struct ExpLogger {
     file: Option<RotatingFile>,
     /// Stderr sink: the formatter and the minimum level it prints.
     stderr: Option<(fn(&log::Record), log::LevelFilter)>,
+    /// #LOGS-2: every written record also goes here (diagnostics).
+    tap: Option<fn(&log::Record)>,
 }
 
 impl ExpLogger {
@@ -217,6 +219,7 @@ impl ExpLogger {
             level,
             file: None,
             stderr: None,
+            tap: None,
         }
     }
 
@@ -234,6 +237,13 @@ impl ExpLogger {
     /// through `print`.
     pub fn with_stderr(mut self, print: fn(&log::Record), min: log::LevelFilter) -> Self {
         self.stderr = Some((print, min));
+        self
+    }
+
+    /// #LOGS-2: hand every written record to `tap` too
+    /// (`observability::log_tap`).
+    pub fn with_tap(mut self, tap: fn(&log::Record)) -> Self {
+        self.tap = Some(tap);
         self
     }
 
@@ -276,6 +286,9 @@ impl log::Log for ExpLogger {
             if record.level() <= min {
                 print(record);
             }
+        }
+        if let Some(tap) = self.tap {
+            tap(record);
         }
     }
 

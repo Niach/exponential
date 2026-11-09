@@ -1290,6 +1290,7 @@
             "component": "Avatar",
             "props": {
               "name": "Alex Chen",
+              "seed": "demo-alex",
               "size": "default"
             },
             "children": []
@@ -9332,7 +9333,8 @@
                     "id": "hover_card_avatar",
                     "component": "Avatar",
                     "props": {
-                      "name": "Alex Chen"
+                      "name": "Alex Chen",
+                      "seed": "demo-alex"
                     },
                     "children": []
                   },
