@@ -70,6 +70,8 @@ pub(crate) mod computer_use_banner;
 pub(crate) mod feedback_states;
 pub(crate) mod trace;
 pub(crate) mod code_block;
+// EXP-1629: the Exponential UI Avatar, painted from its specimen.
+pub(crate) mod avatar;
 // VAPP-162: the round-5 Exponential UI pieces, painted from the specimens.
 pub(crate) mod qr_code;
 pub(crate) mod qr_scanner;
@@ -177,6 +179,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
+    Entry { id: avatar::ID, owner: avatar::OWNER, render: avatar::render },
     Entry { id: qr_code::ID, owner: qr_code::OWNER, render: qr_code::render },
     Entry { id: qr_scanner::ID, owner: qr_scanner::OWNER, render: qr_scanner::render },
     Entry { id: nav_rail::ID, owner: nav_rail::OWNER, render: nav_rail::render },

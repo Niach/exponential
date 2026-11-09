@@ -620,7 +620,7 @@
     "Avatar": {
       "props": {
         "name": {
-          "description": "The person's name; initials come from it."
+          "description": "The person's name or email; initials come from it."
         },
         "src": {
           "description": "The picture URL."
@@ -629,12 +629,13 @@
           "description": "Diameter class."
         },
         "seed": {
-          "description": "Hashes the fallback hue; defaults to the name."
+          "description": "A user id: hashes the fallback's palette hue; none = muted."
         }
       },
       "description": "A round user picture that falls back to initials on a stable hue.",
       "example": {
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       }
     },

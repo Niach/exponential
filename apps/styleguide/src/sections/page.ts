@@ -165,6 +165,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`getting-started`]: `Surfaces`,
   trace: `Lists & rows`,
   [`code-block`]: `Surfaces`,
+  avatar: `Buttons & chips`,
   [`qr-code`]: `Surfaces`,
   [`qr-scanner`]: `Inputs & pickers`,
   [`nav-rail`]: `Surfaces`,

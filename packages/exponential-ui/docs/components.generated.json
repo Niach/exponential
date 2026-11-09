@@ -1867,7 +1867,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "The person's name; initials come from it."
+          "description": "The person's name or email; initials come from it."
         },
         {
           "name": "src",
@@ -1879,7 +1879,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -1892,7 +1892,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Hashes the fallback hue; defaults to the name."
+          "description": "A user id: hashes the fallback's palette hue; none = muted."
         }
       ],
       "accessibility": {
@@ -1904,6 +1904,7 @@
         "id": "example",
         "component": "Avatar",
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       },
       "macro": null

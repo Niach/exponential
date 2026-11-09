@@ -3314,6 +3314,7 @@
         "component": "Avatar",
         "props": {
           "name": "Jane Doe",
+          "seed": "demo-mira",
           "size": "default"
         }
       }
@@ -3325,6 +3326,7 @@
         "component": "Avatar",
         "props": {
           "name": "Jane Doe",
+          "seed": "demo-mira",
           "size": "sm"
         }
       }
@@ -3336,6 +3338,7 @@
         "component": "Avatar",
         "props": {
           "name": "Jane Doe",
+          "seed": "demo-mira",
           "size": "default"
         }
       }
@@ -3347,7 +3350,20 @@
         "component": "Avatar",
         "props": {
           "name": "Jane Doe",
+          "seed": "demo-mira",
           "size": "lg"
+        }
+      }
+    },
+    {
+      "name": "Avatar/size=xl",
+      "node": {
+        "id": "avatar",
+        "component": "Avatar",
+        "props": {
+          "name": "Jane Doe",
+          "seed": "demo-mira",
+          "size": "xl"
         }
       }
     },

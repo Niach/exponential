@@ -42,6 +42,7 @@ export const ENUMS = {
   validateOn: ["change","blur","submit"],
   alertType: ["info","success","warning","error"],
   controlSize: ["sm","default","lg"],
+  avatarSize: ["sm","default","lg","xl"],
   spinnerSize: ["xs","sm","default","lg"],
   tabClosable: ["none","hover","always"],
   tabsVariant: ["pill","strip"],
@@ -102,6 +103,7 @@ export type InputTypeValue = (typeof ENUMS)["inputType"][number]
 export type ValidateOnValue = (typeof ENUMS)["validateOn"][number]
 export type AlertTypeValue = (typeof ENUMS)["alertType"][number]
 export type ControlSizeValue = (typeof ENUMS)["controlSize"][number]
+export type AvatarSizeValue = (typeof ENUMS)["avatarSize"][number]
 export type SpinnerSizeValue = (typeof ENUMS)["spinnerSize"][number]
 export type TabClosableValue = (typeof ENUMS)["tabClosable"][number]
 export type TabsVariantValue = (typeof ENUMS)["tabsVariant"][number]
@@ -155,7 +157,7 @@ export const TOKEN_NAMES = {
   "type.lineHeight": ["xs","sm","base","lg","xl","xl2","xl3"],
   "type.weight": ["regular","medium","semibold","bold"],
   "type.family": ["sans","mono","serif"],
-  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast"],
+  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl"],
   "shadow": ["none","sm","md","lg","xl"],
   "opacity": ["primary","secondary","tertiary","quaternary","disabled"],
   "border": ["none","hairline","thick"],
@@ -233,7 +235,7 @@ export interface ComponentProps {
   Icon: { name: IconName | Dynamic; size?: ControlSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
   AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
-  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: ControlSizeValue; seed?: string }
+  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: AvatarSizeValue; seed?: string }
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
   Mosaic: { pictures: Shapes["picture"][]; label?: string }

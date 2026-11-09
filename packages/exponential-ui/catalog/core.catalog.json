@@ -113,6 +113,12 @@
       "default",
       "lg"
     ],
+    "avatarSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -2464,7 +2470,7 @@
           "type": "string",
           "required": true,
           "bindable": true,
-          "description": "The person's name; initials come from it."
+          "description": "The person's name or email; initials come from it."
         },
         "src": {
           "type": "url",
@@ -2473,17 +2479,18 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "avatarSize",
           "default": "default",
           "description": "Diameter class."
         },
         "seed": {
           "type": "string",
-          "description": "Hashes the fallback hue; defaults to the name."
+          "description": "A user id: hashes the fallback's palette hue; none = muted."
         }
       },
       "example": {
         "name": "Jane Doe",
+        "seed": "demo-mira",
         "size": "default"
       }
     },

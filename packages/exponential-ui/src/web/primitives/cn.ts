@@ -9,11 +9,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function getInitials(value: string) {
-  return value
-    .split(` `)
-    .map((part) => part[0] ?? ``)
-    .join(``)
-    .toUpperCase()
-    .slice(0, 2)
-}
+// #EXP-1629: the person's initials are the cross-client rule
+// (`avatarInitials`, fixtures/avatar.json), never a split on spaces only.
+export { avatarInitials as getInitials } from "./avatar-color"

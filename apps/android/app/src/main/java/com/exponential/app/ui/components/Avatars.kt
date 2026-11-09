@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -103,6 +104,7 @@ fun InitialsAvatar(
         fill = hue?.copy(alpha = 0.2f) ?: GlassTokens.RowFillActive,
         ink = hue ?: Color.White,
         fontSize = (size.value * 0.42f).sp,
+        fontWeight = FontWeight.Medium,
         initials = initials,
         textStyle = LocalTextStyle.current,
         contentDescription = null,

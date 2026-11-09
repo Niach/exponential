@@ -3,39 +3,52 @@ package at.exponential.ui.primitives
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.io.File
 
 /** The shared avatar fallback rule, the meter clamp and hex parsing. */
 class PrimitivesTest {
+    /** packages/exponential-ui/fixtures/avatar.json (#EXP-1629), THE avatar rule ×5 renderers. */
+    @Suppress("UNCHECKED_CAST")
+    private fun avatarFixture(): Map<String, Any?> {
+        val file = File("../../exponential-ui/fixtures/avatar.json")
+        assumeTrue("$file not in this checkout", file.isFile)
+        return MiniJson(file.readText()).parse() as Map<String, Any?>
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Any?.pairs(): List<List<Any?>> = this as List<List<Any?>>
+
     @Test
-    fun initialsTakeTheFirstTwoWords() {
-        assertEquals("AC", AvatarFallback.initials("Alex Chen"))
-        assertEquals("AB", AvatarFallback.initials("  ada   bea  carl "))
-        assertEquals("M", AvatarFallback.initials("mono"))
-        assertEquals("", AvatarFallback.initials("   "))
+    fun avatarPaletteIsTheFixtures() {
+        val f = avatarFixture()
+        assertEquals(f["palette"], AvatarFallback.PALETTE)
+        assertEquals((f["fillAlpha"] as Number).toFloat(), AvatarFallback.FILL_ALPHA, 0f)
+        assertEquals(parseHexColor("#F87171"), AvatarFallback.palette[0])
     }
 
     @Test
-    fun seedHueMatchesTheReactAndGpuiRule() {
-        // h = h * 31 + utf16unit (wrapping UInt32), % 360; computed by hand.
-        assertEquals(72.0, AvatarFallback.seedHue("Alex Chen"), 0.0)
-        assertEquals(97.0, AvatarFallback.seedHue("a"), 0.0)
-        assertEquals(0.0, AvatarFallback.seedHue(""), 0.0)
-        assertEquals(257.0, AvatarFallback.seedHue("danny@yourev.at"), 0.0)
-        assertEquals(166.0, AvatarFallback.seedHue("Zoë"), 0.0)
+    fun avatarHuesReplayTheFixture() {
+        for ((seed, index) in avatarFixture()["hues"].pairs()) {
+            assertEquals("hue of '$seed'", (index as Number).toInt(), AvatarFallback.hueIndex(seed as String))
+        }
     }
 
     @Test
-    fun tintIsTheSharedHsl() {
-        val dark = AvatarFallback.tint("Alex Chen", dark = true)
-        val light = AvatarFallback.tint("Alex Chen", dark = false)
-        assertEquals(0.22f, dark.fill.alpha, 0.001f)
-        assertEquals(1f, dark.ink.alpha, 0.001f)
-        assertEquals(dark.fill, light.fill)
-        // hsl(72, 0.6, 0.72): r = 0.8208, g = 0.888, b = 0.552.
-        assertEquals(0.8208f, dark.ink.red, 0.003f)
-        assertEquals(0.888f, dark.ink.green, 0.003f)
-        assertEquals(0.552f, dark.ink.blue, 0.003f)
+    fun avatarInitialsReplayTheFixture() {
+        for ((name, letters) in avatarFixture()["initials"].pairs()) {
+            assertEquals("initials of '$name'", letters, AvatarFallback.initials(name as String))
+        }
+        assertEquals("?", AvatarFallback.initials(null))
+    }
+
+    @Test
+    fun avatarTintIsTheHueAtTheFillAlpha() {
+        val tint = AvatarFallback.tint("demo-mira")
+        val hue = AvatarFallback.palette[2]
+        assertEquals(hue, tint.ink)
+        assertEquals(hue.copy(alpha = 0.2f), tint.fill)
     }
 
     @Test
