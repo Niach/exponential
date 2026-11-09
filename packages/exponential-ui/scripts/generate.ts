@@ -1038,6 +1038,18 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `language`, component: `Select`, props: { label: `Language`, description: `Spoken replies and dictation use it`, name: `language`, triggerVariant: `row`, value: `en`, options: [{ label: `English`, value: `en` }, { label: `Deutsch`, value: `de` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: the IDE's Branch picker row: the repo's default reads
+    // `main · default` in the popup (option `trailing`), the trigger only
+    // `main`; opening fires `open` (the lazy branch fetch).
+    label: `triggerVariant · row + option trailing`,
+    node: {
+      id: `board_prefs`,
+      component: `Group`,
+      children: [
+        { id: `branch`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).

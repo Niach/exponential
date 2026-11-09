@@ -21,6 +21,7 @@ use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -622,4 +623,21 @@ fn settings_prompts_loading() {
 #[ignore]
 fn settings_prompts_no_team() {
     prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
+}
+
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened,
+/// today's IDE row vs the genUI row: run each into its own dir, the second
+/// with `EXP_SETTINGS_BEFORE=<the first's dir>`. `EXP_BRANCH_CLICK=x,y`
+/// moves the IDE row's click (its value button).
+#[test]
+#[ignore]
+fn settings_branch_menu_ide() {
+    let click = std::env::var("EXP_BRANCH_CLICK").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?)))).unwrap_or((PANE.0 - 24. - 14. - 30., 24. + 20.));
+    shoot_pane_clicked("branch-menu", IdeBranchRow::for_shots, |_, _| {}, None, &[click]);
+}
+
+#[test]
+#[ignore]
+fn settings_branch_menu_eui() {
+    shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
 }

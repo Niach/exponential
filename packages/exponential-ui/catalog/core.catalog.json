@@ -407,6 +407,10 @@
           "type": "string",
           "description": "Second line."
         },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
+        },
         "image": {
           "type": "url",
           "description": "Tile picture."
@@ -5349,7 +5353,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "example": {
         "label": "Board",

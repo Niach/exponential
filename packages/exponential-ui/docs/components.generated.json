@@ -6333,7 +6333,8 @@
       "slots": [],
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "basic": [
         "ChoicePicker (filterable, multipleSelection)"
