@@ -9,6 +9,7 @@ import {
   conflictText,
   failingText,
   heldText,
+  landingConfirmed,
   mergedText,
   mergeMenuEntries,
   mergeStep,
@@ -33,6 +34,9 @@ describe(`merge-train fixture`, () => {
   })
   it.each(fixture.steps)(`step: $name`, ({ pr, event, expected }) => {
     expect(mergeStep(pr as never, event as never)).toEqual(expected as never)
+  })
+  it.each(fixture.landing)(`landing: $name`, ({ input, expected }) => {
+    expect(landingConfirmed(input)).toBe(expected)
   })
   it.each(fixture.batches)(`batch: $name`, (c) => {
     const { units, expected } = c
