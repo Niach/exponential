@@ -10918,7 +10918,7 @@
                 "id": "specimen_input_case_3_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · text",
+                  "text": "variant · bare",
                   "variant": "caption"
                 }
               },
@@ -10928,8 +10928,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "text",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "bare"
                 }
               }
             ]
@@ -10947,7 +10948,7 @@
                 "id": "specimen_input_case_4_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · password",
+                  "text": "variant · code",
                   "variant": "caption"
                 }
               },
@@ -10957,8 +10958,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "password",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "code"
                 }
               }
             ]
@@ -10976,7 +10978,7 @@
                 "id": "specimen_input_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · number",
+                  "text": "type · text",
                   "variant": "caption"
                 }
               },
@@ -10986,7 +10988,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "number",
+                  "type": "text",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11005,7 +11007,7 @@
                 "id": "specimen_input_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · search",
+                  "text": "type · password",
                   "variant": "caption"
                 }
               },
@@ -11015,7 +11017,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "search",
+                  "type": "password",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11034,7 +11036,7 @@
                 "id": "specimen_input_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · url",
+                  "text": "type · number",
                   "variant": "caption"
                 }
               },
@@ -11044,7 +11046,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "url",
+                  "type": "number",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11123,6 +11125,94 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_input_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bare, code (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_identity",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c10_agent",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "paddingHorizontal": "$spacing.lg",
+                      "paddingVertical": "$spacing.md"
+                    },
+                    "children": [
+                      {
+                        "id": "c10_agent_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "agent",
+                          "variant": "bare",
+                          "value": "Triage"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c10_skill",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.md",
+                      "paddingHorizontal": "$spacing.lg",
+                      "paddingVertical": "$spacing.md"
+                    },
+                    "children": [
+                      {
+                        "id": "c10_skill_icon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "book-open"
+                        }
+                      },
+                      {
+                        "id": "c10_skill_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "skill",
+                          "variant": "code",
+                          "placeholder": "skill-name"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -11183,7 +11273,7 @@
                 "id": "specimen_textarea_case_1_label",
                 "component": "Text",
                 "props": {
-                  "text": "disabled · true",
+                  "text": "variant · field",
                   "variant": "caption"
                 }
               },
@@ -11194,8 +11284,142 @@
                   "label": "Notes",
                   "name": "notes",
                   "rows": 4,
+                  "variant": "field"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · row",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
+                  "variant": "row"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · code",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
+                  "variant": "code"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "disabled · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
                   "disabled": true
                 }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · row, code (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_bodies",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c5_instructions",
+                    "component": "Textarea",
+                    "props": {
+                      "label": "Instructions",
+                      "name": "instructions",
+                      "variant": "row",
+                      "rows": 3,
+                      "value": "Triage new issues every morning.\nLabel them and ping the board's owner."
+                    }
+                  },
+                  {
+                    "id": "c5_body",
+                    "component": "Textarea",
+                    "props": {
+                      "label": "SKILL.md",
+                      "name": "body",
+                      "variant": "code",
+                      "rows": 4,
+                      "value": "---\nname: review\n---\nRun the checks, then summarise the diff."
+                    }
+                  }
+                ]
               }
             ]
           }

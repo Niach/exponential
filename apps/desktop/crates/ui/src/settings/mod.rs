@@ -2324,3 +2324,18 @@ mod tests {
         assert!(!nav_lit(&SettingsSection::Prompts, &SettingsSection::Repositories));
     }
 }
+
+/// #EXP-1629: the field bench's (`settings_bench::field_variants`) read of
+/// [`doc::Ink`]: the group radius and fill, the rem, the muted glyph and the
+/// row hairline.
+#[cfg(test)]
+pub(crate) fn doc_ink(cx: &App) -> (f32, String, f32, String, String) {
+    let ink = doc::Ink::of(cx);
+    (ink.radius_lg, ink.fill_row.clone(), ink.rem, ink.muted.clone(), ink.stroke_row.clone())
+}
+
+/// #EXP-1629: [`doc::mount`] for the field bench.
+#[cfg(test)]
+pub(crate) fn doc_mount<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    doc::mount(id, tree, binding, window, cx)
+}

@@ -596,6 +596,34 @@
               "borderWidth": 0,
               "borderRadius": 0
             }
+          },
+          "variant=bare": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "bare"
+            },
+            "geometry": {
+              "height": 20,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "height": 20,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -604,7 +632,8 @@
         "cases": {
           "default": {
             "props": {
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -613,6 +642,44 @@
               "paddingVertical": 8,
               "borderWidth": 1,
               "borderRadius": 8
+            }
+          },
+          "variant=field": {
+            "props": {
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "minHeight": 64,
+              "paddingHorizontal": 12,
+              "paddingVertical": 8,
+              "borderWidth": 1,
+              "borderRadius": 8
+            }
+          },
+          "variant=row": {
+            "props": {
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -2007,6 +2074,34 @@
               "borderWidth": 0,
               "borderRadius": 0
             }
+          },
+          "variant=bare": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "bare"
+            },
+            "geometry": {
+              "height": 18,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "height": 18,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -2015,7 +2110,8 @@
         "cases": {
           "default": {
             "props": {
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -2024,6 +2120,44 @@
               "paddingVertical": 8,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "variant=field": {
+            "props": {
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "minHeight": 64,
+              "paddingHorizontal": 12,
+              "paddingVertical": 8,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "variant=row": {
+            "props": {
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "paddingHorizontal": 24,
+              "paddingVertical": 18.5,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "paddingHorizontal": 24,
+              "paddingVertical": 18.5,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -3417,6 +3551,34 @@
               "borderWidth": 0,
               "borderRadius": 0
             }
+          },
+          "variant=bare": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "bare"
+            },
+            "geometry": {
+              "height": 20,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "height": 20,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -3425,7 +3587,8 @@
         "cases": {
           "default": {
             "props": {
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 44,
@@ -3434,6 +3597,44 @@
               "paddingVertical": 8,
               "borderWidth": 3,
               "borderRadius": 24
+            }
+          },
+          "variant=field": {
+            "props": {
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 44,
+              "minHeight": 64,
+              "paddingHorizontal": 12,
+              "paddingVertical": 8,
+              "borderWidth": 3,
+              "borderRadius": 24
+            }
+          },
+          "variant=row": {
+            "props": {
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "paddingHorizontal": 16,
+              "paddingVertical": 12,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -4831,6 +5032,34 @@
               "borderWidth": 0,
               "borderRadius": 0
             }
+          },
+          "variant=bare": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "bare"
+            },
+            "geometry": {
+              "height": 18,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "type": "email",
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "height": 18,
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -4839,7 +5068,8 @@
         "cases": {
           "default": {
             "props": {
-              "disabled": false
+              "disabled": false,
+              "variant": "field"
             },
             "geometry": {
               "height": 36,
@@ -4848,6 +5078,44 @@
               "paddingVertical": 8,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "variant=field": {
+            "props": {
+              "disabled": false,
+              "variant": "field"
+            },
+            "geometry": {
+              "height": 36,
+              "minHeight": 64,
+              "paddingHorizontal": 12,
+              "paddingVertical": 8,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
+          },
+          "variant=row": {
+            "props": {
+              "disabled": false,
+              "variant": "row"
+            },
+            "geometry": {
+              "paddingHorizontal": 24,
+              "paddingVertical": 18.5,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=code": {
+            "props": {
+              "disabled": false,
+              "variant": "code"
+            },
+            "geometry": {
+              "paddingHorizontal": 24,
+              "paddingVertical": 18.5,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }

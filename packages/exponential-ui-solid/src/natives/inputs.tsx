@@ -110,6 +110,10 @@ function TextFieldNative(props: NativeProps & { multiline: boolean }): JSX.Eleme
   // #EXP-1629: React's `row` Input: the `field` part is a <label> wrapping
   // the leading `label` part and the bare, end-aligned input.
   const row = () => !props.multiline && str(props.props.variant) === `row`
+  // #EXP-1629: React's unlabelled `bare`/`code` Input and `row`/`code`
+  // Textarea: no label part, the label is the field's accessible name.
+  const unlabelled = () => !row() && str(props.props.variant, `field`) !== `field`
+  const named = (): Attrs => (unlabelled() && label() ? { "aria-label": label() } : {})
   const input = (attrs: () => Attrs) => (
     <input
       ref={(e) => (el = e)}
@@ -139,13 +143,13 @@ function TextFieldNative(props: NativeProps & { multiline: boolean }): JSX.Eleme
   const rowAttrs = (): Attrs => ({ class: `xui-Input-rowfield`, "aria-labelledby": label() ? `${id}-l` : undefined })
   return (
     <div {...props.rootProps} data-pending={field.pending ? `true` : undefined} data-revision={field.revision}>
-      <Show when={!row()}>
+      <Show when={!row() && !unlabelled()}>
         <TextPart part={part(`label`)} text={label()} as="label" htmlFor={id} />
       </Show>
       <Show
         when={props.multiline}
         fallback={
-          <Show when={row()} fallback={input(() => part(`field`, ...fieldStates()))}>
+          <Show when={row()} fallback={input(() => ({ ...part(`field`, ...fieldStates()), ...named() }))}>
             <label {...part(`field`, ...fieldStates())} for={id}>
               <TextPart part={part(`label`)} text={label()} id={`${id}-l`} />
               {input(rowAttrs)}
@@ -156,6 +160,7 @@ function TextFieldNative(props: NativeProps & { multiline: boolean }): JSX.Eleme
         <textarea
           ref={(e) => (el = e)}
           {...part(`field`, ...fieldStates())}
+          {...named()}
           id={id}
           name={str(props.props.name, props.node.id)}
           value={field.value}

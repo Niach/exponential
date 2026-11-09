@@ -76,6 +76,17 @@ describe(`inputs: interactions replayed on both`, () => {
       typeInto(input, `abc`)
       fire(input, `keydown`, { key: `Enter` })
     }))
+  it(`Input code + Textarea row (#EXP-1629): no label part, typing`, async () =>
+    expectParity(one({ id: `b`, component: `Box`, children: [{ id: `i`, component: `Input`, props: { label: `Name`, name: `n`, variant: `code`, value: { "@path": `/n` } } }, { id: `t`, component: `Textarea`, props: { label: `Body`, name: `t`, variant: `row`, value: { "@path": `/t` } } }] }, { n: `review`, t: `Run the checks.` }), (root) => {
+      const input = root.querySelector(`input`)
+      fire(input, `focusin`)
+      ;(input as HTMLInputElement).focus()
+      typeInto(input, `abc`)
+      const area = root.querySelector(`textarea`)
+      fire(area, `focusin`)
+      ;(area as HTMLTextAreaElement).focus()
+      typeInto(area, `!`)
+    }))
   it(`NumberField: steppers and keys`, async () =>
     expectParity(one({ id: `n`, component: `NumberField`, props: { label: `N`, value: 3, min: 1, max: 5 } }), (root) => {
       fire(root.querySelector(`[data-xui-part="NumberField/increment"]`), `click`)

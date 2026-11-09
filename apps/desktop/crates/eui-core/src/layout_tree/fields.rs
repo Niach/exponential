@@ -347,14 +347,22 @@ impl Builder<'_, '_> {
     /// Input / Textarea: label, the host-measured field, description, error.
     pub(crate) fn field(&mut self, index: u32) {
         // #EXP-1629: a `row` Input IS a Group row: the label leads inside it.
-        let row = self.nodes[index as usize].component == "Input" && self.nodes[index as usize].props.get("variant").and_then(Value::as_str) == Some("row");
-        let owner = self.field_open_with(index, !row);
+        // A `bare`/`code` Input and a `row`/`code` Textarea draw no label:
+        // it stays the field's accessible name.
+        let node = &self.nodes[index as usize];
+        let variant = node.props.get("variant").and_then(Value::as_str).unwrap_or("field");
+        let row = node.component == "Input" && variant == "row";
+        let unlabelled = variant != "field" && !row;
+        let owner = self.field_open_with(index, !row && !unlabelled);
         let mut props = Self::control_props(&owner);
         if let Some(label) = str_prop(&owner.props, "label").filter(|_| row) {
             props["label"] = json!(label);
         }
         let f = self.part(&owner, "field", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), props);
         self.nodes[f as usize].pressable = !bool_prop(&owner.props, "disabled");
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| unlabelled && !l.is_empty()) {
+            self.default_a11y(f, "label", json!(label));
+        }
         self.field_close(&owner, Some(f));
     }
 

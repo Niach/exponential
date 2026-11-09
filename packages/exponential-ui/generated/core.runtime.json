@@ -375,7 +375,14 @@
     ],
     "inputVariant": [
       "field",
-      "row"
+      "row",
+      "bare",
+      "code"
+    ],
+    "textareaVariant": [
+      "field",
+      "row",
+      "code"
     ]
   },
   "defs": {
@@ -3714,6 +3721,11 @@
         "value": {
           "type": "string",
           "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "textareaVariant",
+          "default": "field"
         },
         "disabled": {
           "type": "boolean",

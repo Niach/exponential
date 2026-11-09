@@ -762,6 +762,19 @@
             "fontSize": 12.25,
             "lineHeight": 17.5
           }
+        },
+        {
+          "when": {
+            "variant": [
+              "bare",
+              "code"
+            ]
+          },
+          "style": {
+            "height": 18,
+            "fontSize": 12.25,
+            "lineHeight": 18
+          }
         }
       ],
       "label": [
@@ -783,6 +796,30 @@
             "backgroundColor": "$color.card",
             "borderColor": "$color.input",
             "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": [
+              "row",
+              "code"
+            ]
+          },
+          "style": {
+            "paddingHorizontal": 24,
+            "paddingVertical": 18.5,
+            "backgroundColor": "#00000000",
+            "fontSize": 12.25,
+            "lineHeight": 18
+          }
+        },
+        {
+          "when": {
+            "variant": "code"
+          },
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 18
           }
         }
       ]
