@@ -375,12 +375,13 @@ class InteractionTest {
 
     /**
      * #EXP-1629: an open Select popup (the core's layer, painted overlays)
-     * puts its ONE `hover` (the cursor) on the first chosen option and
-     * scrolls the list to it; the pointer moves the cursor (leaving keeps
-     * it), `selected` stays the chosen option's, a reopen starts over.
+     * starts at the TOP with its ONE `hover` (the cursor) on the first
+     * enabled option, the bottom fade while options sit below; the pointer
+     * moves the cursor (leaving keeps it), `selected` stays the chosen
+     * option's, a reopen starts over.
      */
     @Test
-    fun selectPopupCursorStartsOnTheChosenOption() {
+    fun selectPopupCursorStartsOnTheFirstOption() {
         val options = (0 until 30).joinToString(",") { """{"label":"Option $it","value":"o$it"}""" }
         val m = SurfaceModel("select-cursor", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
         m.fixedMeasure = true
@@ -388,10 +389,11 @@ class InteractionTest {
         m.setViewport(390f, 800f)
         val hovered = { m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id } }
         m.press("s.trigger")
-        assertEquals(listOf("s.item.20"), hovered())
+        assertEquals(listOf("s.item.0"), hovered())
         assertTrue(m.node(m.idx("s.item.20"))!!.selected)
         val list = m.nodes.first { it.owner == "s" && it.part == "list" }
-        assertTrue("the list scrolled to the chosen option", (m.scrolls[list.index]?.offsetY ?: 0f) > 0f)
+        assertEquals("the list starts at the top", 0f, m.scrolls[list.index]?.offsetY ?: 0f)
+        assertTrue("more options below: the fade", m.nodes.any { it.owner == "s" && it.part == "fade" && !it.hidden })
         m.hover("s.item.3", true)
         assertEquals(listOf("s.item.3"), hovered())
         m.hover("s.item.3", false)
@@ -400,25 +402,29 @@ class InteractionTest {
         assertTrue(m.escape())
         assertTrue(m.layers.none { it.owner == "s" })
         m.press("s.trigger")
-        assertEquals(listOf("s.item.20"), hovered())
+        assertEquals(listOf("s.item.0"), hovered())
     }
 
-    /** #EXP-1629: the popup's cursor rules, alignment and width (a row: `end`, layout `selectRowPopupWidth`). */
+    /** #EXP-1629: the popup's cursor rules, alignment, spacing and width (a row: under its value, `start`, layout `selectRowPopupWidth`). */
     @Test
     fun selectPopupRules() {
         val opts = listOf("a", "b", "c", "d").mapIndexed { i, v -> at.exponential.ui.compose.SelectOption(JsonValue.Str(v), v.uppercase(), null, i == 0 || i == 2) }
-        assertEquals(2, at.exponential.ui.compose.selectInitialCursor(opts, listOf("c", "d")))
-        assertEquals(1, at.exponential.ui.compose.selectInitialCursor(opts, emptyList()))
+        assertEquals(1, at.exponential.ui.compose.selectInitialCursor(opts))
         assertEquals(3, at.exponential.ui.compose.selectStep(opts, 1, 1))
         assertEquals(3, at.exponential.ui.compose.selectStep(opts, 3, 1))
         assertEquals(1, at.exponential.ui.compose.selectStep(opts, 3, -1))
         val row = mapOf("triggerVariant" to JsonValue.Str("row"))
         assertTrue(at.exponential.ui.compose.selectRowVariant(row))
         assertFalse(at.exponential.ui.compose.selectRowVariant(emptyMap()))
-        assertEquals("end", at.exponential.ui.compose.selectPopupAlign(row, row = true))
-        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(emptyMap(), row = false))
-        assertEquals("center", at.exponential.ui.compose.selectPopupAlign(mapOf("align" to JsonValue.Str("center")), row = true))
-        assertEquals(260f, at.exponential.ui.compose.selectPopupWidth(row, row = true))
+        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(row))
+        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(emptyMap()))
+        assertEquals("center", at.exponential.ui.compose.selectPopupAlign(mapOf("align" to JsonValue.Str("center"))))
+        assertEquals(1f to 7f, at.exponential.ui.compose.selectPopupSpacing(row = true))
+        assertEquals(4f to 8f, at.exponential.ui.compose.selectPopupSpacing(row = false))
+        assertTrue(at.exponential.ui.compose.selectMoreBelow(0, 200))
+        assertFalse(at.exponential.ui.compose.selectMoreBelow(199, 200))
+        assertFalse(at.exponential.ui.compose.selectMoreBelow(0, 0))
+        assertEquals(262f, at.exponential.ui.compose.selectPopupWidth(row, row = true))
         assertNull(at.exponential.ui.compose.selectPopupWidth(emptyMap(), row = false))
         assertEquals(300f, at.exponential.ui.compose.selectPopupWidth(mapOf("popupWidth" to JsonValue.Num(300.0)), row = false))
     }

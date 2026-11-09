@@ -25,7 +25,7 @@ import { importShadcnCss } from "../src/builder"
 import { CONTROL_PARTS, controlGeometry } from "../src/geometry"
 import { nativeRecipeProps, recipeParts, RECIPE_KEYS, RECIPE_STATES } from "../src/recipes"
 import { reduceNested } from "../src/reducer"
-import { MODES, THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "../src/theme"
+import { BACKGROUND_CLIPS, MODES, THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "../src/theme"
 import { STYLE_TRANSFORM_PATTERN, styleKeyEnum } from "../src/style"
 import type { ModeName, RecipeQuery, ResolvedStyle, ResolvedTheme, ThemeSource } from "../src/theme-types"
 import type { NestedNode, UiNode } from "../src/types"
@@ -124,6 +124,11 @@ export function composeExponential(): ThemeSource {
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
     lg: [{ x: 0, y: 12, blur: 32, spread: -8, color: hex(`rgb(0 0 0 / ${a})`) }],
     xl: [{ x: 0, y: 20, blur: 48, spread: -12, color: hex(`rgb(0 0 0 / ${a})`) }],
+    // #EXP-1629: the IDE's popovers = gpui's `shadow_lg`, in both modes.
+    popover: [
+      { x: 0, y: 10, blur: 15, spread: -3, color: `#0000001a` as const },
+      { x: 0, y: 4, blur: 6, spread: -4, color: `#0000001a` as const },
+    ],
   })
   const s = design.size
   const mono = `ui-monospace`
@@ -241,6 +246,7 @@ export function themeSchema(): Record<string, unknown> {
     backdropBlur: { type: `string`, pattern: `^\\$blur\\.[a-zA-Z0-9]+$` },
     animation: { enum: styleKeyEnum(`animation`) },
     native: { type: `boolean` },
+    backgroundClip: { enum: BACKGROUND_CLIPS },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
   const whenValue = { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }, { type: `array`, items: { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }] } }] }

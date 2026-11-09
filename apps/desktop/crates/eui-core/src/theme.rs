@@ -411,6 +411,8 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     // #EDE-65: a macro box's leading top corner and its width cap (MessageBubble/bubble).
     ("borderTopLeftRadius", &["radius", "spacing"]),
     ("maxWidth", &["control", "spacing"]),
+    // #EXP-1629: recipe-only (`padding-box` = the fill paints inside the border).
+    ("backgroundClip", &[]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -421,6 +423,8 @@ fn is_percent(value: &Value) -> bool {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     digits(int) && digits(frac) && n.parse::<f64>().is_ok_and(|v| v <= 100.0)
 }
+/// #EXP-1629: the values of the recipe-only `backgroundClip`.
+pub const BACKGROUND_CLIPS: [&str; 2] = ["border-box", "padding-box"];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
 const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
 const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
@@ -672,6 +676,12 @@ fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<The
     if key == "native" {
         if !value.is_boolean() {
             issues.push(issue(path, "expected true|false"));
+        }
+        return;
+    }
+    if key == "backgroundClip" {
+        if !value.as_str().is_some_and(|v| BACKGROUND_CLIPS.contains(&v)) {
+            issues.push(issue(path, format!("expected {}", known(&BACKGROUND_CLIPS))));
         }
         return;
     }

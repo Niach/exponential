@@ -2031,6 +2031,148 @@
             ]
           }
         }
+      },
+      {
+        "name": "popover",
+        "ref": "$shadow.popover",
+        "values": {
+          "neutral": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "exponential": {
+            "light": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ]
+          },
+          "playful": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "orange": {
+            "light": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ]
+          }
+        }
       }
     ],
     "opacity": [
@@ -2421,7 +2563,8 @@
     "marginTop",
     "marginBottom",
     "borderTopLeftRadius",
-    "maxWidth"
+    "maxWidth",
+    "backgroundClip"
   ],
   "components": [
     {
@@ -3629,7 +3772,8 @@
         "empty",
         "error",
         "value",
-        "chevron"
+        "chevron",
+        "fade"
       ],
       "props": [
         "multiple",

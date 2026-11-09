@@ -30566,7 +30566,7 @@
     ]
   },
   "Select\/triggerVariant=row" : {
-    "height" : 44,
+    "height" : 40.81999969482422,
     "nodes" : [
       {
         "component" : "Select",
@@ -30574,21 +30574,67 @@
           0,
           0,
           390,
-          44
+          40.82
         ],
         "id" : "select"
       },
       {
         "bg" : "#00000000",
-        "component" : "Select",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          44
+          40.82
         ],
         "id" : "select.trigger",
         "part" : "trigger"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          14,
+          10.41,
+          40,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          61,
+          20.41,
+          239,
+          0
+        ],
+        "id" : "select.spacer",
+        "part" : "spacer"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          307,
+          10.41,
+          48,
+          20
+        ],
+        "id" : "select.value",
+        "opacity" : 0.699999988079071,
+        "part" : "value"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          362,
+          13.41,
+          14,
+          14
+        ],
+        "id" : "select.chevron",
+        "opacity" : 0.699999988079071,
+        "part" : "chevron"
       }
     ]
   },
