@@ -12,8 +12,8 @@ import { redeemSignInLinkTicket } from "@/lib/auth/sign-in-link-ticket"
 import { buildAuthConfig } from "@/lib/auth/config"
 import { isRefusedSocialSignIn } from "@/lib/auth/sign-in-methods"
 
-// Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
-// /sign-in/social are POST-only. Bridge: client opens this GET endpoint,
+// Custom Tabs only emit GETs, but Better Auth's /sign-in/social (generic
+// OIDC providers included since 1.7) is POST-only. Bridge: client opens this GET endpoint,
 // we invoke the POST server-side, then forward Better Auth's response
 // (state cookies + redirect to the IdP) to the browser.
 
@@ -115,31 +115,21 @@ async function handle({ request }: { request: Request }) {
   // `exponential://oauth-return?error=…` handoff.
   const errorCallbackURL = callbackURL
 
+  // better-auth 1.7: generic OIDC providers (`providerId`, what the natives
+  // send for them) sign in and link through the social endpoints too.
   const response = linkHeaders
-    ? social
-      ? await auth.api.linkSocialAccount({
-          body: { provider: social as never, callbackURL, errorCallbackURL },
-          headers: linkHeaders,
-          asResponse: true,
-        })
-      : await auth.api.oAuth2LinkAccount({
-          body: { providerId: providerId!, callbackURL, errorCallbackURL },
-          headers: linkHeaders,
-          asResponse: true,
-        })
+    ? await auth.api.linkSocialAccount({
+        body: { provider: requestedProvider as never, callbackURL, errorCallbackURL },
+        headers: linkHeaders,
+        asResponse: true,
+      })
     : browserHandoff
     ? Response.json({
         url: `/auth/login?redirect=${encodeURIComponent(`/api/mobile-oauth-return`)}`,
         redirect: true,
       })
-    : social
-    ? await auth.api.signInSocial({
-        body: { provider: social as never, callbackURL, errorCallbackURL },
-        headers: request.headers,
-        asResponse: true,
-      })
-    : await auth.api.signInWithOAuth2({
-        body: { providerId: providerId!, callbackURL, errorCallbackURL },
+    : await auth.api.signInSocial({
+        body: { provider: requestedProvider as never, callbackURL, errorCallbackURL },
         headers: request.headers,
         asResponse: true,
       })

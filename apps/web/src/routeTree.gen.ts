@@ -106,6 +106,7 @@ import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devic
 import { Route as TTeamSlugNeedsYouRouteImport } from './routes/t/$teamSlug/needs-you'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugTeamRouteImport } from './routes/t/$teamSlug/team'
+import { Route as Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport } from './routes/[.well-known]/oauth-authorization-server_/api/auth'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as ApiAppsAppIdFilesRouteImport } from './routes/api/apps/$appId/files'
@@ -662,6 +663,12 @@ const TTeamSlugTeamRoute = TTeamSlugTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute =
+  Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport.update({
+    id: '/.well-known/oauth-authorization-server_/api/auth',
+    path: '/.well-known/oauth-authorization-server/api/auth',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAdminTeamsTeamIdRoute =
   AuthenticatedAdminTeamsTeamIdRouteImport.update({
     id: '/teams_/$teamId',
@@ -1077,6 +1084,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
+  '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
@@ -1228,6 +1236,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
+  '/.well-known/oauth-authorization-server/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
@@ -1384,6 +1393,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
+  '/.well-known/oauth-authorization-server_/api/auth': typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
   '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
@@ -1540,6 +1550,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/api/monitoring/'
     | '/t/$teamSlug/'
+    | '/.well-known/oauth-authorization-server/api/auth'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
     | '/api/apps/$appId/files'
@@ -1691,6 +1702,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api/monitoring'
     | '/t/$teamSlug'
+    | '/.well-known/oauth-authorization-server/api/auth'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
     | '/api/apps/$appId/files'
@@ -1846,6 +1858,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/'
     | '/api/monitoring/'
     | '/t/$teamSlug/'
+    | '/.well-known/oauth-authorization-server_/api/auth'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
     | '/api/apps/$appId/files'
@@ -1985,6 +1998,7 @@ export interface RootRouteChildren {
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiMonitoringIndexRoute: typeof ApiMonitoringIndexRoute
+  Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute
   ApiAppsAppIdFilesRoute: typeof ApiAppsAppIdFilesRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiDownloadDesktopOsRoute: typeof ApiDownloadDesktopOsRoute
@@ -2678,6 +2692,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugTeamRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/.well-known/oauth-authorization-server_/api/auth': {
+      id: '/.well-known/oauth-authorization-server_/api/auth'
+      path: '/.well-known/oauth-authorization-server/api/auth'
+      fullPath: '/.well-known/oauth-authorization-server/api/auth'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/admin/teams_/$teamId': {
       id: '/_authenticated/admin/teams_/$teamId'
       path: '/teams/$teamId'
@@ -3341,6 +3362,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiMonitoringIndexRoute: ApiMonitoringIndexRoute,
+  Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute:
+    Char91DotwellKnownChar93OauthAuthorizationServerApiAuthRoute,
   ApiAppsAppIdFilesRoute: ApiAppsAppIdFilesRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiDownloadDesktopOsRoute: ApiDownloadDesktopOsRoute,

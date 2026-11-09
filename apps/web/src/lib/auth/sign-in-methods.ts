@@ -338,6 +338,8 @@ const IDENTITY_PATHS = new Set([
   `/email-otp/request-email-change`,
   `/email-otp/change-email`,
   `/link-social`,
+  // 1.6's generic-OIDC link (gone in 1.7: OIDC links via /link-social);
+  // kept so a route that ever comes back stays refused to keys.
   `/oauth2/link`,
   `/unlink-account`,
 ])
@@ -508,11 +510,13 @@ export function signInMethodsGuardPlugin(): BetterAuthPlugin {
               }
             }
             if (!GUARDED_PATHS.has(ctx.path ?? ``)) return
-            const body = (ctx.body ?? {}) as { providerId?: unknown; id?: unknown }
+            const body = (ctx.body ?? {}) as { accountId?: unknown; id?: unknown }
+            // better-auth 1.7: /unlink-account names the local `accounts` row
+            // (`accountId` = its id), so the provider comes from that row.
             const removal: SignInMethodRemoval | null =
               ctx.path === `/unlink-account`
-                ? typeof body.providerId === `string`
-                  ? { providerId: body.providerId }
+                ? typeof body.accountId === `string`
+                  ? await unlinkRemoval(session.user.id, body.accountId)
                   : null
                 : typeof body.id === `string`
                   ? { passkeyId: body.id }
@@ -529,6 +533,17 @@ export function signInMethodsGuardPlugin(): BetterAuthPlugin {
       ],
     },
   }
+}
+
+/** The provider an /unlink-account call removes: its `accounts` row (by local
+ *  id), only when it is the caller's. */
+async function unlinkRemoval(userId: string, accountRowId: string): Promise<SignInMethodRemoval | null> {
+  const [row] = await db
+    .select({ providerId: accounts.providerId })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.id, accountRowId)))
+    .limit(1)
+  return row ? { providerId: row.providerId } : null
 }
 
 // Drizzle helpers the tRPC mutations share.

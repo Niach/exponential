@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { oauthApplications } from "@/db/schema"
+import { oauthClients } from "@/db/schema"
 
-// Pre-flight for GET /api/auth/mcp/authorize, run before better-auth sees the
-// request. Two jobs:
+// Pre-flight for GET /api/auth/oauth2/authorize (and its 1.6 alias
+// /api/auth/mcp/authorize), run before better-auth sees the request. Two jobs:
 //
 // 1. Fail LOUDLY on stale client registrations. MCP clients cache their
 //    dynamic client registration forever; if the server has lost the row
@@ -26,11 +26,11 @@ export async function guardMcpAuthorize(
   if (clientId) {
     const [client] = await db
       .select({
-        redirectUrls: oauthApplications.redirectUrls,
-        disabled: oauthApplications.disabled,
+        redirectUris: oauthClients.redirectUris,
+        disabled: oauthClients.disabled,
       })
-      .from(oauthApplications)
-      .where(eq(oauthApplications.clientId, clientId))
+      .from(oauthClients)
+      .where(eq(oauthClients.clientId, clientId))
       .limit(1)
 
     if (!client || client.disabled) {
@@ -45,7 +45,7 @@ export async function guardMcpAuthorize(
 
     if (
       redirectUri &&
-      !client.redirectUrls.split(`,`).includes(redirectUri)
+      !client.redirectUris.includes(redirectUri)
     ) {
       return {
         response: errorPage(
@@ -62,34 +62,6 @@ export async function guardMcpAuthorize(
     return { request: new Request(url, request) }
   }
   return { request }
-}
-
-/** #VAPP-182: the RFC 8707 `resource` an MCP client names when it connects
- * to the apps endpoint (`/api/mcp/apps`, its protected-resource metadata
- * says so). better-auth drops `resource`, so the consent redirect gets
- * `resource=apps` added here and the consent page asks for apps instead of
- * teams and boards. */
-export function isAppsResource(resource: string | null): boolean {
-  if (!resource) return false
-  try {
-    return new URL(resource).pathname.replace(/\/+$/, ``) === `/api/mcp/apps`
-  } catch {
-    return false
-  }
-}
-
-/** better-auth's answer to an authorize request, with `resource=apps` on its
- * redirect to the consent page when the request named the apps resource. */
-export function tagAppsConsent(request: Request, response: Response): Response {
-  if (!isAppsResource(new URL(request.url).searchParams.get(`resource`))) return response
-  const location = response.headers.get(`location`)
-  if (!location) return response
-  const target = new URL(location, request.url)
-  if (target.pathname !== `/auth/consent`) return response
-  target.searchParams.set(`resource`, `apps`)
-  const headers = new Headers(response.headers)
-  headers.set(`location`, location.startsWith(`/`) ? `${target.pathname}${target.search}` : target.toString())
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
 function errorPage(title: string, detail: string, remedy: string) {

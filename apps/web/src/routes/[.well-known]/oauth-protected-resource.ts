@@ -1,13 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { oAuthProtectedResourceMetadata } from "better-auth/plugins"
-import { auth } from "@/lib/auth"
+import { protectedResourceResponse } from "@/lib/auth/mcp-metadata"
+import { mcpResource } from "@/lib/auth/mcp-oauth-config"
 
-const handler = oAuthProtectedResourceMetadata(auth)
-
+// RFC 9728 metadata of the builtin MCP endpoint (`/api/mcp`).
 export const Route = createFileRoute(`/.well-known/oauth-protected-resource`)({
   server: {
     handlers: {
-      GET: ({ request }) => handler(request),
+      GET: () => protectedResourceResponse(mcpResource()),
     },
   },
 })
