@@ -71,6 +71,10 @@ impl Surface {
             .map(|l| l.id.clone())
             .collect();
         self.subtree_pending.extend(lists);
+        // #EXP-1629: a Select's fade refits after the pass (`refit_select_fades`).
+        if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && self.nodes[s as usize].owner_component.as_deref() == Some("Select")) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+            self.pending.push(OutEvent::Relayout);
+        }
         // EXP-1259: a search list's bottom fade shows only while rows sit
         // below its window.
         if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && matches!(self.nodes[s as usize].owner_component.as_deref(), Some("SearchList" | "Menu"))) {
@@ -283,7 +287,7 @@ impl Surface {
     }
 
     /// If `prop` on `id` is bound, write `value` to the data model.
-    fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
+    pub(super) fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
         let Some(path) = self.binding_path(id, prop) else { return vec![] };
         // A refused write (VAPP-103 pointer limits) keeps the value locally.
         if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
@@ -394,6 +398,17 @@ impl Surface {
         if event == "contextmenu" {
             return self.context_menu(&n, payload);
         }
+        // #EXP-1629 (interactions-round1.json keyRecorder): a KeyRecorder's
+        // field presses only while idle; `record` and `blur` count only while
+        // it records (its `recording` recipe prop, resolved at build).
+        if let Some(q) = n.part_query.as_ref().filter(|q| q.component == "KeyRecorder" && q.part == "field") {
+            let recording = q.props.get("recording").and_then(Value::as_bool) == Some(true);
+            match event {
+                "press" if recording => return vec![],
+                "record" | "blur" if !recording => return vec![],
+                _ => {}
+            }
+        }
         // VAPP-162: a `hold` Button never fires `press` (Surface::hold drives it).
         if event == "press" && n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true) {
             return vec![];
@@ -498,6 +513,7 @@ impl Surface {
             ("Tabs", Some("new"), "press") => out.extend(self.fire(&owner_id, "new", None)),
             // VAPP-279: a strip's `+N`, the reorder drag and keyboard move.
             ("Tabs", Some("more"), "press") => out.extend(self.tab_more(&owner_id)),
+            ("Tabs", None | Some("content"), "swipe") => out.extend(self.tab_swipe(&owner_id, payload.as_ref())),
             ("Tabs", Some("tab"), "drag") if self.is_tab_strip(&owner_id) => out.extend(self.tab_drag(&n.id, &owner_id, payload.as_ref())),
             ("Tabs", Some("tab"), "key") if self.is_tab_strip(&owner_id) => out.extend(self.tab_key(&n.id, &owner_id, payload.as_ref())),
             // EXP-1259: the SearchList field and rows.
@@ -1721,6 +1737,19 @@ impl Surface {
         }
         out.push(OutEvent::Relayout);
         out
+    }
+
+    /// #EDE-65 lane O: the List or Table `id`'s row keys (row positions, the
+    /// static children first) and each row's top in the list's content (the
+    /// rows laid out at their height, the rest at the estimate), the content
+    /// extent last: what a host keeping a reader's row in place reads.
+    pub fn list_rows(&mut self, id: &str) -> Option<(std::sync::Arc<Vec<String>>, std::sync::Arc<Vec<f32>>)> {
+        let spec = self.lists.iter().find(|l| l.id == id)?;
+        let (keys, gap) = (spec.keys.clone(), spec.gap);
+        let window = self.local.lists.get_mut(id)?;
+        window.gap = gap;
+        let offsets = window.offsets_cached(&keys);
+        Some((keys, offsets))
     }
 
     /// Scroll every scroll container above `id` so the node is in view (a

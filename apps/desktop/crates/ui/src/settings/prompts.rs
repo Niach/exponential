@@ -13,17 +13,15 @@
 //! The list is LIVE off the synced `prompts` shape (body-less rows); the body
 //! comes from `prompts.get` when a page opens.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
 use crate::controls::{glass_input, WebControl as _};
@@ -33,6 +31,10 @@ use crate::navigation::{active_team_id, navigate, Navigation, Screen};
 use crate::queries;
 use crate::sidebar::select_settings_section;
 
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use serde_json::{json, Value};
+
+use super::doc::{empty_state, hex, mount, not, path, IdeToasts, Ink, SM};
 use super::{section, SettingsSection};
 
 /// The band's label and the nav entry (web `PROMPTS_TITLE`).
@@ -84,13 +86,36 @@ pub(crate) fn open_prompt_page(window: &mut Window, cx: &mut App, prompt_id: Str
 // ---------------------------------------------------------------------------
 
 /// The Prompts band (web `PromptsListBand`).
+///
+/// #EXP-1629: ONE document on eUI's native host binding: the band with the
+/// owner's `New prompt` pill over the flat prompt rows, the skeleton until
+/// the shape is ready, the empty and no-team states; a row press opens its
+/// page.
 pub struct PromptsPane {
     nav: Entity<Navigation>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// The bench's state (headless has no team or synced rows).
+    #[cfg(test)]
+    shot: Option<PromptsShot>,
     _subscriptions: Vec<Subscription>,
 }
 
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct PromptsShot {
+    /// `None` = no team selected.
+    pub team: Option<String>,
+    pub owner: bool,
+    pub prompts: Vec<api::prompts::Prompt>,
+    pub ready: bool,
+}
+
+/// The data-model path the list's projection is written at.
+const PATH: &str = "/pane";
+
 impl PromptsPane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
@@ -100,93 +125,133 @@ impl PromptsPane {
             subscriptions.push(cx.observe(&prompts, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&members, |_, _, cx| cx.notify()));
         }
+        // `new` opens the create page, `open` a prompt's page.
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(std::rc::Rc::new(IdeToasts));
+            for name in ["new", "open"] {
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| match name {
+                            "new" => {
+                                select_settings_section(window, cx, SettingsSection::NewPrompt);
+                                navigate(window, cx, Screen::Settings);
+                            }
+                            _ => open_prompt_page(window, cx, key),
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let (list_hover, skeleton_fill) = (hex(cx.theme().list_hover), hex(cx.theme().muted_foreground.opacity(0.18)));
+        let view = mount("settings-prompts", document(&Ink::of(cx), &list_hover, &skeleton_fill), &binding, window, cx);
         Self {
             nav,
+            binding,
+            view,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: PromptsShot, cx: &mut gpui::Context<Self>) {
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    fn team_id(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    /// The team's prompts, whether the shape is ready, and owner.
+    fn rows(&self, team_id: &str, cx: &App) -> (Vec<api::prompts::Prompt>, bool, bool) {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return (shot.prompts.clone(), shot.ready, shot.owner);
+        }
+        let (prompts, ready) = queries::team_prompts(cx, team_id);
+        (prompts, ready, super::is_owner(cx, team_id))
+    }
+
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let Some(team_id) = self.team_id(cx) else {
+            return json!({"noTeam": true, "rows": []});
+        };
+        let (prompts, ready, owner) = self.rows(&team_id, cx);
+        let rows: Vec<Value> = prompts
+            .iter()
+            .map(|prompt| {
+                // `icons::action_icon`: a curated name, else the generic glyph.
+                let icon = prompt.icon.as_deref().filter(|name| registry::icon_by_name(name).is_some()).unwrap_or("action-default");
+                json!({"key": prompt.id, "name": prompt.name, "icon": icon})
+            })
+            .collect();
+        let empty = rows.is_empty();
+        json!({"noTeam": false, "owner": owner, "loading": empty && !ready, "empty": empty && ready, "hasRows": !empty, "rows": rows})
     }
 }
 
 impl Render for PromptsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                Icon::new(registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
-                cx,
-            ));
-        };
-        let owner = super::is_owner(cx, &team_id);
-        let (prompts, ready) = queries::team_prompts(cx, &team_id);
-
-        let trailing = owner.then(|| {
-            crate::surface::glass_pill_button("prompts-new", crate::surface::PillSize::Sm, cx)
-                .icon(registry::UI_ADD)
-                .label(NEW_PROMPT_LABEL)
-                .on_click(|_, window, cx| {
-                    select_settings_section(window, cx, SettingsSection::NewPrompt);
-                    navigate(window, cx, Screen::Settings);
-                })
-                .into_any_element()
-        });
-        let mut body = section(cx).child(crate::surface::glass_section_header(
-            PROMPTS_TITLE,
-            trailing,
-            cx,
-        ));
-        if prompts.is_empty() {
-            body = body.child(if ready {
-                crate::controls::empty_state_list(
-                    Icon::new(registry::NAV_ACTIONS),
-                    PROMPTS_EMPTY,
-                    cx,
-                )
-                .into_any_element()
-            } else {
-                super::settings_skeleton("prompts-skeleton", cx)
-            });
-            return v_flex().child(body);
-        }
-
-        let muted = cx.theme().muted_foreground;
-        let row_hover = cx.theme().list_hover;
-        let mut list = v_flex().w_full().min_w_0();
-        for prompt in prompts {
-            let open_id = prompt.id.clone();
-            list = list.child(crate::surface::list_row(
-                crate::surface::flat_row()
-                    .id(SharedString::from(format!("prompts-list-row-{}", prompt.id)))
-                    .flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .cursor_pointer()
-                    .hover(move |this| this.bg(row_hover))
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        open_prompt_page(window, cx, open_id.clone());
-                    })
-                    .child(
-                        crate::icons::action_icon(prompt.icon.as_deref())
-                            .small()
-                            .flex_shrink_0()
-                            .text_color(muted),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(SharedString::from(prompt.name)),
-                    ),
-            ));
-        }
-        v_flex().child(body.child(list))
+        let _span = tracing::trace_span!("render", view = "PromptsPane").entered();
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        // An ordinary section pane: `SettingsView` owns the scroll.
+        div().w_full().min_w_0().child(self.view.clone())
     }
+}
+
+/// The list's tree: the Prompts band (`New prompt` for owners) over the
+/// flat rows (EXP-1076: a prompt is an ENTITY: `px_3` / `py_2`, `gap_3`,
+/// the small muted glyph, the MEDIUM name on one line, the list hover),
+/// the skeleton, the empty state; no team = the no-team state.
+fn document(ink: &Ink, list_hover: &str, skeleton_fill: &str) -> Value {
+    // Owners only: the pill's own `visible` (it is never disabled).
+    let [mut new_prompt, _] = ink.pill_button("new", Some("ui-add"), json!(NEW_PROMPT_LABEL), json!(false), json!({"name": "new"}));
+    new_prompt["visible"] = path("/pane/owner");
+    // gpui centres the label's line half a point lower than the flex centre.
+    new_prompt["children"][1]["style"]["paddingTop"] = json!(1);
+    let glyph = ink.r(SM);
+    let mut name = ink.text("row_name", path("name"), SM, &ink.foreground);
+    name["props"]["lines"] = json!(1);
+    name["style"]["fontWeight"] = json!(500);
+    name["style"]["minWidth"] = json!(0);
+    name["style"]["flexGrow"] = json!(1);
+    name["style"]["flexShrink"] = json!(1);
+    let row = json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": list_hover}},
+        "children": [
+            {"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},
+            name,
+        ]});
+    let rows = json!({"id": "rows", "component": "List", "visible": path("/pane/hasRows"), "props": {"gap": "none"},
+        "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]});
+    let list = json!({"id": "list", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
+        "children": [
+            ink.band("band", PROMPTS_TITLE, Some(new_prompt)),
+            empty_state(ink, "empty", "nav-actions", PROMPTS_EMPTY, path("/pane/empty")),
+            ink.skeleton_rows("skeleton", skeleton_fill, path("/pane/loading")),
+            rows,
+        ]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [list, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +602,7 @@ fn spawn_prompt_delete(cx: &mut App, prompt_id: String) {
 
 impl Render for PromptPage {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "PromptPage").entered();
         let read_only = self.read_only(cx);
         let creating = self.prompt_id.is_none();
         let muted = cx.theme().muted_foreground;

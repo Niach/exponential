@@ -15,7 +15,7 @@ pub(crate) const ID: &str = "record-form";
 pub(crate) const OWNER: &str = "VAPP-217";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let tree = specimen_node("exponential-ui-record-form", "specimen-record-form").expect("the RecordForm specimen");
+    let tree = specimen_node("exponential-ui-record-form", "specimen_record_form").expect("the RecordForm specimen");
     let states = field_states(window, cx);
     div().w_full().flex().flex_col().gap(px(24.0)).child(styleguide_surface("sg-record-form", tree, window, cx)).child(states)
 }

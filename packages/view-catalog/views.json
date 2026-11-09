@@ -570,6 +570,49 @@
       }
     },
     {
+      "id": "issue-reporter-comments",
+      "group": "issues",
+      "title": "Issue comments · widget reporter",
+      "blurb": "A widget-filed issue scrolled to its comments: the reporter's reply wears the hue of their name, a deleted member's note has no key and stays grey (#EXP-1754, fixtures/avatar.json `keys`).",
+      "diffTolerance": 0.001,
+      "order": 12,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-19",
+        "anchor": {
+          "text": "Same spinner on an iPad Air here",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-19",
+        "anchor": {
+          "text": "Same spinner on an iPad Air here",
+          "timeoutMs": 30000
+        },
+        "recipe": "scrollToComments",
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_issue-reporter-comments",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_issue-reporter-comments",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "issue:$APP-19"
+        },
+        "env": {
+          "EXP_DEV_SCROLL_TO": "end"
+        }
+      }
+    },
+    {
       "id": "issue-create",
       "group": "issues",
       "title": "New issue",
@@ -1151,7 +1194,7 @@
       "web": {
         "route": "/t/$teamSlug/sessions/$chatId",
         "anchor": {
-          "testId": "chat-tabs",
+          "testId": "session-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -2477,7 +2520,10 @@
           "kind": "screen",
           "value": "app:working-hours"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app",
@@ -2558,7 +2604,10 @@
           "kind": "screen",
           "value": "app:working-hours:data"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app-data",
@@ -2603,7 +2652,10 @@
           "kind": "screen",
           "value": "app:working-hours:versions"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app-versions",
@@ -5540,6 +5592,39 @@
       }
     },
     {
+      "id": "exponential-ui-kbd-group",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · KbdGroup",
+      "blurb": "EXP-1629: A key chord: one Kbd cap per key. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/kbd-group/.",
+      "order": 115,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-kbd-group",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-kbd-group"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-kbd-group",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-kbd-group",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-label",
       "group": "exponential-ui-catalog",
       "title": "genUI · Label",
@@ -6745,6 +6830,72 @@
       }
     },
     {
+      "id": "exponential-ui-key-recorder",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · KeyRecorder",
+      "blurb": "EXP-1629: A shortcut field: a press records, the keys go to the host, the binding shows as key caps. The core catalog specimen (a binding, none, recording, a held modifier, an inline error) of ui.exponential.at/components/key-recorder/.",
+      "order": 117,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-key-recorder",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-key-recorder"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-key-recorder",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-key-recorder",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-embed",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Embed",
+      "blurb": "EDE-65: A nested genUI card drawn in place, sandboxed: its own data and ids, its events reach the host as action, a bad surface shows an error box. The core catalog specimen (the example, a result card with its own data, a question card with a reply, a bad surface) of ui.exponential.at/components/embed/.",
+      "order": 116,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-embed",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-embed"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-embed",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-embed",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-stat-tile",
       "group": "exponential-ui-catalog",
       "title": "genUI · StatTile",
@@ -7229,7 +7380,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
-          "testId": "chat-tabs",
+          "text": "Profile the launch path",
           "timeoutMs": 30000
         },
         "settleMs": 2500,
@@ -7265,7 +7416,7 @@
       "web": {
         "route": "/t/$teamSlug/agents/$agentId",
         "anchor": {
-          "text": "Label the Android ones too",
+          "testId": "session-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -7283,6 +7434,9 @@
         "drive": {
           "kind": "screen",
           "value": "agent:$agent"
+        },
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
         }
       },
       "notes": {

@@ -157,6 +157,32 @@ pub trait HostPlugin: 'static {
         None
     }
 
+    /// #EDE-65 lane O: the host paints the Embed `component_id` itself (a
+    /// row it owns that no catalog component draws: the IDE's tool rows and
+    /// Work card in the shared chat), by its painted id like
+    /// [`Self::icon_element`] by name. `Some(height)` at `width` claims it:
+    /// no nested surface is made and [`Self::host_leaf`] fills its frame;
+    /// `None` = the Embed's own nested surface. A claimed leaf whose height
+    /// moves asks for a new measure with `SurfaceView::host_leaf_resized`.
+    fn host_leaf_height(&self, _component_id: &str, _width: f32, _window: &mut gpui::Window, _cx: &mut gpui::App) -> Option<f32> {
+        None
+    }
+
+    /// The claimed Embed's element filling its frame (asked only for an id
+    /// [`Self::host_leaf_height`] claimed).
+    fn host_leaf(&self, _component_id: &str, _window: &mut gpui::Window, _cx: &mut gpui::App) -> Option<gpui::AnyElement> {
+        None
+    }
+
+    /// #EDE-65 lane O: before the claimed leaf `component_id` paints at
+    /// `width` (prepaint: outside any layout, so the host may lay its own
+    /// element out): bring the height [`Self::host_leaf_height`] answers up
+    /// to date. `true` = it changed: the surface lays out again in the SAME
+    /// frame, so the leaf never paints at a stale height. Default: nothing.
+    fn host_leaf_prepaint(&self, _component_id: &str, _width: f32, _window: &mut gpui::Window, _cx: &mut gpui::App) -> bool {
+        false
+    }
+
     /// A host function call (`functionCall` to a non-built-in name). The
     /// default ignores it; [`crate::runtime::host_plugin`] routes it through
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
@@ -298,6 +324,14 @@ pub trait HostPlugin: 'static {
     /// markdown.options), read by the measurer and the painter alike.
     fn markdown_options(&self, _cx: &gpui::App) -> MarkdownOptions {
         MarkdownOptions::default()
+    }
+
+    /// #EDE-65 lane O (gpui host extra): the Markdown render options for ONE
+    /// text (a host whose surface shows many Markdowns answers per text: the
+    /// one reply still streaming takes `streaming`). Read by the measurer and
+    /// the painter alike. Default: [`Self::markdown_options`].
+    fn markdown_options_for(&self, _text: &str, cx: &gpui::App) -> MarkdownOptions {
+        self.markdown_options(cx)
     }
 
     /// A `Video` / `AudioPlayer` press hands its policed source to the

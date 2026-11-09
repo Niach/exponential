@@ -122,28 +122,6 @@ pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, Fe
     }
 }
 
-/// THE session composer of a ROOT (the chat screen, the agent channel):
-/// the session view over the root's own live source, never painted itself —
-/// its host renders [`SteerSessionView::render_session_composer`], so the
-/// composer, its footer (model pin, context ring), the `/` menu, Send⇄Stop
-/// and the queue strip are the session view's, byte for byte.
-pub(crate) fn root_composer_view(
-    root_id: &str,
-    placeholder: impl Into<SharedString>,
-    ids: crate::steer_viewer::ComposerIds,
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<SteerSessionView> {
-    let (_, source) = resolve_source(root_id, cx);
-    let placeholder = placeholder.into();
-    let root_id = root_id.to_string();
-    cx.new(|cx| {
-        let mut view = SteerSessionView::with_source(root_id, source, window, cx);
-        view.host_root_composer(placeholder, ids, window, cx);
-        view
-    })
-}
-
 /// EXP-773 — this device's journal for `session_id`, folded and replay-ready
 /// ([`steer::read_journal`]). `None` when the file is not there: this machine
 /// never ran the session, or the retention prune (EXP-886, Settings →
@@ -252,7 +230,7 @@ pub(crate) fn back_link_row(
     let title = if title.is_empty() { "Back".to_string() } else { title };
     h_flex()
         .id(id)
-        .role(gpui::Role::Button)
+        .role(gpui::Role::Link)
         .aria_label(SharedString::from(title.clone()))
         .debug_selector(move || id.to_string())
         .min_w_0()
@@ -449,6 +427,7 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SessionScreenView").entered();
         // EXP-1323: the session on screen is read (its own agent replies).
         crate::session_data::mark_read_if_unread(&self.session_id, false, cx);
         let header = self.render_header(window, cx);
@@ -465,7 +444,7 @@ impl Render for SessionScreenView {
             .child(crate::work_header::work_body(
                 div().flex_1().min_h_0().child(self.inner.clone()).into_any_element(),
                 false,
-                self.inner.read(cx).body_scrolled(),
+                self.inner.read(cx).body_scrolled(cx),
             ))
     }
 }

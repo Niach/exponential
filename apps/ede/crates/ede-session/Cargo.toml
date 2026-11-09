@@ -12,6 +12,8 @@ publish = false
 ede-theme = { path = "../ede-theme" }
 # SIGTERM from the login manager stops the compositor and the units (#EDE-40).
 libc = "0.2"
+# #LOGS-2: logging + Sentry (through the server's tunnel).
+ede-observability = { path = "../ede-observability" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

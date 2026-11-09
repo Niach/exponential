@@ -81,10 +81,11 @@
       "name": "lockfiles",
       "paths": [
         "bun.lock",
-        "**/Cargo.lock"
+        "apps/desktop/Cargo.lock",
+        "apps/ede/Cargo.lock"
       ],
       "strategy": "regenerate",
-      "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml"
+      "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml && cargo update --workspace --manifest-path apps/ede/Cargo.toml"
     },
     {
       "name": "shots index",
@@ -101,14 +102,78 @@
       "strategy": "take-later"
     },
     {
-      "name": "licence inventory",
+      "name": "npm licence inventory",
       "paths": [
-        "packages/licenses/inventory/**",
-        "**/NOTICES.txt",
-        "**/ThirdPartyNotices.*"
+        "packages/licenses/inventory/npm-*.json"
+      ],
+      "strategy": "regenerate",
+      "command": "bun install --ignore-scripts && bun run notices:collect:npm"
+    },
+    {
+      "name": "rust licence inventory",
+      "paths": [
+        "packages/licenses/inventory/rust.json",
+        "packages/licenses/inventory/rust-excluded.json",
+        "packages/licenses/inventory/rust-runner-*.json"
+      ],
+      "strategy": "regenerate",
+      "command": "CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10 bun run notices:collect:rust"
+    },
+    {
+      "name": "licence notices",
+      "paths": [
+        "**/NOTICES.txt"
       ],
       "strategy": "regenerate",
       "command": "bun run notices"
     }
-  ]
+  ],
+  "lockfiles": {
+    "paths": [
+      "**/Cargo.lock",
+      "bun.lock",
+      "**/package-lock.json",
+      "**/Package.resolved",
+      "**/gradle.lockfile",
+      "**/libs.versions.toml"
+    ],
+    "manifests": [
+      {
+        "paths": [
+          "**/Cargo.toml"
+        ],
+        "lock": "Cargo.lock"
+      },
+      {
+        "paths": [
+          "**/package.json"
+        ],
+        "lock": "bun.lock"
+      },
+      {
+        "paths": [
+          "**/package.json"
+        ],
+        "lock": "package-lock.json"
+      },
+      {
+        "paths": [
+          "**/Package.swift"
+        ],
+        "lock": "Package.resolved"
+      },
+      {
+        "paths": [
+          "**/build.gradle.kts"
+        ],
+        "lock": "gradle.lockfile"
+      },
+      {
+        "paths": [
+          "**/build.gradle.kts"
+        ],
+        "lock": "libs.versions.toml"
+      }
+    ]
+  }
 }

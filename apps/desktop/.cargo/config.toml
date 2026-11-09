@@ -22,3 +22,11 @@
 # single target dirs). On our pinned 1.96.0 the key is still nightly-gated
 # (cargo warns "ignoring ... without -Zfeature-unification" on EVERY command),
 # so it must stay off; add it the moment a toolchain bump stabilizes it.
+
+# The gpui-pre bump (#2395): test threads get the 8 MiB stack the UI has on
+# the main thread (libtest's default is 2 MiB). The styleguide gallery paints
+# every entry in one frame and its layout recursion outgrew 2 MiB on gpui-pre
+# 0.3.11, even with gpui's `stacker` feature; the app never runs gpui on a
+# 2 MiB thread. Applies to `cargo test` and `cargo nextest` alike.
+[env]
+RUST_MIN_STACK = "8388608"

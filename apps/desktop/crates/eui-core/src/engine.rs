@@ -156,6 +156,11 @@ struct ENode {
     measured: bool,
     /// Its own style resolves a percentage against the parent size.
     percent: bool,
+    /// #EDE-65 R: a measured leaf that lays its children (if any) out at its
+    /// measured size (a Composer's slot row): its padding + border `[top,
+    /// right, bottom, left]` (they stay out of taffy), the box they sit in.
+    /// `None` = children make it a flex container (a Menu owner's trigger).
+    inset: Option<[f32; 4]>,
 }
 
 impl Default for ENode {
@@ -170,6 +175,7 @@ impl Default for ENode {
             parent: None,
             measured: false,
             percent: false,
+            inset: None,
         }
     }
 }
@@ -306,48 +312,94 @@ impl View<'_, '_> {
         if inputs.run_mode == RunMode::PerformHiddenLayout {
             return compute_hidden_layout(self, node);
         }
+        let inputs = self.clamped_known(node, inputs);
         compute_cached_layout(self, node, inputs, |view, node, inputs| {
             let n = &view.engine.nodes[slot(node)];
             let display = n.laid_style().display;
             let has_children = !n.children.is_empty();
+            let overlay = n.measured && n.inset.is_some();
             match (display, has_children) {
                 (Display::None, _) => compute_hidden_layout(view, node),
+                // #EDE-65 R: a measured leaf with children (a slotted
+                // Composer) sizes by its measure; its children are laid out
+                // as a flex box at THAT size (they never size it).
+                (Display::Flex, true) if overlay => {
+                    let own = view.measured_leaf(node, inputs);
+                    if inputs.run_mode == RunMode::PerformLayout {
+                        let [t, r, b, l] = view.engine.nodes[slot(node)].inset.unwrap_or_default();
+                        let (w, h) = ((own.size.width - l - r).max(0.0), (own.size.height - t - b).max(0.0));
+                        let at = LayoutInput { known_dimensions: Size { width: Some(w), height: Some(h) }, parent_size: Size { width: Some(w), height: Some(h) }, available_space: Size { width: AvailableSpace::Definite(w), height: AvailableSpace::Definite(h) }, ..inputs };
+                        compute_flexbox_layout(view, node, at);
+                        // The children sit inside the leaf's padding + border.
+                        for c in view.engine.nodes[slot(node)].children.clone() {
+                            let cn = &mut view.engine.nodes[c as usize];
+                            cn.unrounded.location.x += l;
+                            cn.unrounded.location.y += t;
+                        }
+                    }
+                    own
+                }
                 (Display::Block, true) => compute_block_layout(view, node, inputs, None),
                 (Display::Flex, true) => compute_flexbox_layout(view, node, inputs),
                 (Display::Grid, true) => compute_grid_layout(view, node, inputs),
-                (_, false) => {
-                    let index = slot(node) as u32;
-                    let View { engine, measure } = view;
-                    let n = &engine.nodes[slot(node)];
-                    let measured = n.measured;
-                    let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
-                    let snap = engine.snap;
-                    let mut baseline = None;
-                    let mut output = compute_leaf_layout(inputs, n.laid_style(), |_, _| 0.0, |known, available| {
-                        // Round 2 §7: an aspect-ratio box whose width is known
-                        // (stretched, flexed) takes height = width / ratio, as
-                        // CSS transfers it (taffy only does for SIZED axes).
-                        if let (Some(r), Some(w), None) = (ratio, known.width, known.height) {
-                            return Size { width: w, height: w / r };
-                        }
-                        if !measured {
-                            return Size::ZERO;
-                        }
-                        let answer = measure(index, known, available);
-                        baseline = answer.baseline;
-                        // gpui rounds a measured size UP to whole device pixels.
-                        match snap {
-                            Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
-                            None => answer.size,
-                        }
-                    });
-                    if let Some(b) = baseline {
-                        output.first_baselines.y = Some(b);
-                    }
-                    output
-                }
+                (_, false) => view.measured_leaf(node, inputs),
             }
         })
+    }
+
+    /// #EDE-65 lane O: a known (definite) dimension is the node's own
+    /// min/max-clamped one, as CSS uses it. taffy sizes a flex item's base
+    /// size with its `width: 100%` resolved but NOT clamped by its
+    /// `maxWidth` (a centred column item), then lays it out clamped: a
+    /// wrapping text inside came out shorter in the sizing than in the
+    /// layout (a chat row a line short, the next row painted over it).
+    fn clamped_known(&self, node: NodeId, inputs: LayoutInput) -> LayoutInput {
+        use taffy::util::{MaybeMath as _, MaybeResolve as _};
+        let style = self.engine.nodes[slot(node)].laid_style();
+        let calc = |_: *const (), _: f32| 0.0;
+        let (parent, known) = (inputs.parent_size, inputs.known_dimensions);
+        let clamp = |value: Option<f32>, min: Dimension, max: Dimension, basis: Option<f32>| {
+            value.map(|v| v.maybe_min(max.maybe_resolve(basis, calc)).maybe_max(min.maybe_resolve(basis, calc)))
+        };
+        let width = clamp(known.width, style.min_size.width, style.max_size.width, parent.width);
+        let height = clamp(known.height, style.min_size.height, style.max_size.height, parent.height);
+        if width == known.width && height == known.height {
+            return inputs;
+        }
+        LayoutInput { known_dimensions: Size { width, height }, ..inputs }
+    }
+
+    /// A leaf's layout: its measure (or zero when not measured).
+    fn measured_leaf(&mut self, node: NodeId, inputs: LayoutInput) -> LayoutOutput {
+        let index = slot(node) as u32;
+        let View { engine, measure } = self;
+        let n = &engine.nodes[slot(node)];
+        let measured = n.measured;
+        let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
+        let snap = engine.snap;
+        let mut baseline = None;
+        let mut output = compute_leaf_layout(inputs, n.laid_style(), |_, _| 0.0, |known, available| {
+            // Round 2 §7: an aspect-ratio box whose width is known
+            // (stretched, flexed) takes height = width / ratio, as
+            // CSS transfers it (taffy only does for SIZED axes).
+            if let (Some(r), Some(w), None) = (ratio, known.width, known.height) {
+                return Size { width: w, height: w / r };
+            }
+            if !measured {
+                return Size::ZERO;
+            }
+            let answer = measure(index, known, available);
+            baseline = answer.baseline;
+            // gpui rounds a measured size UP to whole device pixels.
+            match snap {
+                Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
+                None => answer.size,
+            }
+        });
+        if let Some(b) = baseline {
+            output.first_baselines.y = Some(b);
+        }
+        output
     }
 }
 
@@ -524,6 +576,16 @@ impl Engine {
         &self.nodes[i as usize].children
     }
 
+    /// #EDE-65 R: a measured leaf whose children lay out at its measured
+    /// size inside `inset` (its padding + border, `[top, right, bottom,
+    /// left]`); `None` = the default (children make it a flex container).
+    pub fn set_inset(&mut self, i: u32, inset: Option<[f32; 4]>) {
+        if self.nodes[i as usize].inset != inset {
+            self.nodes[i as usize].inset = inset;
+            self.mark_dirty(i);
+        }
+    }
+
     pub fn set_measured(&mut self, i: u32, measured: bool) {
         if self.nodes[i as usize].measured != measured {
             self.nodes[i as usize].measured = measured;
@@ -620,6 +682,40 @@ mod tests {
         e.mark_all_dirty();
         e.compute(0, Size { width: AvailableSpace::Definite(300.0), height: AvailableSpace::MaxContent }, &mut bottoms);
         assert_eq!(e.layout(2).location.y, 20.0);
+    }
+
+    /// #EDE-65 lane O: a centred column item `width: 100%` + `maxWidth`
+    /// over a wrapping text: its height is the text's at the CLAMPED width
+    /// (taffy sized its flex base at the unclamped 100%, a line short of
+    /// the layout: the next item painted over it).
+    #[test]
+    fn a_max_width_clamps_the_width_a_flex_item_is_sized_at() {
+        let mut e = Engine::new();
+        e.resize(3);
+        e.set_style(0, Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Style::default() });
+        e.set_style(
+            1,
+            Style {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_self: Some(AlignSelf::CENTER),
+                size: Size { width: Dimension::percent(1.0), height: Dimension::auto() },
+                max_size: Size { width: Dimension::length(200.0), height: Dimension::auto() },
+                ..Style::default()
+            },
+        );
+        e.set_children(0, &[1]);
+        e.set_children(1, &[2]);
+        e.set_measured(2, true);
+        // 1000 px of text, 20 px a line: the lines it takes at its width.
+        let mut measure = |_: u32, known: Size<Option<f32>>, available: Size<AvailableSpace>| {
+            let w = known.width.or(available.width.into_option()).unwrap_or(1000.0).min(1000.0);
+            LeafAnswer { size: Size { width: w, height: (1000.0 / w).ceil() * 20.0 }, baseline: None }
+        };
+        e.compute(0, Size { width: AvailableSpace::Definite(500.0), height: AvailableSpace::MaxContent }, &mut measure);
+        assert_eq!(e.layout(1).size.width, 200.0);
+        assert_eq!(e.layout(2).size.height, 100.0, "five lines at 200");
+        assert_eq!(e.layout(1).size.height, 100.0, "the item holds its text");
     }
 
     #[test]

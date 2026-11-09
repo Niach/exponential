@@ -30,7 +30,7 @@ use crate::settings::SettingsSection;
 const PRUNED: &[&str] = &["header", "switcher_menu", "chats"];
 
 /// A row glyph the IDE paints.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Glyph {
     Board(domain::rows::Board),
     Agent(domain::session_tree::AgentRow),
@@ -179,6 +179,8 @@ pub(crate) struct SidebarRegion {
     assistant: Option<(String, String)>,
     /// #EXP-1741: the Computer button's state (the corner paints it).
     computer: Rc<RefCell<Option<crate::sidebar::ComputerState>>>,
+    /// The Computer button changed since the document last repainted.
+    computer_changed: bool,
     /// The pictures show a sample, not the store.
     #[cfg(test)]
     frozen: bool,
@@ -205,6 +207,7 @@ impl SidebarRegion {
                 shown: None,
                 assistant: None,
                 computer,
+                computer_changed: true,
                 #[cfg(test)]
                 frozen: false,
             }
@@ -218,12 +221,17 @@ impl SidebarRegion {
             return;
         }
         let (input, glyphs) = gather(nav, cx);
+        // A glyph is host-painted: its state changes without the data. The
+        // rail renders on every tick of a mark inside it (#LOGS-4): repaint
+        // the document only when a glyph or the Computer button changed.
+        let glyphs_changed = *self.glyphs.borrow() != glyphs;
         *self.glyphs.borrow_mut() = glyphs;
         self.assistant = active_team_id(nav, cx).and_then(|team| crate::session_data::my_assistant(&team, cx)).map(|a| (a.id, a.name.unwrap_or_else(|| "Assistant".into())));
         self.input = input;
         self.push(cx);
-        // A glyph is host-painted: its state changes without the data.
-        self.view.update(cx, |_, cx| cx.notify());
+        if glyphs_changed || std::mem::take(&mut self.computer_changed) {
+            self.view.update(cx, |_, cx| cx.notify());
+        }
     }
 
     /// A sample state, for the pictures.
@@ -264,7 +272,11 @@ impl SidebarRegion {
         if self.frozen {
             return;
         }
-        *self.computer.borrow_mut() = Some(state);
+        let state = Some(state);
+        if *self.computer.borrow() != state {
+            *self.computer.borrow_mut() = state;
+            self.computer_changed = true;
+        }
     }
 
     /// The row under the pointer, for the context menu.
@@ -283,6 +295,7 @@ impl SidebarRegion {
 
 impl Render for SidebarRegion {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SidebarRegion").entered();
         uicore_gpui::inline::region(&self.view)
     }
 }
@@ -473,6 +486,7 @@ pub(crate) struct TabBarRegion {
     keys: Vec<String>,
     shown: Option<Value>,
     more: Option<Vec<String>>,
+    observes_panel: bool,
     _observers: Vec<gpui::Subscription>,
 }
 
@@ -486,13 +500,21 @@ impl TabBarRegion {
             let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
             let view = uicore_gpui::inline::mount(&doc, &uicore_data::Feed::new(), theme, host, Mode::Dark, window, cx);
             let nav = crate::navigation::nav_for_window(window, cx);
-            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, _observers: vec![cx.observe(&nav, |_, _, cx| cx.notify())] }
+            // #LOGS-4: the strip is a cached region now, so it observes what
+            // its titles and leads read (issues, session states) itself.
+            let mut observers = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+            if let Some(issues) = Store::try_global(cx).map(|store| store.collections().issues.clone()) {
+                observers.push(cx.observe(&issues, |_, _, cx| cx.notify()));
+            }
+            observers.extend(crate::session_data::observe_session_collections(cx));
+            Self { view, doc, tabs, hover, keys: Vec::new(), shown: None, more: None, observes_panel: false, _observers: observers }
         })
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(panel) = crate::screens::screens_for_window(window, cx) else { return };
-        if self._observers.len() == 1 {
+        if !self.observes_panel {
+            self.observes_panel = true;
             self._observers.push(cx.observe(&panel, |_, _, cx| cx.notify()));
         }
         let items = panel.read(cx).tab_items(cx);
@@ -521,8 +543,11 @@ impl TabBarRegion {
             self.shown = Some(value.clone());
             self.apply(&value, tabs_changed, cx);
         }
-        // A lead is host-painted: its state changes without the data.
-        self.view.update(cx, |_, cx| cx.notify());
+        // A lead is host-painted: its state changes without the data. No
+        // notify (#LOGS-4): the strip renders only when what it observes
+        // changed, and its document renders with it in that same frame; a
+        // notify from here would dirty the cached band for the NEXT frame,
+        // every frame.
     }
 
     fn apply(&mut self, value: &Value, tabs_changed: bool, cx: &mut gpui::Context<Self>) {
@@ -563,6 +588,7 @@ fn with_panel(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut crate::scre
 
 impl Render for TabBarRegion {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "TabBarRegion").entered();
         self.refresh(window, cx);
         let region = cx.weak_entity();
         let menu_region = region.clone();
@@ -789,6 +815,7 @@ impl HeaderRegion {
 
 impl Render for HeaderRegion {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "HeaderRegion").entered();
         div().w_full().child(self.view.clone())
     }
 }

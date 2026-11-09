@@ -75,7 +75,8 @@ fun ChatHeaderButton(
  * only, left of `…`) · the `…` menu (the chat's own entries,
  * `chatMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
  * divider). #EXP-1688: one leading row, nothing centred, ghost buttons
- * (`shell.chatHeader`). The chat's tab strip rides under it ([tabs]) on the
+ * (`shell.chatHeader`). #EXP-1732: THE gear ([gear]) sits left of `…`, and THE
+ * session screen's tabs ([SessionScreenTabs]) ride under it ([tabs]) on the
  * same band.
  */
 @Composable
@@ -95,6 +96,15 @@ fun ChatHeader(
     /** S-3: the action slot left of `…` (the chat's Merge pill; it may
      *  draw nothing). */
     action: (@Composable () -> Unit)? = null,
+    /** #EXP-1732 (session-screen.json `gear`): THE gear, left of `…`
+     *  (agents, the Assistant, apps); null = none (a chat). */
+    gear: (() -> Unit)? = null,
+    /** #EXP-1732: a kind's OWN `…` (an app's menu sheet: Publish, Export,
+     *  Delete) drawn instead of [menu]'s dropdown; null = [menu]. */
+    more: (@Composable () -> Unit)? = null,
+    /** #EXP-1732: right after the title on its line (an app's version
+     *  pill, web/iOS/desktop alike); the title truncates first. */
+    titleTrailing: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
@@ -113,6 +123,7 @@ fun ChatHeader(
                 lead()
                 Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
                         style = MaterialTheme.typography.titleMedium.copy(
@@ -124,8 +135,13 @@ fun ChatHeader(
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("chat-title"),
+                        modifier = Modifier.testTag("chat-title").weight(1f, fill = false),
                     )
+                    if (titleTrailing != null) {
+                        Spacer(Modifier.width(6.dp))
+                        titleTrailing()
+                    }
+                    }
                     if (!subtitle.isNullOrEmpty()) {
                         Text(
                             subtitle,
@@ -147,8 +163,15 @@ fun ChatHeader(
                     Spacer(Modifier.width(gap))
                     call()
                 }
+                if (gear != null) {
+                    Spacer(Modifier.width(gap))
+                    SessionGearButton(onClick = gear)
+                }
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
-                if (groups.isNotEmpty()) {
+                if (more != null) {
+                    Spacer(Modifier.width(gap))
+                    more()
+                } else if (groups.isNotEmpty()) {
                     Spacer(Modifier.width(gap))
                     ChatHeaderMenu(groups)
                 }

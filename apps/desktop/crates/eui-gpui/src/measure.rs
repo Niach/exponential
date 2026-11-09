@@ -40,12 +40,11 @@ const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
 /// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
 ///
-/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system drops
-/// a face it is asked to load by family when the face has no `m` glyph
-/// (`load_family`), which removes Noto Color Emoji from its font database,
-/// and with it the colour face its own per-character emoji fallback reaches
-/// for: every emoji then drew as a box or a monochrome outline. Unnamed, the
-/// platform's emoji fallback finds it.
+/// #EDE-65: no COLOUR emoji family on Linux. gpui's cosmic text system
+/// (vendor/gpui-pre-wgpu) shapes every cluster with emoji presentation in the
+/// colour face itself, ahead of any face in this chain; upstream it dropped a
+/// face loaded by family without an `m` glyph, so naming Noto Color Emoji
+/// here once removed it from the font database.
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub(crate) const SANS_FALLBACKS: &[&str] = &[
     ".SystemUIFont",
@@ -249,6 +248,36 @@ impl Fonts {
         }
         w.insert(key, lines);
     }
+}
+
+/// #LOGS-6: the fonts a surface with `default_family` paints with (the
+/// sans face, the first mono face the system loads, each with its glyph
+/// fallback chain, in every weight and style), resolved through
+/// `text_system`. Resolving a face the first time loads its family and
+/// builds its fallback cascade (milliseconds each); a host calls this on a
+/// background thread so a surface's first frame finds them loaded.
+pub fn prewarm_fonts(text_system: &TextSystem, default_family: &str) -> Vec<Font> {
+    let loads = |family: &SharedString| {
+        family.starts_with('.') || {
+            let id = text_system.resolve_font(&plain_font(family.clone(), 400, false, None));
+            text_system.get_font_for_id(id).is_some_and(|f| f.family == *family)
+        }
+    };
+    let mono = MONO_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"));
+    let sans = SharedString::from(default_family.to_string());
+    let sans_fallbacks = FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect());
+    let mono_fallbacks = FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect());
+    let mut fonts = Vec::new();
+    for (family, fallbacks) in [(sans, sans_fallbacks), (mono, mono_fallbacks)] {
+        for weight in [400, 500, 600, 700] {
+            for italic in [false, true] {
+                let font = plain_font(family.clone(), weight, italic, Some(fallbacks.clone()));
+                text_system.resolve_font(&font);
+                fonts.push(font);
+            }
+        }
+    }
+    fonts
 }
 
 /// A font of `family` at `weight` (italic when asked).
@@ -683,6 +712,8 @@ pub struct GpuiMeasure<'a> {
     shaped: u64,
     /// Extension leaves measured before their kind was known.
     pub(crate) unknown_extensions: Vec<u32>,
+    /// #EDE-65: the host view's Embed children and how to make them.
+    embeds: Option<(&'a crate::view::embed::Embeds, &'a crate::view::embed::EmbedSpawn)>,
 }
 
 /// Content size and the first baseline from the CONTENT top.
@@ -701,7 +732,7 @@ impl<'a> GpuiMeasure<'a> {
         live: &'a HashMap<String, String>,
     ) -> Self {
         let identity = fonts.identity();
-        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
+        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new(), embeds: None }
     }
 
     /// Text widths round up to whole pixels like gpui's text element
@@ -710,6 +741,12 @@ impl<'a> GpuiMeasure<'a> {
     pub(crate) fn ceil_text(mut self, on: bool) -> Self {
         self.ceil_text = on;
         self.identity = if on { self.identity ^ 0x9e37_79b9_7f4a_7c15 } else { self.identity };
+        self
+    }
+
+    /// #EDE-65: measure Embed leaves as their nested surfaces (else 0 × 0).
+    pub(crate) fn embeds(mut self, embeds: &'a crate::view::embed::Embeds, spawn: &'a crate::view::embed::EmbedSpawn) -> Self {
+        self.embeds = Some((embeds, spawn));
         self
     }
 
@@ -823,7 +860,7 @@ impl<'a> GpuiMeasure<'a> {
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
         let parsed = markdown::parse_for(self.fonts.host.as_ref(), text, self.cx);
-        let options = self.fonts.host.markdown_options(self.cx);
+        let options = self.fonts.host.markdown_options_for(text, self.cx);
         // #VAPP-258: the host's hooks, asked as the painter asks them (chips
         // change widths, attachments and sized images change heights).
         let blocks = markdown::hosted(self.fonts.host.as_ref(), &parsed, self.cx).unwrap_or(parsed);
@@ -1137,9 +1174,30 @@ impl<'a> GpuiMeasure<'a> {
         let ts = leaf.text_style;
         let text = str_prop(leaf.props, "text");
         let text = if text.is_empty() { str_prop(leaf.props, "placeholder") } else { text };
+        if leaf.component == "Select" {
+            return self.select_trigger(leaf, text);
+        }
         let gap = leaf.control.gap.max(spacing(self.theme, "sm"));
         let w = self.line(text, ts) + gap + 16.0;
         (w, ts.line_height, Some(self.line_baseline(ts)))
+    }
+
+    /// #EXP-1629: a Select trigger as `natives::select_trigger` paints it:
+    /// [label, gap] value, gap, chevron (the recipes' gap and glyph size).
+    fn select_trigger(&mut self, leaf: &LeafRequest, text: &str) -> Content {
+        let ts = leaf.text_style;
+        let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { spacing(self.theme, "sm") };
+        let chevron = self.part("Select", "chevron", leaf.props, &[]);
+        let glyph = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0);
+        let mut w = self.line(text, ts) + gap + glyph;
+        let mut h = ts.line_height;
+        let label = str_prop(leaf.props, "label");
+        if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {
+            let lts = self.part_text("Select", "label", leaf.props, ts);
+            w += self.line(label, &lts) + gap;
+            h = h.max(lts.line_height);
+        }
+        (w, h, Some(self.line_baseline(ts)))
     }
 
     /// One leaf at one border-box wrap width: `(width, height, baseline)`.
@@ -1258,6 +1316,12 @@ impl<'a> GpuiMeasure<'a> {
                 let gap = spacing(self.theme, "xs");
                 return (n * dot + (n - 1.0).max(0.0) * gap, dot_h, None);
             }
+            // #EXP-1629: a `row` field leads with its label (+ the gap).
+            ("Input", Some("field")) if str_prop(props, "variant") == "row" && !str_prop(props, "label").is_empty() => {
+                let lts = self.part_text("Input", "label", props, ts);
+                let gap = if leaf.control.gap > 0.0 { leaf.control.gap } else { spacing(self.theme, "md") };
+                (self.line(str_prop(props, "label"), &lts) + gap + 160.0, ts.line_height.max(lts.line_height), Some(self.line_baseline(ts)))
+            }
             ("Input", Some("field")) => (160.0, ts.line_height, Some(self.line_baseline(ts))),
             ("Textarea", Some("field")) => {
                 let (w, h) = self.textarea(leaf, inner);
@@ -1310,6 +1374,15 @@ impl<'a> GpuiMeasure<'a> {
     }
 
     fn answer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32, Option<f32>) {
+        // #EDE-65: an Embed is as wide as its slot and as tall as its
+        // nested surface at that width.
+        if leaf.component == "Embed" && leaf.part.is_none() {
+            self.calls += 1;
+            let Some((embeds, spawn)) = self.embeds else { return (0.0, 0.0, None) };
+            let surface = leaf.props.get("surface").cloned().unwrap_or(Value::Null);
+            let (w, h) = spawn.measure(embeds, leaf.id, &surface, wrap, self.window, self.cx);
+            return (w, h, None);
+        }
         if leaf.component == "Extension" {
             self.calls += 1;
             let (w, h) = self.extension(leaf, wrap).unwrap_or((0.0, 0.0));

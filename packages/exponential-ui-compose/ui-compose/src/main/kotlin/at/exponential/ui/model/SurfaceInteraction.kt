@@ -2,12 +2,14 @@ package at.exponential.ui.model
 
 import at.exponential.ui.ffi.FfiEvent
 import at.exponential.ui.ffi.UiException
+import at.exponential.ui.ffi.swipeBlocks
 import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.InputKind
 import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.SurfaceFunctionCallEvent
 import at.exponential.ui.host.SurfaceInputEvent
+import at.exponential.ui.host.UploadEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.num
@@ -121,6 +123,28 @@ fun SurfaceModel.scrollToIndex(id: String, index: Int, align: String? = null) {
     dispatch(surface.scrollToIndex(id, index.toUInt(), align))
 }
 
+/**
+ * #EDE-65 R (interactions-round1.json composerPaste): a paste into Composer
+ * [index] carrying [files] (with their content [uris], same order; read off
+ * the clipboard, `composerClipboard`): the images (`image/`, clipboard
+ * order) go to [HostPlugin.onUpload] (`name` = the Composer's id) and fire
+ * `attach` {files: [{name, size, type}]}. `true` = taken (files present:
+ * the field inserts nothing, also when none is an image); `false` = no
+ * files, the field's own paste.
+ */
+fun SurfaceModel.composerPaste(index: Int, files: List<PickedFile>, uris: List<String> = emptyList()): Boolean {
+    if (files.isEmpty()) return false
+    val n = node(index) ?: return true
+    if (n.component != "Composer") return true
+    val picked = files.indices.filter { files[it].type.startsWith("image/") }
+    if (picked.isEmpty()) return true
+    val images = picked.map { files[it] }
+    host.onUpload(UploadEvent(id, n.id, n.id, images, picked.mapNotNull { uris.getOrNull(it) }))
+    val list = JsonValue.Arr(images.map { JsonValue.Obj(mapOf("name" to JsonValue.Str(it.name), "size" to JsonValue.Num(it.size.toDouble()), "type" to JsonValue.Str(it.type))) })
+    fire(index, "attach", JsonValue.Obj(mapOf("files" to list)))
+    return true
+}
+
 /** Files the host picked (or dropped) for FileUpload `componentId`: the surface gets `upload {files}` (name, size, type). */
 fun SurfaceModel.filesPicked(componentId: String, files: List<PickedFile>) {
     val i = indexOf(componentId) ?: nodes.firstOrNull { it.owner == componentId && it.part == "dropzone" }?.index ?: return
@@ -217,6 +241,55 @@ fun SurfaceModel.isStripTab(index: Int): Boolean {
 /** VAPP-279: a strip tab's reorder drag (`phase` = start | move | end, `delta` = dp along the row since the drag started, screen direction). */
 fun SurfaceModel.tabDrag(index: Int, phase: String, delta: Float) {
     fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
+}
+
+/** FEED-200: the `content` part of a `swipeable` Tabs (its panels page by a horizontal touch swipe). */
+fun SurfaceModel.isSwipeableTabContent(index: Int): Boolean {
+    val n = node(index) ?: return false
+    if (n.ownerComponent != "Tabs" || n.part != "content") return false
+    return ownerProps(index)["swipeable"]?.bool == true
+}
+
+/**
+ * FEED-200 (fixtures/swipe.json): a swipeable Tabs' pager swipe on its
+ * `content` (`phase` = start | move | end | cancel, `offset` = screen dp
+ * since the touch started, positive = rightwards; `velocity` = dp/ms at
+ * the release). The core draws the panels and the `thumb` and settles.
+ */
+fun SurfaceModel.tabSwipe(index: Int, phase: String, offset: Float, velocity: Float = 0f) {
+    fire(
+        index,
+        "swipe",
+        JsonValue.Obj(linkedMapOf("phase" to JsonValue.Str(phase), "offset" to JsonValue.Num(offset.toDouble()), "velocity" to JsonValue.Num(velocity.toDouble()))),
+    )
+}
+
+/**
+ * FEED-200: is a touch at ([x], [y]) dp from the swipeable Tabs' `content`
+ * (node [content]) the pager's? Not when it starts inside a node that
+ * scrolls, pans or drags sideways (`swipeBlocks` of its component, its
+ * `direction` prop and its resolved `overflowX`): the walk goes from the
+ * content down through the topmost child whose frame holds the point
+ * (skipping hidden and `pointerEvents: none` ones: the neighbour panels),
+ * following the scroll offsets of the scrollers it passes.
+ */
+fun SurfaceModel.swipeBlockedAt(content: Int, x: Float, y: Float): Boolean {
+    val origin = frame(content).topLeft
+    var at = androidx.compose.ui.geometry.Offset(origin.x + x, origin.y + y)
+    var i = content
+    var hops = 0
+    while (hops++ < 4096) {
+        val hit = (children.getOrNull(i) ?: break).asReversed().firstOrNull { k ->
+            val n = node(k)
+            val s = style(k)
+            n != null && !n.hidden && !s.pointerEventsNone && !s.visibilityHidden && frame(k).contains(at)
+        } ?: break
+        val n = node(hit) ?: break
+        if (runCatching { swipeBlocks(n.component, n.props["direction"]?.string, style(hit).overflowX) }.getOrDefault(false)) return true
+        scrolls[hit]?.let { at = androidx.compose.ui.geometry.Offset(at.x + it.offsetX, at.y + it.offsetY) }
+        i = hit
+    }
+    return false
 }
 
 /** A key on a node the core handles itself (a Resizable handle: arrows, Home, End, Enter). */
@@ -399,7 +472,52 @@ fun SurfaceModel.pressUp(id: String) {
 
 /** Pointer hover on / off a node. */
 fun SurfaceModel.hover(id: String, hovered: Boolean) {
+    // #EXP-1629: over a Select option the pointer moves the popup's cursor (its one `hover`); leaving keeps it.
+    val n = indexOf(id)?.let { node(it) }
+    if (n != null && n.ownerComponent == "Select" && n.part == "item") {
+        if (hovered && !isDisabled(n.index)) n.owner?.let { setSelectCursor(it, id) }
+        return
+    }
+    // #EXP-1629: a row Select's value button lends its `hover` to the value/placeholder/chevron inside it; theirs alone is never reported.
+    if (n != null && n.ownerComponent == "Select") {
+        if (n.part in setOf("value", "placeholder", "chevron") && n.parent?.let { node(it) }?.part == "button") return
+        if (n.part == "button") for (c in n.children) node(c)?.let { child -> setInteraction(child.id) { it.copy(hover = hovered) } }
+    }
     setInteraction(id) { it.copy(hover = hovered) }
+}
+
+/** #EXP-1629: move Select [owner]'s popup cursor to item [id] (null = none): the old item loses `hover`, the new one gets it. */
+fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
+    val prev = selectCursors[owner]
+    if (prev == id) return
+    if (id == null) selectCursors.remove(owner) else selectCursors[owner] = id
+    prev?.let { p -> setInteraction(p) { it.copy(hover = false) } }
+    id?.let { c -> setInteraction(c) { it.copy(hover = true) } }
+}
+
+/**
+ * #EXP-1629: an open Select popup (the core's layer, its list at the top)
+ * puts its cursor on the FIRST enabled option (a fresh pick, the IDE's
+ * picker; a `multiple` one's on its first chosen, the IDE's multi picker) and focuses its search field (else, opened from the keyboard,
+ * that option); a cursor whose option went (a search) starts over. A
+ * closed popup drops its cursor.
+ */
+private fun SurfaceModel.syncSelectCursors() {
+    val open = layers.filter { it.kind == "Select" }.map { it.owner }.toSet()
+    for (o in selectCursors.keys - open) setSelectCursor(o, null)
+    for (o in open) {
+        val cur = selectCursors[o]
+        if (cur != null && indexOf(cur) != null) continue
+        val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
+        val opening = cur == null
+        val multiple = opening && indexOf(o)?.let { node(it) }?.props?.flag("multiple") == true
+        val target = (if (multiple) items.firstOrNull { !isDisabled(it.index) && it.selected } else items.firstOrNull { !isDisabled(it.index) }) ?: continue
+        setSelectCursor(o, target.id)
+        if (!opening) continue
+        val search = nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }
+        if (search != null) focusRequest = search.id
+        else if (keyboardFocus?.let { interaction[it]?.focusVisible } == true) focusRequest = target.id
+    }
 }
 
 /**
@@ -418,6 +536,67 @@ fun SurfaceModel.boxHover(id: String, inside: Boolean) {
         return
     }
     if (events.isNotEmpty()) dispatch(events)
+}
+
+// #EXP-1629 (interactions-round1.json keyRecorder): a KeyRecorder's field.
+// The painter captures (keys, mouse buttons 3-5, focus loss) and sends
+// `press`, `record` {type, key?, button?, ctrl, alt, shift, meta} and
+// `blur` on the field; the core guards them (a press only while idle,
+// record / blur only while recording) and the host owns the grammar.
+
+/**
+ * A KeyRecorder's `field` part: the macro's one pressable Box (a macro's
+ * nodes carry the macro's name, never their part; the part's id is
+ * `<owner>.field`).
+ */
+val NodeInfo.isKeyRecorderField: Boolean get() = macroName == "KeyRecorder" && component == "Box" && pressable && id.endsWith(".field")
+
+/**
+ * The field records now: its `recording` recipe prop as the core resolved
+ * it (the field's a11y `pressed` = `{props.recording|false}`), read live.
+ */
+val NodeInfo.keyRecorderRecording: Boolean get() = isKeyRecorderField && accessibility?.get("pressed")?.bool == true
+
+/** Is the KeyRecorder field at [index] recording (the live node)? */
+fun SurfaceModel.keyRecorderRecording(index: Int): Boolean = node(index)?.keyRecorderRecording == true
+
+/** The `record` payload: the event [type], its canonical [key] or mouse [button], and the held flags. */
+fun keyRecorderPayload(type: String, ctrl: Boolean, alt: Boolean, shift: Boolean, meta: Boolean, key: String? = null, button: Int? = null): JsonValue =
+    JsonValue.Obj(
+        linkedMapOf<String, JsonValue>(
+            "ctrl" to JsonValue.Bool(ctrl),
+            "alt" to JsonValue.Bool(alt),
+            "shift" to JsonValue.Bool(shift),
+            "meta" to JsonValue.Bool(meta),
+            "type" to JsonValue.Str(type),
+        ).apply {
+            if (key != null) put("key", JsonValue.Str(key))
+            if (button != null) put("button", JsonValue.Num(button.toDouble()))
+        },
+    )
+
+/** A press on the field (a tap, or Enter / Space while idle): `start` + recording true while idle. */
+fun SurfaceModel.keyRecorderPress(index: Int) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "press")
+}
+
+/** A captured key / modifier change / mouse button ([keyRecorderPayload]) while recording: `key`. */
+fun SurfaceModel.keyRecorderRecord(index: Int, payload: JsonValue) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "record", payload)
+}
+
+/** A mouse button over the field: only 3 (middle), 4 (back) and 5 (forward) are sent. */
+fun SurfaceModel.keyRecorderMouse(index: Int, button: Int, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false, meta: Boolean = false) {
+    if (button !in 3..5) return
+    keyRecorderRecord(index, keyRecorderPayload("mouse", ctrl, alt, shift, meta, button = button))
+}
+
+/** The field lost the focus: `stop` + recording false while recording. */
+fun SurfaceModel.keyRecorderBlur(index: Int) {
+    if (node(index)?.isKeyRecorderField != true) return
+    fire(index, "blur")
 }
 
 /** Focus on / off a node. */
@@ -514,6 +693,7 @@ val SurfaceModel.modalLayers: List<LayerInfo> get() = layers.filter { it.isModal
 internal fun SurfaceModel.layersChanged() {
     val now = layers.map { it.owner }.toSet()
     layerReturn.keys.retainAll(now)
+    syncSelectCursors()
 }
 
 // controls

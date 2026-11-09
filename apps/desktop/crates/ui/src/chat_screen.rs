@@ -104,6 +104,13 @@ const SUBJECT_CHIP_MAX_W: f32 = 320.;
 /// `AgentHomeDawn`).
 const PAGE_MARK_SIZE: f32 = 440.;
 const PAGE_MARK_ALPHA: f32 = 0.025;
+/// The share of the mark's height the dawn shows (its top half).
+const PAGE_MARK_SHOWN: f32 = 0.5;
+
+/// #LOGS-5: start the dawn mark's raster at app start (see `dawn_mark`).
+pub(crate) fn warm_dawn(cx: &App) {
+    crate::dawn_mark::warm(PAGE_MARK_SIZE, PAGE_MARK_SHOWN, cx);
+}
 /// How many slices the half mark's fade is painted in (gpui has no mask).
 const PAGE_MARK_FADE_STEPS: usize = 12;
 
@@ -802,6 +809,9 @@ impl ChatScreenView {
             mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
         });
         self.refresh_actions(window, cx);
+        // #EXP-1752: the candidates are team-scoped (#EXP-1440): a team
+        // landing after the launch cluster re-settles them.
+        self.settle_device(window, cx);
         self.ensure_repos_loaded(cx);
         self.ensure_mcp_loaded(cx);
         if let Some(launch) = self.launch.as_mut() {
@@ -2401,7 +2411,13 @@ impl ChatScreenView {
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
             && teams_step.is_none_or(|step| step.is_some())
-            && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
+            && crate::screens::take_dev_composer_menu(
+                matches!(self.presentation, Presentation::Dialog),
+                bounds,
+                cx.entity_id(),
+                cx,
+            );
+        let content_key = runner.content_key() ^ u64::from(options.is_some()) ^ (u64::from(temporary) << 1);
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
@@ -2413,6 +2429,7 @@ impl ChatScreenView {
         })
         .anchor(menu_fit.0)
         .wanted_height(PLUS_MENU_WANTED_HEIGHT)
+        .live(content_key)
         .dev_open(dev_open)
         // EXP-1551: `temporary` opens at the root, no row lit.
         .dev_steps(
@@ -2511,6 +2528,7 @@ impl Focusable for ChatScreenView {
 
 impl Render for ChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChatScreenView").entered();
         self.sync_team(window, cx);
         self.ensure_launch(window, cx);
         self.sync_placeholder(window, cx);
@@ -2889,7 +2907,7 @@ impl ChatScreenView {
 /// its row and inked a step fainter (web's `mask-image: linear-gradient(
 /// black 33%, transparent)`).
 pub(crate) fn dawn(cx: &App) -> AnyElement {
-    let slice_h = PAGE_MARK_SIZE / 2. / PAGE_MARK_FADE_STEPS as f32;
+    let slice_h = PAGE_MARK_SIZE * PAGE_MARK_SHOWN / PAGE_MARK_FADE_STEPS as f32;
     let foreground = cx.theme().foreground;
     v_flex()
         .id(home_greeting::TEST_ID_MARK)
@@ -2908,13 +2926,19 @@ pub(crate) fn dawn(cx: &App) -> AnyElement {
                 .flex()
                 .justify_center()
                 .items_start()
-                .child(
-                    Icon::from(crate::icons::ExpIcon::Logo)
-                        .size(px(PAGE_MARK_SIZE))
-                        .flex_shrink_0()
-                        .mt(px(-(row as f32) * slice_h))
-                        .text_color(foreground.opacity(PAGE_MARK_ALPHA * fade)),
-                )
+                .child({
+                    // #LOGS-5: the logo `Icon`'s box, its tile rasterized off the main thread.
+                    let color = foreground.opacity(PAGE_MARK_ALPHA * fade);
+                    gpui::canvas(
+                        |_, _, _| (),
+                        move |bounds, (), window, cx| {
+                            crate::dawn_mark::paint(bounds, color, PAGE_MARK_SHOWN, window, cx)
+                        },
+                    )
+                    .size(px(PAGE_MARK_SIZE))
+                    .flex_shrink_0()
+                    .mt(px(-(row as f32) * slice_h))
+                })
         }))
         .into_any_element()
 }
@@ -3151,6 +3175,29 @@ pub(crate) struct RunnerMenu {
 }
 
 impl RunnerMenu {
+    /// #EXP-1752: a key over what the runner submenus draw (the device
+    /// candidates and pick, the logins, models and repositories): the open
+    /// "+" menu rebuilds when it changes ([`crate::controls::PointerMenu::live`]),
+    /// so machines landing seconds after the open show up in it.
+    pub(crate) fn content_key(&self) -> u64 {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.devices.hash(&mut hasher);
+        self.device_picked.hash(&mut hasher);
+        for option in &self.accounts {
+            option.account_option_key().hash(&mut hasher);
+            option.email.hash(&mut hasher);
+        }
+        self.account_picked.hash(&mut hasher);
+        self.models.hash(&mut hasher);
+        self.model_picked.hash(&mut hasher);
+        for repo in &self.repos {
+            repo.id.hash(&mut hasher);
+        }
+        self.repo_picked.hash(&mut hasher);
+        hasher.finish()
+    }
+
     fn device_value(&self) -> Option<String> {
         let picked = self.device_picked.as_deref()?;
         self.devices.iter().find(|(id, _)| id == picked).map(|(_, label)| label.clone())

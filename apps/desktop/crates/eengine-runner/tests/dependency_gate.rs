@@ -6,7 +6,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 /// The app's crates and the update path.
-const APP: &[&str] = &["api", "app", "cli", "coding", "codemode", "domain", "engine", "steer", "sync", "terminal", "theme", "ui", "updater", "eagent", "exponential-agent-runtime"];
+const APP: &[&str] = &["api", "app", "cli", "coding", "codemode", "domain", "engine", "steer", "sync", "terminal", "theme", "ui", "updater", "eagent", "exponential-agent-runtime", "observability"];
 
 /// Log, trace, crash and analytics sinks.
 const SINKS: &[&str] = &[

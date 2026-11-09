@@ -5,7 +5,7 @@ import manifest from "@exponential_app/eui/conformance/manifest.json"
 
 const total = manifest.suites.reduce((sum, s) => sum + s.cases, 0)
 const code = `bun run --filter @exponential_app/eui conformance:check path/to/report.json
-# CONFORMANT  my-renderer (flutter 0.19.1): ${total} cases passed in ${manifest.suites.length} suites`
+# CONFORMANT  my-renderer (flutter 0.21.0): ${total} cases passed in ${manifest.suites.length} suites`
 ---
 
 <Code code={code} lang="sh" />

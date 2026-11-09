@@ -69,8 +69,20 @@ impl LocalChat {
     /// names the CLI it runs (#EDE-65 J5: the agent's own, else this
     /// desktop's first installed one), so the session row records it.
     pub fn send_to(&mut self, text: &str, agent_id: Option<&str>) -> Result<(), String> {
+        self.send_with(text, agent_id, Vec::new())
+    }
+
+    /// #EDE-65 lane L: one staged attachment into the desktop's blob store,
+    /// answered as an upload (`/api/attachments/{id}`).
+    pub fn attach(&self, filename: &str, content_type: &str, bytes: &[u8]) -> anyhow::Result<api::attachment_upload::UploadedImage> {
+        let row = self.desktop.executor.attachment_create(filename, content_type, bytes, None).map_err(anyhow::Error::msg)?;
+        Ok(serde_json::from_value(Value::Object(row))?)
+    }
+
+    /// [`Self::send_to`] with the attachments' ids (their lines join the body, local-parity.json).
+    pub fn send_with(&mut self, text: &str, agent_id: Option<&str>, attachment_ids: Vec<String>) -> Result<(), String> {
         let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && attachment_ids.is_empty() {
             return Ok(());
         }
         let client = self.desktop.client();
@@ -88,7 +100,8 @@ impl LocalChat {
                 input.agent_id = agent.map(|a| a.id);
             }
         }
-        input.text = Some(text.to_string());
+        input.text = (!text.is_empty()).then(|| text.to_string());
+        input.attachment_ids = Some(attachment_ids).filter(|ids| !ids.is_empty());
         let out = api::sessions::send(&client, &input).map_err(|e| e.user_message())?;
         self.session_id = Some(out.session_id);
         Ok(())
@@ -104,10 +117,34 @@ impl LocalChat {
             input.agent_id = agents.first().map(|a| a.id.clone());
             input.agents = agents;
         }
-        let Some(session) = &self.session_id else { return input };
-        let Some(root) = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok()) else {
-            return input;
+        let Some((session, root, view, messages)) = self.session_chat() else { return input };
+        let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
+        let me = self.desktop.executor.identity();
+        if let Some(agent) = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id)) {
+            input.title = agent.name.clone();
+            input.icon = agent.icon.clone();
+        }
+        input.session_id = Some(session);
+        input.busy = root.busy;
+        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
+        // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
+        let transcript = domain::transcript_grouping::TranscriptInput {
+            viewer_id: Some(me.user_id.clone()),
+            chat: domain::transcript_grouping::TranscriptChat { session_id: root.id.clone(), title: view.title.clone(), agent_id: root.agent_id.clone(), ..Default::default() },
+            members: vec![domain::transcript_grouping::TranscriptMember { id: me.user_id.clone(), name: me.name.clone() }],
+            agents: input.agents.iter().map(|a| domain::transcript_grouping::TranscriptAgent { id: a.id.clone(), name: a.name.clone() }).collect(),
+            ..Default::default()
         };
+        let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
+        crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(crate::team_chat::avatar_icon(sender, &icons)));
+        input
+    }
+
+    /// The open session's chat as the domain builds it from the desktop's
+    /// store, with its messages.
+    fn session_chat(&self) -> Option<(String, SessionRow, domain::session_tree::SessionChatView, Vec<MessageRow>)> {
+        let session = self.session_id.as_ref()?;
+        let root = self.desktop.store.row("sessions", session).ok().flatten().and_then(|row| serde_json::from_value::<SessionRow>(Value::Object(row)).ok())?;
         let mut messages: Vec<MessageRow> = self
             .desktop
             .store
@@ -126,16 +163,17 @@ impl LocalChat {
             domain::session_tree::SessionChatInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: now },
             None,
         );
-        let by_id: HashMap<&str, &MessageRow> = messages.iter().map(|m| (m.id.as_str(), m)).collect();
-        let me = self.desktop.executor.identity();
-        if let Some(agent) = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id)) {
-            input.title = agent.name.clone();
-            input.icon = agent.icon.clone();
+        Some((session.clone(), root, view, messages))
+    }
+
+    /// Lane Q: an Embed's inner event on card `message_id`
+    /// (`domain::chat_document::card_reply`); a reply goes as the next message.
+    pub fn card(&mut self, message_id: &str, name: &str, context: &Value) -> Result<(), String> {
+        let Some((_, _, view, _)) = self.session_chat() else { return Ok(()) };
+        match crate::chat::card_reply(&view.rows, message_id, Some(name), Some(context)) {
+            Some(crate::chat::CardReply::Send { text, .. }) => self.send(&text),
+            None => Ok(()),
         }
-        input.session_id = Some(session.clone());
-        input.busy = root.busy;
-        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
-        input
     }
 
     /// The person's pick on a question: the desktop's runs take answers as
@@ -210,8 +248,9 @@ pub fn demo_input() -> ChatInput {
         name: (author == "user").then(|| "Danny".to_string()),
         time: time.into(),
         queued: false,
+        group: None,
     };
-    ChatInput {
+    let mut input = ChatInput {
         session_id: Some("demo".into()),
         rows: vec![
             message("m1", "user", "Which issues are still open on this desktop?", "09:14"),
@@ -220,7 +259,9 @@ pub fn demo_input() -> ChatInput {
             message("m3", "user", "Take the printer.", "09:21"),
         ],
         ..assistant_home()
-    }
+    };
+    crate::chat::demo_group(&mut input.rows, ASSISTANT_ICON, "Assistant");
+    input
 }
 
 #[cfg(test)]

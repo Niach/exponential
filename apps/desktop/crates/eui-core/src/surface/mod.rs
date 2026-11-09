@@ -560,6 +560,11 @@ pub struct Surface {
     /// #EXP-1739: overlays a finished pass found lost, closed at the start of
     /// the next one (never mid-output: the pass's delta must stand).
     lost_overlays: Vec<String>,
+    /// #EXP-1629: the open Selects whose list already scrolled to the first
+    /// chosen option (once per opening).
+    select_revealed: HashSet<String>,
+    /// #EXP-1629: [`Self::set_popup_bounds`].
+    popup_bounds: Option<(f32, f32, f32, f32)>,
     lists: Vec<ListSpec>,
     toasts: Vec<ToastSpec>,
     node_state: Vec<NodeState>,
@@ -687,6 +692,8 @@ impl Surface {
             anchor_ids: HashSet::new(),
             anchor_frames: HashMap::new(),
             lost_overlays: Vec::new(),
+            select_revealed: HashSet::new(),
+            popup_bounds: None,
             lists: Vec::new(),
             toasts: Vec::new(),
             node_state: Vec::new(),
@@ -1023,6 +1030,19 @@ impl Surface {
 
     pub fn layer_viewport(&self) -> Option<(f32, f32)> {
         self.layer_viewport
+    }
+
+    /// #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+    /// go, in SURFACE coordinates (the host's window around the surface: a
+    /// popup that does not fit is fitted into it, not into the surface).
+    /// `None` (default) = the surface's own view.
+    pub fn set_popup_bounds(&mut self, bounds: Option<(f32, f32, f32, f32)>) -> bool {
+        let next = bounds.filter(|(_, _, w, h)| w.is_finite() && *w > 0.0 && h.is_finite() && *h > 0.0);
+        if self.popup_bounds == next {
+            return false;
+        }
+        self.popup_bounds = next;
+        true
     }
 
     /// The breakpoint of the current width (theme tokens, else the defaults).

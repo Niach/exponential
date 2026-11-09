@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     CompactionStatus, ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
     ElicitationAcceptAction,
     ElicitationAction, ElicitationContentValue, ElicitationMode, InitializeRequest,
@@ -30,8 +30,9 @@ use agent_client_protocol::schema::v1::{
     StopReason, TextContent,
 };
 use agent_client_protocol::{
-    on_receive_notification, on_receive_request, Client, ConnectionTo, Error,
+    on_receive_notification, on_receive_request, Client, Error,
 };
+use agent_client_protocol::v1::ConnectionTo;
 use engine::adapters::claude::ClaudeAgent;
 use engine::adapters::{AdapterKind, AdapterSpec};
 use serde_json::Value;
@@ -241,7 +242,7 @@ fn shape(update: &SessionUpdate) -> String {
     }
 }
 
-fn chunk_text(chunk: &agent_client_protocol::schema::v1::ContentChunk) -> String {
+fn chunk_text(chunk: &agent_client_protocol::v1::schema::ContentChunk) -> String {
     match &chunk.content {
         ContentBlock::Text(text) => text.text.clone(),
         other => format!("{other:?}"),
@@ -462,7 +463,7 @@ async fn drive_turns_with(
     let prompts: Vec<String> = prompts.iter().map(|prompt| prompt.to_string()).collect();
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -632,7 +633,7 @@ async fn drive_spec_until(
     let prompt = prompt.to_string();
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -1331,7 +1332,7 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
     // for it while the connection is still up, as a real one does.
     let titled = updates.clone();
     let sessions = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -1416,7 +1417,7 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
     let work = workdir("cancel");
     let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
     let stop_reason = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -1472,7 +1473,7 @@ async fn a_stall_interrupt_keeps_the_queued_steers() {
     let work = workdir("stall");
     let adapter = ClaudeAgent::new(spec("cancel", &work.0, false)).expect("the adapter builds");
     let stop_reason = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -1704,7 +1705,7 @@ async fn a_claude_session_publishes_live_usage_and_detaches_on_end() {
     let elicitation = cancel_elicitations();
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp819-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -1802,7 +1803,7 @@ async fn a_claude_session_publishes_under_the_account_it_runs_on() {
     let elicitation = cancel_elicitations();
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp909-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -1880,7 +1881,7 @@ async fn a_transcript_replay_never_holds_a_live_usage_slot() {
     let during = Arc::new(Mutex::new(None));
     let recorded = during.clone();
     Client
-        .builder()
+        .v1()
         .name("exp909-replay-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -1973,7 +1974,7 @@ async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
     let adapter =
         ClaudeAgent::new(spec("steer-foldin", &work.0, false)).expect("the adapter builds");
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -2025,7 +2026,7 @@ async fn a_fresh_context_prompt_clears_the_conversation_first() {
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let seen = updates.clone();
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -2162,7 +2163,7 @@ async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let seen = updates.clone();
     Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
@@ -2242,7 +2243,7 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
     let adapter = ClaudeAgent::new(adapter_spec).expect("the adapter builds");
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -2433,7 +2434,7 @@ async fn a_control_request_in_flight_fails_when_the_cli_dies() {
     let adapter = ClaudeAgent::new(adapter_spec).expect("the adapter builds");
 
     let driven = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -2487,7 +2488,7 @@ async fn usage_after_a_replay_resumes_the_same_conversation() {
     let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
     let listed = work.0.clone();
     Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -2550,7 +2551,7 @@ async fn two_prompts_racing_on_a_loaded_session_spawn_one_cli() {
     let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
     let listed = work.0.clone();
     Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),
@@ -2614,7 +2615,7 @@ async fn a_cancel_with_no_turn_behind_it_never_interrupts_the_next_one() {
     let adapter = ClaudeAgent::new(spec("basic", &work.0, false)).expect("the adapter builds");
     let listed = work.0.clone();
     let stop_reason = Client
-        .builder()
+        .v1()
         .name("exp746-test-client")
         .on_receive_notification(
             async move |_notification: SessionNotification, _cx| Ok(()),

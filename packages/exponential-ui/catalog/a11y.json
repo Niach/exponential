@@ -144,6 +144,11 @@
       "notes": "text (the shortcut spelled out)",
       "keys": []
     },
+    "KbdGroup": {
+      "role": "group",
+      "notes": "group of the Kbd caps, read in order",
+      "keys": []
+    },
     "Label": {
       "role": "text",
       "notes": "label of the control named by `for`",
@@ -230,6 +235,13 @@
       "notes": "img named by label; decorative (hidden) without one. `pointer` adds no focus stop or role: press/move/leave carry drawing coordinates for pointer users, so put what it shows in the label (or a Table beside it)",
       "keys": [
         "None: press/move/leave are pointer-only (keyboard users read the label)"
+      ]
+    },
+    "Embed": {
+      "role": "none",
+      "notes": "no role of its own: the nested surface's nodes join the host's order in place; the error box is an Alert",
+      "keys": [
+        "None of its own: Tab moves through the nested surface's controls in place"
       ]
     },
     "Image": {
@@ -464,7 +476,7 @@
     },
     "Input": {
       "role": "textbox",
-      "notes": "textbox",
+      "notes": "textbox (`row`: the label inside the row stays its accessible name)",
       "keys": [
         "Enter: submit (fires `submit`, submits the Form)"
       ]
@@ -557,6 +569,14 @@
         "Backspace in an empty field: focus the last chip, again: remove it",
         "ArrowLeft/ArrowRight: move between chips; Delete, Backspace: remove the focused chip",
         "ArrowDown: open the suggestions (as Select)"
+      ]
+    },
+    "KeyRecorder": {
+      "role": "group",
+      "notes": "field = button named `label`, aria-pressed while recording; the error line is an alert",
+      "keys": [
+        "Enter, Space: start recording",
+        "While recording every key, modifier change and mouse button 3-5 goes to `key`; Tab and Escape included (the host decides)"
       ]
     },
     "DatePicker": {

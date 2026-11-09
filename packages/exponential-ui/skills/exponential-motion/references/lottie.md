@@ -1,6 +1,6 @@
 # Writing Lottie directly
 
-> Generated from packages/exponential-ui/eval/motion/lottie-guide.md (genUI 0.19.1) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/eval/motion/lottie-guide.md (genUI 0.21.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 Lottie (Bodymovin) animation JSON. Root: {"v":"5.12.0","fr":60,"ip":0,"op":frames,"w":width,"h":height,"layers":[…],"assets":[]}. Times are FRAMES. Layers are listed TOP first.
 

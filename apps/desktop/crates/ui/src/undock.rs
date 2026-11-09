@@ -316,7 +316,8 @@ fn undocked_root(
     #[cfg(target_os = "linux")]
     let root = {
         use gpui::Styled as _;
-        root.bordered(false).bg(gpui::transparent_black())
+        use gpui_component::RootExt as _;
+        root.bordered(false, cx).bg(gpui::transparent_black())
     };
     #[cfg(target_os = "macos")]
     let root = {
@@ -488,6 +489,7 @@ impl Focusable for UndockedScreenWindow {
 
 impl Render for UndockedScreenWindow {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "UndockedScreenWindow").entered();
         let title = navigation::screen_title(&self.screen, cx);
         if self.window_title != title {
             self.window_title = title.clone();
@@ -552,11 +554,8 @@ impl Render for UndockedScreenWindow {
                 .into_any_element()
         };
 
-        // Root overlay layers — same composition rule as `Shell::render`:
-        // without them, `window.open_dialog` (issue delete confirm, image
-        // preview) would silently never paint in this window.
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
+        // Overlay layers — same composition rule as `Shell::render` (`Root`
+        // mounts the sheet/dialog layers itself).
         // EXP-1557: the in-window dialogs, above the content.
         let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
@@ -624,9 +623,7 @@ impl Render for UndockedScreenWindow {
                 // hosts the `TextSelection` layer needs it (a window MOVE eats
                 // the mouse-up that would have ended a selection drag).
                 .child(crate::text_selection_guard::selection_guard())
-                .children(sheet_layer)
                 .children(native_dialog_layer)
-                .children(dialog_layer)
                 .child(toast_layer)
                 .children(blocking_layer),
         )
@@ -753,6 +750,7 @@ mod tests {
             _window: &mut Window,
             _cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Stub").entered();
             div()
         }
     }

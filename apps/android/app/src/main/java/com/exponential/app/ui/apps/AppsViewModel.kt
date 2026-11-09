@@ -592,23 +592,30 @@ class AppEditorViewModel @Inject constructor(
     val deviceId: StateFlow<String?> = editorDevice.map { it.choice.deviceId }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** The device the header names (the composer's shown one, its name the
+     *  Device row's, online = among the online devices); null = none. */
+    private val headerDevice: Flow<Apps.EditorHeaderDevice?> = combine(editorDevice, devices) { picked, all ->
+        picked.choice.deviceId?.let { id ->
+            val row = all.orEmpty().firstOrNull { it.deviceId == id }
+            Apps.EditorHeaderDevice(
+                name = picked.rows.firstOrNull { it.id == id }?.name ?: row?.let(SessionDeviceMove::name) ?: id,
+                online = row?.online == true,
+            )
+        }
+    }
+
     /** #EXP-1729 (apps.json `editorHeader`): the phone header's `status ·
-     *  device` subtitle; the device = the composer's shown one, its name the
-     *  Device row's, online = among the online devices. */
-    val header: StateFlow<Apps.EditorHeaderValue> = combine(root, editorDevice, devices) { session, picked, all ->
-        val shown = picked.choice.deviceId
-        Apps.editorHeader(
-            session?.let { Apps.EditorHeaderRoot(it.status, it.busy, it.needsInput) },
-            shown?.let { id ->
-                val row = all.orEmpty().firstOrNull { it.deviceId == id }
-                Apps.EditorHeaderDevice(
-                    name = picked.rows.firstOrNull { it.id == id }?.name ?: row?.let(SessionDeviceMove::name) ?: id,
-                    online = row?.online == true,
-                )
-            },
-        )
+     *  device` value; #EXP-1732 takes its TONE (and [headerDeviceLabel]). */
+    val header: StateFlow<Apps.EditorHeaderValue> = combine(root, headerDevice) { session, device ->
+        Apps.editorHeader(session?.let { Apps.EditorHeaderRoot(it.status, it.busy, it.needsInput) }, device)
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Apps.editorHeader(null, null))
+
+    /** #EXP-1732 (session-screen.json STATUS WORD): `editorHeader`'s DEVICE
+     *  part alone (the device's name, else `no device online`). */
+    val headerDeviceLabel: StateFlow<String> = headerDevice.map { Apps.editorHeader(null, it).subtitle }
+        .distinctUntilChanged().flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Apps.editorHeader(null, null).subtitle)
 
     /** #EXP-1729 (apps.json `editorHeader`, composer-menu.json `account` /
      *  `model`): the composer's Account › and Model › with no root or an

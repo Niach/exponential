@@ -1557,36 +1557,11 @@ export function partitionTabs(
   return visible
 }
 
-/** #EXP-1433 (session-chat.json `stripModeCases`): the strip between
- *  Conversation and Results. `chips` = at most one issue and no session (that
- *  issue keeps its chip); `group` = ONE icon tab for every issue and session,
- *  `count` of them, opening THE Menu of their rows. */
-export interface ChatStripMode {
-  mode: `chips` | `group`
-  count: number
-}
-export function chatStripMode(input: { issues: number; sessions: number }): ChatStripMode {
-  const count = input.issues + input.sessions
-  return { mode: input.issues <= 1 && input.sessions === 0 ? `chips` : `group`, count }
-}
-
 /** EXP-1686 (chats.json `agentChat`): the line under an agent's name on a
  *  phone header (`modelLabel` = the model's display name). */
 export function agentChatSubtitle(modelLabel: string | null | undefined): string {
   const { subtitle, subtitleModelSeparator } = chats.agentChat
   return modelLabel ? `${subtitle}${subtitleModelSeparator}${modelLabel}` : subtitle
-}
-
-/** chats.json AGENT CHAT: an agent's chat's tabs: the conversation, plus the
- *  plan tab while it holds a plan (`agentChat.tabCases`). */
-export function agentChatTabs(holdsPlan: boolean): readonly string[] {
-  return holdsPlan ? chats.agentChat.planTabs : chats.agentChat.tabs
-}
-
-/** chats.json AGENT CHAT: what a selection shows in an agent's chat: only a
- *  page of its tabs survives (`agentChat.pageCases`). */
-export function agentChatPage(selected: string, holdsPlan: boolean): string {
-  return agentChatTabs(holdsPlan).includes(selected) ? selected : `conversation`
 }
 
 /** S-3 (session-chat.json `chatModeCases`): THE chat screen's mode: an

@@ -27,6 +27,11 @@ pub const RECORD_UPDATED_WIDTH: i64 = 136;
 /// A date-time cell's formatted `Nov 12, 2026, 3:30 AM` (the Data tab's raw editor keeps 152).
 pub const RECORD_DATE_TIME_WIDTH: i64 = 188;
 pub const RECORD_MENU_WIDTH: i64 = 80;
+/// FEED-202: a `currency` column without the author's width.
+pub const RECORD_CURRENCY_WIDTH: i64 = 96;
+/// FEED-202: what an author's column object may set over the field's
+/// defaults (Table's column shape; never a slot).
+const COLUMN_KEYS: [&str; 9] = ["label", "type", "currency", "decimals", "align", "width", "format", "truncate", "sortable"];
 /// A string longer than this (its `maxLength`) is a Textarea.
 pub const RECORD_LONG_TEXT: f64 = 200.0;
 pub const RECORD_FORM_ROOT: &str = "/recordForm";
@@ -198,19 +203,34 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
     out
 }
 
-fn shown_columns(kind: &Value, columns: Option<&[String]>) -> Vec<String> {
+/// The shown entries of `columns` (default every field), files left out: a
+/// field name or a column object (`{key, …}`), keyed by its field.
+fn shown_entries(kind: &Value, columns: Option<&[Value]>) -> Vec<(String, Option<Map<String, Value>>)> {
     let props = properties(kind);
-    let names = columns.map(<[String]>::to_vec).unwrap_or_else(|| record_columns(kind));
-    names.into_iter().filter(|n| props.get(n).and_then(Value::as_object).is_some_and(|f| !is_file(f))).collect()
+    let entries: Vec<Value> = columns.map(<[Value]>::to_vec).unwrap_or_else(|| record_columns(kind).into_iter().map(Value::String).collect());
+    entries
+        .into_iter()
+        .filter_map(|e| match e {
+            Value::String(key) => Some((key, None)),
+            Value::Object(o) => o.get("key").and_then(Value::as_str).map(|k| (k.to_string(), Some(o.clone()))),
+            _ => None,
+        })
+        .filter(|(n, _)| props.get(n).and_then(Value::as_object).is_some_and(|f| !is_file(f)))
+        .collect()
+}
+
+fn shown_columns(kind: &Value, columns: Option<&[Value]>) -> Vec<String> {
+    shown_entries(kind, columns).into_iter().map(|(k, _)| k).collect()
 }
 
 /// The table columns: the chosen fields (default every one), typed and
-/// sized like the Data tab, then `updatedAt`, then the row menu.
-pub fn record_table_columns(kind: &Value, columns: Option<&[String]>, editable: bool) -> Vec<Value> {
+/// sized like the Data tab, an author's column object over them, then
+/// `updatedAt`, then the row menu.
+pub fn record_table_columns(kind: &Value, columns: Option<&[Value]>, editable: bool) -> Vec<Value> {
     let props = properties(kind);
-    let mut out: Vec<Value> = shown_columns(kind, columns)
+    let mut out: Vec<Value> = shown_entries(kind, columns)
         .into_iter()
-        .map(|key| {
+        .map(|(key, entry)| {
             let f = props.get(&key).and_then(Value::as_object).cloned().unwrap_or_default();
             let ty = f.get("type").and_then(Value::as_str).unwrap_or("");
             let mut col = Map::new();
@@ -227,14 +247,33 @@ pub fn record_table_columns(kind: &Value, columns: Option<&[String]>, editable: 
             } else if f.get("format").and_then(Value::as_str) == Some("date-time") {
                 col.insert("type".into(), json!("dateTime"));
             }
-            let width = if f.get("format").and_then(Value::as_str) == Some("date-time") { Some(RECORD_DATE_TIME_WIDTH) } else { column_width(&f) };
-            match width {
-                // A fixed column never truncates its own header: the label at
-                // the header's 8 px a letter, its 8 + 8 padding and the 16 + 4
-                // sort arrow.
-                Some(w) => col.insert("width".into(), json!(w.max(field_label(&key).chars().count() as i64 * 8 + 36))),
-                None => col.insert("truncate".into(), json!(true)),
-            };
+            let entry = entry.unwrap_or_default();
+            for k in COLUMN_KEYS {
+                if let Some(v) = entry.get(k).filter(|v| !v.is_null() && !(k == "type" && v.as_str() == Some("slot"))) {
+                    col.insert(k.into(), v.clone());
+                }
+            }
+            if entry.get("width").is_none_or(Value::is_null) {
+                let width = if col.get("type").and_then(Value::as_str) == Some("currency") {
+                    Some(RECORD_CURRENCY_WIDTH)
+                } else if f.get("format").and_then(Value::as_str) == Some("date-time") {
+                    Some(RECORD_DATE_TIME_WIDTH)
+                } else {
+                    column_width(&f)
+                };
+                match width {
+                    // A fixed column never truncates its own header: the label at
+                    // the header's 8 px a letter, its 8 + 8 padding and the 16 + 4
+                    // sort arrow.
+                    Some(w) => {
+                        let label = col.get("label").map(crate::layout_tree::js).unwrap_or_default();
+                        col.insert("width".into(), json!(w.max(label.chars().count() as i64 * 8 + 36)));
+                    }
+                    None => {
+                        col.entry("truncate").or_insert(json!(true));
+                    }
+                }
+            }
             Value::Object(col)
         })
         .collect();
@@ -392,15 +431,65 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         }
         let base = format!("{RECORD_TABLE_ROOT}/{id}");
         let editable = node.get("editable") != Some(&Value::Bool(false)) && !read_only;
-        let columns: Option<Vec<String>> = node.get("columns").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
+        let columns: Option<Vec<Value>> = node.get("columns").and_then(Value::as_array).cloned();
         let draft = format!("{base}/editor/draft");
         let fields = record_form_fields(kind, &draft);
         let title = kind.get("title").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| field_label(&kind_name));
         node.insert("title".into(), json!(title));
         node.insert("cols".into(), Value::Array(record_table_columns(kind, columns.as_deref(), editable)));
-        node.insert("rows".into(), json!({"@path": format!("{base}/rows/rows")}));
-        node.insert("count".into(), json!({"@call": "pluralize", "args": {"value": {"@call": "coalesce", "args": {"values": [{"@path": format!("{base}/rows/count")}, 0]}}, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
-        node.insert("loading".into(), json!({"@call": "not", "args": {"value": {"@path": format!("{base}/rows")}}}));
+        // FEED-202: the search (over the shown text columns) and the enum
+        // filter narrow the rows through the core `filter`; the count, the
+        // totals and the phone rows follow.
+        let props = properties(kind);
+        let shown = shown_columns(kind, columns.as_deref());
+        let search_fields: Vec<String> = if node.get("search") == Some(&Value::Bool(true)) {
+            shown.iter().filter(|n| props.get(*n).is_some_and(|f| f.get("type").and_then(Value::as_str) == Some("string") && f.get("format").is_none())).cloned().collect()
+        } else {
+            Vec::new()
+        };
+        let filter_by = node.get("filter").and_then(Value::as_str).map(str::to_string).filter(|n| props.get(n).is_some_and(|f| f.get("type").and_then(Value::as_str) == Some("string") && f.get("enum").is_some_and(Value::is_array)));
+        let mut narrow = Map::new();
+        if !search_fields.is_empty() {
+            narrow.insert("query".into(), json!({"@path": format!("{base}/search")}));
+            narrow.insert("fields".into(), json!(search_fields));
+        }
+        if let Some(by) = &filter_by {
+            let mut wh = Map::new();
+            wh.insert(by.clone(), json!({"@path": format!("{base}/filter")}));
+            narrow.insert("where".into(), Value::Object(wh));
+        }
+        let narrows = !narrow.is_empty();
+        if node.contains_key("search") {
+            node.insert("search".into(), json!(!search_fields.is_empty()));
+        }
+        if !search_fields.is_empty() {
+            node.insert("searchValue".into(), json!({"@path": format!("{base}/search")}));
+        }
+        if let Some(by) = &filter_by {
+            node.insert("filterLabel".into(), json!(field_label(by)));
+            let mut opts = vec![json!({"label": "$string.all", "value": ""})];
+            if let Some(Value::Array(values)) = props.get(by).and_then(|f| f.get("enum")) {
+                opts.extend(values.iter().map(|v| json!({"label": v, "value": v})));
+            }
+            node.insert("filterOptions".into(), Value::Array(opts));
+            node.insert("filterValue".into(), json!({"@path": format!("{base}/filter")}));
+        } else {
+            node.remove("filter");
+        }
+        let all_rows = json!({"@path": format!("{base}/rows/rows")});
+        let rows = if narrows {
+            let mut args = Map::new();
+            args.insert("items".into(), all_rows);
+            args.extend(narrow.clone());
+            json!({"@call": "filter", "args": args})
+        } else {
+            all_rows
+        };
+        let total = if narrows { json!({"@call": "len", "args": {"value": rows}}) } else { json!({"@call": "coalesce", "args": {"values": [{"@path": format!("{base}/rows/count")}, 0]}}) };
+        node.insert("rows".into(), rows);
+        node.insert("count".into(), json!({"@call": "pluralize", "args": {"value": total, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
+        // Presence, not `not`: A2UI 1.0 coerces an object to false (#EXP-1757).
+        node.insert("loading".into(), json!({"@call": "cond", "args": {"if": {"@path": format!("{base}/rows")}, "then": false, "else": true}}));
         if read_only {
             node.insert("add".into(), json!(false));
         }
@@ -432,7 +521,6 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         let delete_action = node.get("on").and_then(|on| on.get("delete")).cloned();
         let query = node.get("query").and_then(Value::as_str).map(str::trim).filter(|q| !q.is_empty()).map(|q| q.strip_prefix('?').unwrap_or(q).to_string()).unwrap_or_else(|| "sort=updatedAt&order=desc".into());
         out.push(Value::Object(node));
-        let shown = shown_columns(kind, columns.as_deref());
         let first = shown.first().cloned().unwrap_or_else(|| "id".into());
         let mut row = Map::new();
         row.insert("id".into(), json!(format!("{id}__row")));
@@ -442,6 +530,12 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
             row.insert("subtitle".into(), json!({"@call": "coalesce", "args": {"values": [{"@call": "text", "args": {"value": {"@path": second}}}, ""]}}));
         }
         row.insert("meta".into(), json!({"@call": "formatRelativeTime", "args": {"value": {"@path": "updatedAt"}}}));
+        if narrows {
+            let mut args = Map::new();
+            args.insert("items".into(), json!([{"@path": ""}]));
+            args.extend(narrow);
+            row.insert("visible".into(), json!({"@call": "lt", "args": {"a": 0, "b": {"@call": "len", "args": {"value": {"@call": "filter", "args": args}}}}}));
+        }
         if editable {
             row.insert("on".into(), json!({"press": edit_action(&base, &fields)}));
             // The row's own Delete (the table's Delete cell is hidden on phones).

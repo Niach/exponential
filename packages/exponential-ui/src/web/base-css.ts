@@ -12,6 +12,7 @@
 // never needs to (recipes carry only visuals, sizes and spacing).
 
 import { QR_SCANNER } from "./round5"
+import { LAYOUT_CONSTANTS } from "../layout"
 import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
@@ -56,6 +57,11 @@ const INLINE_OVERLAYS_CSS = [
 // opens with the layer order (theme-css LAYERS), so `xui-part` ranks above
 // `xui-recipe` whichever sheet a page loads first. A task item's box sits in
 // the list gutter (the marker's place) as the natives paint it.
+// #VAPP-289: `.xui-Avatar-image`'s object-position `calc(50% + 0px) 50%` =
+// the centre, but NOT the initial value: Chromium then always paints the
+// `Avatar/image` fill under the picture (its round edge's antialiasing)
+// instead of skipping it as obscured only when the picture had decoded by
+// the paint, which made React and Solid differ by timing.
 export const BASE_CSS = `@layer xui-base, xui-recipe, xui-node, xui-part, xui-author;
 ${ANIMATION_PROPERTIES_CSS}
 @layer xui-base{
@@ -67,6 +73,7 @@ ${ROUND2_CSS}
 .xui-el{box-sizing:border-box;display:flex;flex-direction:row;position:relative;margin:0;padding:0;border:0 solid transparent;min-width:auto;min-height:auto;font:inherit;color:inherit;background:transparent;text-align:start;text-decoration:none;outline:none;appearance:none;-webkit-appearance:none}
 button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav){margin:0;padding:0;border:0 solid transparent;background:transparent;color:inherit;font:inherit;appearance:none;-webkit-appearance:none}
 .xui-el:focus-visible:not([data-xui-quiet-focus]){outline:2px solid var(--xui-color-ring);outline-offset:1px}
+.xui-KeyRecorder-field[data-m-recording="true"]:focus-visible{outline:none}
 .xui-leaf{flex-direction:column}
 .xui-leaf>.xui-measured{flex-shrink:0}
 [data-xui-c="Text"].xui-el{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -107,7 +114,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-audio-progress>span{display:block;height:100%;background-color:var(--xui-color-foreground)}
 .xui-audio-clock{font-size:12px;color:var(--xui-color-mutedForeground);font-variant-numeric:tabular-nums;white-space:nowrap}
 [data-xui-c="Avatar"].xui-el{overflow:clip;flex-shrink:0;align-items:center;justify-content:center}
-.xui-Avatar-image{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.xui-Avatar-image{width:100%;height:100%;object-fit:cover;object-position:calc(50% + 0px) 50%;border-radius:inherit}
 .xui-Avatar-fallback{display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;text-transform:uppercase;user-select:none}
 [data-xui-c="List"].xui-el{flex-direction:column;overflow:auto;min-height:0}
 [data-xui-c="List"][data-r-direction="horizontal"].xui-el{flex-direction:row}
@@ -171,6 +178,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Tabs-item:has(>.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
 .xui-Tabs-item>.xui-Tabs-tab:has(+.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
 .xui-Tabs-item[data-folded],.xui-Tabs-more[data-folded]{position:absolute;top:0;inset-inline-start:0;visibility:hidden;pointer-events:none}
+.xui-Tabs-pager{display:flex;flex-direction:column;position:relative;overflow:hidden;touch-action:pan-y;min-width:0}
+.xui-Tabs-pager>.xui-Tabs-content[data-state]{animation:none}
+.xui-Tabs-pager>[data-xui-page]{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+.xui-Tabs-list[data-xui-swipe]{position:relative;isolation:isolate}
+.xui-Tabs-thumb{position:absolute;left:0;pointer-events:none;z-index:-1}
 [data-xui-c="Segmented"].xui-el{display:inline-flex;align-items:center;align-self:flex-start;flex-wrap:nowrap}
 [data-xui-c="Segmented"][data-r-fill="true"].xui-el,[data-xui-c="Segmented"][data-r-variant="bar"].xui-el{align-self:stretch}
 .xui-Segmented-item{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;flex:0 0 auto;min-width:0}
@@ -234,13 +246,26 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Switch-body{display:flex;flex-direction:column;gap:var(--xui-spacing-xxs);flex:1 1 0%;min-width:0}
 .xui-Input-field,.xui-Textarea-field{display:block;width:100%;min-width:0;margin:0;outline:none;appearance:none;border:0 solid transparent;background:transparent;color:inherit;font:inherit}
 .xui-Input-field::placeholder,.xui-Textarea-field::placeholder,.xui-Composer-field::placeholder{color:var(--xui-color-mutedForeground)}
+.xui-Input-field[data-r-variant="row"]{display:flex;flex-direction:row;align-items:center;cursor:text}
+.xui-Input-field[data-r-variant="row"]>.xui-Input-label{flex:0 0 auto;white-space:nowrap;cursor:inherit}
+.xui-Input-rowfield{display:block;flex:1 1 auto;align-self:stretch;width:auto;min-width:0;margin:0;padding:0;outline:none;appearance:none;border:0;background:transparent;font:inherit;text-align:end;color:color-mix(in srgb,currentColor 70%,transparent)}
+.xui-Input-rowfield::placeholder{color:var(--xui-color-mutedForeground)}
 .xui-Textarea-field{resize:none;line-height:var(--xui-type-lineHeight-sm);padding-top:var(--xui-spacing-sm);padding-bottom:var(--xui-spacing-sm)}
 .xui-Input-label,.xui-Textarea-label,.xui-Select-label,.xui-DatePicker-label,.xui-DateRangePicker-label,.xui-TimePicker-label,.xui-NumberField-label,.xui-ChipInput-label,.xui-FileUpload-label,.xui-Slider-label,.xui-Radio-label,.xui-Checkbox-label,.xui-Switch-label{display:block;cursor:inherit}
 .xui-Select-trigger,.xui-DatePicker-trigger,.xui-DateRangePicker-trigger,.xui-TimePicker-trigger{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--xui-spacing-sm);width:100%;min-width:0;cursor:pointer;text-align:start;white-space:nowrap}
 .xui-Select-trigger>span,.xui-DatePicker-trigger>span,.xui-DateRangePicker-trigger>span,.xui-TimePicker-trigger>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
 .xui-Select-trigger>svg,.xui-DatePicker-trigger>svg,.xui-DateRangePicker-trigger>svg,.xui-TimePicker-trigger>svg{width:16px;height:16px;flex-shrink:0;opacity:.6}
-.xui-Select-search{display:flex;width:100%;min-width:0;margin:0 0 var(--xui-spacing-xs);padding:var(--xui-spacing-xs) var(--xui-spacing-sm);outline:none;border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
+.xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
+.xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-spacer{flex:1 1 0;min-width:0}
+.xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-button,.xui-Select-control>.xui-Select-button{display:flex;flex-direction:row;align-items:center;flex:0 1 auto;min-width:0;overflow:visible}
+.xui-Select-labels{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;white-space:normal}
+.xui-Select-labels>.xui-Select-description{display:block;max-width:${LAYOUT_CONSTANTS.selectRowDescriptionMaxWidth}px}
+.xui-Select-control{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;flex:1 1 0}
+.xui-Select-button>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
+.xui-Select-button>svg{width:16px;height:16px;flex-shrink:0}
+.xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
+.xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
 .xui-Checkbox-check{display:inline-flex;align-items:center;justify-content:center}
 .xui-Checkbox-check>svg{width:100%;height:100%}
@@ -283,6 +308,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-DatePicker-day:disabled,.xui-DateRangePicker-day:disabled{opacity:.3;cursor:default;pointer-events:none}
 .xui-Composer-field{display:block;width:100%;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit;resize:none;max-height:200px}
 .xui-composer-bar{display:flex;align-items:center;justify-content:flex-end;gap:var(--xui-spacing-xs)}
+.xui-composer-leading{display:flex;align-items:center;flex-shrink:0;margin-inline-end:auto}
+.xui-composer-trailing{display:flex;align-items:center;flex-shrink:0}
 .xui-Composer-attachment{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send>svg,.xui-Composer-attachment>svg{width:16px;height:16px}
@@ -329,7 +356,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-SearchList-search>input,.xui-Menu-search>input{flex:1 1 auto;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;color:inherit;font:inherit}
 .xui-SearchList-count,.xui-Menu-count{flex-shrink:0;font-variant-numeric:tabular-nums}
 .xui-Progress-value,.xui-Meter-value{font-variant-numeric:tabular-nums}
-.xui-SearchList-body,.xui-Menu-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
+.xui-SearchList-body,.xui-Menu-body,.xui-Select-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
 .xui-SearchList-list,.xui-Menu-list{display:flex;flex-direction:column;flex-shrink:1;min-height:0;overflow-y:auto}
 .xui-SearchList-item{display:flex;flex-direction:row;align-items:center;flex-shrink:0;cursor:pointer;user-select:none;white-space:nowrap}
 .xui-SearchList-item[aria-disabled="true"]{pointer-events:none}
@@ -337,7 +364,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-SearchList-icon>svg,.xui-SearchList-check>svg{width:100%;height:100%}
 .xui-SearchList-identifier{flex-shrink:0}
 .xui-SearchList-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.xui-SearchList-fade,.xui-Menu-fade{position:absolute;left:0;right:0;bottom:0;height:${SEARCH_LIST_FADE}px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--xui-color-popover)) !important}
+.xui-SearchList-fade,.xui-Menu-fade,.xui-Select-fade{position:absolute;left:0;right:0;bottom:0;height:${SEARCH_LIST_FADE}px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--xui-color-popover)) !important}
 .xui-menu-search{display:flex;flex-direction:column;min-width:240px}
 .xui-menu-search .xui-Menu-item{flex-shrink:0}
 [data-xui-c="Markdown"].xui-el{display:block;min-width:0;overflow-wrap:anywhere}
@@ -494,10 +521,12 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
-.xui-Select-searchbox{display:flex;align-items:center;gap:var(--xui-spacing-xs);padding-inline-start:var(--xui-spacing-sm)}
-.xui-Select-searchbox>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
-.xui-Select-searchbox>.xui-Select-search{margin:0;border-bottom:0;padding-inline-start:0}
+.xui-Select-searchbox>svg{width:16px;height:16px;flex-shrink:0;color:var(--xui-color-mutedForeground)}
+.xui-Select-listbox>.xui-Select-item{flex-shrink:0}
+.xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
+.xui-Select-content{gap:var(--xui-spacing-xs)}
+.xui-Select-listbox{max-height:256px}
 .xui-Select-empty{display:flex}
 .xui-TimePicker-list{min-width:var(--radix-popover-trigger-width)}
 [data-xui-c="Toast"].xui-el{flex-direction:row;align-items:flex-start;width:min(360px,calc(100vw - 32px));pointer-events:auto}

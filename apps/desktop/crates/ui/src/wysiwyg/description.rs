@@ -562,6 +562,11 @@ impl WysiwygDescription {
             .update(cx, |editor, _| editor.set_external_scroll_handle(handle));
     }
 
+    /// #LOGS-6: see [`gpui_markdown_editor::MarkdownEditor::mount_all_rows`].
+    pub fn mount_all(&mut self, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| editor.mount_all_rows(cx));
+    }
+
     // -- save ---------------------------------------------------------------
 
     fn save_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1884,6 +1889,7 @@ impl Focusable for WysiwygDescription {
 
 impl Render for WysiwygDescription {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "WysiwygDescription").entered();
         // EXP-568: the floating rail renders from HERE, so both hosts (issue
         // detail and the create-issue dialog) get it without wiring — the
         // pinned toolbars they used to mount are gone.

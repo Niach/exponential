@@ -1622,13 +1622,14 @@ impl Focusable for IssueDraftView {
 
 impl Render for IssueDraftView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueDraftView").entered();
         let base = v_flex()
             .size_full()
             .track_focus(&self.focus_handle)
             // Cmd+Enter = Create, from the title, the description or a chip.
             .capture_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
                 let keystroke = &event.keystroke;
-                if keystroke.key == "enter" && keystroke.modifiers.secondary() {
+                if keystroke.key == "enter" && keystroke.modifiers.secondary(cx) {
                     cx.stop_propagation();
                     this.create(Vec::new(), window, cx);
                 }

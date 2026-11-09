@@ -109,6 +109,11 @@
     "zoomOut": "Zoom out",
     "zoomToFit": "Zoom to fit",
     "tree": "Tree",
-    "stepCompact": "Step {step} of {total} · {label}"
+    "stepCompact": "Step {step} of {total} · {label}",
+    "all": "All",
+    "total": "Total",
+    "keyRecorderNone": "None",
+    "keyRecorderPlaceholder": "Press any key or combination…",
+    "embedInvalid": "This card could not be shown"
   }
 }

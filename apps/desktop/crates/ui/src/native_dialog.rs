@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
+    actions, deferred, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
     AppContext as _, Entity, FocusHandle, Focusable, FontWeight, Global,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Render,
     ScrollHandle, SharedString, Size, Styled, StatefulInteractiveElement as _, Window, WindowId,
@@ -417,17 +417,26 @@ fn push_layer(
     });
 }
 
+/// The paint priority of [`render_layer`]: gpui-component's sheet layer is
+/// mounted by `Root` after the window content and its dialogs paint deferred
+/// at `10 + id`, so 9 keeps the in-window dialogs above a sheet and below a
+/// gpui-component dialog (the pre-0.9 composition order).
+const LAYER_PRIORITY: usize = 9;
+
 /// Every open dialog layer of `window`, bottom first — composed by each
 /// window root ABOVE its content and below the toasts. `None` = none open.
 pub(crate) fn render_layer(window: &Window, cx: &App) -> Option<AnyElement> {
     let id = window.window_handle().window_id();
     let layers = registry(cx)?.read(cx).layers.get(&id)?.clone();
     Some(
-        div()
-            .absolute()
-            .inset_0()
-            .children(layers.into_iter().map(|shell| shell.into_any_element()))
-            .into_any_element(),
+        deferred(
+            div()
+                .absolute()
+                .inset_0()
+                .children(layers.into_iter().map(|shell| shell.into_any_element())),
+        )
+        .with_priority(LAYER_PRIORITY)
+        .into_any_element(),
     )
 }
 
@@ -531,6 +540,7 @@ fn close_button(id: &'static str, closable: bool, cx: &App) -> Button {
 
 impl Render for DialogShell {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DialogShell").entered();
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
         let viewport = window.viewport_size();
@@ -1075,6 +1085,7 @@ impl AlertView {
 
 impl Render for AlertView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AlertView").entered();
         let view = cx.entity().clone();
         let extra = self.spec.content.as_ref().map(|content| content(window, cx));
 
@@ -1241,35 +1252,45 @@ mod prompt_tests {
 #[cfg(test)]
 mod hug_tests {
     use super::*;
-    use gpui::{point, Bounds, VisualTestContext};
+    use gpui::Bounds;
 
     struct Probe(Pixels);
 
     impl Render for Probe {
         fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Probe").entered();
             div().debug_selector(|| "probe-view".into()).w_full().h(self.0)
         }
     }
 
     /// Opens `spec` in a test window and returns the panel's, the probe
     /// content's and the OK button's bounds, and the viewport height.
+    struct LayerHost;
+
+    impl gpui::Render for LayerHost {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().children(render_layer(window, cx))
+        }
+    }
+
     fn layout(
         spec: impl FnOnce(&mut App) -> AlertSpec,
         cx: &mut gpui::TestAppContext,
     ) -> (Bounds<Pixels>, Option<Bounds<Pixels>>, Option<Bounds<Pixels>>, Pixels) {
-        let cx: &mut VisualTestContext = cx.add_empty_window();
-        cx.update(|window, cx| {
+        // The layer paints deferred, so it draws in a real window frame with
+        // a view as the root, as a window's `Root` hosts it.
+        cx.update(|cx| {
             gpui_component::init(cx);
             init(cx);
+        });
+        let (_host, cx) = cx.add_window_view(|_, _| LayerHost);
+        cx.update(|window, cx| {
             let spec = spec(cx);
             open_alert(window, cx, spec);
         });
         for _ in 0..2 {
-            cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |window, cx| {
-                div()
-                    .size_full()
-                    .children(render_layer(window, cx))
-            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
         }
         (
             cx.debug_bounds("native-dialog-panel").expect("the panel draws"),

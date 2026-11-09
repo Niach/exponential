@@ -12,7 +12,10 @@
 //! specimen ([`ComposerSpecimen`], [`plus_menu_open`]) is shared with the
 //! `session-chat` entry, like the web `composer-specimen.tsx`. The agent
 //! case keeps the home placeholder (the agent row above the card picks the
-//! recipient, styleguide `composer-agent-row`).
+//! recipient, styleguide `composer-agent-row`). #EDE-65: the menus above
+//! the field keep the keyboard; Exponential UI's Composer carries it as
+//! `menuKeys` (ArrowUp, ArrowDown, Enter, Tab and Escape without a
+//! modifier fire `key` {key}, SearchList's key names, for the host's menu, never during an IME composition).
 
 use gpui::{
     div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,
@@ -126,6 +129,7 @@ impl ComposerSpecimen {
 
 impl Render for ComposerSpecimen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ComposerSpecimen").entered();
         let prefix = self.prefix;
         let phase = self.phase;
         let id = |part: &str| SharedString::from(format!("{prefix}-{part}"));
@@ -224,6 +228,7 @@ impl OpenMenu {
 
 impl Render for OpenMenu {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "OpenMenu").entered();
         crate::controls::with_pointer_layer(self.menu.clone())
     }
 }

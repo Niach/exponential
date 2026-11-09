@@ -1,6 +1,6 @@
 [package]
 name = "eui-gpui"
-version = "0.19.1"
+version = "0.21.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "genUI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
@@ -24,7 +24,7 @@ default = ["net"]
 # The network transports (JSONL / SSE over HTTP, WebSocket, MCP) and the
 # media loader's http(s) fetches. Off = MemoryTransport + your own Transport
 # impls, file:// media only.
-net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
+net = ["dep:reqwest", "dep:rustls", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 # #EXP-1739: report the markdown's selectable text as an overlay anchor
 # (`gpui_component::overlay_anchor`), so a context menu opened on it closes
 # when it scrolls, moves or goes. That module exists only in the desktop
@@ -34,7 +34,9 @@ net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 overlay-anchor = []
 
 [dependencies]
-eui-core = { path = "../eui-core", version = "0.19.1" }
+# #LOGS-2: lag spans (no subscriber = no cost).
+tracing = "0.1"
+eui-core = { path = "../eui-core", version = "0.21.0" }
 gpui.workspace = true
 gpui-component.workspace = true
 # EXP-1557: the switch's behaviour primitive (`gpui_base::Switch`) under
@@ -69,6 +71,9 @@ url = "2.5"
 # `net`: the blocking client on transport threads (its own private runtime,
 # never gpui's executors), a current-thread tokio runtime per WebSocket.
 reqwest = { workspace = true, optional = true }
+# reqwest 0.13 without a bundled provider: ring, installed as the process
+# default unless the host installed one already.
+rustls = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
@@ -90,7 +95,12 @@ gpui-component-assets.workspace = true
 # with ONLY the conformance font files (no system fonts) so the dump is
 # deterministic. Already in the lock (gpui_linux's text system).
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
-gpui_wgpu = { git = "https://github.com/zed-industries/zed" }
+gpui_wgpu = { workspace = true }
+
+# Mac platform on the process main thread (see the file's header).
+[[test]]
+name = "text_clusters_macos"
+harness = false
 
 [[example]]
 name = "conformance_dump"

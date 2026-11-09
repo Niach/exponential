@@ -11,11 +11,13 @@
 //!
 //! [`SteppedAnimationExt::with_stepped_animation`] is gpui's element with
 //! ONE difference: instead of the next frame it schedules its next repaint
-//! on a timer, at the next multiple of `step` on a grid the whole app shares.
-//! A hard-cut sprite (Claude's spark, 90 ms frames) repaints at its frame
-//! rate; a smooth loop at [`SMOOTH_STEP`] (30 fps, the rate an
-//! unfocused window already ran at) — the same look at a fraction of the
-//! draws, focused or not. Everything else matches gpui's element: the
+//! on a timer, when its own next `step` has passed — snapped up to the next
+//! tick of ONE [`SMOOTH_STEP`] grid the whole app shares (#LOGS-3). A
+//! hard-cut sprite (Claude's spark, 90 ms frames) repaints on the first tick
+//! after each of its frames; a smooth loop at [`SMOOTH_STEP`] (30 fps, the
+//! rate an unfocused window already ran at) on every tick — the same look at
+//! a fraction of the draws, focused or not, and however many animations run
+//! at whatever steps, the window redraws at most 30 times a second. Everything else matches gpui's element: the
 //! animation's clock, easing and `repeat`, and `reduce_motion` (a static
 //! frame, nothing scheduled). The clock is gpui's executor, so a
 //! `#[gpui::test]` drives it.
@@ -32,8 +34,13 @@ use gpui::{
     IntoElement, LayoutId, ParentElement, Window,
 };
 
-/// The step of a smooth loop (an opacity pulse, a sweep): 30 fps.
+/// The step of a smooth loop (a spinner, a sweep): 30 fps, and the tick of
+/// the shared grid every stepped animation repaints on.
 pub const SMOOTH_STEP: Duration = Duration::from_micros(33_333);
+
+/// #LOGS-3: the step of a slow opacity PULSE that lives as long as what it
+/// marks (an agent's working pulse): every second tick of the grid, 15 fps.
+pub const PULSE_STEP: Duration = Duration::from_micros(66_666);
 
 /// An extension trait adding the stepped animation wrapper to elements.
 pub trait SteppedAnimationExt {
@@ -87,9 +94,10 @@ impl<E: IntoElement + 'static> IntoElement for SteppedAnimationElement<E> {
     }
 }
 
-/// The element's state across frames: when the animation started, and the
-/// instant the pending repaint timer fires (none, or already past = no
-/// timer pending).
+/// The element's state across frames: when the animation started (moved
+/// back onto its step's shared lines, [`aligned_start`]), and the instant
+/// the pending repaint timer fires (none, or already past = no timer
+/// pending).
 struct SteppedAnimationState {
     start: Instant,
     armed_until: Option<Instant>,
@@ -123,14 +131,23 @@ impl<E: IntoElement + 'static> Element for SteppedAnimationElement<E> {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        // #LOGS-3: frame stats name what animates (the label is built only
+        // while something listens).
+        let _span = tracing::enabled!(tracing::Level::TRACE).then(|| {
+            let id = format!("{:?}", self.id);
+            tracing::trace_span!("anim.step", id = id.as_str()).entered()
+        });
+        // #LOGS-4: an unfocused window shows the static face (gpui refreshes
+        // it when the focus comes back).
+        let paused = super::glyph_layer::animation_paused(window, cx);
         window.with_element_state(global_id.unwrap(), |state, window| {
             let now = cx.background_executor().now();
             let mut state = state.unwrap_or_else(|| SteppedAnimationState {
-                start: now,
+                start: aligned_start(now, self.step, step_epoch(now, cx)),
                 armed_until: None,
             });
             let elapsed = now.saturating_duration_since(state.start);
-            let (delta, done) = if cx.reduce_motion() {
+            let (delta, done) = if paused {
                 (if self.animation.oneshot { 1.0 } else { 0.0 }, true)
             } else {
                 let mut delta =
@@ -196,13 +213,33 @@ impl gpui::Global for StepEpoch {}
 
 /// Each frame redraws the whole window, so loops on private grids would add
 /// up (three marks started at different moments = 90 redraws a second, not
-/// 30). On one shared grid, loops with the same step wake together and share
-/// a single frame, however many are running.
-fn step_epoch(now: Instant, cx: &mut App) -> Instant {
+/// 30; a 33 ms pulse, a 90 ms sprite and a 100 ms label = ~50, #LOGS-3).
+/// Every repaint lands on a tick of ONE [`SMOOTH_STEP`] grid counted from
+/// this epoch, so all loops wake together and share a single frame.
+pub(super) fn step_epoch(now: Instant, cx: &mut App) -> Instant {
     if !cx.has_global::<StepEpoch>() {
         cx.set_global(StepEpoch(now));
     }
     cx.global::<StepEpoch>().0
+}
+
+/// How long after `now` the first shared-grid tick at or after `due` falls:
+/// the grid's ticks are the multiples of [`SMOOTH_STEP`] since `epoch`.
+pub fn until_shared_tick(now: Instant, due: Instant, epoch: Instant) -> Duration {
+    let tick = SMOOTH_STEP.as_nanos();
+    let since = due.saturating_duration_since(epoch).as_nanos();
+    let snapped = since.div_ceil(tick) * tick;
+    (epoch + Duration::from_nanos(snapped as u64)).saturating_duration_since(now)
+}
+
+/// A loop's start moved back onto its step's line at or before `now`, so
+/// its frames change exactly on the lines every loop of that step shares:
+/// three sparks started at different moments wake together, and the first
+/// tick after each line shows that line's frame (none is skipped). The
+/// phase moves by less than one step.
+pub(super) fn aligned_start(now: Instant, step: Duration, epoch: Instant) -> Instant {
+    let since = now.saturating_duration_since(epoch);
+    now - (step - until_next_step(since, step)).min(since)
 }
 
 /// Schedule the repaint for the next step line, unless one is already
@@ -216,10 +253,12 @@ fn arm(
     window: &Window,
     cx: &mut App,
 ) {
-    if armed_until.is_some_and(|until| now < until) {
+    if armed_until.is_some_and(|until| now < until) || super::glyph_layer::animation_paused(window, cx) {
         return;
     }
-    let wait = until_next_step(now.saturating_duration_since(step_epoch(now, cx)), step);
+    let epoch = step_epoch(now, cx);
+    let due = now + until_next_step(now.saturating_duration_since(epoch), step);
+    let wait = until_shared_tick(now, due, epoch);
     *armed_until = Some(now + wait);
     let view = window.current_view();
     cx.spawn(async move |cx| {
@@ -282,7 +321,11 @@ mod tests {
             let (renders, deltas) = (renders.clone(), deltas.clone());
             move |_, _| Probe { renders, deltas }
         });
+        // An unfocused window paints the static face (#LOGS-4): focus it,
+        // and count from the frame its focus drew.
+        window.update(cx, |_, window, _| window.activate_window()).unwrap();
         cx.run_until_parked();
+        renders.set(1);
         (renders, deltas, window)
     }
 
@@ -295,9 +338,22 @@ mod tests {
         assert_eq!(until_next_step(Duration::from_millis(1), Duration::ZERO), Duration::from_nanos(1));
     }
 
+    #[test]
+    fn a_due_repaint_waits_for_the_next_shared_tick() {
+        let epoch = Instant::now();
+        let at = |ms: u64| epoch + Duration::from_millis(ms);
+        // A 90 ms frame lands on the third tick (99.999 ms), a 100 ms label
+        // on the fourth: 99.999 ms is a hair early, so it rounds up.
+        assert_eq!(until_shared_tick(epoch, at(90), epoch), SMOOTH_STEP * 3);
+        assert_eq!(until_shared_tick(epoch, at(100), epoch), SMOOTH_STEP * 4);
+        // A tick is its own snap; the wait counts from `now`.
+        assert_eq!(until_shared_tick(at(10), epoch + SMOOTH_STEP, epoch), SMOOTH_STEP - Duration::from_millis(10));
+    }
+
     /// The heart of EXP-1325: a repeating stepped animation requests NO
     /// animation frame — the next frame runs no callbacks and repaints
-    /// nothing — and repaints exactly when its step line passes.
+    /// nothing — and repaints on the first shared tick after its step
+    /// line (#LOGS-3).
     #[gpui::test]
     async fn a_stepped_loop_repaints_on_its_step_not_on_every_frame(cx: &mut TestAppContext) {
         let (renders, deltas, window) = open(cx);
@@ -317,12 +373,18 @@ mod tests {
 
         cx.executor().advance_clock(STEP / 2);
         cx.run_until_parked();
-        assert_eq!(renders.get(), 2, "the step line passed: one repaint");
-        assert!((deltas.get() - 0.125).abs() < 1e-3, "one 90 ms frame into a 720 ms loop");
+        assert_eq!(renders.get(), 1, "the frame is due, the shared tick is not");
 
-        cx.executor().advance_clock(STEP * 3);
+        cx.executor().advance_clock(Duration::from_millis(10));
         cx.run_until_parked();
-        assert_eq!(renders.get(), 5, "one repaint per step line passed, never more");
+        assert_eq!(renders.get(), 2, "the tick after the step line: one repaint");
+        assert!((deltas.get() - 0.1389).abs() < 1e-3, "99.999 ms into a 720 ms loop");
+
+        // Lines at 180…630 ms land on ticks 6, 9, 11, 14, 17, 19: one repaint
+        // per frame of the sprite, never more.
+        cx.executor().advance_clock(Duration::from_millis(620));
+        cx.run_until_parked();
+        assert_eq!(renders.get(), 8, "one repaint per step line passed, never more");
     }
 
     /// A repaint between two step lines (another reason, say a hover) must
@@ -335,71 +397,75 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(renders.get(), 2);
 
-        cx.executor().advance_clock(STEP * 2 / 3);
+        cx.executor().advance_clock(Duration::from_millis(70));
         cx.run_until_parked();
-        assert_eq!(renders.get(), 3, "the original step line");
+        assert_eq!(renders.get(), 3, "the original step line's tick");
 
-        cx.executor().advance_clock(STEP / 3);
+        cx.executor().advance_clock(SMOOTH_STEP);
         cx.run_until_parked();
         assert_eq!(renders.get(), 3, "no second timer from the unrelated repaint");
     }
 
     struct Staggered {
-        renders: Rc<Cell<usize>>,
-        shown: usize,
+        draws: Rc<std::cell::RefCell<Vec<Instant>>>,
+        steps: Vec<Duration>,
     }
 
     impl Render for Staggered {
-        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            self.renders.set(self.renders.get() + 1);
-            div().size_full().children((0..self.shown).map(|i| {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.draws.borrow_mut().push(cx.background_executor().now());
+            div().size_full().children(self.steps.iter().enumerate().map(|(i, step)| {
                 div().with_stepped_animation(
                     ElementId::Integer(i as u64),
                     Animation::new(Duration::from_millis(720)).repeat(),
-                    STEP,
+                    *step,
                     |this, _| this,
                 )
             }))
         }
     }
 
-    /// Loops started at different moments share their step lines, so every
-    /// timer lands on the same instant and gpui's dirty flag folds them into
-    /// one frame. (The test platform draws per notify, so this pins WHEN
-    /// redraws happen, not how many.)
+    /// #LOGS-3: loops at different steps (a 33 ms pulse, Claude's 90 ms
+    /// spark, a 100 ms elapsed label), started at different moments, only
+    /// ever repaint on the shared grid's ticks, so the window redraws at
+    /// most 30 times a second whatever animates. (The test platform draws
+    /// per notify, so this pins WHEN redraws happen, not how many.)
     #[gpui::test]
-    async fn staggered_loops_only_redraw_on_the_shared_step_lines(cx: &mut TestAppContext) {
-        let renders = Rc::new(Cell::new(0));
+    async fn loops_at_any_step_only_redraw_on_the_shared_ticks(cx: &mut TestAppContext) {
+        let draws = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let epoch = cx.executor().now();
         let window = cx.open_window(size(px(100.), px(100.)), {
-            let renders = renders.clone();
-            move |_, _| Staggered { renders, shown: 1 }
+            let draws = draws.clone();
+            move |_, _| Staggered { draws, steps: vec![SMOOTH_STEP] }
         });
+        window.update(cx, |_, window, _| window.activate_window()).unwrap();
         cx.run_until_parked();
 
-        // Two more loops join mid-step, each at its own moment.
-        for shown in [2, 3] {
-            cx.executor().advance_clock(STEP / 3);
+        // Two more loops join between ticks, each at its own moment.
+        for step in [STEP, Duration::from_millis(100)] {
+            cx.executor().advance_clock(Duration::from_millis(11));
             window
                 .update(cx, |view, _, cx| {
-                    view.shown = shown;
+                    view.steps.push(step);
                     cx.notify();
                 })
                 .unwrap();
             cx.run_until_parked();
         }
-        cx.executor().advance_clock(STEP / 3);
+        draws.borrow_mut().clear();
+
+        cx.executor().advance_clock(Duration::from_secs(1));
         cx.run_until_parked();
-
-        for line in 0..10 {
-            let before = renders.get();
-            cx.executor().advance_clock(STEP - Duration::from_millis(1));
-            cx.run_until_parked();
-            assert_eq!(renders.get(), before, "step {line}: nothing between the lines");
-
-            cx.executor().advance_clock(Duration::from_millis(1));
-            cx.run_until_parked();
-            assert!(renders.get() > before, "step {line}: the line repaints");
+        let draws = draws.borrow();
+        let mut ticks: Vec<u128> = Vec::new();
+        for at in draws.iter() {
+            let since = at.saturating_duration_since(epoch).as_nanos();
+            assert_eq!(since % SMOOTH_STEP.as_nanos(), 0, "a redraw off the shared grid at {since} ns");
+            ticks.push(since / SMOOTH_STEP.as_nanos());
         }
+        ticks.dedup();
+        assert!(ticks.len() <= 31, "at most one redraw per tick, {} ticks", ticks.len());
+        assert!(ticks.len() >= 29, "the pulse still repaints every tick, {} ticks", ticks.len());
     }
 
     /// Reduce motion: the start frame, nothing scheduled — as gpui's element.

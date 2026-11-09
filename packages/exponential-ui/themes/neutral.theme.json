@@ -97,6 +97,22 @@
             "spread": -6,
             "color": "#0000001a"
           }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -1,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "blur": 4,
+            "spread": -2,
+            "color": "#0000001a"
+          }
         ]
       }
     },
@@ -193,6 +209,22 @@
             "blur": 10,
             "spread": -6,
             "color": "#00000080"
+          }
+        ],
+        "popover": [
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -1,
+            "color": "#00000066"
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "blur": 4,
+            "spread": -2,
+            "color": "#00000066"
           }
         ]
       }
@@ -296,6 +328,7 @@
       "avatarSm": 24,
       "avatarMd": 32,
       "avatarLg": 40,
+      "avatarXl": 48,
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
@@ -746,6 +779,24 @@
             "width": "$control.avatarLg",
             "height": "$control.avatarLg"
           }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "width": "$control.avatarXl",
+            "height": "$control.avatarXl"
+          }
+        }
+      ],
+      "image": [
+        {
+          "style": {
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.full"
+          }
         }
       ],
       "fallback": [
@@ -753,9 +804,33 @@
           "style": {
             "backgroundColor": "$color.muted",
             "color": "$color.mutedForeground",
-            "fontSize": "$type.size.sm",
-            "fontWeight": "$type.weight.medium",
+            "fontSize": "$type.size.base",
+            "fontWeight": "$type.weight.regular",
             "fontFamily": "$type.family.sans"
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
+            "fontSize": "$type.size.xs"
+          }
+        },
+        {
+          "when": {
+            "size": "lg"
+          },
+          "style": {
+            "fontSize": "$type.size.xl"
+          }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "fontSize": "$type.size.xl2"
           }
         }
       ]
@@ -2614,6 +2689,20 @@
           "style": {
             "borderColor": "$color.destructive"
           }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "height": 44,
+            "paddingHorizontal": "$spacing.lg",
+            "gap": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -2623,6 +2712,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "variant": "row"
+          },
+          "style": {
+            "fontWeight": "$type.weight.regular"
           }
         }
       ],
@@ -3260,7 +3357,6 @@
       "trigger": [
         {
           "style": {
-            "height": "$control.input",
             "paddingHorizontal": "$spacing.md",
             "borderRadius": "$radius.md",
             "borderWidth": "$border.hairline",
@@ -3271,6 +3367,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontFamily": "$type.family.sans",
             "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "field"
+          },
+          "style": {
+            "height": "$control.input"
           }
         },
         {
@@ -3296,6 +3400,21 @@
           "style": {
             "borderColor": "$color.destructive"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "minHeight": 44,
+            "paddingHorizontal": "$spacing.lg",
+            "paddingVertical": "$spacing.md",
+            "gap": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -3305,6 +3424,14 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontWeight": "$type.weight.regular"
           }
         }
       ],
@@ -3419,6 +3546,83 @@
           },
           "style": {
             "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "value": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs"
+          }
+        }
+      ],
+      "labels": [
+        {
+          "style": {
+            "gap": "$spacing.xxs"
+          }
+        }
+      ],
+      "control": [
+        {
+          "style": {
+            "minWidth": 200,
+            "gap": "$spacing.md"
+          }
+        }
+      ],
+      "fade": [
+        {
+          "style": {
+            "height": 24,
+            "backgroundColor": "$color.popover"
+          }
+        }
+      ],
+      "button": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "gap": "$spacing.md"
           }
         }
       ]
@@ -5261,6 +5465,14 @@
           "style": {
             "minHeight": "$control.rowCompact"
           }
+        },
+        {
+          "when": {
+            "total": true
+          },
+          "style": {
+            "fontWeight": "$type.weight.medium"
+          }
         }
       ],
       "checkbox": [
@@ -6510,10 +6722,8 @@
       "root": [
         {
           "style": {
-            "backgroundColor": "$color.muted",
-            "borderWidth": "$border.hairline",
-            "borderBottomWidth": "$border.thick",
-            "borderColor": "$color.border"
+            "backgroundColor": "$color.accent",
+            "borderWidth": "$border.none"
           }
         }
       ],
@@ -6521,8 +6731,35 @@
         {
           "style": {
             "color": "$color.mutedForeground",
-            "fontFamily": "$type.family.mono",
-            "fontSize": "$type.size.xs"
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "KeyRecorder": {
+      "field": [
+        {
+          "style": {
+            "borderColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "recording": true
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
           }
         }
       ]

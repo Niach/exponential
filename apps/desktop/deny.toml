@@ -1,7 +1,7 @@
 # cargo-deny config (EXP-222) — license audit of everything statically linked into
 # the shipped desktop binary, run in CI (build-desktop.yml) so a copyleft dependency
-# can never sneak back in (zed's GPL-3.0 ztracing/zlog did, patched out in the
-# workspace Cargo.toml). Only the `licenses` check is configured; run it with
+# can never sneak back in (zed's ztracing/zlog were GPL-3.0 until zed #63573
+# relicensed them Apache-2.0; they were patched out with no-op shims until then). Only the `licenses` check is configured; run it with
 #   cargo deny --manifest-path apps/desktop/Cargo.toml check licenses
 
 [graph]

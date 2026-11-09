@@ -923,6 +923,8 @@ fn apply_to<T: ShapeRow>(
     cx: &mut AsyncApp,
 ) {
     let spec = T::spec();
+    // #LOGS-2: the foreground half of a shape batch (point reads + notify).
+    let _span = tracing::debug_span!("sync.apply", shape = spec.name, rows = keys.len(), full_replace).entered();
     let phase = phase_from_store(sqlite, spec.name);
     if full_replace {
         // §5.6c atomic refetch: the batch replaced the WHOLE table in one
@@ -1318,6 +1320,7 @@ impl Store {
     }
 
     fn apply_delta(&self, delta: ShapeDelta, cx: &mut AsyncApp) {
+        let _span = tracing::debug_span!("sync.delta").entered();
         match delta {
             ShapeDelta::Unauthorized { account_id } => {
                 // §5.6b: the pipeline tore itself down and the token is

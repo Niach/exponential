@@ -11,7 +11,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
-import { isReorderKey, segmentedBadge, startStripDrag, stripFit, stripKeyMove } from "@exponential_app/eui/web"
+import { isReorderKey, sameSpans, segmentedBadge, startStripDrag, startTabSwipe, stripFit, stripKeyMove, tabPage, tabPageStyle, tabSpans, tabThumbStyle, type TabSpan, type TabSwipeDrag } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string
@@ -85,6 +85,92 @@ function useTabStrip(tabs: Tab[], value: string, rtl: boolean, on: boolean, emit
   }
 }
 
+/** FEED-200: a `swipeable` Tabs' pager (`@exponential_app/eui/web`
+ *  tabs-swipe, the core's `tab_pages` / `tab_thumb` / `tab_swipe` twin): the
+ *  live drag, each header's span (measured after every layout change) and
+ *  the `thumb` they place; a settle selects like a header press. */
+function useTabSwipe(on: boolean, tabs: Tab[], value: string, rtl: boolean, select: (value: string) => void) {
+  const [drag, setDrag] = useState<TabSwipeDrag | null>(null)
+  const [spans, setSpans] = useState<(TabSpan | null)[] | null>(null)
+  const list = useRef<HTMLDivElement | null>(null)
+  const headers = useRef(new Map<number, HTMLElement>())
+  const active = Math.max(0, tabs.findIndex((t) => t.value === value))
+  const measure = () => {
+    if (!on) return
+    const next = tabSpans(tabs.map((_, i) => headers.current.get(i)))
+    setSpans((cur) => (sameSpans(cur, next) ? cur : next))
+  }
+  const measureRef = useRef(measure)
+  measureRef.current = measure
+  useLayoutEffect(() => measureRef.current())
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!on || !el || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => measureRef.current())
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [on])
+  const thumb = on && spans ? tabThumbStyle(spans, active, drag, rtl) : null
+  return {
+    on,
+    drag,
+    thumb,
+    active,
+    list,
+    header: (i: number) => (el: HTMLElement | null) => {
+      if (el) headers.current.set(i, el)
+      else headers.current.delete(i)
+    },
+    pointerDown: (e: PointerEvent, pager: HTMLElement) =>
+      startTabSwipe(e, pager, () => ({ index: active, count: tabs.length, rtl }), {
+        drag: setDrag,
+        settle: (i) => {
+          const next = tabs[i]?.value
+          if (next !== undefined) select(next)
+        },
+      }),
+  }
+}
+
+type TabSwipe = ReturnType<typeof useTabSwipe>
+
+/** The `thumb` wears the selected header's recipe (`tab`, `item` on a
+ *  strip) so every theme paints it like that header. */
+const thumbAttrs = (part: PartFn, header: `tab` | `item`): Record<string, string> => {
+  const attrs = part(`thumb`, `selected`) as Record<string, string>
+  return { ...attrs, className: attrs.className!.replace(`xui-Tabs-thumb`, `xui-Tabs-${header} xui-Tabs-thumb`) }
+}
+
+/** The panels: only the ACTIVE one is placed (`<id>.content`); the others
+ *  are hidden, but a swipeable Tabs draws the active one's neighbours
+ *  (inert, out of flow) inside the clipping `pager`. */
+function TabPanels({ node, tabs, value, part, swipe, rtl }: { node: NativeProps[`node`]; tabs: Tab[]; value: string; part: PartFn; swipe: TabSwipe; rtl: boolean }) {
+  const panels = tabs.map((tab, i) => {
+    const attrs = part(`content`) as Record<string, string>
+    if (tab.value !== value) delete attrs[`data-xui-id`]
+    const side = swipe.on ? tabPage(i, swipe.active) : null
+    if (side === null) {
+      return (
+        <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
+          {node.children[i] ? <NodeView node={node.children[i]} /> : null}
+        </TabsPrimitive.Content>
+      )
+    }
+    const page = side === 0 ? {} : { forceMount: true as const, "data-xui-page": side < 0 ? `prev` : `next`, "aria-hidden": true, inert: true }
+    return (
+      <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs} {...page} style={tabPageStyle(side, swipe.drag, rtl)}>
+        {node.children[i] ? <NodeView node={node.children[i]} /> : null}
+      </TabsPrimitive.Content>
+    )
+  })
+  if (!swipe.on) return <>{panels}</>
+  return (
+    <div className="xui-Tabs-pager" onPointerDown={(e) => swipe.pointerDown(e.nativeEvent, e.currentTarget)}>
+      {panels}
+    </div>
+  )
+}
+
 export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
@@ -100,27 +186,48 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
   const lend = (index: number, state: `hover` | `focus` | null) => setLent((cur) => (state ? { index, state } : cur?.index === index ? null : cur))
   const lending = closable && props.closable === `hover`
   const strip = useTabStrip(tabs, value, ctx.direction === `rtl`, props.variant === `strip`, emit)
+  const rtl = ctx.direction === `rtl`
+  const select = (next: string) => {
+    setValue(next)
+    void emit(`change`, { value: next }, { value: next })
+  }
+  const swipe = useTabSwipe(bool(props.swipeable), tabs, value, rtl, select)
   if (strip.on) {
     const tabOf = (i: number) => tabs[i]!
     return (
       <TabsPrimitive.Root
         {...(rootProps as Record<string, unknown>)}
         value={value}
-        onValueChange={(next) => {
-          setValue(next)
-          void emit(`change`, { value: next }, { value: next })
-        }}
+        onValueChange={select}
         orientation="horizontal"
         activationMode="automatic"
         dir={ctx.direction}
       >
-        <TabsPrimitive.List ref={strip.list} {...(part(`list`) as Record<string, string>)} loop>
+        <TabsPrimitive.List
+          ref={(el: HTMLDivElement | null) => {
+            strip.list.current = el
+            swipe.list.current = el
+          }}
+          {...(part(`list`) as Record<string, string>)}
+          data-xui-swipe={swipe.on ? `` : undefined}
+          loop
+        >
+          {swipe.thumb ? <div {...thumbAttrs(part, `item`)} aria-hidden="true" style={swipe.thumb} /> : null}
           {strip.order.map((i) => {
             const tab = tabOf(i)
             const selected = tab.value === value
             const folded = !strip.shown(i)
             return (
-              <div key={tab.value} ref={strip.item(i)} {...(part.at(`item`, i, selected && `selected`) as Record<string, string>)} data-folded={folded ? `` : undefined}>
+              <div
+                key={tab.value}
+                ref={(el) => {
+                  strip.item(i)(el)
+                  swipe.header(i)(el)
+                }}
+                {...(part.at(`item`, i, selected && `selected`) as Record<string, string>)}
+                data-folded={folded ? `` : undefined}
+                style={selected && swipe.thumb ? { backgroundColor: `transparent` } : undefined}
+              >
                 <TabsPrimitive.Trigger
                   value={tab.value}
                   disabled={folded}
@@ -172,15 +279,7 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
             </button>
           ) : null}
         </TabsPrimitive.List>
-        {tabs.map((tab, i) => {
-          const attrs = part(`content`) as Record<string, string>
-          if (tab.value !== value) delete attrs[`data-xui-id`]
-          return (
-            <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
-              {node.children[i] ? <NodeView node={node.children[i]} /> : null}
-            </TabsPrimitive.Content>
-          )
-        })}
+        <TabPanels node={node} tabs={tabs} value={value} part={part} swipe={swipe} rtl={rtl} />
       </TabsPrimitive.Root>
     )
   }
@@ -188,22 +287,22 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
     <TabsPrimitive.Root
       {...(rootProps as Record<string, unknown>)}
       value={value}
-      onValueChange={(next) => {
-        setValue(next)
-        void emit(`change`, { value: next }, { value: next })
-      }}
+      onValueChange={select}
       orientation="horizontal"
       activationMode="automatic"
       dir={ctx.direction}
     >
-      <TabsPrimitive.List {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined} loop>
+      <TabsPrimitive.List ref={swipe.list} {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined} data-xui-swipe={swipe.on ? `` : undefined} loop>
+        {swipe.thumb ? <div {...thumbAttrs(part, `tab`)} aria-hidden="true" style={swipe.thumb} /> : null}
         {tabs.map((tab, i) => {
           const selected = tab.value === value
           const trigger = (
             <TabsPrimitive.Trigger
               key={tab.value}
+              ref={swipe.on ? swipe.header(i) : undefined}
               value={tab.value}
               {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}
+              style={selected && swipe.thumb ? { backgroundColor: `transparent`, boxShadow: `none` } : undefined}
               onPointerEnter={lending ? () => lend(i, `hover`) : undefined}
               onPointerLeave={lending ? () => lend(i, null) : undefined}
               onFocus={lending ? (e) => (e.currentTarget.matches(`:focus-visible`) ? lend(i, `focus`) : undefined) : undefined}
@@ -240,16 +339,7 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
           </button>
         ) : null}
       </TabsPrimitive.List>
-      {tabs.map((tab, i) => {
-        // Only the ACTIVE panel is placed (`<id>.content`); the others are hidden.
-        const attrs = part(`content`) as Record<string, string>
-        if (tab.value !== value) delete attrs[`data-xui-id`]
-        return (
-          <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
-            {node.children[i] ? <NodeView node={node.children[i]} /> : null}
-          </TabsPrimitive.Content>
-        )
-      })}
+      <TabPanels node={node} tabs={tabs} value={value} part={part} swipe={swipe} rtl={rtl} />
     </TabsPrimitive.Root>
   )
 }

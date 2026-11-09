@@ -164,7 +164,7 @@ public struct AssigneePicker<Trigger: View>: View {
                         initials: memberInitials(
                             forDisplayName: member.name.isEmpty ? (member.email ?? "") : member.name
                         ),
-                        hueKey: member.id,
+                        hueKey: avatarHueKey(id: member.id, name: member.name, email: member.email),
                         size: 22
                     )
                 )

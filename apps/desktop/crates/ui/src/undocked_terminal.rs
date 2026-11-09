@@ -20,7 +20,7 @@ use gpui::{
 use gpui::AnyElement;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Root, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Sizable as _,
 };
 // EXP-269: the vendored TitleBar — rounded window controls
 // (`crate::title_bar`).
@@ -123,6 +123,7 @@ impl Focusable for UndockedTerminalWindow {
 
 impl Render for UndockedTerminalWindow {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "UndockedTerminalWindow").entered();
         let (title, view, exit_code) = match self.manager.read(cx).tab(self.tab_id) {
             Some(tab) => (tab.title().clone(), Some(tab.view.clone()), tab.exit_code()),
             // Tab already closed — the TabClosed handler is tearing this
@@ -171,9 +172,7 @@ impl Render for UndockedTerminalWindow {
                 .into_any_element()
         };
 
-        // Root layers for parity with every other window (toasts).
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
+        // Overlay layers for parity with every other window (toasts).
         // EXP-1557: the in-window dialogs, above the content.
         let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
@@ -203,9 +202,7 @@ impl Render for UndockedTerminalWindow {
                 // EXP-837: the text-selection disarm, as in every other window
                 // root (a window MOVE eats the mouse-up that ends a drag).
                 .child(crate::text_selection_guard::selection_guard())
-                .children(sheet_layer)
                 .children(native_dialog_layer)
-                .children(dialog_layer)
                 .child(toast_layer)
                 .children(blocking_layer),
         )

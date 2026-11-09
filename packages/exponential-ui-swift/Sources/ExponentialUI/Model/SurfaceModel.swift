@@ -136,6 +136,9 @@ public final class SurfaceModel {
     @ObservationIgnored private var viewportBeforeOverlay: CGFloat?
     /// #VAPP-253: while lifted layers are up, the stage they hang from.
     @ObservationIgnored private var layerViewport: CGSize?
+    /// #EXP-1629: the window around the surface, in surface coordinates:
+    /// anchored popups fit into it (web, gpui), not into the surface.
+    @ObservationIgnored private var popupWindow: CGRect?
     @ObservationIgnored public internal(set) var maxHeight: CGFloat?
     @ObservationIgnored var nodesDirty = true
     @ObservationIgnored var visualsDirty = true
@@ -159,6 +162,8 @@ public final class SurfaceModel {
     /// send button draws disabled while its composer is empty, web's `:disabled`).
     var composerFillTick = 0
     @ObservationIgnored var layerReturn: [String: String] = [:]
+    /// #EXP-1629: the option under each open Select's cursor (by owner id).
+    @ObservationIgnored var selectCursor: [String: String] = [:]
     @ObservationIgnored var openLayerKeys: [String] = []
     @ObservationIgnored var justDismissed: String?
     @ObservationIgnored var hoverDelay: Task<Void, Never>?
@@ -208,6 +213,8 @@ public final class SurfaceModel {
     /// 4 B, a node its props JSON + 64 B of fixed fields, a visual 96 B, a
     /// text style 48 B.
     @ObservationIgnored public static var benchCounters: BenchCounters?
+    /// #EDE-65: the mounted cards of the Embed nodes, by node id (`Model/Embed.swift`).
+    @ObservationIgnored var embeds: [String: EmbedMount] = [:]
     /// Conformance: called with every node index a `NodeView` paints.
     @ObservationIgnored var paintProbe: ((Int) -> Void)?
     /// The text field that has focus.
@@ -398,6 +405,15 @@ public final class SurfaceModel {
         overlayViewportHeight(size?.height)
     }
 
+    /// #EXP-1629: the window around the surface (surface coordinates; nil =
+    /// the surface's own view). Kept for the next pass, which it only forces
+    /// while a layer is open (a scroll moves it on every frame).
+    func setPopupWindow(_ rect: CGRect?) {
+        guard rect != popupWindow else { return }
+        popupWindow = rect
+        if !layers.isEmpty, width > 0 { pass() }
+    }
+
     // MARK: - The pass
 
     /// Run one layout pass (the core, the measurer, the caches), then the
@@ -409,21 +425,25 @@ public final class SurfaceModel {
         let t0 = DispatchTime.now().uptimeNanoseconds
         _ = surface.setViewport(width: Float(width), height: Float(viewportHeight), maxHeight: maxHeight.map { Float($0) })
         _ = surface.setLayerViewport(width: Float(layerViewport?.width ?? 0), height: Float(layerViewport?.height ?? 0))
+        _ = surface.setPopupBounds(x: Float(popupWindow?.minX ?? 0), y: Float(popupWindow?.minY ?? 0), width: Float(popupWindow?.width ?? 0), height: Float(popupWindow?.height ?? 0))
         var changed = Set<Int>()
         var calls = 0
         var layoutNs: UInt64 = 0
         var tries = 0
         var out: FfiLayout
+        var embedSizes: [String: CGSize] = [:]
         while true {
             let kinds = lastKinds
-            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: nil, wrap: true) {
+            if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: Self.fixedSizesJson(embedSizes), wrap: true) {
                 out = fixed
             } else {
                 let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, memo: memoizeMeasures ? measureMemo : nil, mediaAllowed: { [unowned self] src in
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
                 }, markdownBlocks: { [unowned self] text in
                     MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
-                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil, fontScale: textScale)
+                }, markdownOptions: host.markdownOptions, viewportHeight: viewportHeight > 0 ? viewportHeight : nil, fontScale: textScale, embedSize: { [unowned self] id, props, wrap in
+                    MainActor.assumeIsolated { self.embedSize(id: id, props: props, wrap: wrap) }
+                })
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }
@@ -443,6 +463,16 @@ public final class SurfaceModel {
                 patchNodes(out.delta)
             }
             tries += 1
+            // #EDE-65: the fixed measure knows no nested surface: each Embed's
+            // card lays out at the frame it got, the pass runs again with it.
+            if fixedMeasure, tries < 3 {
+                let sizes = fixedEmbedSizes(out)
+                if sizes != embedSizes {
+                    embedSizes = sizes
+                    for id in sizes.keys { if let i = byId[id] { _ = surface.markDirty(index: UInt32(i)) } }
+                    continue
+                }
+            }
             // An extension leaf measured before its kind was known: measure
             // it again now that the slots know it.
             let unknown = fixedMeasure ? [] : nodes.filter { n in !n.removed && n.extensionKind != nil && kinds[n.id] == nil }.map(\.index)
@@ -592,6 +622,7 @@ public final class SurfaceModel {
         pruneFields()
         pruneInteraction()
         prunePaintFailures()
+        pruneEmbeds()
     }
 
     /// The resolved visuals and text styles: every slot (`nil`) or the

@@ -2,13 +2,12 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "at.exponential.guide"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "at.exponential.guide"
@@ -37,10 +36,10 @@ kotlin {
 dependencies {
     // The SDK: the painter + host runtime (its POM brings the primitives,
     // Compose, coroutines and JNA with the native core).
-    implementation("at.exponential:eui-compose:0.19.1")
+    implementation("at.exponential:eui-compose:0.21.0")
 
-    implementation("androidx.activity:activity-compose:1.12.4")
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
 }

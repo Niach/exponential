@@ -1,6 +1,6 @@
 # `etalk-ffi`: Voice for Swift and Kotlin
 
-The UniFFI 0.31 facade over [`etalk`](../etalk) (the call machine) and
+The UniFFI 0.32 facade over [`etalk`](../etalk) (the call machine) and
 [`etalk-codec`](../etalk-codec) (Opus) for iOS, macOS and Android, so a phone
 places the same call as the desktop (#EXP-1441): an xcframework / an Android
 `.so` plus the generated bindings. gpui-free, engine-free, no app crate.

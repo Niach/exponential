@@ -101,6 +101,43 @@ internal open class ForeignBytes : Structure() {
 
     class ByValue : ForeignBytes(), Structure.ByValue
 }
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Only `lower` is valid — zero-copy byte buffers only flow foreign -> Rust,
+// and only in argument position. `lift`, `read`, `write`, and
+// `allocationSize` have no sound implementation here and all panic at
+// runtime. The `FfiConverter` interface is implemented so that the
+// compiler enforces the full method set (rather than relying on eyeball).
+//
+// The provided `ByteBuffer` MUST be direct — only direct buffers have a
+// stable native address that JNA can expose via `getDirectBufferPointer`.
+// The returned `ForeignBytes.ByValue` is only valid for the duration of
+// the FFI call; the Rust side treats it as a borrow.
+internal object FfiConverterByRefBytes : FfiConverter<java.nio.ByteBuffer, ForeignBytes.ByValue> {
+    override fun lower(value: java.nio.ByteBuffer): ForeignBytes.ByValue {
+        require(value.isDirect) { "UniFFI zero-copy &[u8] requires a direct ByteBuffer. Use ByteBuffer.allocateDirect()." }
+        val remaining = value.remaining()
+        val fb = ForeignBytes.ByValue()
+        fb.len = remaining
+        // Zero-length direct buffers: skip getDirectBufferPointer (platform-variable behavior)
+        // and pass null. The Rust side treats (null, 0) as &[].
+        fb.data = if (remaining == 0) null else com.sun.jna.Native.getDirectBufferPointer(value)
+        return fb
+    }
+
+    override fun lift(value: ForeignBytes.ByValue): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+
+    override fun read(buf: java.nio.ByteBuffer): java.nio.ByteBuffer =
+        error("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun write(value: java.nio.ByteBuffer, buf: java.nio.ByteBuffer): Unit =
+        error("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+
+    override fun allocationSize(value: java.nio.ByteBuffer): ULong =
+        error("ByRef bytes have no RustBuffer allocation size: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+}
 /**
  * The FfiConverter interface handles converter types to and from the FFI
  *
@@ -757,526 +794,538 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "exponential_ui_ffi"))
         uniffiCheckContractApiVersion(this)
     }
-    external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_bind_tree_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_card_v10_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_combine_decisions(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_component_a11y_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_control_geometry_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_core_catalog_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_date_bucket(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_decide_function(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_decide_url_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_default_theme_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_display_string_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_error_message_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_format_call_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_format_pattern_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_function_effect(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_function_error_message_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_is_identifier(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_list_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_mangle_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_media_image_header(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_media_request_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_navigate_target_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_resizable_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_run_package_action_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_template_messages_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_text_direction(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_version(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_bars_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_zoom_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_date(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_intrinsics(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_apply_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_count(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_apply(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_assign_data(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_data_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_event(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_index_of(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_is_held(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_issues_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_mode(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_node_count(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_paint_at(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_rebind(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_clock(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_components(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_data(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_density(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hover(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_locale(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_nested(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_open(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_settings(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_states(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_settings(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_strings_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_structure_version(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_theme(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_tick(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_visual(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_visuals(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_color(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_colors_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_control(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_control_geometry(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_font_family(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_fonts_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_id(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_line_height(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_name(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_opacity(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_radius(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_resolve_part(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_resolved_json(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_spacing(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_theme_type_size(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_images(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_size(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_recordstore_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_load(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new(
-): Short
-external fun uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new(
-): Short
-external fun ffi_exponential_ui_ffi_uniffi_contract_version(
-): Int
 
-    
+    internal fun ensureInitialized() = Unit
+    external fun uniffi_exponential_ui_ffi_checksum_func_a2ui_version(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_accept_v09(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_action_message_with_user_message_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_bind_tree_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_call_agent_function_message_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_card_v10_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_combine_decisions(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_component_a11y_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_control_geometry_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_core_catalog_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_date_bucket(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_decide_function(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_decide_url_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_default_theme_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_display_string_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_error_message_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_format_call_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_format_pattern_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_function_effect(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_function_error_message_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_is_identifier(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_list_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_mangle_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_media_image_header(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_media_request_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_navigate_target_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_value_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_resizable_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_run_package_action_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_swipe_blocks(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_swipe_lock(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_swipe_offset(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_swipe_settle(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_template_messages_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_text_direction(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_upgrade09_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_upgrade_card09(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_version(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_bars_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_zoom_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_canvas_to_drawing(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_consent(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_data_model_metadata_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_expire_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_flush_surface(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_has_agent(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_local_failed(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_next_deadline_ms(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_observe_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_press_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_policy_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_set_registered(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_settle_local(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_dirty(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_effects_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_take_outbox_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_date(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_available_catalog_ids(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_mint_surface_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_inline_catalog(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route_with_bridge_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_intrinsics(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_apply_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_count(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_apply(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_assign_data(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_data_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_event(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_field_checks_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_hold(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_index_of(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_invalidate_measures(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_is_held(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_issues_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_mark_dirty(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_mode(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_needs_flush(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_node_count(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_paint_at(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_rebind(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_clock(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_components(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_data(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_density(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hover(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_locale(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_nested(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_open(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_popup_bounds(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_settings(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_states(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_settings(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_strings_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_structure_version(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_failures_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_theme(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_tick(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_visual(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_visuals(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_color(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_colors_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_control(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_control_geometry(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_font_family(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_fonts_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_id(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_line_height(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_name(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_opacity(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_radius(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_resolve_part(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_resolved_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_spacing(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_theme_type_size(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_sample(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_size(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_canvasplayer_slot_ids(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_images(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_size(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_recordstore_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_load(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_canvasplayer_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new(
+    ): Int
+    external fun ffi_exponential_ui_ffi_uniffi_contract_version(
+    ): Int
+
+        
 }
 
 internal object UniffiLib {
@@ -1294,682 +1343,694 @@ internal object UniffiLib {
         uniffiCallbackInterfaceMeasurer.register(this)
         
     }
-    external fun uniffi_exponential_ui_ffi_fn_clone_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(`agent`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(`ptr`: Long,`ticket`: Long,`allowed`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(`ptr`: Long,`opsJson`: RustBuffer.ByValue,`router`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`consent`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(`ptr`: Long,`policyJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(`ptr`: Long,`names`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(`ptr`: Long,`ticket`: Long,`valueJson`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(`vtable`: UniffiVTableCallbackInterfaceHostFormatter,
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_number(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(`ptr`: Long,`value`: Double,`code`: RustBuffer.ByValue,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_date(`ptr`: Long,`epochMs`: Double,`dateOnly`: Byte,`format`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`time`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(`ptr`: Long,`value`: Long,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(`ptr`: Long,`value`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(`ptr`: Long,`value`: Double,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(`ptr`: Long,`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(`ptr`: Long,`base`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(`vtable`: UniffiVTableCallbackInterfaceHostZone,
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(`ptr`: Long,`epochMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun uniffi_exponential_ui_ffi_fn_clone_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_jsonldecoder_new(uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_jsonldecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_jsonldecoder_push(`ptr`: Long,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_measurer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_measurer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_measurer(`vtable`: UniffiVTableCallbackInterfaceMeasurer,
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_intrinsics(`ptr`: Long,`leaves`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_heights(`ptr`: Long,`leaves`: RustBuffer.ByValue,`requests`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_recordstore_new(uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_constructor_recordstore_newest_first(uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_recordstore_apply_json(`ptr`: Long,`deltaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_recordstore_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_recordstore_value_json(`ptr`: Long,`queryJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`overlayJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_ssedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_ssedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new(uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_ssedecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_ssedecoder_push(`ptr`: Long,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_surface(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_surface(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_surface_new(`surfaceId`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`themeId`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(`surfaceId`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`theme`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_surface_apply(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_assign_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_command_json(`ptr`: Long,`commandJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`index`: Int,`name`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(`ptr`: Long,`owner`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_index_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_invalidate_measures(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_is_held(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_issues_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_layout(`ptr`: Long,`measurer`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(`ptr`: Long,`sizesJson`: RustBuffer.ByValue,`wrap`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_mode(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_node_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_paint_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_rebind(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_register_extension(`ptr`: Long,`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll(`ptr`: Long,`listId`: RustBuffer.ByValue,`offset`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(`ptr`: Long,`id`: RustBuffer.ByValue,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(`ptr`: Long,`id`: RustBuffer.ByValue,`index`: Int,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_clock(`ptr`: Long,`nowMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_components(`ptr`: Long,`componentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(`ptr`: Long,`contrast`: RustBuffer.ByValue,`systemHigh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_density(`ptr`: Long,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(`ptr`: Long,`zone`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(`ptr`: Long,`scale`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(`ptr`: Long,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hover(`ptr`: Long,`id`: RustBuffer.ByValue,`hovered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_insets(`ptr`: Long,`top`: Float,`right`: Float,`bottom`: Float,`left`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(`ptr`: Long,`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_locale(`ptr`: Long,`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(`ptr`: Long,`mode`: RustBuffer.ByValue,`systemDark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_nested(`ptr`: Long,`nestedJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_open(`ptr`: Long,`id`: RustBuffer.ByValue,`open`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(`ptr`: Long,`hover`: Byte,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_states(`ptr`: Long,`id`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(`ptr`: Long,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(`ptr`: Long,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme(`ptr`: Long,`theme`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(`ptr`: Long,`themeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(`ptr`: Long,`width`: Float,`height`: Float,`maxHeight`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_strings_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_surface_submit_form(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_take_events(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_tick(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_visuals(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_clone_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_theme_builtin(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_constructor_theme_load(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_theme_color(`ptr`: Long,`name`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_colors_json(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_control(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_control_geometry(`ptr`: Long,`component`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_font_family(`ptr`: Long,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_fonts_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_line_height(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_name(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_opacity(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_radius(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_resolve_part(`ptr`: Long,`ownerComponent`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`ownerPropsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_resolved_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_spacing(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_theme_type_size(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_canvasplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_canvasplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(`canvasJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(`ptr`: Long,`slotsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_slot_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_clone_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_free_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(`lottieJson`: RustBuffer.ByValue,`slotsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(`ptr`: Long,`family`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_images(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Double
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(`ptr`: Long,`progress`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): Double
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(`ptr`: Long,`frame`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(`ptr`: Long,`playbackJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(`ptr`: Long,`kind`: RustBuffer.ByValue,`layer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(`rowsJson`: RustBuffer.ByValue,`writesJson`: RustBuffer.ByValue,`recordsJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`newIdsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_bench_tree_json(`n`: Int,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(`slotJson`: RustBuffer.ByValue,`rowsPropJson`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(`slotJson`: RustBuffer.ByValue,`sectionJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_bind_tree_json(`nodeJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`expr`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_combine_decisions(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_component_a11y_json(`component`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_control_geometry_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_core_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_date_bucket(`date`: RustBuffer.ByValue,`bucket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_decide_function(`policyJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`registered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_decide_url_json(`policyJson`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_display_string_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_error_message_json(`code`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(`expr`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_format_call_json(`callJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`offsetMinutes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_format_pattern_json(`pattern`: RustBuffer.ByValue,`fieldsJson`: RustBuffer.ByValue,`namesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_function_effect(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_function_error_message_json(`code`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_is_identifier(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_func_list_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_mangle_id(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,`metadataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_media_image_header(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_media_request_json(`url`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(`resultJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_migrate_record_json(`packageJson`: RustBuffer.ByValue,`version`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`now`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_navigate_target_json(`packageJson`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`max`: Double,`target`: Int,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_parse_records_json(`queryJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(`paramsJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(`functionCallId`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(`functionCallId`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_resizable_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(`packageJson`: RustBuffer.ByValue,`screen`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,`resultsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(`count`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_source_with_params_json(`source`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_template_messages_json(`packageJson`: RustBuffer.ByValue,`templateId`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_text_direction(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(`color`: RustBuffer.ByValue,`dark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(`kindJson`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,`kindName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_version(uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(`x`: Double,`y`: Double,`width`: Double,`height`: Double,`boxWidth`: Double,`boxHeight`: Double,`fit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_ui_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_ui_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
-external fun ffi_exponential_ui_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_ui_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_u8(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_u8(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_exponential_ui_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_i8(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_i8(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
-external fun ffi_exponential_ui_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_u16(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_u16(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_exponential_ui_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_i16(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_i16(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
-external fun ffi_exponential_ui_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_u32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_u32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_exponential_ui_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_i32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_i32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Int
-external fun ffi_exponential_ui_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_u64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_u64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_exponential_ui_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_i64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_i64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Long
-external fun ffi_exponential_ui_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_f32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_f32(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Float
-external fun ffi_exponential_ui_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_f64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_f64(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Double
-external fun ffi_exponential_ui_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_rust_buffer(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun ffi_exponential_ui_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_cancel_void(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_free_void(`handle`: Long,
-): Unit
-external fun ffi_exponential_ui_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
 
-    
+    internal fun ensureInitialized() = Unit
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(`agent`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(`ptr`: Long,`ticket`: Long,`allowed`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_expire_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`surface`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_next_deadline_ms(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(`ptr`: Long,`opsJson`: RustBuffer.ByValue,`router`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`consent`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(`ptr`: Long,`policyJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(`ptr`: Long,`names`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(`ptr`: Long,`ticket`: Long,`valueJson`: RustBuffer.ByValue,`error`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_dirty(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_effects_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostcalls_take_outbox_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(`vtable`: UniffiVTableCallbackInterfaceHostFormatter,
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_number(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(`ptr`: Long,`value`: Double,`code`: RustBuffer.ByValue,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_date(`ptr`: Long,`epochMs`: Double,`dateOnly`: Byte,`format`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`time`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(`ptr`: Long,`value`: Long,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(`ptr`: Long,`value`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(`ptr`: Long,`value`: Double,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_available_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(`ptr`: Long,`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(`ptr`: Long,`base`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(`ptr`: Long,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(`ptr`: Long,`messageJson`: RustBuffer.ByValue,`trusted`: Byte,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(`vtable`: UniffiVTableCallbackInterfaceHostZone,
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(`ptr`: Long,`epochMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_exponential_ui_ffi_fn_clone_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_jsonldecoder_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_jsonldecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_jsonldecoder_push(`ptr`: Long,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_measurer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_measurer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_measurer(`vtable`: UniffiVTableCallbackInterfaceMeasurer,
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_intrinsics(`ptr`: Long,`leaves`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_measurer_measure_heights(`ptr`: Long,`leaves`: RustBuffer.ByValue,`requests`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_recordstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_recordstore_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_constructor_recordstore_newest_first(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_recordstore_apply_json(`ptr`: Long,`deltaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_recordstore_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_recordstore_value_json(`ptr`: Long,`queryJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`overlayJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_ssedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_ssedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_ssedecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_ssedecoder_push(`ptr`: Long,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_surface(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_surface(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_surface_new(`surfaceId`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`themeId`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(`surfaceId`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`theme`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_apply(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_assign_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_command_json(`ptr`: Long,`commandJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`index`: Int,`name`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_hold(`ptr`: Long,`index`: Int,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(`ptr`: Long,`owner`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_index_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_invalidate_measures(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_is_held(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_issues_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_layout(`ptr`: Long,`measurer`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(`ptr`: Long,`sizesJson`: RustBuffer.ByValue,`wrap`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_mode(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_needs_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_node_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_paint_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_rebind(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_register_extension(`ptr`: Long,`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll(`ptr`: Long,`listId`: RustBuffer.ByValue,`offset`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(`ptr`: Long,`id`: RustBuffer.ByValue,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(`ptr`: Long,`id`: RustBuffer.ByValue,`index`: Int,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_clock(`ptr`: Long,`nowMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_components(`ptr`: Long,`componentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(`ptr`: Long,`contrast`: RustBuffer.ByValue,`systemHigh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_density(`ptr`: Long,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(`ptr`: Long,`zone`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(`ptr`: Long,`scale`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(`ptr`: Long,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hover(`ptr`: Long,`id`: RustBuffer.ByValue,`hovered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_insets(`ptr`: Long,`top`: Float,`right`: Float,`bottom`: Float,`left`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(`ptr`: Long,`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_locale(`ptr`: Long,`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(`ptr`: Long,`mode`: RustBuffer.ByValue,`systemDark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_nested(`ptr`: Long,`nestedJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_open(`ptr`: Long,`id`: RustBuffer.ByValue,`open`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(`ptr`: Long,`hover`: Byte,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(`ptr`: Long,`x`: Float,`y`: Float,`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_states(`ptr`: Long,`id`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(`ptr`: Long,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(`ptr`: Long,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme(`ptr`: Long,`theme`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(`ptr`: Long,`themeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(`ptr`: Long,`width`: Float,`height`: Float,`maxHeight`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_strings_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_submit_form(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_take_events(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_take_failures_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_tick(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_visuals(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_clone_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_theme_builtin(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_constructor_theme_load(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_color(`ptr`: Long,`name`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_colors_json(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_control(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_control_geometry(`ptr`: Long,`component`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_font_family(`ptr`: Long,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_fonts_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_line_height(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_name(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_opacity(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_radius(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_resolve_part(`ptr`: Long,`ownerComponent`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`ownerPropsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_resolved_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_spacing(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_theme_type_size(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_canvasplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_canvasplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(`canvasJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(`ptr`: Long,`slotsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_canvasplayer_slot_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(`lottieJson`: RustBuffer.ByValue,`slotsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(`ptr`: Long,`family`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_images(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(`ptr`: Long,`progress`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(`ptr`: Long,`frame`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(`ptr`: Long,`playbackJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(`ptr`: Long,`kind`: RustBuffer.ByValue,`layer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_a2ui_version(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_accept_v09(uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(`rowsJson`: RustBuffer.ByValue,`writesJson`: RustBuffer.ByValue,`recordsJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`newIdsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_bench_tree_json(`n`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(`slotJson`: RustBuffer.ByValue,`rowsPropJson`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(`slotJson`: RustBuffer.ByValue,`sectionJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_bind_tree_json(`nodeJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(`surfaceId`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_card_v10_json(`cardJson`: RustBuffer.ByValue,`acceptV09`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`expr`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_combine_decisions(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_component_a11y_json(`component`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_control_geometry_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_core_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_date_bucket(`date`: RustBuffer.ByValue,`bucket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_decide_function(`policyJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`registered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_decide_url_json(`policyJson`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_display_string_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_error_message_json(`code`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(`expr`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_format_call_json(`callJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`offsetMinutes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_format_pattern_json(`pattern`: RustBuffer.ByValue,`fieldsJson`: RustBuffer.ByValue,`namesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_function_effect(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_function_error_message_json(`code`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_is_identifier(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_func_list_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_mangle_id(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,`metadataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_media_image_header(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_media_request_json(`url`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(`resultJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_migrate_record_json(`packageJson`: RustBuffer.ByValue,`version`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`now`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_navigate_target_json(`packageJson`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`max`: Double,`target`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_parse_records_json(`queryJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(`paramsJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(`functionCallId`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(`functionCallId`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_resizable_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(`packageJson`: RustBuffer.ByValue,`screen`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,`resultsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(`count`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_source_with_params_json(`source`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_swipe_blocks(`component`: RustBuffer.ByValue,`direction`: RustBuffer.ByValue,`overflowX`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_func_swipe_lock(`dx`: Double,`dy`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_swipe_offset(`index`: Int,`count`: Int,`offset`: Double,`width`: Double,`rtl`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun uniffi_exponential_ui_ffi_fn_func_swipe_settle(`index`: Int,`count`: Int,`offset`: Double,`velocity`: Double,`width`: Double,`rtl`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_exponential_ui_ffi_fn_func_template_messages_json(`packageJson`: RustBuffer.ByValue,`templateId`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_text_direction(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(`color`: RustBuffer.ByValue,`dark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_upgrade09_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_upgrade_card09(`cardJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(`kindJson`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,`kindName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_version(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(`x`: Double,`y`: Double,`width`: Double,`height`: Double,`boxWidth`: Double,`boxHeight`: Double,`fit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_ui_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_ui_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_ui_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_u8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_ui_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_i8(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun ffi_exponential_ui_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_u16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_ui_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_i16(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Short
+    external fun ffi_exponential_ui_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_u32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_ui_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_i32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun ffi_exponential_ui_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_u64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_exponential_ui_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_i64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun ffi_exponential_ui_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_f32(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    external fun ffi_exponential_ui_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_f64(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Double
+    external fun ffi_exponential_ui_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_rust_buffer(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun ffi_exponential_ui_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_cancel_void(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_free_void(`handle`: Long,
+    ): Unit
+    external fun ffi_exponential_ui_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+
+        
 }
 
 private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
@@ -1986,10 +2047,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -2176,6 +2237,10 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
         return value.toUByte()
     }
 
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
     override fun read(buf: ByteBuffer): UByte {
         return lift(buf.get())
     }
@@ -2196,6 +2261,10 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
  */
 public object FfiConverterUShort: FfiConverter<UShort, Short> {
     override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    fun lift(value: Int): UShort {
         return value.toUShort()
     }
 
@@ -2616,6 +2685,7 @@ open class CanvasPlayer: Disposable, AutoCloseable, CanvasPlayerInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_canvasplayer_new(
     
+        
         FfiConverterString.lower(`canvasJson`),_status)
 }
     )
@@ -2625,6 +2695,11 @@ open class CanvasPlayer: Disposable, AutoCloseable, CanvasPlayerInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -2700,6 +2775,7 @@ open class CanvasPlayer: Disposable, AutoCloseable, CanvasPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_canvasplayer_sample(
         it,
+        
         FfiConverterString.lower(`slotsJson`),_status)
 }
     }
@@ -3001,6 +3077,7 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_hostcalls_new(
     
+        
         FfiConverterBoolean.lower(`agent`),_status)
 }
     )
@@ -3010,6 +3087,11 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -3085,7 +3167,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_attach_surface(
         it,
-        FfiConverterString.lower(`surfaceId`),FfiConverterTypeSurface.lower(`surface`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterTypeSurface.lower(`surface`),_status)
 }
     }
     
@@ -3100,7 +3184,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_consent(
         it,
-        FfiConverterULong.lower(`ticket`),FfiConverterBoolean.lower(`allowed`),_status)
+        
+        FfiConverterULong.lower(`ticket`),
+        FfiConverterBoolean.lower(`allowed`),_status)
 }
     }
     
@@ -3116,7 +3202,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_data_model_metadata_json(
         it,
-        FfiConverterString.lower(`messageJson`),FfiConverterString.lower(`dataJson`),_status)
+        
+        FfiConverterString.lower(`messageJson`),
+        FfiConverterString.lower(`dataJson`),_status)
 }
     }
     )
@@ -3148,7 +3236,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_flush_surface(
         it,
-        FfiConverterString.lower(`surfaceId`),FfiConverterTypeSurface.lower(`surface`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterTypeSurface.lower(`surface`),_status)
 }
     }
     
@@ -3164,6 +3254,7 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_has_agent(
         it,
+        
         FfiConverterString.lower(`surfaceId`),_status)
 }
     }
@@ -3177,7 +3268,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_local_failed(
         it,
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`message`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`message`),_status)
 }
     }
     
@@ -3210,7 +3303,9 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_observe_json(
         it,
-        FfiConverterString.lower(`opsJson`),FfiConverterTypeHostRouter.lower(`router`),_status)
+        
+        FfiConverterString.lower(`opsJson`),
+        FfiConverterTypeHostRouter.lower(`router`),_status)
 }
     }
     )
@@ -3228,7 +3323,12 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_press_json(
         it,
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`name`),FfiConverterOptionalString.lower(`catalogId`),FfiConverterString.lower(`argsJson`),FfiConverterOptionalBoolean.lower(`consent`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`name`),
+        FfiConverterOptionalString.lower(`catalogId`),
+        FfiConverterString.lower(`argsJson`),
+        FfiConverterOptionalBoolean.lower(`consent`),_status)
 }
     }
     )
@@ -3245,6 +3345,7 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_set_policy_json(
         it,
+        
         FfiConverterOptionalString.lower(`policyJson`),_status)
 }
     }
@@ -3257,6 +3358,7 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_set_registered(
         it,
+        
         FfiConverterSequenceString.lower(`names`),_status)
 }
     }
@@ -3273,7 +3375,10 @@ open class HostCalls: Disposable, AutoCloseable, HostCallsInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostcalls_settle_local(
         it,
-        FfiConverterULong.lower(`ticket`),FfiConverterOptionalString.lower(`valueJson`),FfiConverterOptionalString.lower(`error`),_status)
+        
+        FfiConverterULong.lower(`ticket`),
+        FfiConverterOptionalString.lower(`valueJson`),
+        FfiConverterOptionalString.lower(`error`),_status)
 }
     }
     
@@ -3544,6 +3649,11 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -3635,7 +3745,10 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_number(
         it,
-        FfiConverterDouble.lower(`value`),FfiConverterOptionalUInt.lower(`decimals`),FfiConverterBoolean.lower(`grouping`),_status)
+        
+        FfiConverterDouble.lower(`value`),
+        FfiConverterOptionalUInt.lower(`decimals`),
+        FfiConverterBoolean.lower(`grouping`),_status)
 }
     }
     )
@@ -3651,7 +3764,11 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(
         it,
-        FfiConverterDouble.lower(`value`),FfiConverterString.lower(`code`),FfiConverterOptionalUInt.lower(`decimals`),FfiConverterBoolean.lower(`grouping`),_status)
+        
+        FfiConverterDouble.lower(`value`),
+        FfiConverterString.lower(`code`),
+        FfiConverterOptionalUInt.lower(`decimals`),
+        FfiConverterBoolean.lower(`grouping`),_status)
 }
     }
     )
@@ -3667,7 +3784,9 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(
         it,
-        FfiConverterDouble.lower(`value`),FfiConverterOptionalUInt.lower(`decimals`),_status)
+        
+        FfiConverterDouble.lower(`value`),
+        FfiConverterOptionalUInt.lower(`decimals`),_status)
 }
     }
     )
@@ -3686,7 +3805,12 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_date(
         it,
-        FfiConverterDouble.lower(`epochMs`),FfiConverterBoolean.lower(`dateOnly`),FfiConverterOptionalString.lower(`format`),FfiConverterOptionalString.lower(`style`),FfiConverterBoolean.lower(`time`),_status)
+        
+        FfiConverterDouble.lower(`epochMs`),
+        FfiConverterBoolean.lower(`dateOnly`),
+        FfiConverterOptionalString.lower(`format`),
+        FfiConverterOptionalString.lower(`style`),
+        FfiConverterBoolean.lower(`time`),_status)
 }
     }
     )
@@ -3703,7 +3827,9 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(
         it,
-        FfiConverterLong.lower(`value`),FfiConverterString.lower(`unit`),_status)
+        
+        FfiConverterLong.lower(`value`),
+        FfiConverterString.lower(`unit`),_status)
 }
     }
     )
@@ -3719,6 +3845,7 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(
         it,
+        
         FfiConverterDouble.lower(`value`),_status)
 }
     }
@@ -3737,7 +3864,9 @@ open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(
         it,
-        FfiConverterDouble.lower(`value`),FfiConverterString.lower(`unit`),_status)
+        
+        FfiConverterDouble.lower(`value`),
+        FfiConverterString.lower(`unit`),_status)
 }
     }
     )
@@ -4127,6 +4256,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(
     
+        
         FfiConverterSequenceString.lower(`extensionIds`),_status)
 }
     )
@@ -4136,6 +4266,11 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -4229,6 +4364,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
         it,
+        
         FfiConverterString.lower(`packageJson`),_status)
 }
     }
@@ -4246,6 +4382,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_mint_surface_id(
         it,
+        
         FfiConverterString.lower(`base`),_status)
 }
     }
@@ -4262,6 +4399,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(
         it,
+        
         FfiConverterString.lower(`surfaceId`),_status)
 }
     }
@@ -4275,6 +4413,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -4290,6 +4429,7 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_register_inline_catalog(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -4302,7 +4442,9 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_json(
         it,
-        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),_status)
+        
+        FfiConverterString.lower(`messageJson`),
+        FfiConverterBoolean.lower(`trusted`),_status)
 }
     }
     )
@@ -4323,7 +4465,10 @@ open class HostRouter: Disposable, AutoCloseable, HostRouterInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostrouter_route_with_bridge_json(
         it,
-        FfiConverterString.lower(`messageJson`),FfiConverterBoolean.lower(`trusted`),FfiConverterBoolean.lower(`acceptV09`),_status)
+        
+        FfiConverterString.lower(`messageJson`),
+        FfiConverterBoolean.lower(`trusted`),
+        FfiConverterBoolean.lower(`acceptV09`),_status)
 }
     }
     )
@@ -4556,6 +4701,11 @@ open class HostZoneImpl: Disposable, AutoCloseable, HostZone
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -4630,6 +4780,7 @@ open class HostZoneImpl: Disposable, AutoCloseable, HostZone
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(
         it,
+        
         FfiConverterDouble.lower(`epochMs`),_status)
 }
     }
@@ -4875,6 +5026,11 @@ open class JsonlDecoder: Disposable, AutoCloseable, JsonlDecoderInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -4959,6 +5115,7 @@ open class JsonlDecoder: Disposable, AutoCloseable, JsonlDecoderInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_jsonldecoder_push(
         it,
+        
         FfiConverterString.lower(`chunk`),_status)
 }
     }
@@ -5154,6 +5311,11 @@ open class MeasurerImpl: Disposable, AutoCloseable, Measurer
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -5242,6 +5404,7 @@ open class MeasurerImpl: Disposable, AutoCloseable, Measurer
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_measurer_measure_intrinsics(
         it,
+        
         FfiConverterSequenceTypeFfiLeaf.lower(`leaves`),_status)
 }
     }
@@ -5255,7 +5418,9 @@ open class MeasurerImpl: Disposable, AutoCloseable, Measurer
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_measurer_measure_heights(
         it,
-        FfiConverterSequenceTypeFfiLeaf.lower(`leaves`),FfiConverterSequenceTypeFfiHeightRequest.lower(`requests`),_status)
+        
+        FfiConverterSequenceTypeFfiLeaf.lower(`leaves`),
+        FfiConverterSequenceTypeFfiHeightRequest.lower(`requests`),_status)
 }
     }
     )
@@ -5578,7 +5743,9 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(
     
-        FfiConverterString.lower(`lottieJson`),FfiConverterString.lower(`slotsJson`),_status)
+        
+        FfiConverterString.lower(`lottieJson`),
+        FfiConverterString.lower(`slotsJson`),_status)
 }
     )
 
@@ -5587,6 +5754,11 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -5662,7 +5834,9 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(
         it,
-        FfiConverterString.lower(`family`),FfiConverterByteArray.lower(`data`),_status)
+        
+        FfiConverterString.lower(`family`),
+        FfiConverterByteArray.lower(`data`),_status)
 }
     }
     
@@ -5709,6 +5883,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(
         it,
+        
         FfiConverterDouble.lower(`progress`),_status)
 }
     }
@@ -5725,6 +5900,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(
         it,
+        
         FfiConverterDouble.lower(`frame`),_status)
 }
     }
@@ -5741,6 +5917,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(
         it,
+        
         FfiConverterString.lower(`playbackJson`),_status)
 }
     }
@@ -5757,6 +5934,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(
         it,
+        
         FfiConverterString.lower(`json`),_status)
 }
     }
@@ -5791,7 +5969,9 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(
         it,
-        FfiConverterString.lower(`kind`),FfiConverterString.lower(`layer`),_status)
+        
+        FfiConverterString.lower(`kind`),
+        FfiConverterString.lower(`layer`),_status)
 }
     }
     )
@@ -5807,6 +5987,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(
         it,
+        
         FfiConverterString.lower(`json`),_status)
 }
     }
@@ -5839,6 +6020,7 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(
         it,
+        
         FfiConverterDouble.lower(`elapsedMs`),_status)
 }
     }
@@ -6057,6 +6239,11 @@ open class RecordStore: Disposable, AutoCloseable, RecordStoreInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -6133,6 +6320,7 @@ open class RecordStore: Disposable, AutoCloseable, RecordStoreInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_recordstore_apply_json(
         it,
+        
         FfiConverterString.lower(`deltaJson`),_status)
 }
     }
@@ -6171,7 +6359,10 @@ open class RecordStore: Disposable, AutoCloseable, RecordStoreInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_recordstore_value_json(
         it,
-        FfiConverterString.lower(`queryJson`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`overlayJson`),_status)
+        
+        FfiConverterString.lower(`queryJson`),
+        FfiConverterString.lower(`contextJson`),
+        FfiConverterOptionalString.lower(`overlayJson`),_status)
 }
     }
     )
@@ -6380,6 +6571,11 @@ open class SseDecoder: Disposable, AutoCloseable, SseDecoderInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -6464,6 +6660,7 @@ open class SseDecoder: Disposable, AutoCloseable, SseDecoderInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_ssedecoder_push(
         it,
+        
         FfiConverterString.lower(`chunk`),_status)
 }
     }
@@ -6854,6 +7051,14 @@ public interface SurfaceInterface {
      */
     fun `setPointer`(`hover`: kotlin.Boolean, `reducedMotion`: kotlin.Boolean)
     
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */
+    fun `setPopupBounds`(`x`: kotlin.Float, `y`: kotlin.Float, `width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean
+    
     fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean
     
     /**
@@ -6989,7 +7194,11 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_surface_new(
     
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`catalogId`),FfiConverterOptionalString.lower(`themeId`),FfiConverterString.lower(`mode`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterOptionalString.lower(`themeId`),
+        FfiConverterString.lower(`mode`),_status)
 }
     )
 
@@ -6998,6 +7207,11 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
 
     override fun destroy() {
         // Only allow a single call to this method.
@@ -7074,6 +7288,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_apply(
         it,
+        
         FfiConverterString.lower(`messageJson`),_status)
 }
     }
@@ -7093,7 +7308,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
         it,
-        FfiConverterString.lower(`path`),FfiConverterOptionalString.lower(`valueJson`),_status)
+        
+        FfiConverterString.lower(`path`),
+        FfiConverterOptionalString.lower(`valueJson`),_status)
 }
     }
     
@@ -7111,6 +7328,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_command_json(
         it,
+        
         FfiConverterString.lower(`commandJson`),_status)
 }
     }
@@ -7140,6 +7358,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7195,7 +7414,10 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_event(
         it,
-        FfiConverterUInt.lower(`index`),FfiConverterString.lower(`name`),FfiConverterOptionalString.lower(`payloadJson`),_status)
+        
+        FfiConverterUInt.lower(`index`),
+        FfiConverterString.lower(`name`),
+        FfiConverterOptionalString.lower(`payloadJson`),_status)
 }
     }
     )
@@ -7208,6 +7430,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7225,6 +7448,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_field_checks_json(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7248,7 +7472,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_hold(
         it,
-        FfiConverterUInt.lower(`index`),FfiConverterString.lower(`inputJson`),_status)
+        
+        FfiConverterUInt.lower(`index`),
+        FfiConverterString.lower(`inputJson`),_status)
 }
     }
     )
@@ -7265,6 +7491,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(
         it,
+        
         FfiConverterString.lower(`owner`),_status)
 }
     }
@@ -7278,6 +7505,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_index_of(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7306,6 +7534,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_is_held(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7336,6 +7565,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_layout(
         it,
+        
         FfiConverterTypeMeasurer.lower(`measurer`),_status)
 }
     }
@@ -7354,7 +7584,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_layout_fixed(
         it,
-        FfiConverterOptionalString.lower(`sizesJson`),FfiConverterBoolean.lower(`wrap`),_status)
+        
+        FfiConverterOptionalString.lower(`sizesJson`),
+        FfiConverterBoolean.lower(`wrap`),_status)
 }
     }
     )
@@ -7367,6 +7599,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_mark_dirty(
         it,
+        
         FfiConverterUInt.lower(`index`),_status)
 }
     }
@@ -7448,6 +7681,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
         it,
+        
         FfiConverterSequenceUInt.lower(`indices`),_status)
 }
     }
@@ -7466,6 +7700,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_paint_at(
         it,
+        
         FfiConverterSequenceUInt.lower(`indices`),_status)
 }
     }
@@ -7498,6 +7733,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_register_extension(
         it,
+        
         FfiConverterString.lower(`extensionJson`),_status)
 }
     }
@@ -7514,7 +7750,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll(
         it,
-        FfiConverterString.lower(`listId`),FfiConverterFloat.lower(`offset`),_status)
+        
+        FfiConverterString.lower(`listId`),
+        FfiConverterFloat.lower(`offset`),_status)
 }
     }
     )
@@ -7527,7 +7765,10 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(
         it,
-        FfiConverterString.lower(`id`),FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),_status)
+        
+        FfiConverterString.lower(`id`),
+        FfiConverterFloat.lower(`x`),
+        FfiConverterFloat.lower(`y`),_status)
 }
     }
     )
@@ -7544,7 +7785,10 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(
         it,
-        FfiConverterString.lower(`id`),FfiConverterUInt.lower(`index`),FfiConverterOptionalString.lower(`align`),_status)
+        
+        FfiConverterString.lower(`id`),
+        FfiConverterUInt.lower(`index`),
+        FfiConverterOptionalString.lower(`align`),_status)
 }
     }
     )
@@ -7558,6 +7802,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -7574,6 +7819,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_clock(
         it,
+        
         FfiConverterOptionalDouble.lower(`nowMs`),_status)
 }
     }
@@ -7590,6 +7836,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_components(
         it,
+        
         FfiConverterString.lower(`componentsJson`),_status)
 }
     }
@@ -7604,7 +7851,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(
         it,
-        FfiConverterString.lower(`contrast`),FfiConverterBoolean.lower(`systemHigh`),_status)
+        
+        FfiConverterString.lower(`contrast`),
+        FfiConverterBoolean.lower(`systemHigh`),_status)
 }
     }
     
@@ -7620,7 +7869,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_data(
         it,
-        FfiConverterString.lower(`path`),FfiConverterOptionalString.lower(`valueJson`),_status)
+        
+        FfiConverterString.lower(`path`),
+        FfiConverterOptionalString.lower(`valueJson`),_status)
 }
     }
     
@@ -7633,6 +7884,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_density(
         it,
+        
         FfiConverterString.lower(`density`),_status)
 }
     }
@@ -7651,6 +7903,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(
         it,
+        
         FfiConverterOptionalTypeHostZone.lower(`zone`),_status)
 }
     }
@@ -7666,6 +7919,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(
         it,
+        
         FfiConverterFloat.lower(`scale`),_status)
 }
     }
@@ -7684,6 +7938,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(
         it,
+        
         FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
 }
     }
@@ -7699,7 +7954,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_hover(
         it,
-        FfiConverterString.lower(`id`),FfiConverterBoolean.lower(`hovered`),_status)
+        
+        FfiConverterString.lower(`id`),
+        FfiConverterBoolean.lower(`hovered`),_status)
 }
     }
     )
@@ -7717,6 +7974,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(
         it,
+        
         FfiConverterSequenceString.lower(`ids`),_status)
 }
     }
@@ -7733,7 +7991,11 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_insets(
         it,
-        FfiConverterFloat.lower(`top`),FfiConverterFloat.lower(`right`),FfiConverterFloat.lower(`bottom`),FfiConverterFloat.lower(`left`),_status)
+        
+        FfiConverterFloat.lower(`top`),
+        FfiConverterFloat.lower(`right`),
+        FfiConverterFloat.lower(`bottom`),
+        FfiConverterFloat.lower(`left`),_status)
 }
     }
     
@@ -7750,7 +8012,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(
         it,
-        FfiConverterFloat.lower(`width`),FfiConverterFloat.lower(`height`),_status)
+        
+        FfiConverterFloat.lower(`width`),
+        FfiConverterFloat.lower(`height`),_status)
 }
     }
     )
@@ -7763,6 +8027,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_locale(
         it,
+        
         FfiConverterString.lower(`locale`),_status)
 }
     }
@@ -7780,6 +8045,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_mode(
         it,
+        
         FfiConverterString.lower(`mode`),_status)
 }
     }
@@ -7793,7 +8059,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(
         it,
-        FfiConverterString.lower(`mode`),FfiConverterBoolean.lower(`systemDark`),_status)
+        
+        FfiConverterString.lower(`mode`),
+        FfiConverterBoolean.lower(`systemDark`),_status)
 }
     }
     
@@ -7809,6 +8077,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_nested(
         it,
+        
         FfiConverterString.lower(`nestedJson`),_status)
 }
     }
@@ -7822,7 +8091,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_open(
         it,
-        FfiConverterString.lower(`id`),FfiConverterBoolean.lower(`open`),_status)
+        
+        FfiConverterString.lower(`id`),
+        FfiConverterBoolean.lower(`open`),_status)
 }
     }
     )
@@ -7838,10 +8109,35 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(
         it,
-        FfiConverterBoolean.lower(`hover`),FfiConverterBoolean.lower(`reducedMotion`),_status)
+        
+        FfiConverterBoolean.lower(`hover`),
+        FfiConverterBoolean.lower(`reducedMotion`),_status)
 }
     }
     
+    
+
+    
+    /**
+     * #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+     * go, in SURFACE coordinates: the host's window around the surface (a
+     * popup that does not fit is fitted into it, not into the surface).
+     * Width or height <= 0 = unset, the default: the surface's own view.
+     */override fun `setPopupBounds`(`x`: kotlin.Float, `y`: kotlin.Float, `width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_popup_bounds(
+        it,
+        
+        FfiConverterFloat.lower(`x`),
+        FfiConverterFloat.lower(`y`),
+        FfiConverterFloat.lower(`width`),
+        FfiConverterFloat.lower(`height`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean {
@@ -7850,6 +8146,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(
         it,
+        
         FfiConverterSequenceString.lower(`ids`),_status)
 }
     }
@@ -7866,6 +8163,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(
         it,
+        
         FfiConverterBoolean.lower(`on`),_status)
 }
     }
@@ -7882,6 +8180,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_settings(
         it,
+        
         FfiConverterTypeFfiSettings.lower(`settings`),_status)
 }
     }
@@ -7894,7 +8193,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_states(
         it,
-        FfiConverterString.lower(`id`),FfiConverterSequenceString.lower(`states`),_status)
+        
+        FfiConverterString.lower(`id`),
+        FfiConverterSequenceString.lower(`states`),_status)
 }
     }
     )
@@ -7911,6 +8212,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(
         it,
+        
         FfiConverterString.lower(`stringsJson`),_status)
 }
     }
@@ -7928,7 +8230,9 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(
         it,
-        FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),_status)
+        
+        FfiConverterFloat.lower(`x`),
+        FfiConverterFloat.lower(`y`),_status)
 }
     }
     )
@@ -7944,6 +8248,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_theme(
         it,
+        
         FfiConverterTypeTheme.lower(`theme`),_status)
 }
     }
@@ -7960,6 +8265,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(
         it,
+        
         FfiConverterString.lower(`themeJson`),_status)
 }
     }
@@ -7975,7 +8281,10 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(
         it,
-        FfiConverterFloat.lower(`width`),FfiConverterFloat.lower(`height`),FfiConverterOptionalFloat.lower(`maxHeight`),_status)
+        
+        FfiConverterFloat.lower(`width`),
+        FfiConverterFloat.lower(`height`),
+        FfiConverterOptionalFloat.lower(`maxHeight`),_status)
 }
     }
     )
@@ -8033,6 +8342,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_submit_form(
         it,
+        
         FfiConverterString.lower(`id`),_status)
 }
     }
@@ -8076,6 +8386,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_text_style(
         it,
+        
         FfiConverterUInt.lower(`index`),_status)
 }
     }
@@ -8140,6 +8451,7 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_visual(
         it,
+        
         FfiConverterUInt.lower(`index`),_status)
 }
     }
@@ -8194,7 +8506,11 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(
     
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`catalogId`),FfiConverterOptionalTypeTheme.lower(`theme`),FfiConverterString.lower(`mode`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterOptionalTypeTheme.lower(`theme`),
+        FfiConverterString.lower(`mode`),_status)
 }
     )
     }
@@ -8422,6 +8738,11 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     private val wasDestroyed = AtomicBoolean(false)
     private val callCounter = AtomicLong(1)
 
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
     override fun destroy() {
         // Only allow a single call to this method.
         // TODO: maybe we should log a warning if called more than once?
@@ -8496,7 +8817,9 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_color(
         it,
-        FfiConverterString.lower(`name`),FfiConverterString.lower(`mode`),_status)
+        
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`mode`),_status)
 }
     }
     )
@@ -8512,6 +8835,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_colors_json(
         it,
+        
         FfiConverterString.lower(`mode`),_status)
 }
     }
@@ -8528,6 +8852,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_control(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8545,7 +8870,9 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_control_geometry(
         it,
-        FfiConverterString.lower(`component`),FfiConverterString.lower(`propsJson`),_status)
+        
+        FfiConverterString.lower(`component`),
+        FfiConverterString.lower(`propsJson`),_status)
 }
     }
     )
@@ -8561,6 +8888,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_font_family(
         it,
+        
         FfiConverterString.lower(`kind`),_status)
 }
     }
@@ -8603,6 +8931,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_line_height(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8629,6 +8958,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_opacity(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8642,6 +8972,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_radius(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8660,7 +8991,12 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_resolve_part(
         it,
-        FfiConverterString.lower(`ownerComponent`),FfiConverterString.lower(`part`),FfiConverterString.lower(`ownerPropsJson`),FfiConverterSequenceString.lower(`states`),FfiConverterString.lower(`mode`),_status)
+        
+        FfiConverterString.lower(`ownerComponent`),
+        FfiConverterString.lower(`part`),
+        FfiConverterString.lower(`ownerPropsJson`),
+        FfiConverterSequenceString.lower(`states`),
+        FfiConverterString.lower(`mode`),_status)
 }
     }
     )
@@ -8689,6 +9025,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_spacing(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8702,6 +9039,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_theme_type_size(
         it,
+        
         FfiConverterString.lower(`name`),_status)
 }
     }
@@ -8725,6 +9063,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_theme_builtin(
     
+        
         FfiConverterString.lower(`id`),_status)
 }
     )
@@ -8740,7 +9079,9 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_theme_load(
     
-        FfiConverterString.lower(`themeJson`),FfiConverterOptionalString.lower(`parentsJson`),_status)
+        
+        FfiConverterString.lower(`themeJson`),
+        FfiConverterOptionalString.lower(`parentsJson`),_status)
 }
     )
     }
@@ -10443,6 +10784,12 @@ data class FfiVisual (
      * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
      */
     var `sticky`: kotlin.Boolean = false 
+    , 
+    /**
+     * #EXP-1629: `padding-box` = the background paints inside the border
+     * (a recipe's `backgroundClip`); `None` = under it (`border-box`).
+     */
+    var `backgroundClip`: kotlin.String? = null 
     
 ){
     
@@ -10500,6 +10847,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -10544,7 +10892,8 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.allocationSize(value.`direction`) +
             FfiConverterOptionalFloat.allocationSize(value.`backdropBlur`) +
             FfiConverterOptionalString.allocationSize(value.`animationJson`) +
-            FfiConverterBoolean.allocationSize(value.`sticky`)
+            FfiConverterBoolean.allocationSize(value.`sticky`) +
+            FfiConverterOptionalString.allocationSize(value.`backgroundClip`)
     )
 
     override fun write(value: FfiVisual, buf: ByteBuffer) {
@@ -10589,6 +10938,7 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.write(value.`backdropBlur`, buf)
             FfiConverterOptionalString.write(value.`animationJson`, buf)
             FfiConverterBoolean.write(value.`sticky`, buf)
+            FfiConverterOptionalString.write(value.`backgroundClip`, buf)
     }
 }
 
@@ -10692,7 +11042,7 @@ public object FfiConverterTypeFfiImageHeader : FfiConverterRustBuffer<FfiImageHe
         }
     }
 
-    override fun allocationSize(value: FfiImageHeader) = when(value) {
+    override fun allocationSize(value: FfiImageHeader): ULong = when(value) {
         is FfiImageHeader.Unknown -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -11874,7 +12224,13 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_json(
     
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`componentId`),
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`contextJson`),
+        FfiConverterOptionalString.lower(`payloadJson`),
+        FfiConverterString.lower(`timestamp`),_status)
 }
     )
     }
@@ -11888,7 +12244,14 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(
     
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`componentId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`contextJson`),FfiConverterOptionalString.lower(`payloadJson`),FfiConverterString.lower(`timestamp`),FfiConverterOptionalString.lower(`userMessage`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`componentId`),
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`contextJson`),
+        FfiConverterOptionalString.lower(`payloadJson`),
+        FfiConverterString.lower(`timestamp`),
+        FfiConverterOptionalString.lower(`userMessage`),_status)
 }
     )
     }
@@ -11904,7 +12267,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_animation_frame_json(
     
-        FfiConverterString.lower(`name`),FfiConverterString.lower(`timingJson`),FfiConverterDouble.lower(`elapsedMs`),FfiConverterBoolean.lower(`reducedMotion`),_status)
+        
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`timingJson`),
+        FfiConverterDouble.lower(`elapsedMs`),
+        FfiConverterBoolean.lower(`reducedMotion`),_status)
 }
     )
     }
@@ -11923,7 +12290,13 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(
     
-        FfiConverterString.lower(`rowsJson`),FfiConverterString.lower(`writesJson`),FfiConverterString.lower(`recordsJson`),FfiConverterOptionalString.lower(`me`),FfiConverterString.lower(`now`),FfiConverterString.lower(`newIdsJson`),_status)
+        
+        FfiConverterString.lower(`rowsJson`),
+        FfiConverterString.lower(`writesJson`),
+        FfiConverterString.lower(`recordsJson`),
+        FfiConverterOptionalString.lower(`me`),
+        FfiConverterString.lower(`now`),
+        FfiConverterString.lower(`newIdsJson`),_status)
 }
     )
     }
@@ -11946,6 +12319,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_bench_tree_json(
     
+        
         FfiConverterUInt.lower(`n`),_status)
 }
     )
@@ -11964,7 +12338,14 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(
     
-        FfiConverterString.lower(`slotJson`),FfiConverterString.lower(`rowsPropJson`),FfiConverterString.lower(`rowsJson`),FfiConverterUInt.lower(`index`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`optionsJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
+        
+        FfiConverterString.lower(`slotJson`),
+        FfiConverterString.lower(`rowsPropJson`),
+        FfiConverterString.lower(`rowsJson`),
+        FfiConverterUInt.lower(`index`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterOptionalString.lower(`optionsJson`),
+        FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
 }
     )
     }
@@ -11981,7 +12362,13 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(
     
-        FfiConverterString.lower(`slotJson`),FfiConverterString.lower(`sectionJson`),FfiConverterUInt.lower(`index`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`optionsJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
+        
+        FfiConverterString.lower(`slotJson`),
+        FfiConverterString.lower(`sectionJson`),
+        FfiConverterUInt.lower(`index`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterOptionalString.lower(`optionsJson`),
+        FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
 }
     )
     }
@@ -11998,7 +12385,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_tree_json(
     
-        FfiConverterString.lower(`nodeJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+        
+        FfiConverterString.lower(`nodeJson`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterString.lower(`scope`),
+        FfiConverterOptionalString.lower(`stringsJson`),_status)
 }
     )
     }
@@ -12021,6 +12412,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(
     
+        
         FfiConverterString.lower(`id`),_status)
 }
     )
@@ -12035,7 +12427,12 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_call_agent_function_message_json(
     
-        FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`name`),FfiConverterString.lower(`catalogId`),FfiConverterString.lower(`argsJson`),_status)
+        
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`functionCallId`),
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterString.lower(`argsJson`),_status)
 }
     )
     }
@@ -12050,7 +12447,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_card_v10_json(
     
-        FfiConverterString.lower(`cardJson`),FfiConverterBoolean.lower(`acceptV09`),_status)
+        
+        FfiConverterString.lower(`cardJson`),
+        FfiConverterBoolean.lower(`acceptV09`),_status)
 }
     )
     }
@@ -12064,7 +12463,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_chart_extent_json(
     
-        FfiConverterString.lower(`kind`),FfiConverterString.lower(`seriesJson`),FfiConverterOptionalDouble.lower(`min`),FfiConverterOptionalDouble.lower(`max`),_status)
+        
+        FfiConverterString.lower(`kind`),
+        FfiConverterString.lower(`seriesJson`),
+        FfiConverterOptionalDouble.lower(`min`),
+        FfiConverterOptionalDouble.lower(`max`),_status)
 }
     )
     }
@@ -12080,7 +12483,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_check_expression_json(
     
-        FfiConverterString.lower(`expr`),FfiConverterString.lower(`typesJson`),_status)
+        
+        FfiConverterString.lower(`expr`),
+        FfiConverterString.lower(`typesJson`),_status)
 }
     )
     }
@@ -12093,7 +12498,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_code_text(
     
-        FfiConverterString.lower(`code`),FfiConverterString.lower(`language`),_status)
+        
+        FfiConverterString.lower(`code`),
+        FfiConverterString.lower(`language`),_status)
 }
     )
     }
@@ -12107,7 +12514,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_combine_decisions(
     
-        FfiConverterString.lower(`a`),FfiConverterString.lower(`b`),_status)
+        
+        FfiConverterString.lower(`a`),
+        FfiConverterString.lower(`b`),_status)
 }
     )
     }
@@ -12120,6 +12529,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_component_a11y_json(
     
+        
         FfiConverterString.lower(`component`),_status)
 }
     )
@@ -12134,7 +12544,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_control_geometry_json(
     
-        FfiConverterString.lower(`themeJson`),FfiConverterString.lower(`component`),FfiConverterString.lower(`propsJson`),_status)
+        
+        FfiConverterString.lower(`themeJson`),
+        FfiConverterString.lower(`component`),
+        FfiConverterString.lower(`propsJson`),_status)
 }
     )
     }
@@ -12160,7 +12573,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_date_bucket(
     
-        FfiConverterString.lower(`date`),FfiConverterString.lower(`bucket`),_status)
+        
+        FfiConverterString.lower(`date`),
+        FfiConverterString.lower(`bucket`),_status)
 }
     )
     }
@@ -12175,7 +12590,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_decide_function(
     
-        FfiConverterOptionalString.lower(`policyJson`),FfiConverterString.lower(`name`),FfiConverterBoolean.lower(`registered`),_status)
+        
+        FfiConverterOptionalString.lower(`policyJson`),
+        FfiConverterString.lower(`name`),
+        FfiConverterBoolean.lower(`registered`),_status)
 }
     )
     }
@@ -12190,7 +12608,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_decide_url_json(
     
-        FfiConverterOptionalString.lower(`policyJson`),FfiConverterString.lower(`url`),_status)
+        
+        FfiConverterOptionalString.lower(`policyJson`),
+        FfiConverterString.lower(`url`),_status)
 }
     )
     }
@@ -12204,6 +12624,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(
     
+        
         FfiConverterString.lower(`text`),_status)
 }
     )
@@ -12229,6 +12650,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_display_string_json(
     
+        
         FfiConverterString.lower(`valueJson`),_status)
 }
     )
@@ -12242,7 +12664,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_error_message_json(
     
-        FfiConverterString.lower(`code`),FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
+        
+        FfiConverterString.lower(`code`),
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterString.lower(`message`),
+        FfiConverterOptionalString.lower(`path`),_status)
 }
     )
     }
@@ -12260,7 +12686,12 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(
     
-        FfiConverterString.lower(`expr`),FfiConverterString.lower(`varsJson`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),_status)
+        
+        FfiConverterString.lower(`expr`),
+        FfiConverterString.lower(`varsJson`),
+        FfiConverterOptionalDouble.lower(`nowMs`),
+        FfiConverterOptionalTypeHostZone.lower(`zone`),
+        FfiConverterOptionalUInt.lower(`maxSteps`),_status)
 }
     )
     }
@@ -12274,6 +12705,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_extension_errors(
     
+        
         FfiConverterString.lower(`extensionJson`),_status)
 }
     )
@@ -12290,7 +12722,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_call_json(
     
-        FfiConverterString.lower(`callJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),FfiConverterOptionalDouble.lower(`now`),FfiConverterOptionalInt.lower(`offsetMinutes`),_status)
+        
+        FfiConverterString.lower(`callJson`),
+        FfiConverterOptionalTypeHostFormatter.lower(`formatter`),
+        FfiConverterOptionalDouble.lower(`now`),
+        FfiConverterOptionalInt.lower(`offsetMinutes`),_status)
 }
     )
     }
@@ -12307,7 +12743,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_pattern_json(
     
-        FfiConverterString.lower(`pattern`),FfiConverterString.lower(`fieldsJson`),FfiConverterOptionalString.lower(`namesJson`),_status)
+        
+        FfiConverterString.lower(`pattern`),
+        FfiConverterString.lower(`fieldsJson`),
+        FfiConverterOptionalString.lower(`namesJson`),_status)
 }
     )
     }
@@ -12321,7 +12760,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_string(
     
-        FfiConverterString.lower(`template`),FfiConverterString.lower(`paramsJson`),_status)
+        
+        FfiConverterString.lower(`template`),
+        FfiConverterString.lower(`paramsJson`),_status)
 }
     )
     }
@@ -12335,6 +12776,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_effect(
     
+        
         FfiConverterString.lower(`name`),_status)
 }
     )
@@ -12348,7 +12790,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_error_message_json(
     
-        FfiConverterString.lower(`code`),FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
+        
+        FfiConverterString.lower(`code`),
+        FfiConverterString.lower(`functionCallId`),
+        FfiConverterString.lower(`message`),
+        FfiConverterOptionalString.lower(`path`),_status)
 }
     )
     }
@@ -12374,6 +12820,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_is_identifier(
     
+        
         FfiConverterString.lower(`id`),_status)
 }
     )
@@ -12387,7 +12834,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_json_diff(
     
-        FfiConverterString.lower(`a`),FfiConverterString.lower(`b`),_status)
+        
+        FfiConverterString.lower(`a`),
+        FfiConverterString.lower(`b`),_status)
 }
     )
     }
@@ -12401,7 +12850,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_json_equal(
     
-        FfiConverterString.lower(`a`),FfiConverterString.lower(`b`),_status)
+        
+        FfiConverterString.lower(`a`),
+        FfiConverterString.lower(`b`),_status)
 }
     )
     }
@@ -12423,6 +12874,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_list_json(
     
+        
         FfiConverterString.lower(`requestJson`),_status)
 }
     )
@@ -12438,7 +12890,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_load_theme_json(
     
-        FfiConverterString.lower(`themeJson`),FfiConverterOptionalString.lower(`parentsJson`),_status)
+        
+        FfiConverterString.lower(`themeJson`),
+        FfiConverterOptionalString.lower(`parentsJson`),_status)
 }
     )
     }
@@ -12451,6 +12905,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_mangle_id(
     
+        
         FfiConverterString.lower(`id`),_status)
 }
     )
@@ -12466,7 +12921,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
     
-        FfiConverterString.lower(`messageJson`),FfiConverterOptionalString.lower(`tool`),FfiConverterOptionalString.lower(`metadataJson`),_status)
+        
+        FfiConverterString.lower(`messageJson`),
+        FfiConverterOptionalString.lower(`tool`),
+        FfiConverterOptionalString.lower(`metadataJson`),_status)
 }
     )
     }
@@ -12480,6 +12938,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_media_image_header(
     
+        
         FfiConverterByteArray.lower(`bytes`),_status)
 }
     )
@@ -12495,7 +12954,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_media_request_json(
     
-        FfiConverterString.lower(`url`),FfiConverterString.lower(`optionsJson`),_status)
+        
+        FfiConverterString.lower(`url`),
+        FfiConverterString.lower(`optionsJson`),_status)
 }
     )
     }
@@ -12509,6 +12970,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(
     
+        
         FfiConverterString.lower(`resultJson`),_status)
 }
     )
@@ -12525,7 +12987,12 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_migrate_record_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`version`),FfiConverterString.lower(`kind`),FfiConverterString.lower(`dataJson`),FfiConverterDouble.lower(`now`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterString.lower(`version`),
+        FfiConverterString.lower(`kind`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterDouble.lower(`now`),_status)
 }
     )
     }
@@ -12540,7 +13007,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(
     
-        FfiConverterString.lower(`beforeJson`),FfiConverterString.lower(`afterJson`),_status)
+        
+        FfiConverterString.lower(`beforeJson`),
+        FfiConverterString.lower(`afterJson`),_status)
 }
     )
     }
@@ -12555,7 +13024,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_navigate_target_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`argsJson`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterString.lower(`argsJson`),_status)
 }
     )
     }
@@ -12568,7 +13039,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(
     
-        FfiConverterDouble.lower(`min`),FfiConverterDouble.lower(`max`),FfiConverterUInt.lower(`target`),_status)
+        
+        FfiConverterDouble.lower(`min`),
+        FfiConverterDouble.lower(`max`),
+        FfiConverterUInt.lower(`target`),_status)
 }
     )
     }
@@ -12582,6 +13056,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_package_policy_json(
     
+        
         FfiConverterOptionalString.lower(`functionsJson`),_status)
 }
     )
@@ -12597,6 +13072,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
     
+        
         FfiConverterString.lower(`valueJson`),_status)
 }
     )
@@ -12613,7 +13089,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_json(
     
-        FfiConverterString.lower(`queryJson`),FfiConverterOptionalString.lower(`kind`),_status)
+        
+        FfiConverterString.lower(`queryJson`),
+        FfiConverterOptionalString.lower(`kind`),_status)
 }
     )
     }
@@ -12630,7 +13108,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(
     
-        FfiConverterString.lower(`paramsJson`),FfiConverterOptionalString.lower(`kind`),_status)
+        
+        FfiConverterString.lower(`paramsJson`),
+        FfiConverterOptionalString.lower(`kind`),_status)
 }
     )
     }
@@ -12644,6 +13124,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(
     
+        
         FfiConverterString.lower(`source`),_status)
 }
     )
@@ -12658,6 +13139,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_source_json(
     
+        
         FfiConverterString.lower(`uri`),_status)
 }
     )
@@ -12672,7 +13154,16 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay(
     
-        FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),_status)
+        
+        FfiConverterDouble.lower(`anchorX`),
+        FfiConverterDouble.lower(`anchorY`),
+        FfiConverterDouble.lower(`anchorW`),
+        FfiConverterDouble.lower(`anchorH`),
+        FfiConverterDouble.lower(`sizeW`),
+        FfiConverterDouble.lower(`sizeH`),
+        FfiConverterDouble.lower(`viewportW`),
+        FfiConverterDouble.lower(`viewportH`),
+        FfiConverterString.lower(`side`),_status)
 }
     )
     }
@@ -12687,7 +13178,17 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
     
-        FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),FfiConverterString.lower(`align`),_status)
+        
+        FfiConverterDouble.lower(`anchorX`),
+        FfiConverterDouble.lower(`anchorY`),
+        FfiConverterDouble.lower(`anchorW`),
+        FfiConverterDouble.lower(`anchorH`),
+        FfiConverterDouble.lower(`sizeW`),
+        FfiConverterDouble.lower(`sizeH`),
+        FfiConverterDouble.lower(`viewportW`),
+        FfiConverterDouble.lower(`viewportH`),
+        FfiConverterString.lower(`side`),
+        FfiConverterString.lower(`align`),_status)
 }
     )
     }
@@ -12704,7 +13205,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
     
-        FfiConverterString.lower(`value`),FfiConverterString.lower(`level`),_status)
+        
+        FfiConverterString.lower(`value`),
+        FfiConverterString.lower(`level`),_status)
 }
     )
     }
@@ -12718,7 +13221,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(
     
-        FfiConverterString.lower(`nestedJson`),FfiConverterString.lower(`catalogId`),FfiConverterOptionalString.lower(`extensionsJson`),_status)
+        
+        FfiConverterString.lower(`nestedJson`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterOptionalString.lower(`extensionsJson`),_status)
 }
     )
     }
@@ -12732,7 +13238,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(
     
-        FfiConverterString.lower(`componentsJson`),FfiConverterString.lower(`catalogId`),FfiConverterOptionalString.lower(`extensionsJson`),_status)
+        
+        FfiConverterString.lower(`componentsJson`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterOptionalString.lower(`extensionsJson`),_status)
 }
     )
     }
@@ -12746,6 +13255,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
     
+        
         FfiConverterDouble.lower(`deltaMs`),_status)
 }
     )
@@ -12761,7 +13271,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
     
-        FfiConverterSequenceString.lower(`extensionIds`),FfiConverterOptionalString.lower(`inlineCatalogsJson`),_status)
+        
+        FfiConverterSequenceString.lower(`extensionIds`),
+        FfiConverterOptionalString.lower(`inlineCatalogsJson`),_status)
 }
     )
     }
@@ -12774,7 +13286,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(
     
-        FfiConverterString.lower(`functionCallId`),FfiConverterString.lower(`code`),FfiConverterString.lower(`message`),_status)
+        
+        FfiConverterString.lower(`functionCallId`),
+        FfiConverterString.lower(`code`),
+        FfiConverterString.lower(`message`),_status)
 }
     )
     }
@@ -12788,7 +13303,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_function_value_json(
     
-        FfiConverterString.lower(`functionCallId`),FfiConverterOptionalString.lower(`valueJson`),_status)
+        
+        FfiConverterString.lower(`functionCallId`),
+        FfiConverterOptionalString.lower(`valueJson`),_status)
 }
     )
     }
@@ -12809,6 +13326,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resizable_json(
     
+        
         FfiConverterString.lower(`requestJson`),_status)
 }
     )
@@ -12824,7 +13342,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(
     
-        FfiConverterString.lower(`styleJson`),FfiConverterString.lower(`contextJson`),_status)
+        
+        FfiConverterString.lower(`styleJson`),
+        FfiConverterString.lower(`contextJson`),_status)
 }
     )
     }
@@ -12838,7 +13358,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(
     
-        FfiConverterString.lower(`valueJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),_status)
+        
+        FfiConverterString.lower(`valueJson`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterString.lower(`scope`),_status)
 }
     )
     }
@@ -12853,7 +13376,13 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(
     
-        FfiConverterString.lower(`themeJson`),FfiConverterString.lower(`component`),FfiConverterString.lower(`part`),FfiConverterString.lower(`propsJson`),FfiConverterSequenceString.lower(`states`),FfiConverterString.lower(`mode`),_status)
+        
+        FfiConverterString.lower(`themeJson`),
+        FfiConverterString.lower(`component`),
+        FfiConverterString.lower(`part`),
+        FfiConverterString.lower(`propsJson`),
+        FfiConverterSequenceString.lower(`states`),
+        FfiConverterString.lower(`mode`),_status)
 }
     )
     }
@@ -12871,7 +13400,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterOptionalString.lower(`screen`),FfiConverterOptionalString.lower(`paramsJson`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterOptionalString.lower(`screen`),
+        FfiConverterOptionalString.lower(`paramsJson`),_status)
 }
     )
     }
@@ -12886,7 +13418,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_action_json(
     
-        FfiConverterString.lower(`actionJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+        
+        FfiConverterString.lower(`actionJson`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterString.lower(`scope`),
+        FfiConverterOptionalString.lower(`stringsJson`),_status)
 }
     )
     }
@@ -12911,7 +13447,16 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`name`),FfiConverterString.lower(`paramsJson`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`me`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),FfiConverterOptionalString.lower(`resultsJson`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterString.lower(`name`),
+        FfiConverterString.lower(`paramsJson`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterOptionalString.lower(`me`),
+        FfiConverterOptionalDouble.lower(`nowMs`),
+        FfiConverterOptionalTypeHostZone.lower(`zone`),
+        FfiConverterOptionalUInt.lower(`maxSteps`),
+        FfiConverterOptionalString.lower(`resultsJson`),_status)
 }
     )
     }
@@ -12928,6 +13473,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(
     
+        
         FfiConverterString.lower(`packageJson`),_status)
 }
     )
@@ -12942,6 +13488,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(
     
+        
         FfiConverterOptionalDouble.lower(`count`),_status)
 }
     )
@@ -12956,7 +13503,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_source_with_params_json(
     
-        FfiConverterString.lower(`source`),FfiConverterOptionalString.lower(`paramsJson`),_status)
+        
+        FfiConverterString.lower(`source`),
+        FfiConverterOptionalString.lower(`paramsJson`),_status)
 }
     )
     }
@@ -12970,6 +13519,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_string_table_json(
     
+        
         FfiConverterOptionalString.lower(`overridesJson`),_status)
 }
     )
@@ -12983,7 +13533,81 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(
     
+        
         FfiConverterSequenceString.lower(`extensionIds`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: whether a touch starting inside a node of `component` (its
+         * `direction` prop, its resolved `overflowX`) is that node's, not an
+         * enclosing pager's.
+         */ fun `swipeBlocks`(`component`: kotlin.String, `direction`: kotlin.String?, `overflowX`: kotlin.String?): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_blocks(
+    
+        
+        FfiConverterString.lower(`component`),
+        FfiConverterOptionalString.lower(`direction`),
+        FfiConverterOptionalString.lower(`overflowX`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200 (fixtures/swipe.json): the swipe pager's axis lock for a touch
+         * that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
+         */ fun `swipeLock`(`dx`: kotlin.Double, `dy`: kotlin.Double): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_lock(
+    
+        
+        FfiConverterDouble.lower(`dx`),
+        FfiConverterDouble.lower(`dy`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: the offset a pager's pages are DRAWN at while the finger is at
+         * `offset` (screen px; resisted past an end, at most one page).
+         */ fun `swipeOffset`(`index`: kotlin.UInt, `count`: kotlin.UInt, `offset`: kotlin.Double, `width`: kotlin.Double, `rtl`: kotlin.Boolean): kotlin.Double {
+            return FfiConverterDouble.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_offset(
+    
+        
+        FfiConverterUInt.lower(`index`),
+        FfiConverterUInt.lower(`count`),
+        FfiConverterDouble.lower(`offset`),
+        FfiConverterDouble.lower(`width`),
+        FfiConverterBoolean.lower(`rtl`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * FEED-200: the page a released swipe settles on (`offset` screen px,
+         * `velocity` px/ms at the release).
+         */ fun `swipeSettle`(`index`: kotlin.UInt, `count`: kotlin.UInt, `offset`: kotlin.Double, `velocity`: kotlin.Double, `width`: kotlin.Double, `rtl`: kotlin.Boolean): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_swipe_settle(
+    
+        
+        FfiConverterUInt.lower(`index`),
+        FfiConverterUInt.lower(`count`),
+        FfiConverterDouble.lower(`offset`),
+        FfiConverterDouble.lower(`velocity`),
+        FfiConverterDouble.lower(`width`),
+        FfiConverterBoolean.lower(`rtl`),_status)
 }
     )
     }
@@ -12998,7 +13622,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_template_messages_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`templateId`),FfiConverterString.lower(`surfaceId`),FfiConverterOptionalString.lower(`dataJson`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterString.lower(`templateId`),
+        FfiConverterString.lower(`surfaceId`),
+        FfiConverterOptionalString.lower(`dataJson`),_status)
 }
     )
     }
@@ -13011,6 +13639,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_text_direction(
     
+        
         FfiConverterString.lower(`locale`),_status)
 }
     )
@@ -13025,7 +13654,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(
     
-        FfiConverterString.lower(`color`),FfiConverterBoolean.lower(`dark`),_status)
+        
+        FfiConverterString.lower(`color`),
+        FfiConverterBoolean.lower(`dark`),_status)
 }
     )
     }
@@ -13038,7 +13669,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_theme_issues_json(
     
-        FfiConverterString.lower(`themeJson`),FfiConverterOptionalString.lower(`parentsJson`),_status)
+        
+        FfiConverterString.lower(`themeJson`),
+        FfiConverterOptionalString.lower(`parentsJson`),_status)
 }
     )
     }
@@ -13051,7 +13684,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(
     
-        FfiConverterString.lower(`code`),FfiConverterString.lower(`language`),_status)
+        
+        FfiConverterString.lower(`code`),
+        FfiConverterString.lower(`language`),_status)
 }
     )
     }
@@ -13070,7 +13705,12 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(
     
-        FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`beforeJson`),FfiConverterString.lower(`afterJson`),FfiConverterString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+        
+        FfiConverterString.lower(`kindJson`),
+        FfiConverterOptionalString.lower(`beforeJson`),
+        FfiConverterString.lower(`afterJson`),
+        FfiConverterString.lower(`viewerJson`),
+        FfiConverterOptionalString.lower(`rowJson`),_status)
 }
     )
     }
@@ -13086,7 +13726,11 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
     
-        FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`recordJson`),FfiConverterOptionalString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+        
+        FfiConverterString.lower(`kindJson`),
+        FfiConverterOptionalString.lower(`recordJson`),
+        FfiConverterOptionalString.lower(`viewerJson`),
+        FfiConverterOptionalString.lower(`rowJson`),_status)
 }
     )
     }
@@ -13101,6 +13745,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade09_json(
     
+        
         FfiConverterString.lower(`requestJson`),_status)
 }
     )
@@ -13116,6 +13761,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_upgrade_card09(
     
+        
         FfiConverterString.lower(`cardJson`),_status)
 }
     )
@@ -13131,7 +13777,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_package_json(
     
-        FfiConverterString.lower(`packageJson`),FfiConverterOptionalSequenceString.lower(`catalogIds`),_status)
+        
+        FfiConverterString.lower(`packageJson`),
+        FfiConverterOptionalSequenceString.lower(`catalogIds`),_status)
 }
     )
     }
@@ -13146,7 +13794,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_record_json(
     
-        FfiConverterString.lower(`schemaJson`),FfiConverterString.lower(`dataJson`),_status)
+        
+        FfiConverterString.lower(`schemaJson`),
+        FfiConverterString.lower(`dataJson`),_status)
 }
     )
     }
@@ -13161,7 +13811,10 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(
     
-        FfiConverterString.lower(`kindJson`),FfiConverterString.lower(`at`),FfiConverterString.lower(`kindName`),_status)
+        
+        FfiConverterString.lower(`kindJson`),
+        FfiConverterString.lower(`at`),
+        FfiConverterString.lower(`kindName`),_status)
 }
     )
     }
@@ -13175,7 +13828,9 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_style_json(
     
-        FfiConverterString.lower(`styleJson`),FfiConverterOptionalBoolean.lower(`root`),_status)
+        
+        FfiConverterString.lower(`styleJson`),
+        FfiConverterOptionalBoolean.lower(`root`),_status)
 }
     )
     }
@@ -13204,6 +13859,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_voice_wave_bars_json(
     
+        
         FfiConverterString.lower(`inputJson`),_status)
 }
     )
@@ -13219,6 +13875,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_voice_wave_json(
     
+        
         FfiConverterString.lower(`inputJson`),_status)
 }
     )
@@ -13232,6 +13889,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_week_start(
     
+        
         FfiConverterString.lower(`locale`),_status)
 }
     )
@@ -13249,6 +13907,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_zoom_json(
     
+        
         FfiConverterString.lower(`requestJson`),_status)
 }
     )
@@ -13265,7 +13924,14 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_canvas_to_drawing(
     
-        FfiConverterDouble.lower(`x`),FfiConverterDouble.lower(`y`),FfiConverterDouble.lower(`width`),FfiConverterDouble.lower(`height`),FfiConverterDouble.lower(`boxWidth`),FfiConverterDouble.lower(`boxHeight`),FfiConverterString.lower(`fit`),_status)
+        
+        FfiConverterDouble.lower(`x`),
+        FfiConverterDouble.lower(`y`),
+        FfiConverterDouble.lower(`width`),
+        FfiConverterDouble.lower(`height`),
+        FfiConverterDouble.lower(`boxWidth`),
+        FfiConverterDouble.lower(`boxHeight`),
+        FfiConverterString.lower(`fit`),_status)
 }
     )
     }
@@ -13281,6 +13947,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_compile(
     
+        
         FfiConverterString.lower(`dialectJson`),_status)
 }
     )
@@ -13295,6 +13962,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
     
+        
         FfiConverterByteArray.lower(`data`),_status)
 }
     )
@@ -13310,6 +13978,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(
     
+        
         FfiConverterByteArray.lower(`data`),_status)
 }
     )

@@ -506,8 +506,8 @@ public enum Apps {
         } else {
             nil
         }
+        let place = editorHeaderDevice(device)
         let offline = !(device?.online ?? false)
-        let place = offline ? EditorHeaderCopy.noDeviceOnline : (device?.name ?? "")
         let subtitle = [word, place].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let tone: EditorHeaderTone = if (live && root?.needsInput == true) || offline {
             .attention
@@ -517,6 +517,13 @@ public enum Apps {
             .muted
         }
         return EditorHeader(subtitle: subtitle, tone: tone)
+    }
+
+    /// The editor header's DEVICE part (#EXP-1732: the session screen's
+    /// app subtitle = the tree's word · this): the device's name while it is
+    /// online, else `no device online`.
+    public static func editorHeaderDevice(_ device: (name: String, online: Bool)?) -> String {
+        (device?.online ?? false) ? (device?.name ?? "") : EditorHeaderCopy.noDeviceOnline
     }
 
     /// The tab on screen and, on phones, the menu sheet over it.

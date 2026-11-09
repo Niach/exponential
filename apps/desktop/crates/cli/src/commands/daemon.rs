@@ -319,6 +319,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
         ctx.account.email,
         ctx.account.instance_url
     );
+    // #LOGS-2: the server's monitoring config (cached for the next start).
+    observability::connect(&ctx.account.instance_url, Some(&ctx.account.user_id));
 
     // EXP-746: ONE registry decision for every end this process issues.
     // Installed before any session can launch (first caller wins,
@@ -3467,7 +3469,26 @@ fn service_exec() -> anyhow::Result<PathBuf> {
     super::update::running_exe().context("resolve the exponential binary path")
 }
 
+/// The launchd agent / systemd user unit is ONE per user and runs the
+/// daemon on the DEFAULT data dir (its invocation carries no
+/// `EXP_DATA_DIR`). Under an override, installing, restarting or removing it
+/// would act on a daemon that belongs to a different data dir — refused; a
+/// daemon for the override runs in the foreground (`exponential daemon`),
+/// keyed on that dir's own pidfile and socket.
+pub fn service_guard(data_dir_override: Option<&std::path::Path>, action: &str) -> anyhow::Result<()> {
+    match data_dir_override {
+        Some(dir) => bail!(
+            "`exponential {action}` manages the per-user daemon service, which runs on the default data dir, \
+             but EXP_DATA_DIR={} is set. Unset EXP_DATA_DIR, or run `exponential daemon` in the foreground \
+             for this data dir.",
+            dir.display()
+        ),
+        None => Ok(()),
+    }
+}
+
 fn install(args: &[String]) -> CommandResult {
+    service_guard(api::data_dir_override().as_deref(), "daemon install")?;
     let mut args = args.to_vec();
     // `--label` bakes the machine name into the service invocation.
     let label = take_value(&mut args, "--label").filter(|value| !value.is_empty());
@@ -3698,6 +3719,11 @@ fn uninstall(args: &[String]) -> CommandResult {
 /// running process keeps the old inode until it re-execs). `Ok(false)` when
 /// no service is installed — the caller tells the user to restart by hand.
 pub fn restart_service() -> anyhow::Result<bool> {
+    // Under EXP_DATA_DIR the installed service is another data dir's daemon:
+    // never restart it (the caller prints the restart-it-yourself line).
+    if api::data_dir_override().is_some() {
+        return Ok(false);
+    }
     if cfg!(target_os = "macos") {
         let plist = dirs::home_dir()
             .context("resolve home")?
@@ -3746,6 +3772,7 @@ pub fn restart_hint() -> &'static str {
 /// Stop and remove the launchd agent / systemd user unit. Shared with the
 /// top-level `uninstall`, which removes the service before the binary.
 pub fn remove_service() -> anyhow::Result<()> {
+    service_guard(api::data_dir_override().as_deref(), "daemon uninstall")?;
     if cfg!(target_os = "macos") {
         let plist = dirs::home_dir()
             .context("resolve home")?
@@ -3796,6 +3823,28 @@ fn status(args: &[String]) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The per-user service belongs to the default data dir: an
+    /// `EXP_DATA_DIR` override never installs, restarts or removes it.
+    #[test]
+    fn service_commands_refuse_an_overridden_data_dir() {
+        assert!(service_guard(None, "daemon install").is_ok());
+        let err = service_guard(Some(std::path::Path::new("/tmp/x")), "daemon install").unwrap_err();
+        let text = format!("{err:#}");
+        assert!(text.contains("EXP_DATA_DIR=/tmp/x"), "{text}");
+        assert!(text.contains("exponential daemon install"), "{text}");
+    }
+
+    /// Pidfile and viewer socket key on the data dir: two dirs never see
+    /// each other's daemon.
+    #[test]
+    fn daemon_pidfile_and_socket_key_on_the_data_dir() {
+        let a = std::path::Path::new("/tmp/exp-a");
+        let b = std::path::Path::new("/tmp/exp-b");
+        assert_eq!(pidfile(a), a.join("cli-daemon.pid"));
+        assert_ne!(pidfile(a), pidfile(b));
+        assert_ne!(viewer_socket(a), viewer_socket(b));
+    }
 
     /// EXP-1353: the daemon offers every clone to the shared GC, and the
     /// shared throttle keeps a second pass within the hour from re-walking.

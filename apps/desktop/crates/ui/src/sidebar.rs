@@ -45,9 +45,9 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::PopupMenuItem,
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
 };
+use crate::feedback::Spinner;
 use sync::Store;
 
 
@@ -433,7 +433,7 @@ fn yolo_rail(yolo: bool, sc_failing: bool) -> YoloRail {
 
 /// #EXP-1741: what the Computer button shows (the rail computes it per render
 /// from the trunk; the sidebar document's corner paints it).
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct ComputerState {
     pub(crate) files: bool,
     pub(crate) source_control: bool,
@@ -521,6 +521,21 @@ pub(crate) enum RailBadge {
     /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
     /// entry's pile, muted. Zero renders nothing (the badge's own rule).
     Count(usize, crate::surface::BadgeTone),
+}
+
+/// #LOGS-4: the rail repaints its document only when a badge changed (an
+/// icon compares by its glyph).
+impl PartialEq for RailBadge {
+    fn eq(&self, other: &Self) -> bool {
+        use gpui_component::IconNamed as _;
+        match (self, other) {
+            (Self::Dot(a), Self::Dot(b)) => a == b,
+            (Self::Icon(a, ta), Self::Icon(b, tb)) => ta == tb && a.clone().path() == b.clone().path(),
+            (Self::Syncing, Self::Syncing) => true,
+            (Self::Count(a, ta), Self::Count(b, tb)) => a == b && ta == tb,
+            _ => false,
+        }
+    }
 }
 
 /// #EXP-1480 — THE rail status dot (a nav row's, an agent's needs-you, a
@@ -891,6 +906,7 @@ impl RailView {
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RailView").entered();
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -1121,6 +1137,7 @@ impl ListPanel {
 
 impl Render for ListPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ListPanel").entered();
         let body = match resolved_screen(&self.nav, cx) {
             Some(Screen::BoardIssues { board_id }) => {
                 let board_id = (!board_id.is_empty())

@@ -2,8 +2,10 @@
 // fixture case, forced states, dark + rtl, a placeholder, a Form with the
 // hidden native select, invalid, an empty list, host-sourced options).
 
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
+import { act } from "react"
 import type { NestedNode } from "@exponential_app/eui"
+import { renderReact, renderSolidSurface, type ParityCase } from "../test/parity"
 import { expectParity, fixtureCases } from "./inputs-parity"
 
 const STATES = [`hover`, `focus`, `pressed`, `checked`, `open`, `disabled`, `invalid`]
@@ -18,7 +20,7 @@ describe(`select: variants`, () => {
   const example = fixtureCases([`Select`])[0].node
   it(`every forced state`, async () => expectParity({ tree: example, theme: `exponential`, states: STATES }))
   it(`dark + rtl (orange)`, async () => expectParity({ tree: example, theme: `orange`, mode: `dark`, direction: `rtl` }))
-  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }]) {
+  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }]) {
     const tag = JSON.stringify(variant)
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))
@@ -38,4 +40,69 @@ describe(`select: variants`, () => {
       ))
     it(`${tag}: inside a Form with a value`, async () => expectParity({ tree: { id: `f`, component: `Form`, children: [sel({ ...variant, value: `sprint` })] } as unknown as NestedNode }))
   }
+})
+
+// #EXP-1629: the open popup (the row's start-aligned 262 px under its
+// value, an explicit align + popupWidth, the cursor on the FIRST enabled
+// option as `hover` (a fresh pick), the chosen one `selected` with the
+// check), the same on both. The serialised
+// open DOM differs in what jsdom cannot model (focus-scope aria-hidden), so
+// this compares the popup's contract, not the whole tree.
+describe(`select: open popup`, () => {
+  const settle = async () => {
+    for (let n = 0; n < 5; n++) await new Promise((res) => setTimeout(res, 0))
+  }
+  const openIt = (root: Element) => {
+    root.querySelector(`.xui-Select-trigger`)!.dispatchEvent(new KeyboardEvent(`keydown`, { key: `ArrowDown`, bubbles: true, cancelable: true }))
+  }
+  const summary = (root: Element) => {
+    const content = root.ownerDocument.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)!
+    const items = Array.from(content.querySelectorAll(`.xui-Select-item`))
+    return { align: content.getAttribute(`data-align`), width: content.style.width, minWidth: content.style.minWidth, items: items.map((el) => [el.getAttribute(`data-xs`), Boolean(el.querySelector(`.xui-Select-check`))]) }
+  }
+  const both = async (c: ParityCase) => {
+    const r = await renderReact(c)
+    let react: ReturnType<typeof summary>
+    try {
+      await act(async () => {
+        openIt(r.root)
+        await settle()
+      })
+      react = summary(r.root)
+    } finally {
+      r.cleanup()
+    }
+    const so = await renderSolidSurface(c)
+    try {
+      openIt(so.root)
+      await settle()
+      return { react, solid: summary(so.root) }
+    } finally {
+      so.cleanup()
+    }
+  }
+  const cases: [Record<string, unknown>, string, string, string][] = [
+    [{}, `start`, ``, `var(--radix-select-trigger-width)`],
+    [{ searchable: true }, `start`, ``, `var(--radix-popover-trigger-width)`],
+    [{ triggerVariant: `row` }, `start`, `262px`, ``],
+    [{ triggerVariant: `row`, searchable: true }, `start`, `262px`, ``],
+    [{ triggerVariant: `row`, align: `center`, popupWidth: 300 }, `center`, `300px`, ``],
+    [{ searchable: true, align: `end`, popupWidth: 200 }, `end`, `200px`, ``],
+  ]
+  for (const [variant, align, width, minWidth] of cases)
+    it(`${JSON.stringify(variant)}: ${align}, ${width || minWidth}, the cursor on the first option`, async () => {
+      const { react, solid } = await both({ tree: sel({ ...variant, value: `sprint` }), theme: `exponential`, mode: `dark` })
+      expect(solid).toEqual(react)
+      expect(react).toEqual({ align, width, minWidth, items: [[`hover`, false], [`selected`, true], [`disabled`, false]] })
+    })
+  it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
+    const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
+    expect(solid).toEqual(react)
+    expect(react.items).toEqual([[null, false], [`selected hover`, true], [`disabled`, false]])
+  })
+  it(`multiple, nothing chosen: no cursor until the arrows reach for the list`, async () => {
+    const { react, solid } = await both({ tree: sel({ multiple: true, value: [] }) })
+    expect(solid).toEqual(react)
+    expect(react.items).toEqual([[null, false], [null, false], [`disabled`, false]])
+  })
 })

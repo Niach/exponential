@@ -1,8 +1,9 @@
 //! `plan-page` (Special components): #EXP-1662 THE plan tab
 //! (`fixtures/plan-page.json` ×4), the IDE half of the entry the web page
 //! draws (`PlanPageSpecimen`). It paints `specimen` WIDE at 1280 × 720 with the
-//! REAL parts: the chat's title (`specimen.chatName`) + THE strip with the
-//! plan chip active ([`crate::session_chat::chat_strip`]) over the REAL body
+//! REAL parts: the chat's title (`specimen.chatName`) + THE Segmented of the
+//! session screen (#EXP-1732, [`crate::session_chat::screen_tabs`]; the plan
+//! is an opened item now, its `‹` back over it) over the REAL body
 //! ([`crate::plan_page::plan_page`]): THE Outline with `specimen.activeSection`
 //! active, the document from its top (pictures = the committed samples,
 //! EXP-1654: [`crate::specimen_pictures`] seeds the entry's cache) and the
@@ -11,13 +12,13 @@
 
 use domain::plan_page::PLAN_PAGE;
 use domain::rows::MessageRow;
-use domain::session_tree::{SessionChatRow, ChatTab};
+use domain::session_tree::SessionChatRow;
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::markdown::ImageCache;
 use crate::plan_page::PlanPageState;
-use crate::session_chat::{StripPick, ChatStrip, ChatText};
+use crate::session_chat::ChatText;
 
 pub(crate) const ID: &str = "plan-page";
 pub(crate) const OWNER: &str = "EXP-1493";
@@ -53,21 +54,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .clone();
     let state = window.use_keyed_state("sg-plan-page-state", cx, |_, _| PlanPageState::default()).read(cx).clone();
     let row = row();
-    let strip = crate::session_chat::chat_strip(
-        ChatStrip {
-            prefix: "sg-plan-page",
-            tabs: vec![ChatTab::Conversation],
-            issues: Default::default(),
-            clis: Default::default(),
-            open: StripPick::Plan,
-            menu: None,
-            on_pick: std::rc::Rc::new(|_, _, _| {}),
-            results: true,
-            waiting: Vec::new(),
-            on_waiting: None,
-            plan: crate::session_chat::strip_plan_of(&row),
-        },
-        window,
+    let screen = domain::session_screen::session_screen("session", true, None, Some("plan"), Default::default());
+    let tabs = crate::session_chat::screen_tabs(&screen.tabs, screen.active, std::rc::Rc::new(|_, _, _| {}), cx);
+    let back = crate::session_screen::back_link_row(
+        "sg-plan-page-back",
+        crate::session_chat::pane_back_label(screen.active),
+        |_, _| {},
         cx,
     );
     let header = v_flex()
@@ -77,8 +69,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .pt_6()
         .gap_4()
         .child(crate::session_chat::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
-        .child(strip)
-        .child(div().w_full().h(px(1.)).bg(cx.theme().border));
+        .child(tabs)
+        .child(div().w_full().h(px(1.)).bg(cx.theme().border))
+        .child(back);
     let page = crate::plan_page::plan_page(
         crate::plan_page::PlanPageProps {
             row: &row,
@@ -132,6 +125,7 @@ mod tests {
 
         impl Render for Host {
             fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 render(window, cx)
             }
         }

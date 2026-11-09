@@ -4,7 +4,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 import type { Forge } from "@/lib/ecode/forge"
 
@@ -53,8 +53,8 @@ const made = { teams: [] as string[], users: [] as string[] }
 
 afterAll(async () => {
   if (!ready.ok) return
-  if (made.teams.length) await db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`)
-  if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
+  if (made.teams.length) await retryingConflict(() => db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`))
+  if (made.users.length) await retryingConflict(() => db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`))
 })
 
 // ── the in-memory forge ──────────────────────────────────────────────────
@@ -74,6 +74,8 @@ class FakeForge {
   squashed: number[] = []
   missingPipeline = false
   refuseFastForward = false
+  /** Every commit a branch ever pointed at (#FEED-212: `branchContains`). */
+  history = new Set<string>([`base0`])
   /** Decides each run: which PR numbers conflict, and whether CI is red. */
   judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
@@ -139,8 +141,10 @@ class FakeForge {
         if (this.refuseFastForward) return { ok: false, reason: `refused`, message: `ruleset` }
         if (this.branch.get(branch) !== from) return { ok: false, reason: `moved`, current: this.branch.get(branch) ?? null }
         this.branch.set(branch, to)
+        this.history.add(to)
         return { ok: true }
       },
+      branchContains: async (_repo, branch, sha) => this.branch.get(branch) === sha || this.history.has(sha),
       closeAsLanded: async (_repo, { number, sha }) => {
         this.closed.push({ number, sha })
         const pr = this.prs.get(number)
@@ -148,6 +152,8 @@ class FakeForge {
       },
       squashMerge: async (_repo, { number }) => {
         this.squashed.push(number)
+        this.branch.set(`main`, `sq-${number}`)
+        this.history.add(`sq-${number}`)
         return { ok: true, sha: `sq-${number}` }
       },
     }
@@ -469,6 +475,30 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const [run] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, fake.dispatches[0]!.inputs.train_id))
     expect(run).toMatchObject({ state: `cancelled`, error: `exp/530 already landed: nothing lands onto it` })
     expect(await lines(w.children[531]!)).toEqual([])
+  })
+
+  it(`#FEED-207: a repo without the pipeline never squash-merges onto a landed branch`, async () => {
+    const w = await world()
+    fake.branch.set(`exp/540`, `dead0`)
+    const parent = await w.pr(540)
+    await db.update(pullRequests).set({ state: `merged`, mergeState: `merged` }).where(eq(pullRequests.id, parent))
+    const child = await w.pr(541, { base: `exp/540` })
+    await w.idle()
+    fake.missingPipeline = true
+    const prs = await db.select().from(pullRequests).where(eq(pullRequests.id, child))
+    await db.update(pullRequests).set({ mergeState: `queued`, mergeWait: null }).where(eq(pullRequests.id, child))
+    const [run] = await db
+      .insert(mergeTrains)
+      .values({ teamId: w.teamId, repositoryId: w.repoId, base: `exp/540`, baseSha: `dead0`, units: [[child]], attempt: 0, pending: [], heads: { [child]: `head-541` } })
+      .returning()
+    await db.update(pullRequests).set({ mergeState: `testing`, mergeTrainId: run!.id }).where(eq(pullRequests.id, child))
+    await worker.landDirectForTests(w.repoId, run!.id)
+    expect(prs[0]!.base).toBe(`exp/540`)
+    expect(fake.squashed).toEqual([])
+    expect((await prRow(child)).state).toBe(`open`)
+    expect((await prRow(child)).mergeState).toBe(`queued`)
+    const [after] = await db.select().from(mergeTrains).where(eq(mergeTrains.id, run!.id))
+    expect(after).toMatchObject({ state: `cancelled`, error: `exp/540 already landed: nothing lands onto it` })
   })
 
   it(`a push pulls a testing unit from its run; a repo without the pipeline lands directly`, async () => {

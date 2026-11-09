@@ -187,40 +187,41 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// for as long as a session works, and gpui repaints the WHOLE window for
 /// every animation frame, at the monitor's rate while focused — so both
 /// faces are STEPPED (`with_stepped_animation`): the spark repaints only
-/// when its 90 ms frame changes, the pulse at the smooth step.
+/// when its 90 ms frame changes, the pulse at the pulse step (#LOGS-3).
 pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
-    use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
+    use eui_gpui::controls::{stepped_glyph, PULSE_STEP};
+    use gpui::IntoElement as _;
+    // #LOGS-4: a stepped GLYPH: inside a cached region the window's glyph
+    // layer repaints it, not the region around it.
     let slot = div().flex_shrink_0().size(px(size));
+    let square = gpui::size(px(size), px(size));
     match agent {
-        Some(coding::CodingAgent::Claude) => slot.child(
-            div().size(px(size)).with_stepped_animation(
-                "agent-working-claude",
-                gpui::Animation::new(CLAUDE_WRITING_LOOP).repeat(),
-                CLAUDE_WRITING_FRAME,
-                move |frame, delta| {
-                    frame.child(
-                        Icon::from(CLAUDE_WRITING_FRAMES[claude_writing_frame(delta)].clone())
-                            .text_color(theme::CLAUDE_BRAND)
-                            .with_size(px(size)),
-                    )
-                },
-            ),
-        ),
+        Some(coding::CodingAgent::Claude) => slot.child(stepped_glyph(
+            "agent-working-claude",
+            square,
+            gpui::Animation::new(CLAUDE_WRITING_LOOP).repeat(),
+            CLAUDE_WRITING_FRAME,
+            move |delta, _, _| {
+                Icon::from(CLAUDE_WRITING_FRAMES[claude_writing_frame(delta)].clone())
+                    .text_color(theme::CLAUDE_BRAND)
+                    .with_size(px(size))
+                    .into_any_element()
+            },
+        )),
         _ => {
             let mark = match agent {
                 Some(agent) => agent_mark(agent),
                 None => Icon::new(registry::SETTINGS_AGENTS),
             };
-            slot.child(
-                div().child(mark.with_size(px(size))).with_stepped_animation(
-                    "agent-working-pulse",
-                    gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
-                        .repeat()
-                        .with_easing(gpui::bounce(gpui::ease_in_out)),
-                    SMOOTH_STEP,
-                    |mark, delta| mark.opacity(0.4 + 0.6 * delta),
-                ),
-            )
+            slot.child(stepped_glyph(
+                "agent-working-pulse",
+                square,
+                gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
+                    .repeat()
+                    .with_easing(gpui::bounce(gpui::ease_in_out)),
+                PULSE_STEP,
+                move |delta, _, _| div().child(mark.clone().with_size(px(size))).opacity(0.4 + 0.6 * delta).into_any_element(),
+            ))
         }
     }
 }

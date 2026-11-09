@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (a person's bubble right, the agent's bubble left or plain prose in a transcript, muted lines, divider pills, cards that open their session, questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer; EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which opens the browser; never a credential), `installing` = Setting up Claude Code… (no action), `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in link), `failed` = the reason (/chatting/setup/message) with Try again; once signed in the desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). /chat/draft is the composer's text, owned by the document. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
+  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (#EDE-65 lane O: every bubble is genUI's MessageBubble under the theme's recipe, the IDE's look: `side` out = the viewer's own right, `in` left with its `author` over it, its `time` inside, `href` = its `link`, the sender's `avatar` icon in a 32 px column LEFT of the bubble on an `indent`ed row (empty = its spacer; 8 px to the bubble, transcript-grouping `avatarGap`), so the bubble's 62 % cap is of the column right of it (`maxWidth.wide`), not of the row, a queued one at 0.7 with `queued` under it; each row's `gap` (3, 8, 12 or 16 px) is a spacer above it, the list itself has none; a `host` row is an Embed the host claims by its painted id and paints itself (the IDE's tool rows and Work card); the agent's plain prose in a transcript, muted lines, divider pills, cards that open their session (lane Q: a card with a genUI surface draws it in an Embed under its title, in the IDE's surface frame: the title caption over a 12 px card box; a plan keeps its row above the frame), questions whose options answer, pictures) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which opens the browser; never a credential), `installing` = Setting up Claude Code… (no action), `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in link), `failed` = the reason with Try again (an EmptyState's description is literal: the host sets it from /chatting/setup/message by id, `chat_cli_failed`, like the composer's); once signed in the desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). KEYS (#EDE-65 lane P, the IDE's composer menus): while /chatMenu is open the composer's menuKeys hands ArrowUp/ArrowDown/Enter/Tab/Escape to the host as the event ede_chat {action: key, key} (an event: its context carries the key); the host highlights one row (`selected`, domain::chat_document::menu_key): the arrows move it, wrapping, Enter and Tab pick it like its press, Escape shuts the menu for that draft; a rebuilt `/` menu keeps its row (clamped), the typeahead starts at its first. /chat/draft is the composer's text, owned by the document. ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label, image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and passes their ids with the text, a failed upload is the toast and keeps them for the retry. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -281,6 +281,9 @@
                       "icon": {
                         "@path": "icon"
                       },
+                      "selected": {
+                        "@path": "selected"
+                      },
                       "density": "compact",
                       "pressable": true
                     },
@@ -448,9 +451,7 @@
                 "props": {
                   "icon": "settings-agents",
                   "title": "Couldn't set up Claude Code",
-                  "description": {
-                    "@path": "/chatting/setup/message"
-                  },
+                  "description": "",
                   "actionLabel": "Try again",
                   "size": "page"
                 },
@@ -492,13 +493,134 @@
                 }
               },
               {
+                "id": "chat_home_files",
+                "component": "List",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm"
+                },
+                "template": {
+                  "component": "chat_home_file",
+                  "path": "/chatFiles/items",
+                  "key": "key"
+                },
+                "children": [
+                  {
+                    "id": "chat_home_file",
+                    "component": "Chip",
+                    "props": {
+                      "label": {
+                        "@path": "label"
+                      },
+                      "shape": "rect",
+                      "removable": true
+                    },
+                    "on": {
+                      "remove": {
+                        "functionCall": {
+                          "@call": "ede_chat",
+                          "args": {
+                            "action": "unattach",
+                            "key": {
+                              "@path": "key"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "slots": {
+                      "leading": {
+                        "id": "chat_home_file_lead",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "alignItems": "center",
+                          "justifyContent": "center",
+                          "width": 20,
+                          "height": 20
+                        },
+                        "children": [
+                          {
+                            "id": "chat_home_file_picture",
+                            "component": "Image",
+                            "props": {
+                              "src": {
+                                "@path": "image"
+                              },
+                              "alt": {
+                                "@path": "label"
+                              },
+                              "fit": "cover",
+                              "width": 20,
+                              "height": 20,
+                              "fallback": "image",
+                              "loading": "eager",
+                              "style": {
+                                "borderRadius": 4
+                              }
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "image"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "chat_home_file_icon",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "icon"
+                              },
+                              "size": "sm"
+                            },
+                            "visible": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@path": "image"
+                                },
+                                "b": ""
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/chatFiles/open"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              },
+              {
                 "id": "chat_home_composer",
                 "component": "Composer",
                 "props": {
                   "placeholder": "What do you want to build?",
                   "value": {
                     "@path": "/chat/draft"
-                  }
+                  },
+                  "menuKeys": {
+                    "@path": "/chatMenu/open"
+                  },
+                  "attachments": true
                 },
                 "on": {
                   "submit": {
@@ -520,6 +642,22 @@
                         "text": {
                           "@path": "/chat/draft"
                         }
+                      }
+                    }
+                  },
+                  "attach": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "attach"
+                      }
+                    }
+                  },
+                  "key": {
+                    "event": {
+                      "name": "ede_chat",
+                      "context": {
+                        "action": "key"
                       }
                     }
                   }
@@ -649,7 +787,7 @@
             "id": "chat_scroll",
             "component": "List",
             "props": {
-              "gap": "lg",
+              "gap": "none",
               "style": {
                 "flexGrow": 1,
                 "minHeight": 0,
@@ -678,98 +816,448 @@
             },
             "children": [
               {
+                "id": "chat_gap_3",
+                "component": "Box",
+                "style": {
+                  "height": 3,
+                  "flexShrink": 0
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "gap"
+                    },
+                    "b": 3
+                  }
+                }
+              },
+              {
+                "id": "chat_gap_8",
+                "component": "Box",
+                "style": {
+                  "height": 8,
+                  "flexShrink": 0
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "gap"
+                    },
+                    "b": 8
+                  }
+                }
+              },
+              {
+                "id": "chat_gap_12",
+                "component": "Box",
+                "style": {
+                  "height": 12,
+                  "flexShrink": 0
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "gap"
+                    },
+                    "b": 12
+                  }
+                }
+              },
+              {
+                "id": "chat_gap_16",
+                "component": "Box",
+                "style": {
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "gap"
+                    },
+                    "b": 16
+                  }
+                }
+              },
+              {
                 "id": "chat_row_user",
                 "component": "Box",
                 "style": {
                   "display": "flex",
                   "flexDirection": "column",
-                  "alignItems": "flex-end",
-                  "gap": 4
+                  "gap": 4,
+                  "alignItems": "flex-end"
                 },
                 "children": [
                   {
-                    "id": "chat_user_bubble",
-                    "component": "Box",
-                    "style": {
-                      "maxWidth": "80%",
-                      "minWidth": 0,
-                      "borderRadius": 12,
-                      "borderWidth": 1,
-                      "borderColor": "$color.border",
-                      "backgroundColor": "$color.accent",
-                      "paddingLeft": 12,
-                      "paddingRight": 12,
-                      "paddingTop": 8,
-                      "paddingBottom": 4,
-                      "display": "flex",
-                      "flexDirection": "column",
-                      "gap": 2
-                    },
-                    "children": [
-                      {
-                        "id": "chat_user_body",
-                        "component": "Markdown",
-                        "props": {
-                          "text": {
-                            "@path": "body"
-                          }
-                        }
+                    "id": "chat_user_bubble_out",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": {
+                        "@path": "body"
                       },
-                      {
-                        "id": "chat_user_time_row",
-                        "component": "Box",
-                        "style": {
-                          "display": "flex",
-                          "justifyContent": "flex-end"
-                        },
-                        "children": [
+                      "side": "out",
+                      "time": {
+                        "@path": "time"
+                      },
+                      "author": {
+                        "@path": "author"
+                      },
+                      "href": {
+                        "@path": "link"
+                      }
+                    },
+                    "visible": {
+                      "@call": "and",
+                      "args": {
+                        "values": [
                           {
-                            "id": "chat_user_time",
-                            "component": "Text",
-                            "props": {
-                              "text": {
-                                "@path": "caption"
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
                               },
-                              "variant": "caption"
-                            },
-                            "style": {
-                              "color": "$color.mutedForeground"
+                              "then": true,
+                              "else": false
                             }
-                          }
-                        ],
-                        "visible": {
-                          "@call": "and",
-                          "args": {
-                            "values": [
-                              {
+                          },
+                          {
+                            "@call": "not",
+                            "args": {
+                              "value": {
                                 "@call": "cond",
                                 "args": {
                                   "if": {
-                                    "@path": "bubble"
+                                    "@path": "queued"
                                   },
                                   "then": true,
                                   "else": false
                                 }
+                              }
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
                               },
-                              {
-                                "@call": "not",
-                                "args": {
-                                  "value": {
-                                    "@call": "eq",
-                                    "args": {
-                                      "a": {
-                                        "@path": "caption"
-                                      },
-                                      "b": ""
-                                    }
+                              "b": "out"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "chat_user_bubble_row_in",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "flex-start",
+                      "gap": 8,
+                      "width": "100%"
+                    },
+                    "children": [
+                      {
+                        "id": "chat_user_bubble_avatar_in",
+                        "component": "Box",
+                        "style": {
+                          "width": 32,
+                          "height": 32,
+                          "flexShrink": 0
+                        },
+                        "children": [
+                          {
+                            "id": "chat_user_bubble_avatar_icon_in",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "avatar"
+                              }
+                            },
+                            "style": {
+                              "width": 32,
+                              "height": 32
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "avatar"
+                                    },
+                                    "b": ""
                                   }
                                 }
                               }
-                            ]
+                            }
+                          }
+                        ],
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "indent"
+                            },
+                            "then": true,
+                            "else": false
                           }
                         }
+                      },
+                      {
+                        "id": "chat_user_bubble_in",
+                        "component": "MessageBubble",
+                        "props": {
+                          "text": {
+                            "@path": "body"
+                          },
+                          "side": "in",
+                          "time": {
+                            "@path": "time"
+                          },
+                          "author": {
+                            "@path": "author"
+                          },
+                          "href": {
+                            "@path": "link"
+                          }
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        }
                       }
-                    ]
+                    ],
+                    "visible": {
+                      "@call": "and",
+                      "args": {
+                        "values": [
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "not",
+                            "args": {
+                              "value": {
+                                "@call": "cond",
+                                "args": {
+                                  "if": {
+                                    "@path": "queued"
+                                  },
+                                  "then": true,
+                                  "else": false
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
+                              },
+                              "b": "in"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "chat_user_bubble_queued_out",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": {
+                        "@path": "body"
+                      },
+                      "side": "out",
+                      "time": {
+                        "@path": "time"
+                      },
+                      "author": {
+                        "@path": "author"
+                      },
+                      "href": {
+                        "@path": "link"
+                      }
+                    },
+                    "visible": {
+                      "@call": "and",
+                      "args": {
+                        "values": [
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "queued"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
+                              },
+                              "b": "out"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "style": {
+                      "opacity": 0.7
+                    }
+                  },
+                  {
+                    "id": "chat_user_bubble_queued_row_in",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "flex-start",
+                      "gap": 8,
+                      "width": "100%"
+                    },
+                    "children": [
+                      {
+                        "id": "chat_user_bubble_queued_avatar_in",
+                        "component": "Box",
+                        "style": {
+                          "width": 32,
+                          "height": 32,
+                          "flexShrink": 0
+                        },
+                        "children": [
+                          {
+                            "id": "chat_user_bubble_queued_avatar_icon_in",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "avatar"
+                              }
+                            },
+                            "style": {
+                              "width": 32,
+                              "height": 32
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "avatar"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "visible": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "indent"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
+                      },
+                      {
+                        "id": "chat_user_bubble_queued_in",
+                        "component": "MessageBubble",
+                        "props": {
+                          "text": {
+                            "@path": "body"
+                          },
+                          "side": "in",
+                          "time": {
+                            "@path": "time"
+                          },
+                          "author": {
+                            "@path": "author"
+                          },
+                          "href": {
+                            "@path": "link"
+                          }
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0,
+                          "opacity": 0.7
+                        }
+                      }
+                    ],
+                    "visible": {
+                      "@call": "and",
+                      "args": {
+                        "values": [
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "queued"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
+                              },
+                              "b": "in"
+                            }
+                          }
+                        ]
+                      }
+                    }
                   },
                   {
                     "id": "chat_user_caption",
@@ -824,7 +1312,7 @@
                     "id": "chat_user_queued",
                     "component": "Text",
                     "props": {
-                      "text": "Queued",
+                      "text": "queued",
                       "variant": "caption"
                     },
                     "style": {
@@ -861,83 +1349,188 @@
                 },
                 "children": [
                   {
-                    "id": "chat_agent_bubble",
+                    "id": "chat_agent_bubble_out",
+                    "component": "MessageBubble",
+                    "props": {
+                      "text": {
+                        "@path": "body"
+                      },
+                      "side": "out",
+                      "time": {
+                        "@path": "time"
+                      },
+                      "author": {
+                        "@path": "author"
+                      },
+                      "href": {
+                        "@path": "link"
+                      }
+                    },
+                    "visible": {
+                      "@call": "and",
+                      "args": {
+                        "values": [
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "not",
+                            "args": {
+                              "value": {
+                                "@call": "cond",
+                                "args": {
+                                  "if": {
+                                    "@path": "queued"
+                                  },
+                                  "then": true,
+                                  "else": false
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
+                              },
+                              "b": "out"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "chat_agent_bubble_row_in",
                     "component": "Box",
                     "style": {
-                      "alignSelf": "flex-start",
-                      "maxWidth": "94%",
-                      "minWidth": 0,
-                      "borderTopLeftRadius": 6,
-                      "borderTopRightRadius": 12,
-                      "borderBottomLeftRadius": 12,
-                      "borderBottomRightRadius": 12,
-                      "borderWidth": 1,
-                      "borderColor": "$color.border",
-                      "backgroundColor": "$color.card",
-                      "paddingLeft": 12,
-                      "paddingRight": 12,
-                      "paddingTop": 8,
-                      "paddingBottom": 4,
                       "display": "flex",
-                      "flexDirection": "column",
-                      "gap": 2
+                      "flexDirection": "row",
+                      "alignItems": "flex-start",
+                      "gap": 8,
+                      "width": "100%"
                     },
                     "children": [
                       {
-                        "id": "chat_agent_body",
-                        "component": "Markdown",
-                        "props": {
-                          "text": {
-                            "@path": "body"
-                          }
-                        }
-                      },
-                      {
-                        "id": "chat_agent_time_row",
+                        "id": "chat_agent_bubble_avatar_in",
                         "component": "Box",
                         "style": {
-                          "display": "flex",
-                          "justifyContent": "flex-end"
+                          "width": 32,
+                          "height": 32,
+                          "flexShrink": 0
                         },
                         "children": [
                           {
-                            "id": "chat_agent_time",
-                            "component": "Text",
+                            "id": "chat_agent_bubble_avatar_icon_in",
+                            "component": "Icon",
                             "props": {
-                              "text": {
-                                "@path": "caption"
-                              },
-                              "variant": "caption"
+                              "name": {
+                                "@path": "avatar"
+                              }
                             },
                             "style": {
-                              "color": "$color.mutedForeground"
+                              "width": 32,
+                              "height": 32
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "avatar"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              }
                             }
                           }
                         ],
                         "visible": {
-                          "@call": "not",
+                          "@call": "cond",
                           "args": {
-                            "value": {
-                              "@call": "eq",
-                              "args": {
-                                "a": {
-                                  "@path": "caption"
-                                },
-                                "b": ""
-                              }
-                            }
+                            "if": {
+                              "@path": "indent"
+                            },
+                            "then": true,
+                            "else": false
                           }
+                        }
+                      },
+                      {
+                        "id": "chat_agent_bubble_in",
+                        "component": "MessageBubble",
+                        "props": {
+                          "text": {
+                            "@path": "body"
+                          },
+                          "side": "in",
+                          "time": {
+                            "@path": "time"
+                          },
+                          "author": {
+                            "@path": "author"
+                          },
+                          "href": {
+                            "@path": "link"
+                          }
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "flexShrink": 1,
+                          "minWidth": 0
                         }
                       }
                     ],
                     "visible": {
-                      "@call": "cond",
+                      "@call": "and",
                       "args": {
-                        "if": {
-                          "@path": "bubble"
-                        },
-                        "then": true,
-                        "else": false
+                        "values": [
+                          {
+                            "@call": "cond",
+                            "args": {
+                              "if": {
+                                "@path": "bubble"
+                              },
+                              "then": true,
+                              "else": false
+                            }
+                          },
+                          {
+                            "@call": "not",
+                            "args": {
+                              "value": {
+                                "@call": "cond",
+                                "args": {
+                                  "if": {
+                                    "@path": "queued"
+                                  },
+                                  "then": true,
+                                  "else": false
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "@call": "eq",
+                            "args": {
+                              "a": {
+                                "@path": "side"
+                              },
+                              "b": "in"
+                            }
+                          }
+                        ]
                       }
                     }
                   },
@@ -1119,12 +1712,163 @@
                   }
                 },
                 "visible": {
-                  "@call": "eq",
+                  "@call": "and",
                   "args": {
-                    "a": {
-                      "@path": "kind"
+                    "values": [
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "kind"
+                          },
+                          "b": "card"
+                        }
+                      },
+                      {
+                        "@call": "or",
+                        "args": {
+                          "values": [
+                            {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "cond",
+                                  "args": {
+                                    "if": {
+                                      "@path": "surface"
+                                    },
+                                    "then": true,
+                                    "else": false
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "@call": "cond",
+                              "args": {
+                                "if": {
+                                  "@path": "text"
+                                },
+                                "then": true,
+                                "else": false
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "chat_row_surface",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": 6
+                },
+                "children": [
+                  {
+                    "id": "chat_surface_title",
+                    "component": "Text",
+                    "props": {
+                      "text": {
+                        "@path": "title"
+                      },
+                      "variant": "caption"
                     },
-                    "b": "card"
+                    "style": {
+                      "color": "$color.mutedForeground",
+                      "fontWeight": 500
+                    },
+                    "visible": {
+                      "@call": "not",
+                      "args": {
+                        "value": {
+                          "@call": "cond",
+                          "args": {
+                            "if": {
+                              "@path": "text"
+                            },
+                            "then": true,
+                            "else": false
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "chat_surface_frame",
+                    "component": "Box",
+                    "style": {
+                      "padding": 12,
+                      "borderRadius": 12,
+                      "borderWidth": 1,
+                      "borderColor": "$color.border",
+                      "backgroundColor": "$color.card",
+                      "overflow": "hidden"
+                    },
+                    "children": [
+                      {
+                        "id": "chat_surface_frame_embed",
+                        "component": "Embed",
+                        "props": {
+                          "surface": {
+                            "@path": "surface"
+                          }
+                        },
+                        "on": {
+                          "action": {
+                            "event": {
+                              "name": "ede_chat",
+                              "context": {
+                                "action": "card",
+                                "messageId": {
+                                  "@path": "id"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "surface"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "and",
+                  "args": {
+                    "values": [
+                      {
+                        "@call": "eq",
+                        "args": {
+                          "a": {
+                            "@path": "kind"
+                          },
+                          "b": "card"
+                        }
+                      },
+                      {
+                        "@call": "cond",
+                        "args": {
+                          "if": {
+                            "@path": "surface"
+                          },
+                          "then": true,
+                          "else": false
+                        }
+                      }
+                    ]
                   }
                 }
               },
@@ -1176,6 +1920,52 @@
                         }
                       }
                     ]
+                  },
+                  {
+                    "id": "chat_question_surface",
+                    "component": "Box",
+                    "style": {
+                      "padding": 12,
+                      "borderRadius": 12,
+                      "borderWidth": 1,
+                      "borderColor": "$color.border",
+                      "backgroundColor": "$color.card",
+                      "overflow": "hidden"
+                    },
+                    "children": [
+                      {
+                        "id": "chat_question_surface_embed",
+                        "component": "Embed",
+                        "props": {
+                          "surface": {
+                            "@path": "surface"
+                          }
+                        },
+                        "on": {
+                          "action": {
+                            "event": {
+                              "name": "ede_chat",
+                              "context": {
+                                "action": "card",
+                                "messageId": {
+                                  "@path": "id"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "surface"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
                   },
                   {
                     "id": "chat_question_options",
@@ -1327,6 +2117,24 @@
                     "b": "picture"
                   }
                 }
+              },
+              {
+                "id": "chat_row_host",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "@path": "surface"
+                  }
+                },
+                "visible": {
+                  "@call": "eq",
+                  "args": {
+                    "a": {
+                      "@path": "kind"
+                    },
+                    "b": "host"
+                  }
+                }
               }
             ]
           },
@@ -1388,6 +2196,9 @@
                       "icon": {
                         "@path": "icon"
                       },
+                      "selected": {
+                        "@path": "selected"
+                      },
                       "density": "compact",
                       "pressable": true
                     },
@@ -1421,6 +2232,123 @@
                 }
               },
               {
+                "id": "chat_files",
+                "component": "List",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm"
+                },
+                "template": {
+                  "component": "chat_file",
+                  "path": "/chatFiles/items",
+                  "key": "key"
+                },
+                "children": [
+                  {
+                    "id": "chat_file",
+                    "component": "Chip",
+                    "props": {
+                      "label": {
+                        "@path": "label"
+                      },
+                      "shape": "rect",
+                      "removable": true
+                    },
+                    "on": {
+                      "remove": {
+                        "functionCall": {
+                          "@call": "ede_chat",
+                          "args": {
+                            "action": "unattach",
+                            "key": {
+                              "@path": "key"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "slots": {
+                      "leading": {
+                        "id": "chat_file_lead",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "alignItems": "center",
+                          "justifyContent": "center",
+                          "width": 20,
+                          "height": 20
+                        },
+                        "children": [
+                          {
+                            "id": "chat_file_picture",
+                            "component": "Image",
+                            "props": {
+                              "src": {
+                                "@path": "image"
+                              },
+                              "alt": {
+                                "@path": "label"
+                              },
+                              "fit": "cover",
+                              "width": 20,
+                              "height": 20,
+                              "fallback": "image",
+                              "loading": "eager",
+                              "style": {
+                                "borderRadius": 4
+                              }
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "image"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "chat_file_icon",
+                            "component": "Icon",
+                            "props": {
+                              "name": {
+                                "@path": "icon"
+                              },
+                              "size": "sm"
+                            },
+                            "visible": {
+                              "@call": "eq",
+                              "args": {
+                                "a": {
+                                  "@path": "image"
+                                },
+                                "b": ""
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "visible": {
+                  "@call": "cond",
+                  "args": {
+                    "if": {
+                      "@path": "/chatFiles/open"
+                    },
+                    "then": true,
+                    "else": false
+                  }
+                }
+              },
+              {
                 "id": "chat_composer",
                 "component": "Composer",
                 "props": {
@@ -1428,7 +2356,11 @@
                   "value": {
                     "@path": "/chat/draft"
                   },
-                  "busy": false
+                  "menuKeys": {
+                    "@path": "/chatMenu/open"
+                  },
+                  "busy": false,
+                  "attachments": true
                 },
                 "on": {
                   "submit": {
@@ -1458,6 +2390,22 @@
                         "text": {
                           "@path": "/chat/draft"
                         }
+                      }
+                    }
+                  },
+                  "attach": {
+                    "functionCall": {
+                      "@call": "ede_chat",
+                      "args": {
+                        "action": "attach"
+                      }
+                    }
+                  },
+                  "key": {
+                    "event": {
+                      "name": "ede_chat",
+                      "context": {
+                        "action": "key"
                       }
                     }
                   }

@@ -387,7 +387,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         .p(px(pad))
         .gap(px(layout.block_gap))
         // The scroll-spy re-reads the headings after a scroll.
-        .on_scroll_wheel(|_, window, _| window.refresh());
+        .on_scroll(|_, window, _| window.refresh());
     for (ix, block) in blocks.iter().enumerate() {
         let element = match block {
             PlanBlock::Title { text } => div()
@@ -635,6 +635,7 @@ mod tests {
         }
         impl Render for Doc {
             fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Doc").entered();
                 let column_w = (f32::from(window.viewport_size().width) - 2. * PAD).min(MAX);
                 let mut doc = v_flex().size_full().items_center().p(px(PAD)).gap(px(16.));
                 for (at, piece) in PIECES.iter().enumerate() {

@@ -3,10 +3,10 @@
 // reordering keeps each item's state), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, LITERAL_ROWS_ROOT, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, treeKeyTarget } from "@exponential_app/eui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
 import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"
@@ -19,15 +19,46 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
   const pressable = bool(props.pressable) || Boolean(node.on?.press) || Boolean(href)
   // #EDE-65: `on.hover` fires as the pointer enters, like Motion's (no payload).
   const onPointerEnter = node.on?.hover ? () => void emit(`hover`) : undefined
+  // #EXP-1629: a KeyRecorder field, while its `recording` recipe prop (read
+  // live, the resolved `data-m-recording`) is on, takes every key and mouse
+  // buttons 3-5 as `record`; a press only starts it; leaving it = `blur`.
+  const recorder = isKeyRecorderField(node.recipe)
+  const recording = recorder && (rootProps as Record<string, unknown>)[`data-m-recording`] === `true`
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (recording && ref.current && document.activeElement !== ref.current) ref.current.focus()
+  }, [recording])
   if (!pressable) return <div {...(rootProps as Record<string, unknown>)} onPointerEnter={onPointerEnter}>{children}</div>
   const press = (e?: MouseEvent) => {
     // #VAPP-284: a press target inside another (a foldable Row's fold
     // button in its head) fires only its own press.
     e?.stopPropagation()
+    if (recording) return
     if (href) ctx.openUrl(href)
     void emit(`press`)
   }
+  const record = (e: KeyboardEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const payload = keyRecorderKeyPayload(e)
+    if (payload) void emit(`record`, { ...payload })
+  }
+  const onMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (!recording || e.button === 0 || e.button === 2) return
+    e.preventDefault()
+    e.stopPropagation()
+    const payload = keyRecorderMousePayload(e)
+    if (payload) void emit(`record`, { ...payload })
+  }
+  // The back / forward buttons' release would navigate; the middle one's click.
+  const swallowAux = (e: MouseEvent<HTMLDivElement>) => {
+    if (recording && e.button !== 0 && e.button !== 2) e.preventDefault()
+  }
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (recording && !e.currentTarget.contains(e.relatedTarget as Node | null)) void emit(`blur`)
+  }
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (recording) return record(e)
     if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
@@ -52,7 +83,7 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
     }
   }
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role={treeRole(rootProps)} tabIndex={0} onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter}>
+    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role={treeRole(rootProps)} tabIndex={0} onClick={press} onKeyDown={onKey} onPointerEnter={onPointerEnter} {...(recorder ? { ref, onKeyUp: (e: KeyboardEvent<HTMLDivElement>) => recording && record(e), onMouseDown, onMouseUp: swallowAux, onAuxClick: swallowAux, onBlur } : {})}>
       {children}
     </div>
   )

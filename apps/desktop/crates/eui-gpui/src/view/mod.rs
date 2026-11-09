@@ -12,13 +12,20 @@
 //! flex/grid layout. Scroll containers translate their descendants by the
 //! core's offsets; open layers paint above the tree as deferred elements.
 
+pub(crate) mod embed;
 mod events;
 mod input;
+mod keep;
+mod key_recorder;
+mod composer_keys;
+mod composer_paste;
 mod motion;
 mod motion_leaf;
 mod canvas_leaf;
 mod paint;
 mod pinned;
+mod scrollbar;
+mod swipe;
 pub(crate) mod state;
 mod zoom;
 
@@ -50,6 +57,7 @@ use motion::Motion;
 use state::NodeCache;
 
 pub(crate) use input::Field;
+pub use composer_paste::{clipboard_has_files, clipboard_images, PastedImage};
 pub use motion::NodeEntrance;
 pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 
@@ -206,17 +214,6 @@ pub(crate) struct ResizeDrag {
     pub start: f32,
 }
 
-/// An in-flight scrollbar thumb drag.
-#[derive(Debug, Clone)]
-pub(crate) struct ScrollDrag {
-    pub id: String,
-    pub vertical: bool,
-    pub start_pointer: f32,
-    pub start_offset: f32,
-    /// Content px per pointer px.
-    pub ratio: f32,
-}
-
 /// An in-flight Drawer drag (toward its edge to dismiss).
 #[derive(Debug, Clone)]
 pub(crate) struct SheetDrag {
@@ -244,7 +241,8 @@ pub(crate) struct ToastTimer {
 }
 
 /// Parsed markdown per Markdown leaf (by slot), keyed by its text.
-type MarkdownCache = HashMap<u32, (String, Rc<Vec<Block>>)>;
+/// Node → the text and `streaming` its blocks were parsed with.
+type MarkdownCache = HashMap<u32, (String, bool, Rc<Vec<Block>>)>;
 
 /// What a closing layer last painted, renumbered into its own small slot
 /// space (`0..n`, root first) so nothing of the live caches (which a
@@ -353,17 +351,32 @@ pub struct SurfaceView {
     interaction: HashMap<String, Interaction>,
     states_dirty: HashSet<String>,
     pressed: Option<String>,
+    /// #EDE-65 lane O: a press that landed on the host's window-selectable
+    /// text (gpui-base's `TextSelectionLayer`): where it went down. The
+    /// innermost pressable claims it WITHOUT stopping it (the window's
+    /// selection begins under it too); an outer pressable of the same press
+    /// leaves it. Cleared by the next pointer up.
+    text_press: Option<gpui::Point<Pixels>>,
+    /// #EDE-65 lane O: the Lists that keep the reader's place
+    /// ([`Self::keep_list_place`]), by id.
+    keeps: HashMap<String, keep::KeepPlace>,
     root_focus: FocusHandle,
     focus_handles: HashMap<String, FocusHandle>,
     focused: Option<u32>,
     /// The last focus move came from the keyboard.
     keyboard: bool,
     pending_focus: Option<String>,
+    /// #EXP-1629: the KeyRecorder field recording now (focus + capture).
+    recording: Option<key_recorder::KeyRecording>,
+    /// #EDE-65: the keystroke interceptor while a Composer has menuKeys on.
+    composer_keys: Option<Subscription>,
     /// The hover-opened trigger keyboard focus sits in.
     focus_trigger: Option<String>,
     fields: HashMap<String, Field>,
     /// EXP-1586: the ZoomableImage views by node id.
     zooms: HashMap<String, zoom::Zoom>,
+    /// #EDE-65: the Embeds' nested views by painted id (`view/embed.rs`).
+    embeds: embed::Embeds,
     /// EXP-1604: the Motion leaves by node id (player, clock, last image).
     motion_leaves: motion_leaf::MotionLeaves,
     /// Round 8: the Canvas leaves by node id (player, last image, pointer).
@@ -383,10 +396,16 @@ pub struct SurfaceView {
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
     drag: Option<Drag>,
-    scroll_drag: Option<ScrollDrag>,
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
     tab_drag: Option<TabDrag>,
+    /// FEED-200: the swipeable Tabs' trackpad gesture (`swipe.rs`), the
+    /// blockers under the pointer for the wheel event being dispatched,
+    /// momentum after a horizontal swipe, the phase-less end's watchdog.
+    wheel_swipe: Option<swipe::WheelSwipe>,
+    swipe_hits: Rc<RefCell<Vec<u32>>>,
+    wheel_momentum: Option<Instant>,
+    wheel_watchdog: Option<Task<()>>,
     /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
@@ -397,6 +416,9 @@ pub struct SurfaceView {
     pub(crate) held_images: RefCell<HashMap<SharedString, std::sync::Arc<gpui::RenderImage>>>,
     /// When the pending repaint of the `shimmer` Texts fires (they share one).
     shimmer_armed_until: Cell<Option<Instant>>,
+    /// When the pending repaint of the looping keyframe animations fires
+    /// (they share one, #LOGS-3).
+    loop_armed_until: Cell<Option<Instant>>,
     /// A host-driven entrance ([`SurfaceView::set_entrance`]).
     entrance: Option<NodeEntrance>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
@@ -410,15 +432,16 @@ pub struct SurfaceView {
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
     toast_hover: HashSet<String>,
-    /// EXP-1555: scroll containers under the pointer, and those scrolled in
-    /// the last [`SCROLLBAR_LINGER`] (the hide timer): their overlay
-    /// scrollbars show; at rest there are none (the web's hidden bars).
-    pub(crate) scroll_hover: HashSet<String>,
-    pub(crate) scroll_recent: HashMap<String, Task<()>>,
+    /// #EXP-1629: each scroll container's offset as the IDE's scrollbar
+    /// reads and drags it (`scrollbar.rs`), by node id.
+    pub(crate) scrollbars: RefCell<HashMap<String, scrollbar::CoreScroll>>,
     announcement: Option<(SharedString, String)>,
     copy_resets: HashMap<String, Task<()>>,
     /// Segmented roving item (`group id` → item index).
     group_focus: HashMap<String, usize>,
+    /// #EXP-1629: each open Select's cursor (owner id → option id): the ONE
+    /// option painted `hover`, moved by the keyboard focus and the pointer.
+    pub(crate) select_cursor: HashMap<String, String>,
     /// A calendar day to focus once its month is built (keyboard paging).
     pending_day: Option<(String, String)>,
     /// The category / slice under the pointer, per Chart.
@@ -607,14 +630,19 @@ impl SurfaceView {
             interaction: HashMap::new(),
             states_dirty: HashSet::new(),
             pressed: None,
+            text_press: None,
+            keeps: HashMap::new(),
             root_focus: cx.focus_handle(),
             focus_handles: HashMap::new(),
             focused: None,
             keyboard: false,
             pending_focus: None,
+            recording: None,
+            composer_keys: None,
             focus_trigger: None,
             fields: HashMap::new(),
             zooms: HashMap::new(),
+            embeds: Rc::default(),
             motion_leaves: Default::default(),
             canvas_leaves: Default::default(),
             motion_background_pause: true,
@@ -628,14 +656,18 @@ impl SurfaceView {
             unknown_version: None,
             host_scroll: None,
             drag: None,
-            scroll_drag: None,
             sheet_drag: None,
             resize_drag: None,
             tab_drag: None,
+            wheel_swipe: None,
+            swipe_hits: Rc::new(RefCell::new(Vec::new())),
+            wheel_momentum: None,
+            wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
             held_images: RefCell::new(HashMap::new()),
             shimmer_armed_until: Cell::new(None),
+            loop_armed_until: Cell::new(None),
             entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             holding: None,
@@ -644,11 +676,11 @@ impl SurfaceView {
             motion: Motion::default(),
             toast_timers: HashMap::new(),
             toast_hover: HashSet::new(),
-            scroll_hover: HashSet::new(),
-            scroll_recent: HashMap::new(),
+            scrollbars: RefCell::new(HashMap::new()),
             announcement: None,
             copy_resets: HashMap::new(),
             group_focus: HashMap::new(),
+            select_cursor: HashMap::new(),
             pending_day: None,
             chart_hover: HashMap::new(),
             markdown: RefCell::new(HashMap::new()),
@@ -992,6 +1024,17 @@ impl SurfaceView {
         self.cache.index_of(id).or_else(|| self.surface.index_of(id))
     }
 
+    /// #EDE-65 lane O: the scroll container `id` as the last pass laid it
+    /// out: `(offset_y, viewport_height, content_height)` (`None` before
+    /// its first pass, or when it is no scroll container). A host that
+    /// follows a list's tail reads it.
+    pub fn scroll_extent(&self, id: &str) -> Option<(f32, f32, f32)> {
+        let index = self.index_of(id)?;
+        let scroll = self.scrolls.get(&index)?;
+        let frame = self.frames.get(index as usize)?;
+        Some((scroll.offset_y, frame.h, scroll.content_height))
+    }
+
     /// Run one layout pass now (render does this every frame).
     pub fn layout_now(&mut self, window: &mut Window, cx: &mut Context<Self>) -> &PassStats {
         self.pass(window, cx);
@@ -1074,6 +1117,7 @@ impl SurfaceView {
 
     /// One layout pass: states in, layout, caches refreshed.
     pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _span = tracing::trace_span!("eui.layout").entered();
         self.pass_lifted = self.layers_lifted();
         let visible_h = if self.pass_lifted {
             self.window_size.1
@@ -1091,6 +1135,10 @@ impl SurfaceView {
         // #VAPP-253: a lifted top or bottom sheet spans the window.
         if self.lift_layers {
             self.surface.set_layer_viewport(self.window_size.0, self.window_size.1);
+            // #EXP-1629: lifted popups fit into the window, not the surface
+            // (gpui-component's popovers: 8 px from the window's edges).
+            let (ox, oy) = (f32::from(self.origin.x), f32::from(self.origin.y));
+            self.surface.set_popup_bounds(Some((-ox, -oy, self.window_size.0, self.window_size.1)));
         }
         self.track_focus(window, cx);
         self.flush_states();
@@ -1118,11 +1166,15 @@ impl SurfaceView {
         let mut changed: HashSet<u32> = HashSet::new();
         let mut tries = 0;
         let live = self.live_texts(cx);
+        // #EDE-65: the Embeds' children follow the host and report moves.
+        self.sync_embeds(window, cx);
+        let spawn = self.embed_spawn();
+        let embeds = self.embeds.clone();
         let out = loop {
             let (out, unknown) = if let Some(m) = self.measure_override.as_mut() {
                 (self.surface.layout(m.as_mut()), Vec::new())
             } else {
-                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap);
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap).embeds(&embeds, &spawn);
                 let out = self.surface.layout(&mut m);
                 calls += m.calls();
                 (out, std::mem::take(&mut m.unknown_extensions))
@@ -1151,6 +1203,7 @@ impl SurfaceView {
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
         self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
+        self.prune_embeds();
         if self.surface.needs_flush() {
             let (host, surface_id) = (self.host.clone(), self.surface.id.clone());
             cx.defer(move |cx| host.after_layout(&surface_id, cx));
@@ -1350,6 +1403,8 @@ impl SurfaceView {
         if let Some(id) = self.pending_focus.take() {
             self.focus_id(&id, window, cx);
         }
+        self.sync_key_recorder(window, cx);
+        self.sync_composer_keys(cx);
         // Only a rebuilt or changed slot can hold other text.
         if self.md_selection.is_some_and(|sel| (all || changed.contains(&sel.node)) && self.md_text_key(sel.node) != self.md_selection_key) {
             self.md_selection = None;
@@ -1595,7 +1650,7 @@ impl SurfaceView {
 
     /// The layout gpui asks for: a pass at `width` (the available width),
     /// answering the surface's size.
-    fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
+    pub(crate) fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
         match width.filter(|w| *w > 0.0 && w.is_finite()) {
             Some(w) => {
                 if !self.width_fixed && (w - self.width).abs() > 0.25 {
@@ -1661,6 +1716,10 @@ impl SurfaceView {
             again = true;
         }
         self.window_size = window_size;
+        // #EXP-1629: the popups' window moved with the surface's origin.
+        if self.lift_layers && self.surface.set_popup_bounds(Some((-f32::from(self.origin.x), -f32::from(self.origin.y), window_size.0, window_size.1))) {
+            again = true;
+        }
         if again {
             self.pass(window, cx);
         }
@@ -1669,6 +1728,10 @@ impl SurfaceView {
         if self.layers_lifted() != self.pass_lifted {
             self.pass(window, cx);
         }
+        // #EDE-65 lane O: the host's rows measured and the kept lists held
+        // in place before anything paints.
+        self.settle(window, cx);
+        self.check_key_recorder_focus(window, cx);
         let now = self.clock();
         self.motion.now = Some(now);
         self.exiting.retain(|g| now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 < g.duration_ms);
@@ -1699,6 +1762,7 @@ impl SurfaceView {
             // drops a Markdown selection (a press in Markdown starts anew).
             .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
                 this.keyboard = false;
+                this.text_press = None;
                 if this.md_selection.take().is_some_and(|s| !s.is_empty()) {
                     cx.notify();
                 }
@@ -1709,9 +1773,9 @@ impl SurfaceView {
             .text_size(px(14.0))
             .line_height(px(20.0))
             .text_color(ink);
-        // A drag in flight (slider, scrollbar, sheet, text selection) follows the pointer
+        // A drag in flight (slider, sheet, text selection) follows the pointer
         // anywhere in the window, over layers and outside the surface too.
-        if self.drag.is_some() || self.scroll_drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
+        if self.drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
             let this = self.this.clone();
             root = root.child(
                 gpui::canvas(
@@ -1854,6 +1918,14 @@ impl Element for SurfaceElement {
     }
 
     fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), prepaint: &mut Option<AnyElement>, window: &mut Window, cx: &mut App) {
+        // FEED-200 (`swipe.rs`): registered before the nodes, so a wheel
+        // event's capture pass starts with no blocker under the pointer.
+        let hits = self.view.read(cx).swipe_hits.clone();
+        window.on_mouse_event(move |_: &gpui::ScrollEvent, phase, _, _| {
+            if phase == gpui::DispatchPhase::Capture {
+                hits.borrow_mut().clear();
+            }
+        });
         if let Some(el) = prepaint {
             el.paint(window, cx);
         }
@@ -1862,6 +1934,14 @@ impl Element for SurfaceElement {
 
 impl Render for SurfaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("eui.render").entered();
+        // A scrollbar thumb dragged since the last frame moves the core.
+        if self.take_scrollbar_drags() {
+            let late = self.surface.take_events();
+            if !late.is_empty() {
+                self.dispatch(late, None, cx);
+            }
+        }
         SurfaceElement { view: cx.entity() }
     }
 }

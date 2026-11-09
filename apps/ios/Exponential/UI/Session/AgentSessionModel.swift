@@ -1376,6 +1376,14 @@ final class AgentSessionModel {
     /// EXP-820: the text is ALWAYS a message. A pending card's free answer is
     /// its own inline field (`sendAnswer` with `text`, or `answerThenSend` for
     /// a plan's feedback).
+    /// #EXP-1715: the viewer's Assistant root's Teams pick, carried by every
+    /// send as `scopeTeamIds` (set by the host view; nil = none).
+    var sendScope: TeamsScope?
+    /// #FEED-204 / #EXP-1732: an app editor's ended root revived on another
+    /// device: the next send is `sessions.send({appId, deviceId})` (set by the
+    /// host view; nil = a plain message).
+    var sendAppMove: ChatComposerDraft.AppMove?
+
     @discardableResult
     func sendMessage(_ text: String, attachmentIds: [String]? = nil) async -> Bool {
         guard !text.isEmpty || attachmentIds?.isEmpty == false, mayPost else { return false }
@@ -1386,10 +1394,21 @@ final class AgentSessionModel {
         if holdsFlag { steerSending = true }
         defer { if holdsFlag { steerSending = false } }
         do {
-            try await sessionsApi.send(
-                accountId: accountId,
-                .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
-            )
+            if let move = sendAppMove {
+                _ = try await sessionsApi.send(
+                    accountId: accountId,
+                    .app(
+                        appId: move.appId, deviceId: move.deviceId, text: text, attachmentIds: attachmentIds,
+                        // #EXP-1729: with the editor composer's Account and Model picks.
+                        cli: move.cli, account: move.account, model: move.model
+                    )
+                )
+            } else {
+                try await sessionsApi.send(
+                    accountId: accountId,
+                    .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds, scope: sendScope)
+                )
+            }
         } catch {
             sendError = error.trpcUserMessage
             return false
@@ -1408,7 +1427,7 @@ final class AgentSessionModel {
         if recentEchoes.count > Self.echoCap {
             recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
         }
-        append(.userMessage(id: rowId, text: text))
+        append(.userMessage(id: rowId, text: text, at: Int(Date().timeIntervalSince1970 * 1000)))
         // EXP-656: sent while a replay stages — the replay predates it, so the
         // commit re-appends it unless the replay happened to carry it back.
         if isStaging { stagedLocalEchoes.append(text) }
@@ -2519,7 +2538,7 @@ final class AgentSessionModel {
             recentEchoes.append(AgentEcho(
                 text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date(), rowId: rowId
             ))
-            append(.userMessage(id: rowId, text: text))
+            append(.userMessage(id: rowId, text: text, at: Int(Date().timeIntervalSince1970 * 1000)))
         }
         for (key, sentAt) in carriedLocks where feedCarriesQuestion(key) {
             restoreAnswerLock(key, labels: carriedLabels[key] ?? [], sentAt: sentAt)
@@ -2551,7 +2570,7 @@ final class AgentSessionModel {
     private func tailCarriesEcho(_ text: String) -> Bool {
         let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
         for item in feed.suffix(Self.echoCap).reversed() {
-            guard case let .userMessage(_, existing, _) = item else { continue }
+            guard case let .userMessage(_, existing, _, _) = item else { continue }
             if existing.trimmingCharacters(in: .whitespacesAndNewlines) == needle { return true }
         }
         return false
@@ -2660,13 +2679,13 @@ final class AgentSessionModel {
             // Diffs never enter the feed — the latest replaces the previous
             // one behind the pinned "Latest changes" chip.
             latestDiff = diff
-        case let .userMessage(text, subagentId):
+        case let .userMessage(text, subagentId, at):
             // A message this client just sent was already echoed locally —
             // skip its transcript-derived twin (EXP-78).
             if consumeEcho(text) { return }
             // EXP-773: a turn addressed to a subagent renders inside that
             // subagent's run, never in the main thread.
-            append(.userMessage(id: takeEventId(), text: text, subagentId: subagentId))
+            append(.userMessage(id: takeEventId(), text: text, subagentId: subagentId, at: at))
         case let .question(draft):
             // A re-emitted wire id REPLACES its card in place (the desktop
             // augments options it discovers later); anything else appends.

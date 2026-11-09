@@ -95,11 +95,10 @@ impl Gateways {
     /// run dies.
     pub fn grant(&self, session_id: &str, label: &str, upstream: Upstream, transform: Arc<dyn GatewayTransform>) -> String {
         let token = format!("gw{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        crate::runtime::install_crypto();
-        let http = reqwest::blocking::Client::builder()
+        let http = crate::runtime::blocking_http_client()
             .connect_timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            .unwrap_or_else(|_| crate::runtime::blocking_http_client().build().expect("an HTTP client"));
         let run = GatewayRun {
             session_id: session_id.to_string(),
             label: label.to_string(),
@@ -443,7 +442,9 @@ mod tests {
     }
 
     fn post(url: &str, token: &str, body: Value) -> (u16, Option<String>, String) {
-        let response = reqwest::blocking::Client::new()
+        let response = crate::runtime::blocking_http_client()
+            .build()
+            .unwrap()
             .post(url)
             .header("Authorization", format!("Bearer {token}"))
             .header("Content-Type", "application/json")

@@ -11,11 +11,14 @@ struct ExponentialApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // #LOGS-2: crash reporting first, from the last cached server answer.
+        Observability.launch(origins: [])
         // Built first, as the property initializer did before (#EXP-1640:
         // held here so an intent launched in the background reaches it).
         let dependencies = AppDependencies()
         _dependencies = State(initialValue: dependencies)
         AppIntentsHost.deps = dependencies
+        MonitoringState.shared.setOrigins(dependencies.auth.accounts.map(\.instanceUrl))
         FirebaseApp.configure()
         // Heal installs whose shared URLCache holds poisoned Electric shape
         // snapshots (shape responses carry `cache-control: public` and older
@@ -25,11 +28,27 @@ struct ExponentialApp: App {
         URLCache.shared.removeAllCachedResponses()
     }
 
+    private var monitoringKey: String {
+        let auth = dependencies.auth
+        let active = auth.accounts.first { $0.id == auth.activeAccountId }
+        return ([active?.instanceUrl ?? "", active?.userId ?? ""] + auth.accounts.map(\.instanceUrl)).joined(separator: "|")
+    }
+
     var body: some Scene {
         WindowGroup {
             AppNavigator()
                 .environment(dependencies)
                 .onAppear { AppShortcutItems.deps = dependencies }
+                // #LOGS-2: follow the active server's monitoring config.
+                .task(id: monitoringKey) {
+                    let auth = dependencies.auth
+                    let active = auth.accounts.first { $0.id == auth.activeAccountId }
+                    await Observability.refresh(
+                        activeOrigin: active?.instanceUrl ?? AppConstants.defaultCloudUrl,
+                        origins: auth.accounts.map(\.instanceUrl),
+                        userId: active?.userId
+                    )
+                }
                 .preferredColorScheme(.dark)
                 // EXP-643: every Toggle in the tree (sheets included) renders
                 // the black-on-white glass switch instead of the system one.
@@ -46,6 +65,9 @@ struct ExponentialApp: App {
                     switch newPhase {
                     case .background:
                         dependencies.syncManager.sceneDidEnterBackground()
+                        // No `audio` background mode (App Review 2.5.4): a
+                        // call ends cleanly instead of freezing mid-stream.
+                        VoiceCallClient.shared.end()
                         // #EXP-1528: the connection analytics go out on the way out.
                         let connStats = dependencies.connStats
                         Task { await connStats.flush() }

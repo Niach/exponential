@@ -111,8 +111,8 @@ export function useOAuthSignIn(redirectTo: string | undefined) {
   // the post-OAuth load re-captures them and claims them for fresh accounts.
   const signInWithOidc = (providerId: string) =>
     startOAuth(providerId, () =>
-      authClient.signIn.oauth2({
-        providerId,
+      authClient.signIn.social({
+        provider: providerId,
         callbackURL: withFirstTouchParams(redirectTo || `/`),
         errorCallbackURL: oauthErrorCallbackURL(redirectTo),
       })

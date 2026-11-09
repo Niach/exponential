@@ -324,6 +324,9 @@ pub struct AgentDetailPane {
     /// (`voice_prefs`), minus its Voice device and Agent pickers; built on
     /// the first Assistant shown.
     voice: Option<Entity<super::voice_prefs::VoicePrefsPane>>,
+    /// #EXP-1732: THE gear's page in a session screen's pane: this agent,
+    /// whatever the settings selection says.
+    fixed_agent: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -370,14 +373,32 @@ impl AgentDetailPane {
             trigger_writing: false,
             generation: 0,
             voice: None,
+            fixed_agent: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// #EXP-1732: the page of `agent_id` as THE gear opens it in a session
+    /// screen's pane (an agent's, the Assistant's conversation).
+    pub(crate) fn for_agent(
+        agent_id: String,
+        nav: Entity<Navigation>,
+        shared: Entity<RailShared>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let mut pane = Self::new(nav, shared, window, cx);
+        pane.fixed_agent = Some(agent_id);
+        pane
     }
 
     /// The selected agent id from the shared settings selection. S-3: the
     /// Voice section (tray / meeting links) resolves to the viewer's
     /// Assistant, as `first_agent_resolved` does for the screen.
     fn selected_agent_id(&self, cx: &App) -> Option<String> {
+        if let Some(agent_id) = &self.fixed_agent {
+            return Some(agent_id.clone());
+        }
         match self.shared.read(cx).settings_section() {
             SettingsSection::Agent(id) => Some(id),
             SettingsSection::Voice => active_team_id(&self.nav, cx)
@@ -1067,7 +1088,7 @@ impl AgentDetailPane {
         )]);
         let voice = self
             .voice
-            .get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::new(cx).assistant_block()))
+            .get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::assistant(window, cx)))
             .clone();
         let mut body = section(cx)
             .gap_4()
@@ -1084,6 +1105,7 @@ impl AgentDetailPane {
 
 impl Render for AgentDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AgentDetailPane").entered();
         let agent = self
             .selected_agent_id(cx)
             .and_then(|id| crate::session_data::agent_def(&id, cx));

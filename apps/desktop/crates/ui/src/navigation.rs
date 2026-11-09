@@ -1222,7 +1222,24 @@ fn forward_to_owner_shell(window: &Window, cx: &mut App, screen: &Screen) -> boo
     true
 }
 
+/// #EXP-1732 (session-screen.json): an app's editor session IS the app's
+/// screen, so the chat route of an app root opens the app editor.
+fn app_editor_screen(screen: Screen, cx: &App) -> Screen {
+    let Screen::Chat { session_id } = &screen else {
+        return screen;
+    };
+    match crate::session_data::session(session_id, cx)
+        .filter(|row| row.is_root())
+        .and_then(|row| row.app_id)
+        .filter(|app_id| !app_id.is_empty())
+    {
+        Some(app) => Screen::App { app },
+        None => screen,
+    }
+}
+
 fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: PendingOrigin) {
+    let screen = app_editor_screen(screen, cx);
     // EXP-771: the screen may already have its own window (EXP-65 undock) —
     // then this is a REVEAL, not a navigation: bring that window forward and
     // leave this window's tab strip alone. Every tab-opening entry funnels
@@ -1271,6 +1288,7 @@ pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
 }
 
 fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen) {
+    let screen = app_editor_screen(screen, cx);
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
@@ -1918,6 +1936,52 @@ pub fn init(cx: &mut App) {
         gpui::KeyBinding::new("cmd-[", GoBack, None),
         gpui::KeyBinding::new("cmd-]", GoForward, None),
     ]);
+}
+
+/// DEV-ONLY `EXP_DEV_TOUR=<screen>@<seconds>,…` (#LOGS-3/4/5, same family as
+/// `EXP_DEV_SCREEN`): for each step, wait its seconds, then navigate the
+/// active window to its `EXP_DEV_SCREEN` value, so `EXP_FRAME_STATS=1` runs
+/// replay the same opens with no synthetic input. Each step prints `[dev-tour] <screen>` to stderr. Unset in
+/// normal runs; never document for users.
+pub fn start_dev_tour(cx: &mut App) {
+    let Ok(spec) = std::env::var("EXP_DEV_TOUR") else { return };
+    let steps: Vec<(String, f32)> = spec
+        .split(',')
+        .filter_map(|step| {
+            let (screen, secs) = step.trim().rsplit_once('@')?;
+            Some((screen.to_string(), secs.parse().ok()?))
+        })
+        .collect();
+    cx.spawn(async move |cx| {
+        for (spec, secs) in steps {
+            cx.background_executor().timer(std::time::Duration::from_secs_f32(secs)).await;
+            // `issue:longest` = the synced issue with the longest description.
+            let spec = if spec == "issue:longest" {
+                let Some(id) = cx.update(|cx| {
+                    let issues = Store::global(cx).collections().issues.read(cx);
+                    eprintln!("[dev-tour] {} issues synced", issues.iter().count());
+                    issues.iter().max_by_key(|issue| issue.description.as_deref().map_or(0, str::len)).map(|issue| issue.id.clone())
+                }) else { continue };
+                format!("issue:{id}")
+            } else {
+                spec
+            };
+            let Some(screen) = parse_dev_screen(&spec) else { continue };
+            eprintln!("[dev-tour] {spec}");
+            let _ = cx.update(|cx| {
+                on_active_window(cx, move |window, cx| navigate_from_rail(window, cx, screen));
+            });
+            cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+            let _ = cx.update(|cx| {
+                on_active_window(cx, |window, cx| {
+                    let nav = nav_for_window(window, cx);
+                    eprintln!("[dev-tour] on {:?}", resolved_screen(&nav, cx));
+                });
+            });
+        }
+        eprintln!("[dev-tour] done");
+    })
+    .detach();
 }
 
 fn navigate_active(cx: &mut App, screen: Screen) {

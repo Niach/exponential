@@ -720,6 +720,214 @@ final class Round1ModelTests: XCTestCase {
         }
     }
 
+    // MARK: - interactions-round1.json keyRecorder (#EXP-1629)
+
+    /// Every keyRecorder case through the MODEL: `press` = the generic press
+    /// of the field, `down` / `up` / `modifiers` / `mouse` = `keyRecorderRecord`
+    /// with the canonical payload the capture views send (mouse 1 and 2
+    /// send nothing), `blur` = `keyRecorderBlur`, `hostWrite` = host data;
+    /// the actions fired {name, context} and /recording.
+    func testKeyRecorderCasesStartRecordAndStopThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["keyRecorder"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 10)
+        func flags(_ mods: JSONValue?) -> KeyRecorderFlags {
+            let held = Set((mods?.array ?? []).compactMap(\.string))
+            return KeyRecorderFlags(ctrl: held.contains("ctrl"), alt: held.contains("alt"), shift: held.contains("shift"), meta: held.contains("meta"))
+        }
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            let field = "ptt.field"
+            let index = try XCTUnwrap(m.index(of: field), "\(name): no field")
+            XCTAssertTrue(m.isKeyRecorderField(index), "\(name): the field is a KeyRecorder field")
+            for step in c["steps"]?.array ?? [] {
+                if step["press"] != nil {
+                    m.keyRecorderPress(id: field)
+                } else if step["blur"] != nil {
+                    m.keyRecorderBlur(id: field)
+                } else if let key = step["down"]?.string {
+                    m.keyRecorderRecord(id: field, KeyRecorderInput(type: .down, key: key, flags: flags(step["mods"])))
+                } else if let key = step["up"]?.string {
+                    m.keyRecorderRecord(id: field, KeyRecorderInput(type: .up, key: key, flags: flags(step["mods"])))
+                } else if let mods = step["modifiers"] {
+                    m.keyRecorderRecord(id: field, KeyRecorderInput(type: .modifiers, flags: flags(mods)))
+                } else if let button = step["mouse"]?.number {
+                    m.keyRecorderRecord(id: field, KeyRecorderInput(type: .mouse, button: Int(button)))
+                } else if let w = step["hostWrite"] {
+                    m.setData(path: w["path"]?.string ?? "", value: w["value"] ?? .null)
+                } else {
+                    XCTFail("\(name): unknown step \(step.json)")
+                }
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(m.data["recording"] ?? .null, c["recording"] ?? .null, "\(name): /recording")
+            XCTAssertEqual(m.keyRecorderRecording(index), c["recording"]?.bool == true, "\(name): the field's recording prop")
+        }
+    }
+
+    /// The capture views' tables: the HID usage (iOS `UIKey.keyCode`) and the
+    /// Mac key code → the canonical name; the physical key, never the
+    /// shifted character; outside the list = nil.
+    func testKeyRecorderKeyNamesAreCanonical() {
+        let hid: [(Int, String?)] = [
+            (0x04, "a"), (0x0E, "k"), (0x1D, "z"), (0x1E, "1"), (0x26, "9"), (0x27, "0"),
+            (0x28, "enter"), (0x58, "enter"), (0x29, "escape"), (0x2A, "backspace"), (0x2B, "tab"), (0x2C, "space"),
+            (0x2D, "-"), (0x2E, "="), (0x2F, "["), (0x30, "]"), (0x31, "\\"), (0x33, ";"), (0x34, "'"),
+            (0x35, "`"), (0x36, ","), (0x37, "."), (0x38, "/"),
+            (0x3A, "f1"), (0x45, "f12"), (0x68, "f13"), (0x73, "f24"),
+            (0x49, "insert"), (0x4A, "home"), (0x4B, "pageup"), (0x4C, "delete"), (0x4D, "end"), (0x4E, "pagedown"),
+            (0x4F, "right"), (0x50, "left"), (0x51, "down"), (0x52, "up"),
+            (0x32, nil), (0x39, nil), (0x53, nil), (0x74, nil), (0xE0, nil),
+        ]
+        for (u, want) in hid { XCTAssertEqual(KeyRecorderKeys.name(hidUsage: u), want, "hid 0x\(String(u, radix: 16))") }
+        XCTAssertEqual(KeyRecorderKeys.modifier(hidUsage: 0xE0), .ctrl)
+        XCTAssertEqual(KeyRecorderKeys.modifier(hidUsage: 0xE5), .shift)
+        XCTAssertEqual(KeyRecorderKeys.modifier(hidUsage: 0xE6), .alt)
+        XCTAssertEqual(KeyRecorderKeys.modifier(hidUsage: 0xE3), .meta)
+        XCTAssertNil(KeyRecorderKeys.modifier(hidUsage: 0x04))
+        let mac: [(Int, String?)] = [
+            (0x00, "a"), (0x28, "k"), (0x06, "z"), (0x12, "1"), (0x1D, "0"), (0x69, "f13"), (0x7A, "f1"),
+            (0x7E, "up"), (0x7B, "left"), (0x31, "space"), (0x30, "tab"), (0x35, "escape"), (0x33, "backspace"),
+            (0x75, "delete"), (0x2A, "\\"), (0x32, "`"), (0x27, "'"),
+            (0x37, nil), (0x39, nil), (0x0A, nil), (0x5D, nil),
+        ]
+        for (c, want) in mac { XCTAssertEqual(KeyRecorderKeys.name(macKeyCode: c), want, "mac 0x\(String(c, radix: 16))") }
+        XCTAssertEqual(KeyRecorderKeys.modifier(macKeyCode: 0x37), .meta)
+        XCTAssertEqual(KeyRecorderKeys.modifier(macKeyCode: 0x3E), .ctrl)
+        XCTAssertEqual((0...5).map { KeyRecorderKeys.button(macButtonNumber: $0) }, [nil, nil, 3, 4, 5, nil])
+        // The payload every painter sends.
+        let p = KeyRecorderInput(type: .down, key: "k", flags: KeyRecorderFlags(ctrl: true)).payload
+        XCTAssertEqual(p, .object(["type": .string("down"), "key": .string("k"), "ctrl": .bool(true), "alt": .bool(false), "shift": .bool(false), "meta": .bool(false)]))
+    }
+
+    // MARK: - interactions-round1.json composerKeys (#EDE-65)
+
+    /// Every composerKeys case through the MODEL: `type` = the field's edit
+    /// (written through: the debounce flushed), `key` = `composerKey` (what
+    /// the text views ask first), else the field's own Return without a
+    /// modifier = `fieldCommitted` (the Composer sends); `hostWrite` = host
+    /// data; whether the key was taken, the actions fired and /draft.
+    func testComposerKeyCasesFireKeyOrSubmitThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerKeys"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 10)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            for (path, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(path)", value: value) }
+            let index = try XCTUnwrap(m.index(of: "c"), "\(name): no composer")
+            for step in c["steps"]?.array ?? [] {
+                if let text = step["type"]?.string {
+                    m.fieldEdited(index, text: text)
+                    m.flushPending(index)
+                } else if let key = step["key"]?.string {
+                    let modified = !(step["mods"]?.array ?? []).isEmpty
+                    let composing = step["composing"]?.bool == true
+                    var handled = m.composerKey(index, key: key, modified: modified, composing: composing)
+                    if !handled, key == "Enter", !modified, !composing {
+                        m.fieldCommitted(index)
+                        handled = true
+                    }
+                    XCTAssertEqual(handled, step["handled"]?.bool, "\(name): \(key) taken")
+                } else if let w = step["hostWrite"] {
+                    m.setData(path: w["path"]?.string ?? "", value: w["value"] ?? .null)
+                } else {
+                    XCTFail("\(name): unknown step \(step.json)")
+                }
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(m.data["draft"] ?? .null, c["draft"] ?? .null, "\(name): /draft")
+        }
+        XCTAssertEqual(SurfaceModel.composerMenuKey("Tab", modified: true), nil)
+        XCTAssertEqual(SurfaceModel.composerMenuKey("ArrowLeft", modified: false), nil)
+    }
+
+    // MARK: - interactions-round1.json composerSlots / composerPaste (#EDE-65 R)
+
+    /// Every composerSlots case through the MODEL (the core's layout): the
+    /// slot roots sit in the controls row in `order` (start → end, mirrored
+    /// in RTL), centred on the send disc's row (`c.sendSpace`), inside the
+    /// composer; `trailing` ends before the disc; a press on a slot child
+    /// fires its own action. The attach control's place is the leaf's
+    /// (`ComposerLeaf`: before `trailing`).
+    func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 7)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let rtl = c["direction"]?.string == "rtl"
+            guard case .object(var composer) = f["surface"]!, case .object(var props) = composer["props"] ?? .object([:]) else { return XCTFail("\(name): surface") }
+            for (k, v) in c["props"]?.object ?? [:] { props[k] = v }
+            composer["props"] = .object(props)
+            let slots = c["slots"]?.object ?? [:]
+            if !slots.isEmpty { composer["slots"] = .object(slots) }
+            let tree: JSONValue = .object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "direction": .string(rtl ? "rtl" : "ltr")]), "children": .array([.object(composer)])])
+            let host = Round1Host()
+            let m = try model(tree, host: host)
+            let frame = { (id: String) in m.index(of: id).map { m.frame($0) } }
+            let cf = try XCTUnwrap(frame("c"), "\(name): composer")
+            guard !slots.isEmpty else {
+                XCTAssertNil(frame("c.bar"), "\(name): no row without slots")
+                continue
+            }
+            let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
+            var along: [(CGFloat, String)] = []
+            for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
+                guard let b = frame(id) else {
+                    XCTAssertNil(slots[slot], "\(name): \(slot) laid out")
+                    continue
+                }
+                XCTAssertEqual(b.midY, send.midY, accuracy: 0.01, "\(name): \(slot) centred on the disc")
+                XCTAssertTrue(cf.insetBy(dx: -0.01, dy: -0.01).contains(b), "\(name): \(slot) inside the composer")
+                along.append((rtl ? -b.maxX : b.minX, slot))
+                if slot == "trailing" {
+                    XCTAssertTrue(rtl ? b.minX >= send.maxX : b.maxX <= send.minX, "\(name): trailing before the disc")
+                }
+            }
+            let order = (c["order"]?.array ?? []).compactMap(\.string).filter { $0 == "leading" || $0 == "trailing" }
+            XCTAssertEqual(along.sorted { $0.0 < $1.0 }.map(\.1), order, "\(name): order")
+            for step in c["steps"]?.array ?? [] { m.press(id: step["press"]?.string ?? "") }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): events")
+        }
+    }
+
+    /// Every composerPaste case through the MODEL: `composerPaste` with the
+    /// clipboard's files (what the text views read off the pasteboard,
+    /// `ComposerPasteboard`); not taken + text = the field's own edit.
+    func testComposerPasteCasesAttachImagesThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerPaste"])
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 5)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let host = Round1Host()
+            let m = try model(f["surface"]!, host: host)
+            for (path, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(path)", value: value) }
+            let index = try XCTUnwrap(m.index(of: "c"), "\(name): no composer")
+            let files = (c["clipboard"]?["files"]?.array ?? []).map { SurfaceUploadFile(name: $0["name"]?.string ?? "", size: Int($0["size"]?.number ?? 0), type: $0["type"]?.string ?? "", data: Data(count: Int($0["size"]?.number ?? 0))) }
+            let taken = m.composerPaste(index, files: files)
+            if !taken, let text = c["clipboard"]?["text"]?.string {
+                m.fieldEdited(index, text: (m.data["draft"]?.string ?? "") + text)
+                m.flushPending(index)
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(host.uploads.flatMap { $0.files.map(\.name) }, (c["uploads"]?.array ?? []).compactMap(\.string), "\(name): uploads")
+            XCTAssertTrue(host.uploads.allSatisfy { $0.componentId == "c" && $0.name == "c" }, "\(name): the upload names the Composer")
+            XCTAssertEqual(m.data["draft"] ?? .null, c["draft"] ?? .null, "\(name): /draft")
+        }
+    }
+
     // MARK: - interactions-round1.json foldRow (#VAPP-284)
 
     /// A foldable Row (children): a press on the head or its fold button, or

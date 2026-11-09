@@ -40,6 +40,8 @@ pub(super) struct PassState {
     refits: u32,
     /// Round 8: `@container` refits this pass.
     container_refits: u32,
+    /// #EXP-1629: Select fade refits this pass.
+    fade_refits: u32,
     missing: Vec<usize>,
     heights: Vec<HeightRequest>,
 }
@@ -143,6 +145,7 @@ impl Surface {
             }
         }
         self.restyle();
+        self.reveal_select_choices();
     }
 
     /// Every live measured leaf without a (current) memo entry.
@@ -210,7 +213,7 @@ impl Surface {
         let mut toast_stack = 0.0f32;
         // #VAPP-253: a popup opened above a sheet laid out at the layer
         // viewport lands in that viewport, like the frames it anchors to.
-        let mut popup_view = view;
+        let mut popup_view = self.popup_bounds.map_or(view, |(x, y, w, h)| View { x, y, w, h });
         for k in 0..self.layers.len() {
             let popup = matches!(self.layers[k].placement, LayerPlacement::Anchored { .. } | LayerPlacement::AtPoint { .. });
             let p = self.place_layer(k, if popup { popup_view } else { view }, vw, vh_eff, &mut frames, &guesses, &mut toast_stack);
@@ -249,13 +252,30 @@ impl Surface {
         self.output(frames, placed, bounded_h, state.rounds, state.upcalls, layout_ns)
     }
 
+    /// #EXP-1629: a Select that just opened starts its list at the TOP (the
+    /// IDE's picker: every opening is a fresh pick, the cursor on the first
+    /// option); the user's scroll is theirs while it stays open.
+    fn reveal_select_choices(&mut self) {
+        let mut open = HashSet::new();
+        for spec in self.layers.iter().filter(|l| l.kind == "Select") {
+            open.insert(spec.owner.clone());
+            if self.select_revealed.contains(&spec.owner) {
+                continue;
+            }
+            let Some(list) = spec.scroll_body else { continue };
+            let key = self.scroll_key(list);
+            self.local.scroll.remove(&key);
+        }
+        self.select_revealed = open;
+    }
+
     /// Prepare the tree, then run the batched passes. At most 3 upcall
     /// rounds (intrinsics, heights, one correction). The measurer is called
     /// in-process with borrowed requests; [`Self::layout_begin`] is the same
     /// pass as resumable STEPS for a host that must not be called back
     /// while the surface is locked (the FFI).
     pub fn layout(&mut self, measure: &mut dyn Measure) -> LayoutOutput {
-        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() };
+        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, fade_refits: 0, missing: Vec::new(), heights: Vec::new() };
         self.prepare(measure.measure_id());
         loop {
             state.rounds += 1;
@@ -267,7 +287,7 @@ impl Surface {
                 self.apply_intrinsics(&missing, &answers);
             }
             let (frames, placed, pending) = self.compute_all();
-            if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
+            if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state) || self.refit_select_fades(&frames, &mut state)) {
                 continue;
             }
             if pending.is_empty() || state.rounds >= 3 {
@@ -283,7 +303,8 @@ impl Surface {
     /// VAPP-279: a strip Tabs whose visible tabs changed rebuilds and lays
     /// out again (at most twice a pass: the `+N` count can widen it once).
     fn refit_tab_strips(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
-        if state.refits >= 2 || !self.fit_tab_strips(frames) {
+        // `|`: both refit in the same round.
+        if state.refits >= 2 || !(self.fit_tab_strips(frames) | self.fit_tab_pagers(frames)) {
             return false;
         }
         state.refits += 1;
@@ -295,6 +316,35 @@ impl Surface {
                 break;
             }
         }
+        self.restyle();
+        true
+    }
+
+    /// #EXP-1629: an open Select's bottom `fade` shows while options sit
+    /// below its list's visible end (the IDE picker's `has_more_below`);
+    /// when that flips the tree rebuilds and lays out again (once a pass).
+    fn refit_select_fades(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
+        if state.fade_refits >= 1 {
+            return false;
+        }
+        let mut next = HashSet::new();
+        for spec in self.layers.iter().filter(|l| l.kind == "Select") {
+            let Some(list) = spec.scroll_body else { continue };
+            let Some(f) = frames.get(list as usize).copied() else { continue };
+            let content = self.engine.layout(list).content_size.height.max(f.h);
+            let offset = self.local.scroll.get(&self.scroll_key(list)).map_or(0.0, |s| s.1).clamp(0.0, (content - f.h).max(0.0));
+            if content > f.h + 0.5 && offset + f.h < content - 1.0 {
+                next.insert(spec.owner.clone());
+            }
+        }
+        if next == self.local.select_fade {
+            return false;
+        }
+        self.local.select_fade = next;
+        state.fade_refits += 1;
+        state.rounds = state.rounds.saturating_sub(1);
+        self.rebuild();
+        self.subtree_pending.clear();
         self.restyle();
         true
     }
@@ -347,7 +397,7 @@ impl Surface {
     /// without holding the surface.
     pub fn layout_begin(&mut self, measure_id: u64) -> LayoutStep {
         self.prepare(measure_id);
-        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, missing: Vec::new(), heights: Vec::new() });
+        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, container_refits: 0, fade_refits: 0, missing: Vec::new(), heights: Vec::new() });
         self.step_round()
     }
 
@@ -366,7 +416,7 @@ impl Surface {
     fn step_compute(&mut self) -> LayoutStep {
         let (frames, placed, pending) = self.compute_all();
         let Some(mut state) = self.step_state.take() else { return LayoutStep::Idle };
-        if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state)) {
+        if pending.is_empty() && (self.refit_tab_strips(&frames, &mut state) || self.refit_containers(&frames, &mut state) || self.refit_select_fades(&frames, &mut state)) {
             self.step_state = Some(state);
             return self.step_round();
         }
@@ -539,7 +589,7 @@ impl Surface {
                 let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
-                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place(a, size, view, side, align, rtl) };
+                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }
@@ -635,10 +685,18 @@ impl Surface {
     /// `place_overlay` inside the safe area (align start/end follow the
     /// direction).
     fn anchor_place(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool) -> OverlayPlacement {
+        self.anchor_place_with(a, size, view, side, align, rtl, None, None)
+    }
+
+    /// [`Self::anchor_place`] with the layer's own gap to the anchor and
+    /// margin to the view's edges.
+    #[allow(clippy::too_many_arguments)]
+    fn anchor_place_with(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool, offset: Option<f64>, margin: Option<f64>) -> OverlayPlacement {
         let align = physical_align(align, rtl);
         let anchor = ORect { x: (a.x - view.x) as f64, y: (a.y - view.y) as f64, width: a.w as f64, height: a.h as f64 };
         let vp = OSize { width: view.w as f64, height: if view.h > 0.0 { view.h as f64 } else { f64::INFINITY } };
-        let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, ..PlaceOptions::default() });
+        let defaults = PlaceOptions::default();
+        let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, offset: offset.unwrap_or(defaults.offset), padding: margin.unwrap_or(defaults.padding), ..defaults });
         p.x += view.x as f64;
         p.y += view.y as f64;
         p

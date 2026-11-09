@@ -2808,7 +2808,9 @@
           "display": "flex",
           "flexDirection": "row",
           "alignItems": "center",
+          "justifyContent": "center",
           "height": "$control.badge",
+          "minWidth": "$control.badge",
           "paddingHorizontal": "$spacing.xs",
           "borderRadius": "$radius.sm",
           "alignSelf": "flex-start"
@@ -2819,8 +2821,208 @@
             "component": "Text",
             "props": {
               "text": "{props.keys}",
-              "variant": "code",
+              "variant": "caption",
               "lines": 1
+            }
+          }
+        ]
+      }
+    },
+    "KbdGroup": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "group"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "alignSelf": "flex-start"
+        },
+        "$template": {
+          "path": "{props.keys.@path}",
+          "item": {
+            "part": "key",
+            "component": "Kbd",
+            "props": {
+              "keys": {
+                "@path": ""
+              }
+            }
+          }
+        },
+        "children": [
+          {
+            "part": "key",
+            "component": "Kbd",
+            "$each": "props.keys",
+            "$as": "key",
+            "props": {
+              "keys": "{key}"
+            }
+          }
+        ]
+      }
+    },
+    "KeyRecorder": {
+      "recipeProps": [
+        "recording"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "children": [
+          {
+            "part": "field",
+            "component": "Box",
+            "$a11y": {
+              "role": "button",
+              "label": "{props.label}",
+              "pressed": "{props.recording|false}"
+            },
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "$on": {
+              "press": "start",
+              "blur": "stop",
+              "record": "key"
+            },
+            "$set": {
+              "press": {
+                "prop": "recording",
+                "value": true
+              },
+              "blur": {
+                "prop": "recording",
+                "value": false
+              }
+            },
+            "children": [
+              {
+                "part": "none",
+                "component": "Text",
+                "$if": [
+                  {
+                    "$not": "props.recording"
+                  },
+                  {
+                    "$eq": [
+                      "{len(props.value)}",
+                      0
+                    ]
+                  }
+                ],
+                "props": {
+                  "text": "$string.keyRecorderNone",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "value",
+                "component": "KbdGroup",
+                "props": {
+                  "keys": "{props.value}"
+                },
+                "$if": [
+                  {
+                    "$not": "props.recording"
+                  },
+                  {
+                    "$lt": [
+                      0,
+                      "{len(props.value)}"
+                    ]
+                  }
+                ]
+              },
+              {
+                "part": "placeholder",
+                "component": "Text",
+                "$if": [
+                  "props.recording",
+                  {
+                    "$eq": [
+                      "{len(props.pending)}",
+                      0
+                    ]
+                  }
+                ],
+                "props": {
+                  "text": "{props.placeholder|$string.keyRecorderPlaceholder}",
+                  "variant": "muted",
+                  "lines": 1
+                }
+              },
+              {
+                "part": "held",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "children": [
+                  {
+                    "part": "pending",
+                    "component": "KbdGroup",
+                    "props": {
+                      "keys": "{props.pending}"
+                    }
+                  },
+                  {
+                    "part": "ellipsis",
+                    "component": "Text",
+                    "props": {
+                      "text": "…",
+                      "variant": "muted",
+                      "lines": 1
+                    }
+                  }
+                ],
+                "$if": [
+                  "props.recording",
+                  {
+                    "$lt": [
+                      0,
+                      "{len(props.pending)}"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "part": "error",
+            "component": "Text",
+            "$if": "props.error",
+            "$a11y": {
+              "role": "alert"
+            },
+            "props": {
+              "text": "{props.error}"
             }
           }
         ]
@@ -4839,6 +5041,7 @@
                     "props": {
                       "name": "{props.name}",
                       "src": "{props.avatar}",
+                      "seed": "{props.seed}",
                       "size": "lg"
                     }
                   }
@@ -7792,6 +7995,43 @@
             },
             "children": [
               {
+                "part": "search",
+                "component": "Input",
+                "$if": "props.search",
+                "props": {
+                  "label": "",
+                  "name": "search",
+                  "type": "search",
+                  "placeholder": "$string.search",
+                  "value": "{props.searchValue}"
+                },
+                "$a11y": {
+                  "label": "$string.search"
+                },
+                "style": {
+                  "width": 240,
+                  "maxWidth": "100%"
+                }
+              },
+              {
+                "part": "filter",
+                "component": "Select",
+                "$if": "props.filterOptions",
+                "props": {
+                  "name": "filter",
+                  "options": "{props.filterOptions}",
+                  "value": "{props.filterValue}",
+                  "placeholder": "{props.filterLabel}"
+                },
+                "$a11y": {
+                  "label": "{props.filterLabel}"
+                },
+                "style": {
+                  "width": 180,
+                  "maxWidth": "100%"
+                }
+              },
+              {
                 "part": "count",
                 "component": "Text",
                 "props": {
@@ -7854,7 +8094,8 @@
               "rows": "{props.rows}",
               "density": "compact",
               "stickyHeader": true,
-              "emptyText": "$string.noRecords"
+              "emptyText": "$string.noRecords",
+              "totals": "{props.totals|false}"
             },
             "style": {
               "@media (form-factor: phone)": {

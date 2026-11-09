@@ -402,7 +402,7 @@ impl ChatsView {
             cx.notify();
             return;
         }
-        if modifiers.secondary() || !self.selected.is_empty() {
+        if modifiers.secondary(cx) || !self.selected.is_empty() {
             self.toggle(id, window, cx);
             return;
         }
@@ -470,6 +470,7 @@ fn chats_page_row(
 
 impl Render for ChatsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChatsView").entered();
         use gpui::StatefulInteractiveElement as _;
         let ready = sync::Store::try_global(cx)
             .is_some_and(|store| store.collections().sessions.read(cx).is_ready());

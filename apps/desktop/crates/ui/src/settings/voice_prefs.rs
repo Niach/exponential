@@ -12,40 +12,38 @@
 //! once, so this device starts or stops listening without waiting for the
 //! next heartbeat.
 //!
-//! [`voice_rows`] draws the rows from plain values; the pane and the
-//! styleguide twin (`styleguide/entries/voice_settings.rs`) both call it.
+//! #EXP-1629: the pane is a document on eUI's native host binding
+//! (`eui_gpui::binding`): [`Voice`] is the state, [`project`] its data model
+//! at `/pane`, [`document`] the tree (the glass rows' geometry and colours,
+//! the IDE's chrome written in). Push to talk is genUI's `KeyRecorder` (the
+//! bound keys a `KbdGroup`): the component captures and shows; THIS adapter
+//! keeps Exponential's grammar (`capture_step` over its `key` events) and
+//! pauses the global push-to-talk grab between `start` and the end. The
+//! styleguide twin (`styleguide/entries/voice_settings.rs`) mounts the same
+//! document over static values ([`VoicePrefsPane::twin`]).
 
 use std::rc::Rc;
 
-use gpui::{
-    div, prelude::FluentBuilder as _, AnyElement, App, AppContext as _, Entity, FocusHandle, InteractiveElement as _,
-    IntoElement, Modifiers, MouseButton, NavigationDirection, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window,
+use eui_gpui::{
+    binding::{Binding, Mutation},
+    host::{ActionEvent, InputEvent},
+    view::SurfaceView,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    input::{InputEvent, InputState},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
-};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, Styled as _, Subscription, WeakEntity, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 
 use api::voice::VoiceUpdate;
 use etalk::voice::{
-    agent_options, capture_pending, capture_start, capture_step, language_label, shortcut_reason, tray_header,
+    agent_options, capture_pending, capture_start, capture_step, language_label, shortcut_keycaps, shortcut_reason, tray_header,
     voice_device_options, voice_text_input, wake_phrase_error, wake_phrase_placeholder, CaptureEvent, CaptureState, CaptureStatus,
     VoiceAgent, VoiceDevice, VoiceOption, VoiceSettings, VOICE,
 };
 
-use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudioCapability, MEETING};
+use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudio, DesktopAudioCapability, MEETING};
 
-use crate::controls::{glass_input, kbd, kbd_group, shortcut_keys, PointerMenuButtonExt as _};
-use crate::picker::{Picker, PickerItem};
+use super::doc::{and, faded, hex, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, XS};
 use crate::queries;
-use crate::surface::{glass_group_rows, glass_input_row, glass_picker_row, glass_toggle_row, picker_value_label};
-
-use super::{section, settings_skeleton};
-
-/// A change from one row: the partial update to send.
-pub(crate) type OnVoiceChange = Rc<dyn Fn(VoiceUpdate, &mut App)>;
 
 /// The member's agents (every team's), by id: the pickers' options and the
 /// bare names the wake phrase and the tray use.
@@ -96,181 +94,13 @@ pub(crate) fn voice_choices(cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>) {
 /// A picker's value: the option's label; a stored id whose row is not
 /// synced here (the shape not ready, the row gone) reads `unsynced`, never
 /// its raw id nor None (#NEW-71, web `voice-settings-card`).
-fn label_of(options: &[VoiceOption], id: Option<&str>, unsynced: &str) -> SharedString {
+fn label_of(options: &[VoiceOption], id: Option<&str>, unsynced: &str) -> String {
     options
         .iter()
         .find(|option| option.id.as_deref() == id)
         .map(|option| option.label.clone())
         .or_else(|| id.map(|_| unsynced.to_string()))
         .unwrap_or_default()
-        .into()
-}
-
-/// One picker row: the label, the current value, a single-select menu.
-fn picker_row(
-    id: &'static str,
-    label: &str,
-    detail: Option<SharedString>,
-    value: SharedString,
-    entries: Vec<(Option<String>, String)>,
-    current: Option<String>,
-    on_pick: Option<Rc<dyn Fn(Option<String>, &mut App)>>,
-    cx: &App,
-) -> gpui::Div {
-    enabled_picker_row(id, label, detail, value, entries, current, true, on_pick, cx)
-}
-
-/// [`picker_row`] that can be disabled (#FEED-163: Stop after while the
-/// device or the agent is None, like the toggles).
-#[allow(clippy::too_many_arguments)]
-fn enabled_picker_row(
-    id: &'static str,
-    label: &str,
-    detail: Option<SharedString>,
-    value: SharedString,
-    entries: Vec<(Option<String>, String)>,
-    current: Option<String>,
-    enabled: bool,
-    on_pick: Option<Rc<dyn Fn(Option<String>, &mut App)>>,
-    cx: &App,
-) -> gpui::Div {
-    let value_color = cx.theme().foreground.opacity(if enabled { 0.7 } else { 0.4 });
-    let on_pick = on_pick.filter(|_| enabled);
-    let button = Button::new(id)
-        .accessibility_label(label.to_string())
-        .ghost()
-        .disabled(!enabled)
-        .cursor_pointer()
-        .h_auto()
-        .px_0()
-        .py_0()
-        .text_color(value_color)
-        .child(picker_value_label(value))
-        .child(crate::surface::picker_row_chevron(cx))
-        .pointer_menu(move |mut menu, _, _| {
-            menu = crate::pickers::single_select_menu(menu);
-            for (entry_id, entry_label) in entries.clone() {
-                let on_pick = on_pick.clone();
-                let checked = entry_id == current;
-                menu = menu.item(
-                    crate::controls::pointer_label_item(entry_label, false)
-                        .checked(checked)
-                        .on_click(move |_, _, cx| {
-                            if let Some(on_pick) = on_pick.as_ref() {
-                                on_pick(entry_id.clone(), cx);
-                            }
-                        }),
-                );
-            }
-            menu
-        });
-    glass_picker_row(label.to_string(), detail, button.into_any_element(), cx)
-}
-
-fn switch_row(
-    id: &'static str,
-    label: &str,
-    detail: Option<SharedString>,
-    checked: bool,
-    enabled: bool,
-    on_toggle: Option<Rc<dyn Fn(bool, &mut App)>>,
-    cx: &App,
-) -> gpui::Div {
-    let switch = crate::controls::web_switch(id).checked(checked && enabled).disabled(!enabled);
-    let switch = match on_toggle {
-        Some(on_toggle) => switch.on_click(move |on: &bool, _, cx| on_toggle(*on, cx)),
-        None => switch,
-    };
-    glass_toggle_row(label.to_string(), detail, switch.into_any_element(), cx)
-}
-
-/// S-3: what the recorder hands the pane.
-pub(crate) enum RecorderInput {
-    /// A click on the row: start recording.
-    Start,
-    /// A mouse button pressed over the recorder while it records (gpui's
-    /// numbering: 1 left, 2 right, 3 middle, 4 back, 5 forward).
-    Mouse(u32),
-    /// The held modifiers changed while it records.
-    Modifiers(Modifiers),
-    /// The clear button (testId `shortcutClear`): no key = push to talk off.
-    Clear,
-}
-
-/// S-3: the Push to talk row (voice.json PUSH TO TALK = A KEY BINDING).
-#[derive(Default)]
-pub(crate) struct ShortcutRecorder {
-    /// The capture while recording (None = idle).
-    pub capture: Option<CaptureState>,
-    /// The recorder's key focus (the pane's).
-    pub focus: Option<FocusHandle>,
-    /// None = READ-ONLY (another device, the styleguide twin): the label.
-    pub on_input: Option<Rc<dyn Fn(RecorderInput, &mut Window, &mut App)>>,
-}
-
-/// S-3: the recorder's control: idle = the keycaps (the clear button while
-/// a key is bound, on the voice device); recording = the held modifiers as
-/// pending keycaps or `copy.shortcutRecord`, focused so the key events land.
-fn recorder_control(value: &str, recorder: &ShortcutRecorder, cx: &App) -> AnyElement {
-    let Some(on_input) = recorder.on_input.clone() else {
-        return shortcut_keys(value, cx).into_any_element();
-    };
-    let recording = recorder.capture.as_ref().filter(|capture| capture.status == CaptureStatus::Recording);
-    let field = div()
-        .id("settings-voice-shortcut")
-        .role(gpui::Role::Button)
-        .aria_label(VOICE.copy.push_to_talk.clone())
-        .cursor_pointer()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .border_1()
-        .border_color(if recording.is_some() { cx.theme().ring } else { gpui::transparent_black() })
-        .when_some(recorder.focus.as_ref(), |field, focus| field.track_focus(focus));
-    let field = match recording {
-        Some(capture) => {
-            let pending = capture_pending(capture);
-            let on_mouse = on_input.clone();
-            let on_modifiers = on_input.clone();
-            let inner = if pending.is_empty() {
-                div().text_sm().text_color(cx.theme().muted_foreground).child(VOICE.copy.shortcut_record.clone())
-            } else {
-                // The held modifiers' keycaps, then the trailing `…`.
-                let separator = &VOICE.shortcut_grammar.separator;
-                let held = pending.trim_end_matches('…').trim_end_matches(separator.as_str());
-                kbd_group(held.split(separator.as_str()).map(|cap| kbd(cap.to_string(), cx)))
-                    .child(div().text_sm().text_color(cx.theme().muted_foreground).child(VOICE.copy.ellipsis.clone()))
-            };
-            field
-                .on_any_mouse_down(move |event, window, cx| {
-                    let button = match event.button {
-                        MouseButton::Left => 1,
-                        MouseButton::Right => 2,
-                        MouseButton::Middle => 3,
-                        MouseButton::Navigate(NavigationDirection::Back) => 4,
-                        MouseButton::Navigate(NavigationDirection::Forward) => 5,
-                    };
-                    on_mouse(RecorderInput::Mouse(button), window, cx);
-                    cx.stop_propagation();
-                })
-                .on_modifiers_changed(move |event, window, cx| on_modifiers(RecorderInput::Modifiers(event.modifiers), window, cx))
-                .child(inner)
-        }
-        None => {
-            let on_start = on_input.clone();
-            field.on_click(move |_, window, cx| on_start(RecorderInput::Start, window, cx)).child(shortcut_keys(value, cx))
-        }
-    };
-    let clear = (!value.is_empty() && recording.is_none()).then(|| {
-        let on_clear = on_input.clone();
-        Button::new("settings-voice-shortcut-clear")
-            .ghost()
-            .xsmall()
-            .cursor_pointer()
-            .label(VOICE.copy.shortcut_clear.clone())
-            .on_click(move |_, window, cx| on_clear(RecorderInput::Clear, window, cx))
-    });
-    h_flex().gap_1().child(field).children(clear).into_any_element()
 }
 
 /// S-3: the Wake word row's detail on a client that is NOT the voice
@@ -306,259 +136,27 @@ fn remote_wake_detail(settings: &VoiceSettings, device_name: &str, cx: &App) -> 
     Some(if online && settings.agent_id.is_some() { reported.unwrap_or(detail) } else { detail })
 }
 
-/// The page's three one-line inputs (the pane's live fields, or the twin's
-/// static ones), already wrapped in `glass_row_input`.
-pub(crate) struct VoiceInputs {
-    pub wake_phrase: AnyElement,
-    pub voice_file: AnyElement,
-    pub voice_transcript: AnyElement,
+/// S-3: this desktop IS the voice device.
+pub(crate) fn is_voice_device(settings: &VoiceSettings, cx: &App) -> bool {
+    #[cfg(test)]
+    if let Some(here) = SHOT_HERE.with(|here| here.get()) {
+        return here;
+    }
+    cx.try_global::<crate::session::AuthContext>()
+        .is_some_and(|auth| settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str()))
 }
 
-/// #NEW-57: the meeting rows' inputs (`meeting.json` UI).
-pub(crate) struct MeetingRows {
-    /// The voice device's capability (`doctor.desktopAudio`).
-    pub capability: DesktopAudioCapability,
-    /// The Apps row's control ([`apps_control`]).
-    pub apps: AnyElement,
-    /// The Meeting mode toggle: on = THE consent dialog, off = stop at once.
-    /// None = inert (the styleguide twin).
-    pub on_meeting: Option<Rc<dyn Fn(bool, &mut App)>>,
+#[cfg(test)]
+thread_local! {
+    /// The bench's "this desktop is the voice device".
+    pub(crate) static SHOT_HERE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
-/// #NEW-57: the Apps row's multi picker over `appOptions(live, stored)`;
-/// `on_change` None = the trigger alone (the styleguide twin).
-pub(crate) fn apps_control(
-    settings: &VoiceSettings,
-    live: &[AudioApp],
-    on_change: Option<OnVoiceChange>,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let stored = settings.desktop_audio_apps.clone();
-    let empty = stored.is_empty();
-    let trigger = Button::new("settings-voice-apps")
-        .accessibility_label(MEETING.copy.apps.clone())
-        .ghost()
-        .cursor_pointer()
-        .h_auto()
-        .px_0()
-        .py_0()
-        .text_color(if empty { cx.theme().muted_foreground } else { cx.theme().foreground.opacity(0.7) })
-        .child(picker_value_label(apps_value(&stored)))
-        .child(crate::surface::picker_row_chevron(cx));
-    let Some(on_change) = on_change else { return trigger.into_any_element() };
-    let options = app_options(live, &stored);
-    let items: Vec<PickerItem<String>> = options.iter().map(|option| PickerItem::new(option.value.clone(), option.label.clone())).collect();
-    let value: Vec<String> = stored.iter().map(|app| app.id.clone()).collect();
-    Picker::multi(
-        items,
-        value,
-        trigger.into_any_element(),
-        Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
-            let apps: Vec<AudioApp> = next
-                .iter()
-                .filter_map(|id| options.iter().find(|option| &option.value == id))
-                .map(|option| AudioApp { id: option.value.clone(), name: option.label.chars().take(MEETING.limits.app_name).collect() })
-                .take(MEETING.limits.apps)
-                .collect();
-            on_change(VoiceUpdate { desktop_audio_apps: Some(apps), ..Default::default() }, cx);
-        }),
-    )
-    .id("settings-voice-apps-picker")
-    .render(window, cx)
-}
-
-/// THE Voice rows (`voice.json`): group 1, then the tray group while a voice
-/// device is picked. `wake_input` = the wake phrase's input element (the
-/// pane's live field, or the twin's static one); `on_change` = None draws
-/// the rows inert but in their live look (the styleguide twin).
-pub(crate) fn voice_rows(
-    settings: &VoiceSettings,
-    devices: &[VoiceOption],
-    agents: &[VoiceOption],
-    inputs: VoiceInputs,
-    meeting: MeetingRows,
-    recorder: ShortcutRecorder,
-    on_change: Option<OnVoiceChange>,
-    assistant_block: bool,
-    cx: &App,
-) -> Vec<AnyElement> {
-    let MeetingRows { capability, apps: apps_control, on_meeting } = meeting;
-    let VoiceInputs { wake_phrase: wake_input, voice_file, voice_transcript } = inputs;
-    let copy = &VOICE.copy;
-    let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
-    // voice.json: while the voice downloads (only ever on the voice device,
-    // i.e. here) a row's detail reads `downloadProgress`; S-3 removed the
-    // Speak replies row, so the Language row (the voice) carries it.
-    let downloading = (on_change.is_some() && ready).then(|| etalk_gpui::speak_replies::download_detail(cx)).flatten();
-    let send = |make: Rc<dyn Fn(Option<String>) -> VoiceUpdate>| -> Option<Rc<dyn Fn(Option<String>, &mut App)>> {
-        on_change.clone().map(|on_change| {
-            Rc::new(move |value: Option<String>, cx: &mut App| on_change(make(value), cx)) as Rc<dyn Fn(Option<String>, &mut App)>
-        })
-    };
-    let toggle = |make: Rc<dyn Fn(bool) -> VoiceUpdate>| -> Option<Rc<dyn Fn(bool, &mut App)>> {
-        on_change.clone().map(|on_change| Rc::new(move |on: bool, cx: &mut App| on_change(make(on), cx)) as Rc<dyn Fn(bool, &mut App)>)
-    };
-    let options = |list: &[VoiceOption]| list.iter().map(|option| (option.id.clone(), option.label.clone())).collect::<Vec<_>>();
-
-    // The stored device names the tray group even while its row is not
-    // synced here (its label, else `copy.ellipsis`), as on web.
-    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(devices, Some(id), &copy.ellipsis).to_string());
-
-    let language = settings.language().to_string();
-    // Every language carries its GPU note (#NEW-74), in the row and in the menu.
-    let languages = VOICE
-        .languages
-        .iter()
-        .map(|entry| (Some(entry.value.clone()), language_label(&entry.value, device_name.as_deref())))
-        .collect();
-
-    let mut out: Vec<AnyElement> = Vec::new();
-    // S-3 (agent-settings.json `assistant`): on the Assistant page the
-    // block drops the "Voice device" and "Agent" pickers (the device is Runs
-    // on's, the agent is this Assistant).
-    let mut first: Vec<gpui::Div> = Vec::new();
-    if !assistant_block {
-        first.push(picker_row(
-                "settings-voice-device",
-                &copy.voice_device,
-                None,
-                // #NEW-96: a device row not (yet) synced leaves the value
-                // empty, as web's picker row does (never `…`).
-                label_of(devices, settings.voice_device_id.as_deref(), ""),
-                options(devices),
-                settings.voice_device_id.clone(),
-                send(Rc::new(|value| VoiceUpdate { voice_device_id: Some(value), ..Default::default() })),
-                cx,
-            ));
-        first.push(picker_row(
-                "settings-voice-agent",
-                &copy.agent,
-                None,
-                // Web's picker trails nothing for an agent not synced here.
-                label_of(agents, settings.agent_id.as_deref(), ""),
-                options(agents),
-                settings.agent_id.clone(),
-                send(Rc::new(|value| VoiceUpdate { agent_id: Some(value), ..Default::default() })),
-                cx,
-            ));
-    }
-    first.extend([
-            // #NEW-73: the spoken-reply language, then the custom voice.
-            picker_row(
-                "settings-voice-language",
-                &copy.language,
-                downloading.map(SharedString::from),
-                SharedString::from(language_label(&language, device_name.as_deref())),
-                languages,
-                Some(language),
-                send(Rc::new(|value| VoiceUpdate { language: value, ..Default::default() })),
-                cx,
-            ),
-    ]);
-    if device_name.is_some() {
-        first.push(glass_input_row(copy.voice_file.clone(), voice_file, cx));
-        first.push(glass_input_row(copy.voice_transcript.clone(), voice_transcript, cx));
-    }
-    out.push(glass_group_rows(first).into_any_element());
-    if let Some(device_name) = device_name {
-        // S-3: on the voice device itself the Push to talk row is THE
-        // recorder; a binding that can't be held system-wide says why under
-        // its label (#NEW-54). Everywhere else it is read-only.
-        let here = on_change.is_some()
-            && cx.try_global::<crate::session::AuthContext>().is_some_and(|auth| {
-                settings.voice_device_id.as_deref() == Some(steer::persistent_device_id(&auth.data_dir).as_str())
-            });
-        let status = if here && settings.push_to_talk() { etalk_gpui::push_to_talk::status(cx) } else { Default::default() };
-        let reason = status.reason().map(|reason| SharedString::from(shortcut_reason(reason, &settings.ptt_shortcut)));
-        // S-3 (WAKE DETAIL ×4): why the wake word is or is not listening:
-        // here from the worker, elsewhere from the voice device's doctor.
-        let wake_detail = if here {
-            etalk_gpui::push_to_talk::own_wake_detail(settings, &device_name, cx)
-        } else if on_change.is_some() {
-            remote_wake_detail(settings, &device_name, cx)
-        } else {
-            None
-        };
-        let recorder = if here { recorder } else { ShortcutRecorder::default() };
-        let error = recorder.capture.as_ref().and_then(|capture| capture.error.clone());
-        let shortcut_row = v_flex()
-            .w_full()
-            .child(glass_picker_row(copy.push_to_talk.clone(), reason, recorder_control(&settings.ptt_shortcut, &recorder, cx), cx))
-            // feedback-states.json `errors`: invalid input inline under its field.
-            .when_some(error, |row, error| row.child(crate::action_error::field_error(error, cx).px_4().pb_3()));
-        out.push(crate::surface::glass_section_header(tray_header(&device_name), None, cx).into_any_element());
-        let tray_rows = {
-            let tray = vec![
-                shortcut_row,
-                switch_row(
-                    "settings-voice-wake-word",
-                    &copy.wake_word,
-                    wake_detail.map(SharedString::from),
-                    settings.wake_word,
-                    ready,
-                    toggle(Rc::new(|on| VoiceUpdate { wake_word: Some(on), ..Default::default() })),
-                    cx,
-                ),
-                glass_input_row(copy.wake_phrase.clone(), wake_input, cx),
-            ];
-            tray
-        };
-        out.push(glass_group_rows(tray_rows).into_any_element());
-        // #NEW-57 (`meeting.json` UI): its OWN group under the tray group, no
-        // header: Meeting mode (its who on the second line while on),
-        // #FEED-163 Stop after, Desktop audio, and Apps while it picks apps
-        // the device can pick.
-        let meeting_rows = {
-            let mut tray: Vec<gpui::Div> = Vec::new();
-            let words = &MEETING.copy;
-            let meeting_on = settings.meeting();
-            let who = meeting_on.then(|| etalk::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability));
-            tray.push(switch_row(
-                "settings-voice-meeting",
-                &words.meeting,
-                who.map(SharedString::from),
-                meeting_on,
-                ready,
-                on_meeting,
-                cx,
-            ));
-            let hours = settings.auto_stop_hours();
-            tray.push(enabled_picker_row(
-                "settings-voice-auto-stop",
-                &words.auto_stop_after,
-                None,
-                SharedString::from(etalk::meeting::auto_stop_option(hours)),
-                etalk::meeting::auto_stop_options().into_iter().map(|option| (Some(option.value.to_string()), option.label)).collect(),
-                Some(hours.to_string()),
-                ready,
-                send(Rc::new(|value| VoiceUpdate {
-                    meeting_auto_stop_hours: value.as_deref().and_then(|value| value.parse().ok()),
-                    ..Default::default()
-                })),
-                cx,
-            ));
-            tray.push(picker_row(
-                "settings-voice-desktop-audio",
-                &words.desktop_audio,
-                None,
-                SharedString::from(settings.desktop_audio.label()),
-                desktop_audio_options(capability).into_iter().map(|value| (Some(value.key().to_string()), value.label().to_string())).collect(),
-                Some(settings.desktop_audio.key().to_string()),
-                send(Rc::new(|value| VoiceUpdate {
-                    desktop_audio: value.as_deref().map(etalk::meeting::DesktopAudio::from_key),
-                    ..Default::default()
-                })),
-                cx,
-            ));
-            if settings.desktop_audio.picks_apps() && desktop_audio_options(capability).contains(&settings.desktop_audio) {
-                tray.push(glass_picker_row(words.apps.clone(), None, apps_control, cx));
-            }
-            tray
-        };
-        out.push(glass_group_rows(meeting_rows).into_any_element());
-    }
-    out
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct VoiceShot {
+    pub settings: VoiceSettings,
+    pub capture: Option<CaptureState>,
 }
 
 /// The picked agent's bare name (`Hey Studio`, never `Hey Studio · Acme`);
@@ -577,6 +175,12 @@ pub(crate) fn wake_placeholder(settings: &VoiceSettings, agents: &[VoiceAgent]) 
     wake_phrase_placeholder(&agent_name(settings, agents))
 }
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// A picker's value for None (a menu item's value is a string).
+const NONE: &str = "none";
+
 enum Load {
     Idle,
     Loading,
@@ -584,13 +188,21 @@ enum Load {
     Error,
 }
 
-pub struct VoicePrefsPane {
+/// The styleguide twin's static world: the options, the agents and the
+/// meeting capability it draws over (no store, no writes, read-only keys).
+#[derive(Clone)]
+pub(crate) struct Fixed {
+    pub devices: Vec<VoiceOption>,
+    pub agents: Vec<VoiceOption>,
+    pub agent_rows: Vec<VoiceAgent>,
+    pub capability: DesktopAudioCapability,
+}
+
+/// The pane's state.
+pub(crate) struct Voice {
     load: Load,
     generation: u64,
     account_id: Option<String>,
-    /// The one-line inputs, built lazily from the loaded value.
-    inputs: [Option<Entity<InputState>>; 3],
-    _subscriptions: Vec<gpui::Subscription>,
     /// Last write wins: only the newest write may adopt or revert.
     write: u64,
     /// Writes not answered yet (a stale page is not refetched over them).
@@ -599,24 +211,420 @@ pub struct VoicePrefsPane {
     /// tray toggle) drops the cache.
     seen: VoiceSettings,
     /// #NEW-56: a too-short wake phrase, never sent: its line shows under
-    /// the field until the next edit (`wakePhraseError`).
-    wake_phrase_invalid: Option<SharedString>,
-    /// S-3: the wake word's state as last drawn (the Wake word row's
-    /// detail); push to talk notifies far more often than that.
-    wake_drawn: Option<etalk::voice::WakeState>,
+    /// the tray group until the next commit (`wakePhraseError`).
+    wake_phrase_invalid: Option<String>,
     /// S-3: the push-to-talk recorder while it records.
     capture: Option<CaptureState>,
-    /// S-3: the recorder's key focus.
-    recorder_focus: Option<FocusHandle>,
-    /// S-3: the key-down interceptor while recording (bindings never fire).
-    _intercept: Option<gpui::Subscription>,
-    _recorder_blur: Option<gpui::Subscription>,
     /// S-3: drawn as the Assistant page's Voice section (no Voice device /
     /// Agent pickers).
     assistant_block: bool,
+    /// The styleguide twin.
+    fixed: Option<Fixed>,
 }
 
-/// Which one-line input (`VoicePrefsPane::inputs` index).
+impl Voice {
+    fn ready(&self) -> Option<&VoiceSettings> {
+        match &self.load {
+            Load::Ready(settings) => Some(settings),
+            _ => None,
+        }
+    }
+}
+
+/// What the tree is built over (its menus and placeholders): the document
+/// is rebuilt when it changes (`VoicePrefsPane::render`).
+#[derive(Clone, PartialEq)]
+struct Options {
+    devices: Vec<(String, String)>,
+    agents: Vec<(String, String)>,
+    languages: Vec<(String, String)>,
+    auto_stop: Vec<(String, String)>,
+    desktop_audio: Vec<(String, String)>,
+    apps: Vec<(String, String)>,
+    wake_placeholder: String,
+    /// voice.json: while the voice downloads, the Language row's hint
+    /// (`downloadProgress`; a Select's `description` is not bindable).
+    language_detail: Option<String>,
+}
+
+fn pairs(list: &[VoiceOption]) -> Vec<(String, String)> {
+    list.iter().map(|option| (option.id.clone().unwrap_or_else(|| NONE.to_string()), option.label.clone())).collect()
+}
+
+fn choices(state: &Voice, cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>, Vec<VoiceAgent>) {
+    match &state.fixed {
+        Some(fixed) => (fixed.devices.clone(), fixed.agents.clone(), fixed.agent_rows.clone()),
+        None => {
+            let (devices, agents) = voice_choices(cx);
+            (devices, agents, voice_agents(cx))
+        }
+    }
+}
+
+fn audio(state: &Voice, settings: &VoiceSettings, cx: &App) -> (DesktopAudioCapability, Vec<AudioApp>) {
+    match &state.fixed {
+        Some(fixed) => (fixed.capability, Vec::new()),
+        None => crate::meeting_mode::desktop_audio_of(settings, cx),
+    }
+}
+
+fn options(state: &Voice, cx: &App) -> Options {
+    let settings = state.ready().cloned().unwrap_or_default();
+    let (devices, agents, agent_rows) = choices(state, cx);
+    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(&devices, Some(id), &VOICE.copy.ellipsis));
+    let (capability, live) = audio(state, &settings, cx);
+    // #NEW-96: a stored device or agent not (yet) synced here is an option
+    // with no label, so the row trails nothing (never its raw id).
+    let unsynced = |mut list: Vec<(String, String)>, id: Option<&str>| {
+        if let Some(id) = id.filter(|id| !list.iter().any(|(value, _)| value == id)) {
+            list.push((id.to_string(), String::new()));
+        }
+        list
+    };
+    Options {
+        devices: unsynced(pairs(&devices), settings.voice_device_id.as_deref()),
+        agents: unsynced(pairs(&agents), settings.agent_id.as_deref()),
+        // Every language carries its GPU note (#NEW-74), in the row and in the menu.
+        languages: VOICE.languages.iter().map(|entry| (entry.value.clone(), language_label(&entry.value, device_name.as_deref()))).collect(),
+        auto_stop: etalk::meeting::auto_stop_options().into_iter().map(|option| (option.value.to_string(), option.label)).collect(),
+        desktop_audio: desktop_audio_options(capability).into_iter().map(|value| (value.key().to_string(), value.label().to_string())).collect(),
+        apps: app_options(&live, &settings.desktop_audio_apps).into_iter().map(|option| (option.value, option.label)).collect(),
+        wake_placeholder: wake_placeholder(&settings, &agent_rows),
+        language_detail: (state.fixed.is_none() && settings.voice_device_id.is_some() && settings.agent_id.is_some())
+            .then(|| etalk_gpui::speak_replies::download_detail(cx))
+            .flatten(),
+    }
+}
+
+/// The state as the document binds it.
+fn project(state: &Voice, cx: &App) -> Value {
+    let copy = &VOICE.copy;
+    let Some(settings) = state.ready() else {
+        return json!({"loading": matches!(state.load, Load::Idle | Load::Loading), "failed": matches!(state.load, Load::Error), "ready": false, "hasTray": false});
+    };
+    let (devices, agents, _) = choices(state, cx);
+    let live = state.fixed.is_none();
+    let ready = settings.voice_device_id.is_some() && settings.agent_id.is_some();
+    // The stored device names the tray group even while its row is not
+    // synced here (its label, else `copy.ellipsis`), as on web.
+    let device_name = settings.voice_device_id.as_deref().map(|id| label_of(&devices, Some(id), &copy.ellipsis));
+    let language = settings.language().to_string();
+
+    let mut tray = Value::Null;
+    if let Some(device_name) = device_name.as_deref() {
+        // S-3: on the voice device itself the Push to talk row is THE
+        // recorder; a binding that can't be held system-wide says why under
+        // its label (#NEW-54). Everywhere else it is read-only.
+        let here = live && is_voice_device(settings, cx);
+        let status = if here && settings.push_to_talk() { etalk_gpui::push_to_talk::status(cx) } else { Default::default() };
+        let reason = status.reason().map(|reason| shortcut_reason(reason, &settings.ptt_shortcut));
+        // S-3 (WAKE DETAIL ×4): why the wake word is or is not listening:
+        // here from the worker, elsewhere from the voice device's doctor.
+        let wake_detail = if here {
+            etalk_gpui::push_to_talk::own_wake_detail(settings, device_name, cx)
+        } else if live {
+            remote_wake_detail(settings, device_name, cx)
+        } else {
+            None
+        };
+        let capture = state.capture.as_ref().filter(|capture| here && capture.status == CaptureStatus::Recording);
+        // The held modifiers' keycaps (`capture_pending` without its `…`).
+        let separator = &VOICE.shortcut_grammar.separator;
+        let pending: Vec<String> = capture
+            .map(capture_pending)
+            .filter(|pending| !pending.is_empty())
+            .map(|pending| pending.trim_end_matches('…').trim_end_matches(separator.as_str()).split(separator.as_str()).map(str::to_string).collect())
+            .unwrap_or_default();
+        let keys = shortcut_keycaps(&settings.ptt_shortcut);
+        let meeting_on = settings.meeting();
+        let (capability, _) = audio(state, settings, cx);
+        let apps_shown = settings.desktop_audio.picks_apps() && desktop_audio_options(capability).contains(&settings.desktop_audio);
+        let hours = settings.auto_stop_hours();
+        tray = json!({
+            "header": tray_header(device_name),
+            "ptt": {
+                "here": here,
+                "readOnly": !here,
+                "keys": keys,
+                "bound": !keys.is_empty(),
+                "unbound": keys.is_empty(),
+                "recording": capture.is_some(),
+                "pending": pending,
+                "clear": here && !keys.is_empty() && capture.is_none(),
+                "reason": reason,
+                "hint": reason.is_some(),
+                "error": capture.and_then(|capture| capture.error.clone()),
+                "hasError": capture.is_some_and(|capture| capture.error.is_some()),
+            },
+            "wake": {"checked": settings.wake_word && ready, "disabled": !ready, "detail": wake_detail, "hint": wake_detail.is_some()},
+            "meeting": {
+                "checked": meeting_on && ready,
+                "disabled": !ready,
+                "detail": meeting_on.then(|| etalk::meeting::who(settings.desktop_audio, &settings.desktop_audio_apps, capability)),
+                "hint": meeting_on,
+            },
+            "autoStop": {"value": hours.to_string(), "label": etalk::meeting::auto_stop_option(hours), "disabled": !ready},
+            "desktopAudio": {"value": settings.desktop_audio.key(), "label": settings.desktop_audio.label()},
+            "apps": {"shown": apps_shown, "value": settings.desktop_audio_apps.iter().map(|app| app.id.as_str()).collect::<Vec<_>>().join(",")},
+            "wakeInvalid": state.wake_phrase_invalid,
+            "hasWakeInvalid": state.wake_phrase_invalid.is_some(),
+        });
+    }
+    json!({
+        "loading": false,
+        "failed": false,
+        "ready": true,
+        "pickers": !state.assistant_block,
+        // #NEW-96: a device row not (yet) synced leaves the value empty, as
+        // web's picker row does (never `…`); web's agent picker trails nothing
+        // for an agent not synced here.
+        "device": {"value": settings.voice_device_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&devices, settings.voice_device_id.as_deref(), "")},
+        "agent": {"value": settings.agent_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&agents, settings.agent_id.as_deref(), "")},
+        "language": {"value": language},
+        "fields": {"wakePhrase": settings.wake_phrase, "voiceFile": settings.voice_file, "voiceTranscript": settings.voice_transcript},
+        "hasTray": !tray.is_null(),
+        "tray": tray,
+    })
+}
+
+/// What a Voice tree writes in: the IDE's chrome and the danger ink.
+struct Inks {
+    ink: Ink,
+    danger: String,
+}
+
+impl Inks {
+    fn of(cx: &App) -> Self {
+        Self { ink: Ink::of(cx), danger: hex(cx.theme().danger) }
+    }
+}
+
+/// A row's label column (`glass_picker_row` / `glass_toggle_row`): the
+/// `text_sm` label over its `text_xs` hint at 50% (`gap_0p5`, the hint
+/// capped at `ROW_DESCRIPTION_MAX_W`); without a hint a picker's label
+/// never shrinks, a toggle's grows.
+fn label_column(ink: &Ink, id: &str, label: &str, hint: Option<Value>, grow: bool) -> Value {
+    let mut children = vec![ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground)];
+    let has_hint = hint.is_some();
+    if let Some(hint) = hint {
+        let mut hint = faded(ink.text(&format!("{id}_hint"), hint, XS, &ink.hint), HINT_ALPHA);
+        hint["style"]["maxWidth"] = json!(eui_gpui::controls::ROW_DESCRIPTION_MAX_W);
+        children.push(hint);
+    }
+    let shrink = if grow || has_hint { 1 } else { 0 };
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.125), "minWidth": 0, "flexGrow": if grow { 1 } else { 0 }, "flexShrink": shrink}, "children": children})
+}
+
+/// `glass_picker_row`'s trailing column: `flex_1`, at least 200 wide, its
+/// control at the end.
+fn control_column(id: &str, children: Vec<Value>) -> Value {
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": children})
+}
+
+/// A row's Select options.
+fn select_options(list: &[(String, String)]) -> Vec<Value> {
+    list.iter().map(|(value, label)| json!({"label": label, "value": value})).collect()
+}
+
+/// A picker row (`glass_picker_row` + the IDE's Picker popup): genUI's
+/// `Select` with the `row` trigger; a pick closes it (`multiple` stays open).
+fn select_row(id: &str, visible: Value, label: &str, value: Value, action: &str, options: &[(String, String)], disabled: bool) -> Value {
+    json!({"id": id, "component": "Select", "visible": visible,
+        "props": {"triggerVariant": "row", "label": label, "name": id, "value": value, "options": select_options(options), "disabled": disabled},
+        "on": {"change": {"event": {"name": action}}}})
+}
+
+/// `<base>/hint` picks the row drawn with its hint line (or without).
+fn hint_pick(base: &str, hint: bool) -> Value {
+    if hint {
+        path(&format!("{base}/hint"))
+    } else {
+        not(path(&format!("{base}/hint")))
+    }
+}
+
+/// One picker row: a Select row (twice when `dim` picks a disabled one),
+/// its `description` the IDE row's hint under the label.
+#[allow(clippy::too_many_arguments)]
+fn picker_rows(id: &str, visible: Value, label: &str, base: &str, action: &str, options: &[(String, String)], dim: Option<Value>, description: Option<&str>) -> Vec<Value> {
+    let variants: Vec<(String, Value, bool)> = match &dim {
+        Some(disabled) => vec![(id.to_string(), not(disabled.clone()), false), (format!("{id}_dim"), disabled.clone(), true)],
+        None => vec![(id.to_string(), json!(true), false)],
+    };
+    variants
+        .into_iter()
+        .map(|(vid, shown, dim)| {
+            let mut row = select_row(&vid, and(visible.clone(), shown), label, path(&format!("{base}/value")), action, options, dim);
+            if let Some(description) = description {
+                row["props"]["description"] = json!(description);
+            }
+            row
+        })
+        .collect()
+}
+
+/// A switch row (`glass_toggle_row`), once per hint variant and per
+/// `<base>/disabled` (a Switch's `disabled` is not bindable).
+fn switch_rows(ink: &Ink, id: &str, label: &str, base: &str, action: &str) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for disabled in [false, true] {
+        for hint in [false, true] {
+            let rid = format!("{id}{}{}", if hint { "_hinted" } else { "" }, if disabled { "_off" } else { "" });
+            let column = label_column(ink, &format!("{rid}_text"), label, hint.then(|| path(&format!("{base}/detail"))), true);
+            let switch = json!({"id": format!("{rid}_switch"), "component": "Switch", "props": {"label": "", "name": rid, "checked": path(&format!("{base}/checked")), "disabled": disabled},
+                "on": {"change": {"event": {"name": action}}}});
+            let off = path(&format!("{base}/disabled"));
+            let shown = and(hint_pick(base, hint), if disabled { off } else { not(off) });
+            rows.push(ink.shell(&rid, false, shown, vec![column, switch]));
+        }
+    }
+    rows
+}
+
+/// A text-field row (`glass_input_row`): genUI's row Input (the label
+/// leading, the bare value end-aligned at 70%; the exponential theme's row
+/// is the IDE's at its 14 px rem).
+fn input_row(id: &str, visible: Value, label: &str, name: &str, placeholder: &str) -> Value {
+    json!({"id": id, "component": "Input", "visible": visible, "props": {"variant": "row", "label": label, "name": name, "placeholder": placeholder, "value": path(&format!("/pane/fields/{name}"))}})
+}
+
+/// `action_error::field_error`: the 13 px line in the danger ink, in a box
+/// of `padding` (horizontal, bottom).
+fn field_error(inks: &Inks, id: &str, text: Value, visible: Value, padding: (f32, f32)) -> Value {
+    let line = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": text}, "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": inks.danger}});
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": padding.0, "paddingBottom": padding.1}, "children": [line]})
+}
+
+/// Every id in `node` gets `suffix` (a subtree drawn twice).
+fn rename(node: &mut Value, suffix: &str) {
+    if let Some(id) = node.get("id").and_then(Value::as_str).map(str::to_string) {
+        node["id"] = json!(format!("{id}{suffix}"));
+    }
+    if let Some(children) = node.get_mut("children").and_then(Value::as_array_mut) {
+        for child in children {
+            rename(child, suffix);
+        }
+    }
+}
+
+/// The Push to talk row: genUI's KeyRecorder on the voice device (the
+/// Clear button beside it while a key is bound), the bound keys as a
+/// KbdGroup elsewhere; the capture error under the row.
+fn push_to_talk(inks: &Inks) -> Value {
+    let ink = &inks.ink;
+    let copy = &VOICE.copy;
+    let base = "/pane/tray/ptt";
+    let at = |key: &str| path(&format!("{base}/{key}"));
+    let recorder = json!({"id": "ptt_recorder", "component": "KeyRecorder",
+        "props": {"label": copy.push_to_talk, "value": at("keys"), "recording": at("recording"), "pending": at("pending"), "placeholder": copy.shortcut_record},
+        "on": {"start": {"event": {"name": "pttStart"}}, "stop": {"event": {"name": "pttStop"}}, "key": {"event": {"name": "pttKey"}}}});
+    // gpui-component's XSmall ghost Button: `h_5` / `px_1`, the `text_xs`
+    // label at line height 1 (half a point under the box centre).
+    let size = ink.r(XS);
+    let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "accessibility": {"label": copy.shortcut_clear},
+        "on": {"press": {"event": {"name": "pttClear"}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": ink.r(1.25), "paddingHorizontal": ink.r(0.25), "cursor": "pointer"},
+        "children": [{"id": "ptt_clear_text", "component": "Text", "props": {"text": copy.shortcut_clear}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground, "marginTop": 0.5, "marginBottom": -0.5}}]});
+    let here = json!({"id": "ptt_here", "component": "Box", "visible": at("here"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25)}, "children": [recorder, clear]});
+    let keys = json!({"id": "ptt_keys", "component": "KbdGroup", "visible": and(at("readOnly"), at("bound")), "props": {"keys": at("keys")}});
+    let mut none = ink.text("ptt_none", json!(copy.shortcut_none), SM, &ink.muted);
+    none["visible"] = and(at("readOnly"), at("unbound"));
+    let mut rows = Vec::new();
+    for hint in [false, true] {
+        let rid = if hint { "ptt_row_hinted" } else { "ptt_row" };
+        let column = label_column(ink, &format!("{rid}_text"), &copy.push_to_talk, hint.then(|| at("reason")), false);
+        let mut controls = vec![here.clone(), keys.clone(), none.clone()];
+        if hint {
+            controls.iter_mut().for_each(|node| rename(node, "_h"));
+        }
+        rows.push(ink.shell(rid, false, hint_pick(base, hint), vec![column, control_column(&format!("{rid}_control"), controls)]));
+    }
+    // feedback-states.json `errors`: invalid input inline under its field.
+    rows.push(field_error(inks, "ptt_error", at("error"), at("hasError"), (ink.r(1.), ink.r(0.75))));
+    json!({"id": "ptt", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": rows})
+}
+
+/// One group of rows (`glass_group_rows`): each row with the hairline it
+/// draws above itself where `divider` says.
+fn group(ink: &Ink, id: &str, visible: Value, rows: Vec<(Vec<Value>, Option<Value>)>) -> Value {
+    let mut children = Vec::new();
+    for (ix, (nodes, divider)) in rows.into_iter().enumerate() {
+        if let Some(divider) = divider {
+            children.push(ink.divider(&format!("{id}_divider_{ix}"), divider));
+        }
+        children.extend(nodes);
+    }
+    let mut node = ink.group(id, children);
+    node["visible"] = visible;
+    node
+}
+
+/// The pane's tree.
+fn document(inks: &Inks, options: &Options) -> Value {
+    let ink = &inks.ink;
+    let copy = &VOICE.copy;
+    let words = &MEETING.copy;
+    let pickers = path("/pane/pickers");
+    let tray = path("/pane/hasTray");
+
+    let device = picker_rows("device", pickers.clone(), &copy.voice_device, "/pane/device", "device", &options.devices, None, None);
+    let agent = picker_rows("agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", &options.agents, None, None);
+    let language = picker_rows("language", json!(true), &copy.language, "/pane/language", "language", &options.languages, None, options.language_detail.as_deref());
+    let first = group(ink, "first", path("/pane/ready"), vec![
+        (device, None),
+        (agent, Some(pickers.clone())),
+        (language, Some(pickers.clone())),
+        (vec![input_row("voice_file", tray.clone(), &copy.voice_file, "voiceFile", &copy.voice_file_placeholder)], Some(tray.clone())),
+        (vec![input_row("voice_transcript", tray.clone(), &copy.voice_transcript, "voiceTranscript", &copy.voice_transcript_placeholder)], Some(tray.clone())),
+    ]);
+
+    let mut header = ink.band("tray_header", "", None);
+    header["children"][0]["props"]["text"] = path("/pane/tray/header");
+    header["visible"] = tray.clone();
+
+    let tray_group = group(ink, "tray", tray.clone(), vec![
+        (vec![push_to_talk(inks)], None),
+        (switch_rows(ink, "wake", &copy.wake_word, "/pane/tray/wake", "wake"), Some(json!(true))),
+        (vec![input_row("wake_phrase", json!(true), &copy.wake_phrase, "wakePhrase", &options.wake_placeholder)], Some(json!(true))),
+    ]);
+
+    // #NEW-56: the too-short wake phrase's line, under the tray group (`px_1`).
+    let invalid = field_error(inks, "wake_invalid", path("/pane/tray/wakeInvalid"), and(tray.clone(), path("/pane/tray/hasWakeInvalid")), (ink.r(0.25), 0.));
+
+    // #NEW-57: the Apps row: a multiple Select row (it stays open while
+    // apps are toggled), "None" muted while no app is picked.
+    let mut apps = select_row("apps", path("/pane/tray/apps/shown"), &words.apps, path("/pane/tray/apps/value"), "app", &options.apps, false);
+    apps["props"]["multiple"] = json!(true);
+    // The IDE's multi picker filters its apps.
+    apps["props"]["searchable"] = json!(true);
+    apps["props"]["placeholder"] = json!(apps_value(&[]));
+    let meeting = group(ink, "meeting", tray.clone(), vec![
+        (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
+        (picker_rows("auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &options.auto_stop, Some(path("/pane/tray/autoStop/disabled")), None), Some(json!(true))),
+        (picker_rows("desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", &options.desktop_audio, None, None), Some(json!(true))),
+        (vec![apps], Some(path("/pane/tray/apps/shown"))),
+    ]);
+
+    // `settings::section`: `gap_2`; a failed load kept the skeleton.
+    let skeleton = skeleton("skeleton", json!({"@call": "or", "args": {"values": [path("/pane/loading"), path("/pane/failed")]}}));
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
+        "children": [skeleton, first, header, tray_group, invalid, meeting]})
+}
+
+fn selected(event: &ActionEvent) -> Option<String> {
+    event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).map(str::to_string)
+}
+
+fn checked(event: &ActionEvent) -> Option<bool> {
+    event.payload.as_ref().and_then(|p| p.get("checked")).and_then(Value::as_bool)
+}
+
+/// The id a picker sent (`NONE` = None).
+fn picked(event: &ActionEvent) -> Option<Option<String>> {
+    selected(event).map(|value| Some(value).filter(|value| value != NONE))
+}
+
+/// Which one-line input.
 #[derive(Clone, Copy)]
 enum Field {
     WakePhrase,
@@ -625,11 +633,12 @@ enum Field {
 }
 
 impl Field {
-    fn value(self, settings: &VoiceSettings) -> String {
-        match self {
-            Field::WakePhrase => settings.wake_phrase.clone(),
-            Field::VoiceFile => settings.voice_file.clone(),
-            Field::VoiceTranscript => settings.voice_transcript.clone(),
+    fn of(name: &str) -> Option<Field> {
+        match name {
+            "wakePhrase" => Some(Field::WakePhrase),
+            "voiceFile" => Some(Field::VoiceFile),
+            "voiceTranscript" => Some(Field::VoiceTranscript),
+            _ => None,
         }
     }
 
@@ -649,445 +658,114 @@ impl Field {
         }
     }
 
-    /// #NEW-75: THE input rule ×4 (`voice_text_input`), applied as you type.
-    fn typed(self, raw: &str) -> String {
-        voice_text_input(raw, self.limit())
-    }
-
-    /// FEED-160: where the caret lands in `typed` (= `self.typed(raw)`)
-    /// for a caret at byte `cursor` of `raw`: the rule streams left to
-    /// right, so the cleaned text before the caret is a prefix of `typed`.
-    fn typed_cursor(self, raw: &str, cursor: usize, typed: &str) -> usize {
-        let mut cursor = cursor.min(raw.len());
-        while !raw.is_char_boundary(cursor) {
-            cursor -= 1;
-        }
-        let mut at = self.typed(&raw[..cursor]).len().min(typed.len());
-        while !typed.is_char_boundary(at) {
-            at -= 1;
-        }
-        at
-    }
-
-    /// The value as sent and shown: the input rule, then trimmed.
+    /// #NEW-75: THE input rule ×4 (`voice_text_input`), then trimmed: the
+    /// value as sent and shown.
     fn normalized(self, raw: &str) -> String {
-        self.typed(raw).trim().to_string()
+        voice_text_input(raw, self.limit()).trim().to_string()
     }
 }
 
-impl VoicePrefsPane {
-    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
-        // A change another client made (a tray toggle, a heartbeat) reaches
-        // the speaker first; the open pane follows it.
-        if let Some(speaker) = etalk_gpui::speak_replies::entity(cx) {
-            cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)).detach();
-        }
-        // S-3: on another desktop the Wake word row reads the voice
-        // device's doctor (`wake`).
-        if let Some(store) = sync::Store::try_global(cx) {
-            cx.observe(&store.collections().devices.clone(), |_: &mut Self, _, cx| cx.notify()).detach();
-        }
-        // #NEW-86: the Wake word row's detail follows the microphone and Mute.
-        if let Some(push_to_talk) = etalk_gpui::push_to_talk::entity(cx) {
-            cx.observe(&push_to_talk, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
-        }
-        if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
-            cx.observe(&tray, |this: &mut Self, _, cx| this.on_wake(cx)).detach();
-        }
-        // F42: a pane dropped while it records gives the push-to-talk grab
-        // back (only stop_recording would otherwise).
-        cx.on_release(|this: &mut Self, cx| {
-            if this.capture.is_some() {
-                etalk_gpui::push_to_talk::set_recording(false, cx);
-            }
-        })
-        .detach();
-        Self {
-            load: Load::Idle,
-            generation: 0,
-            account_id: None,
-            inputs: [None, None, None],
-            _subscriptions: Vec::new(),
-            write: 0,
-            in_flight: 0,
-            seen: etalk_gpui::speak_replies::settings(cx),
-            wake_phrase_invalid: None,
-            wake_drawn: etalk_gpui::push_to_talk::wake_state(cx),
-            capture: None,
-            recorder_focus: None,
-            _intercept: None,
-            _recorder_blur: None,
-            assistant_block: false,
-        }
+/// Optimistic: apply locally (clearOnNone included), send the partial,
+/// adopt what the server stored; a refusal reverts and toasts.
+fn apply(binding: &mut Binding<Voice>, update: VoiceUpdate, cx: &mut gpui::Context<Binding<Voice>>) {
+    if binding.state().fixed.is_some() {
+        return;
     }
-
-    /// S-3: the pane as the Assistant page's Voice block.
-    pub(crate) fn assistant_block(mut self) -> Self {
-        self.assistant_block = true;
-        self
+    let Some(previous) = binding.state().ready().cloned() else { return };
+    let mut next = previous.clone();
+    if let Some(value) = update.voice_device_id.clone() {
+        next.voice_device_id = value;
     }
-
-    fn on_wake(&mut self, cx: &mut gpui::Context<Self>) {
-        let now = etalk_gpui::push_to_talk::wake_state(cx);
-        if now != self.wake_drawn {
-            self.wake_drawn = now;
-            cx.notify();
-        }
+    if let Some(value) = update.agent_id.clone() {
+        next.agent_id = value;
     }
-
-    /// S-3: one recorder input (voice.json `captureCases`).
-    fn on_recorder(&mut self, input: RecorderInput, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Load::Ready(settings) = &self.load else { return };
-        let current = settings.ptt_shortcut.clone();
-        match input {
-            RecorderInput::Start => {
-                if self.capture.is_some() {
-                    return;
-                }
-                let mut capture = capture_start(&current);
-                // Modifiers already held when the click lands count.
-                for event in modifier_events(&capture, window.modifiers()) {
-                    capture = capture_step(&capture, &event);
-                }
-                self.capture = Some(capture);
-                // While it records the IDE lets its own grab go.
-                etalk_gpui::push_to_talk::set_recording(true, cx);
-                let focus = self.recorder_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-                window.focus(&focus, cx);
-                self._recorder_blur = Some(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
-                let entity = cx.entity().downgrade();
-                self._intercept = Some(cx.intercept_keystrokes(move |event, window, cx| {
-                    let Some(entity) = entity.upgrade() else { return };
-                    if entity.read(cx).capture.is_none() {
-                        return;
+    if let Some(value) = update.ptt_shortcut.clone() {
+        next.ptt_shortcut = value;
+    }
+    if let Some(value) = update.wake_word {
+        next.wake_word = value;
+    }
+    if let Some(value) = update.wake_phrase.clone() {
+        next.wake_phrase = value.trim().to_string();
+    }
+    if let Some(value) = update.language.clone() {
+        next.language = value;
+    }
+    if let Some(value) = update.voice_file.clone() {
+        next.voice_file = value.trim().to_string();
+    }
+    if let Some(value) = update.voice_transcript.clone() {
+        next.voice_transcript = value.trim().to_string();
+    }
+    if let Some(value) = update.desktop_audio {
+        next.desktop_audio = value;
+    }
+    if let Some(value) = update.desktop_audio_apps.clone() {
+        next.desktop_audio_apps = value;
+    }
+    if let Some(value) = update.meeting_auto_stop_hours {
+        next.meeting_auto_stop_hours = value;
+    }
+    let next = next.clear_on_none();
+    if next == previous {
+        return;
+    }
+    let Some(trpc) = queries::trpc_client(cx) else { return };
+    let mut write = 0;
+    binding.update_state(
+        |state| {
+            state.load = Load::Ready(next);
+            // Last write wins (the tray's pattern): overlapping saves never
+            // clobber each other, only the newest adopts the stored row or reverts.
+            state.write += 1;
+            state.in_flight += 1;
+            write = state.write;
+        },
+        cx,
+    );
+    cx.spawn(async move |this, cx| {
+        let result = cx.background_executor().spawn(async move { api::voice::voice_update(&trpc, &update) }).await;
+        let _ = this.update(cx, |binding, cx| {
+            let newest = binding.state().write == write;
+            match result {
+                Ok(stored) => {
+                    if newest {
+                        crate::talk_host::set_voice_settings(stored.clone(), cx);
                     }
-                    cx.stop_propagation();
-                    let keystroke = event.keystroke.clone();
-                    entity.update(cx, |this, cx| this.on_keystroke(&keystroke, window, cx));
-                }));
-                cx.notify();
-            }
-            RecorderInput::Mouse(button) => self.capture_events(vec![CaptureEvent::Mouse(button)], cx),
-            RecorderInput::Modifiers(modifiers) => {
-                let Some(capture) = self.capture.as_ref() else { return };
-                let events = modifier_events(capture, modifiers);
-                self.capture_events(events, cx);
-            }
-            RecorderInput::Clear => {
-                self.stop_recording(cx);
-                self.apply(VoiceUpdate { ptt_shortcut: Some(String::new()), ..Default::default() }, cx);
-            }
-        }
-    }
-
-    /// S-3: a key-down while recording, as the grammar's key (the held
-    /// modifiers first, so `ctrl-k` records `ctrl+k` even when its
-    /// modifier change was not seen).
-    fn on_keystroke(&mut self, keystroke: &gpui::Keystroke, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(capture) = self.capture.as_ref() else { return };
-        let Some((key, shifted)) = etalk_gpui::push_to_talk::hotkey::grammar_key(&keystroke.key) else { return };
-        let mut modifiers = keystroke.modifiers;
-        modifiers.shift |= shifted;
-        let mut events = modifier_events(capture, modifiers);
-        events.push(CaptureEvent::Down(key));
-        self.capture_events(events, cx);
-    }
-
-    fn capture_events(&mut self, events: Vec<CaptureEvent>, cx: &mut gpui::Context<Self>) {
-        let Some(mut capture) = self.capture.take() else { return };
-        for event in &events {
-            capture = capture_step(&capture, event);
-        }
-        match capture.status {
-            CaptureStatus::Recording => self.capture = Some(capture),
-            CaptureStatus::Cancelled => self.stop_recording(cx),
-            CaptureStatus::Done => {
-                self.stop_recording(cx);
-                self.apply(VoiceUpdate { ptt_shortcut: Some(capture.value), ..Default::default() }, cx);
-            }
-        }
-        cx.notify();
-    }
-
-    /// S-3: the recorder ends (done, cancelled, blurred): the grab is taken
-    /// again.
-    fn stop_recording(&mut self, cx: &mut gpui::Context<Self>) {
-        self.capture = None;
-        self._intercept = None;
-        self._recorder_blur = None;
-        etalk_gpui::push_to_talk::set_recording(false, cx);
-        cx.notify();
-    }
-
-    fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
-        let now = etalk_gpui::speak_replies::settings(cx);
-        if now == self.seen {
-            return;
-        }
-        self.seen = now;
-        if self.in_flight == 0 {
-            self.mark_stale(cx);
-        }
-    }
-
-    /// Drop the cached settings so the next render refetches (a change made
-    /// on another client).
-    pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
-        if matches!(self.load, Load::Ready(_)) {
-            self.load = Load::Idle;
-            cx.notify();
-        }
-    }
-
-    fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        let account_id = sync::Store::global(cx).session(cx).account_id().map(str::to_string);
-        if account_id != self.account_id {
-            self.account_id = account_id;
-            self.load = Load::Idle;
-        }
-        if !matches!(self.load, Load::Idle) {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else { return };
-        self.load = Load::Loading;
-        // The input fields are rebuilt from the fresh values.
-        self.inputs = [None, None, None];
-        self.wake_phrase_invalid = None;
-        self._subscriptions.clear();
-        self.generation += 1;
-        let generation = self.generation;
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { api::voice::voice_get(&trpc) }).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.load = match result {
-                    Ok(settings) => Load::Ready(settings),
-                    Err(err) => {
-                        crate::action_error::failed_load(
-                            "your voice settings",
-                            false,
-                            crate::action_error::action_error_description(&err),
-                            cx,
-                        );
-                        Load::Error
-                    }
-                };
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Optimistic: apply locally (clearOnNone included), send the partial,
-    /// adopt what the server stored; a refusal reverts and toasts.
-    fn apply(&mut self, update: VoiceUpdate, cx: &mut gpui::Context<Self>) {
-        let Load::Ready(current) = &self.load else { return };
-        let previous = current.clone();
-        let mut next = previous.clone();
-        if let Some(value) = update.voice_device_id.clone() {
-            next.voice_device_id = value;
-        }
-        if let Some(value) = update.agent_id.clone() {
-            next.agent_id = value;
-        }
-        if let Some(value) = update.ptt_shortcut.clone() {
-            next.ptt_shortcut = value;
-        }
-        if let Some(value) = update.wake_word {
-            next.wake_word = value;
-        }
-        if let Some(value) = update.wake_phrase.clone() {
-            next.wake_phrase = value.trim().to_string();
-        }
-        if let Some(value) = update.language.clone() {
-            next.language = value;
-        }
-        if let Some(value) = update.voice_file.clone() {
-            next.voice_file = value.trim().to_string();
-        }
-        if let Some(value) = update.voice_transcript.clone() {
-            next.voice_transcript = value.trim().to_string();
-        }
-        if let Some(value) = update.desktop_audio {
-            next.desktop_audio = value;
-        }
-        if let Some(value) = update.desktop_audio_apps.clone() {
-            next.desktop_audio_apps = value;
-        }
-        if let Some(value) = update.meeting_auto_stop_hours {
-            next.meeting_auto_stop_hours = value;
-        }
-        let next = next.clear_on_none();
-        if next == previous {
-            return;
-        }
-        self.load = Load::Ready(next);
-        cx.notify();
-        let Some(trpc) = queries::trpc_client(cx) else { return };
-        // Last write wins (the tray's pattern): overlapping saves never
-        // clobber each other, only the newest adopts the stored row or reverts.
-        self.write += 1;
-        let write = self.write;
-        self.in_flight += 1;
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { api::voice::voice_update(&trpc, &update) }).await;
-            let _ = this.update(cx, |this, cx| {
-                this.in_flight = this.in_flight.saturating_sub(1);
-                let newest = this.write == write;
-                match result {
-                    Ok(stored) => {
-                        if newest {
-                            this.seen = stored.clone();
-                            crate::talk_host::set_voice_settings(stored.clone(), cx);
-                            this.load = Load::Ready(stored);
-                        }
-                    }
-                    Err(err) => {
-                        if newest {
-                            this.load = Load::Ready(previous);
-                            // A refused text shows the stored value again
-                            // (else every blur would send it again).
-                            this.inputs = [None, None, None];
-                            this._subscriptions.clear();
-                        }
-                        crate::action_error::failed_action_err("save", "the voice settings", &err, cx);
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn input(&mut self, field: Field, settings: &VoiceSettings, placeholder: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let input = match self.inputs[field as usize].clone() {
-            Some(input) => input,
-            None => {
-                let value = field.value(settings);
-                let placeholder = placeholder.to_string();
-                let input = cx.new(|cx| {
-                    let mut state = InputState::new(window, cx).placeholder(placeholder);
-                    state.set_value(value, window, cx);
-                    state
-                });
-                self._subscriptions.push(cx.subscribe_in(&input, window, move |this, input, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        // #NEW-75: an over-long paste or a tab never waits for the
-                        // server to refuse it (`set_value` emits no Change).
-                        let raw = input.read(cx).value().to_string();
-                        let typed = field.typed(&raw);
-                        if typed != raw {
-                            // FEED-160: `set_value` parks the caret at the end;
-                            // keep it where the user was instead.
-                            let at = field.typed_cursor(&raw, input.read(cx).cursor(), &typed);
-                            input.update(cx, |state, cx| {
-                                state.set_value(typed, window, cx);
-                                state.set_selected_range(at..at, cx);
-                            });
-                        }
-                        if matches!(field, Field::WakePhrase) && this.wake_phrase_invalid.take().is_some() {
-                            cx.notify();
-                        }
-                    }
-                    if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                        let raw = input.read(cx).value().to_string();
-                        let value = field.normalized(&raw);
-                        if value != raw {
-                            // What is sent is what shows.
-                            input.update(cx, |state, cx| state.set_value(value.clone(), window, cx));
-                        }
-                        if let Some(invalid) = matches!(field, Field::WakePhrase).then(|| wake_phrase_error(&value)).flatten() {
-                            this.wake_phrase_invalid = Some(invalid.into());
-                            cx.notify();
-                            return;
-                        }
-                        this.apply(field.update(value), cx);
-                    }
-                }));
-                self.inputs[field as usize] = Some(input.clone());
-                input
-            }
-        };
-        crate::surface::glass_row_input(glass_input(&input, window, cx)).into_any_element()
-    }
-}
-
-impl Render for VoicePrefsPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        self.ensure_loaded(cx);
-        let mut body = section(cx);
-        match &self.load {
-            Load::Idle | Load::Loading => {
-                body = body.child(settings_skeleton("voice-prefs-skeleton", cx));
-            }
-            Load::Error => {
-                body = body.child(settings_skeleton("voice-prefs-error", cx));
-            }
-            Load::Ready(settings) => {
-                let settings = settings.clone();
-                let (devices, agents) = voice_choices(cx);
-                let placeholder = wake_placeholder(&settings, &voice_agents(cx));
-                let inputs = VoiceInputs {
-                    wake_phrase: self.input(Field::WakePhrase, &settings, &placeholder, window, cx),
-                    voice_file: self.input(Field::VoiceFile, &settings, &VOICE.copy.voice_file_placeholder, window, cx),
-                    voice_transcript: self.input(Field::VoiceTranscript, &settings, &VOICE.copy.voice_transcript_placeholder, window, cx),
-                };
-                let entity = cx.entity();
-                let on_change: OnVoiceChange = Rc::new(move |update, cx: &mut App| {
-                    entity.update(cx, |this, cx| this.apply(update, cx));
-                });
-                let (capability, live) = crate::meeting_mode::desktop_audio_of(&settings, cx);
-                let apps = apps_control(&settings, &live, Some(on_change.clone()), window, cx);
-                let entity = cx.entity();
-                let on_meeting: Rc<dyn Fn(bool, &mut App)> = Rc::new(move |on, cx: &mut App| {
-                    if on {
-                        // Never writes by itself: THE consent dialog's Start does.
-                        entity.update(cx, |_, cx| cx.notify());
-                        crate::meeting_mode::prompt_consent(cx);
-                    } else {
-                        entity.update(cx, |this, cx| {
-                            if let Load::Ready(settings) = &mut this.load {
-                                settings.meeting_started_at = None;
+                    binding.update_state(
+                        |state| {
+                            state.in_flight = state.in_flight.saturating_sub(1);
+                            if newest {
+                                state.seen = stored.clone();
+                                state.load = Load::Ready(stored);
                             }
-                            cx.notify();
-                        });
-                        crate::meeting_mode::stop(cx);
-                    }
-                });
-                let meeting = MeetingRows { capability, apps, on_meeting: Some(on_meeting) };
-                let entity = cx.entity();
-                let recorder_focus = self.recorder_focus.get_or_insert_with(|| cx.focus_handle()).clone();
-                let recorder = ShortcutRecorder {
-                    capture: self.capture.clone(),
-                    focus: Some(recorder_focus),
-                    on_input: Some(Rc::new(move |input, window, cx: &mut App| {
-                        entity.update(cx, |this, cx| this.on_recorder(input, window, cx));
-                    })),
-                };
-                let rows = voice_rows(&settings, &devices, &agents, inputs, meeting, recorder, Some(on_change), self.assistant_block, cx);
-                let count = rows.len();
-                for (index, row) in rows.into_iter().enumerate() {
-                    // The wake phrase closes the tray group (the meeting
-                    // group, #NEW-57, is last): its line goes under it.
-                    if index + 1 == count {
-                        if let Some(message) = self.wake_phrase_invalid.clone().filter(|_| settings.voice_device_id.is_some()) {
-                            body = body.child(crate::action_error::field_error(message, cx).px_1());
-                        }
-                    }
-                    body = body.child(row);
+                        },
+                        cx,
+                    );
+                }
+                Err(err) => {
+                    binding.update_state(
+                        |state| {
+                            state.in_flight = state.in_flight.saturating_sub(1);
+                            if newest {
+                                state.load = Load::Ready(previous);
+                            }
+                        },
+                        cx,
+                    );
+                    crate::action_error::failed_action_err("save", "the voice settings", &err, cx);
                 }
             }
-        }
-        v_flex().child(body)
-    }
+        });
+    })
+    .detach();
 }
 
-/// S-3: the recorder events that bring `capture`'s held modifiers to
-/// `modifiers` (gpui's `platform` = the grammar's `super`).
-fn modifier_events(capture: &CaptureState, modifiers: Modifiers) -> Vec<CaptureEvent> {
-    [("ctrl", modifiers.control), ("alt", modifiers.alt), ("shift", modifiers.shift), ("super", modifiers.platform)]
+/// S-3: the recorder events that bring `capture`'s held modifiers to the
+/// flags a `key` event carries (`meta` = the grammar's `super`).
+fn modifier_events(capture: &CaptureState, flags: &Value) -> Vec<CaptureEvent> {
+    let on = |name: &str| flags.get(name).and_then(Value::as_bool).unwrap_or(false);
+    [("ctrl", on("ctrl")), ("alt", on("alt")), ("shift", on("shift")), ("super", on("meta"))]
         .into_iter()
         .filter_map(|(name, down)| {
             let held = capture.held.iter().any(|held| held == name);
@@ -1100,12 +778,416 @@ fn modifier_events(capture: &CaptureState, modifiers: Modifiers) -> Vec<CaptureE
         .collect()
 }
 
+/// S-3 (voice.json `captureCases`): one KeyRecorder `key` payload as the
+/// grammar's events: the held modifiers first, so `ctrl-k` records
+/// `ctrl+k` even when its modifier change was not seen.
+fn key_events(capture: &CaptureState, payload: &Value) -> Vec<CaptureEvent> {
+    let mut events = modifier_events(capture, payload);
+    match payload.get("type").and_then(Value::as_str) {
+        Some("down") => {
+            if let Some(key) = payload.get("key").and_then(Value::as_str) {
+                events.push(CaptureEvent::Down(key.to_string()));
+            }
+        }
+        Some("mouse") => {
+            if let Some(button) = payload.get("button").and_then(Value::as_u64) {
+                events.push(CaptureEvent::Mouse(button as u32));
+            }
+        }
+        _ => {}
+    }
+    events
+}
+
+/// S-3: the recorder ends (done, cancelled, blurred): the grab is taken again.
+fn stop_recording(binding: &mut Binding<Voice>, cx: &mut gpui::Context<Binding<Voice>>) {
+    if binding.state().capture.is_none() {
+        return;
+    }
+    binding.update_state(|state| state.capture = None, cx);
+    etalk_gpui::push_to_talk::set_recording(false, cx);
+}
+
+/// A `key` event while it records.
+fn on_key(binding: &mut Binding<Voice>, payload: Value, cx: &mut gpui::Context<Binding<Voice>>) {
+    let Some(mut capture) = binding.state().capture.clone() else { return };
+    for event in key_events(&capture, &payload) {
+        capture = capture_step(&capture, &event);
+    }
+    match capture.status {
+        CaptureStatus::Recording => binding.update_state(|state| state.capture = Some(capture), cx),
+        CaptureStatus::Cancelled => stop_recording(binding, cx),
+        CaptureStatus::Done => {
+            stop_recording(binding, cx);
+            apply(binding, VoiceUpdate { ptt_shortcut: Some(capture.value), ..Default::default() }, cx);
+        }
+    }
+}
+
+/// Runs `edit` on the binding after the event that asked for it (the
+/// binding is mid-update while its handler runs).
+fn later(binding: &WeakEntity<Binding<Voice>>, cx: &mut App, edit: impl FnOnce(&mut Binding<Voice>, &mut gpui::Context<Binding<Voice>>) + 'static) -> Option<Mutation<Voice>> {
+    let binding = binding.clone();
+    cx.defer(move |cx| {
+        let _ = binding.update(cx, |binding, cx| edit(binding, cx));
+    });
+    None
+}
+
+/// A picker's action: its value as the update `make` builds.
+fn on_pick(binding: &mut Binding<Voice>, me: &WeakEntity<Binding<Voice>>, name: &str, make: fn(Option<String>) -> VoiceUpdate) {
+    let me = me.clone();
+    binding.on_action(name, move |_, event, cx| {
+        let update = make(picked(event)?);
+        later(&me, cx, move |binding, cx| apply(binding, update, cx))
+    });
+}
+
+fn wire(binding: &mut Binding<Voice>, me: WeakEntity<Binding<Voice>>) {
+    binding.set_toasts(Rc::new(IdeToasts));
+    on_pick(binding, &me, "device", |value| VoiceUpdate { voice_device_id: Some(value), ..Default::default() });
+    on_pick(binding, &me, "agent", |value| VoiceUpdate { agent_id: Some(value), ..Default::default() });
+    on_pick(binding, &me, "language", |value| VoiceUpdate { language: value, ..Default::default() });
+    on_pick(binding, &me, "autoStop", |value| VoiceUpdate { meeting_auto_stop_hours: value.as_deref().and_then(|value| value.parse().ok()), ..Default::default() });
+    on_pick(binding, &me, "desktopAudio", |value| VoiceUpdate { desktop_audio: value.as_deref().map(DesktopAudio::from_key), ..Default::default() });
+    let me_wake = me.clone();
+    binding.on_action("wake", move |_, event, cx| {
+        let on = checked(event)?;
+        later(&me_wake, cx, move |binding, cx| apply(binding, VoiceUpdate { wake_word: Some(on), ..Default::default() }, cx))
+    });
+    // #NEW-57: on = THE consent dialog (its Start writes), off = stop at once.
+    let me_meeting = me.clone();
+    binding.on_action("meeting", move |state, event, cx| {
+        if state.fixed.is_some() {
+            return None;
+        }
+        if checked(event)? {
+            crate::meeting_mode::prompt_consent(cx);
+            // The switch shows what is stored until the dialog's Start.
+            let me = me_meeting.clone();
+            return later(&me, cx, |binding, cx| {
+                binding.update_state(|_| {}, cx);
+            });
+        }
+        crate::meeting_mode::stop(cx);
+        Some(Mutation::local(|state: &mut Voice| {
+            if let Load::Ready(settings) = &mut state.load {
+                settings.meeting_started_at = None;
+            }
+        }))
+    });
+    let me_app = me.clone();
+    binding.on_action("app", move |state, event, cx| {
+        // The Select's value: the picked ids, comma-joined.
+        let ids: Vec<String> = selected(event)?.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
+        let settings = state.ready()?;
+        let (_, live) = audio(state, settings, cx);
+        let options = app_options(&live, &settings.desktop_audio_apps);
+        let apps: Vec<AudioApp> = ids
+            .iter()
+            .filter_map(|id| options.iter().find(|option| &option.value == id))
+            .map(|option| AudioApp { id: option.value.clone(), name: option.label.chars().take(MEETING.limits.app_name).collect() })
+            .take(MEETING.limits.apps)
+            .collect();
+        later(&me_app, cx, move |binding, cx| apply(binding, VoiceUpdate { desktop_audio_apps: Some(apps), ..Default::default() }, cx))
+    });
+    // S-3: the recorder. `start` (the core already wrote recording true):
+    // the capture over the current binding, and the IDE lets its own grab go.
+    let me_start = me.clone();
+    binding.on_action("pttStart", move |state, _, cx| {
+        let current = state.ready()?.ptt_shortcut.clone();
+        if state.capture.is_some() || state.fixed.is_some() {
+            return None;
+        }
+        etalk_gpui::push_to_talk::set_recording(true, cx);
+        later(&me_start, cx, move |binding, cx| binding.update_state(|state| state.capture = Some(capture_start(&current)), cx))
+    });
+    let me_stop = me.clone();
+    binding.on_action("pttStop", move |_, _, cx| later(&me_stop, cx, stop_recording));
+    let me_key = me.clone();
+    binding.on_action("pttKey", move |_, event, cx| {
+        let payload = event.payload.clone()?;
+        later(&me_key, cx, move |binding, cx| on_key(binding, payload, cx))
+    });
+    let me_clear = me.clone();
+    binding.on_action("pttClear", move |_, _, cx| {
+        later(&me_clear, cx, |binding, cx| {
+            stop_recording(binding, cx);
+            apply(binding, VoiceUpdate { ptt_shortcut: Some(String::new()), ..Default::default() }, cx);
+        })
+    });
+    for name in ["wakePhrase", "voiceFile", "voiceTranscript"] {
+        let me_input = me.clone();
+        binding.on_input(name, move |_, event: &InputEvent, cx| {
+            let field = Field::of(&event.name)?;
+            let value = field.normalized(event.value.as_str().unwrap_or_default());
+            later(&me_input, cx, move |binding, cx| {
+                if let Some(invalid) = matches!(field, Field::WakePhrase).then(|| wake_phrase_error(&value)).flatten() {
+                    binding.update_state(|state| state.wake_phrase_invalid = Some(invalid), cx);
+                    return;
+                }
+                binding.update_state(|state| state.wake_phrase_invalid = None, cx);
+                apply(binding, field.update(value), cx);
+            })
+        });
+    }
+}
+
+pub struct VoicePrefsPane {
+    view: Entity<SurfaceView>,
+    binding: Entity<Binding<Voice>>,
+    /// What the mounted tree was built over.
+    options: Options,
+    _subscriptions: Vec<Subscription>,
+    /// The bench's presses (node ids), each two painted frames after the last.
+    #[cfg(test)]
+    shot_presses: (std::collections::VecDeque<String>, u8),
+}
+
+impl VoicePrefsPane {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::build(false, None, window, cx)
+    }
+
+    /// S-3: the pane as the Assistant page's Voice block.
+    pub(crate) fn assistant(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::build(true, None, window, cx)
+    }
+
+    /// The styleguide twin: `settings` over `fixed`, inert.
+    pub(crate) fn twin(settings: VoiceSettings, fixed: Fixed, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut pane = Self::build(false, Some(fixed), window, cx);
+        pane.binding.update(cx, |binding, cx| binding.update_state(|state| state.load = Load::Ready(settings), cx));
+        pane.options = options(pane.binding.read(cx).state(), cx);
+        let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks::of(cx), &pane.options)).expect("the voice document parses");
+        pane.view.update(cx, |view, cx| {
+            view.set_nested(tree, cx);
+        });
+        pane
+    }
+
+    fn build(assistant_block: bool, fixed: Option<Fixed>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let live = fixed.is_none();
+        let state = Voice {
+            load: Load::Idle,
+            generation: 0,
+            account_id: None,
+            write: 0,
+            in_flight: 0,
+            seen: etalk_gpui::speak_replies::settings(cx),
+            wake_phrase_invalid: None,
+            capture: None,
+            assistant_block,
+            fixed,
+        };
+        let binding = cx.new(|cx| {
+            let mut binding = Binding::new(PATH, state, project);
+            wire(&mut binding, cx.weak_entity());
+            if live {
+                // S-3: the Wake word row follows the microphone, Mute and
+                // the voice device's doctor; the Language row the download.
+                if let Some(push_to_talk) = etalk_gpui::push_to_talk::entity(cx) {
+                    binding.observe(&push_to_talk, cx);
+                }
+                if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
+                    binding.observe(&tray, cx);
+                }
+                if let Some(store) = sync::Store::try_global(cx) {
+                    let collections = store.collections().clone();
+                    binding.observe(&collections.devices, cx);
+                    binding.observe(&collections.agents, cx);
+                }
+            }
+            binding
+        });
+        let options = options(binding.read(cx).state(), cx);
+        // `lift_layers`: the pickers' popups open at window level, as the IDE's do.
+        let view = super::doc::mount_with("settings-voice", document(&Inks::of(cx), &options), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
+        let mut subscriptions = Vec::new();
+        if live {
+            // A change another client made (a tray toggle, a heartbeat) reaches
+            // the speaker first; the open pane follows it.
+            if let Some(speaker) = etalk_gpui::speak_replies::entity(cx) {
+                subscriptions.push(cx.observe(&speaker, |this: &mut Self, _, cx| this.on_speaker(cx)));
+            }
+        }
+        // F42: a pane dropped while it records gives the push-to-talk grab
+        // back (only the recorder's end would otherwise).
+        subscriptions.push(cx.on_release(|this: &mut Self, cx| {
+            if this.binding.read(cx).state().capture.is_some() {
+                etalk_gpui::push_to_talk::set_recording(false, cx);
+            }
+        }));
+        Self {
+            view,
+            binding,
+            options,
+            _subscriptions: subscriptions,
+            #[cfg(test)]
+            shot_presses: Default::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: VoiceShot, cx: &mut gpui::Context<Self>) {
+        SHOT_HERE.with(|here| here.set(Some(true)));
+        let account_id = sync::Store::global(cx).session(cx).account_id().map(str::to_string);
+        self.binding.update(cx, |binding, cx| {
+            binding.update_state(
+                |state| {
+                    state.account_id = account_id;
+                    state.load = Load::Ready(shot.settings);
+                    state.capture = shot.capture;
+                },
+                cx,
+            )
+        });
+        cx.notify();
+    }
+
+    /// The bench presses these nodes in turn (a trigger, then an option).
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, ids: &[String], _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.shot_presses = (ids.iter().cloned().collect(), 2);
+        cx.notify();
+    }
+
+    /// The bench's next press once its target is laid out (two painted
+    /// frames in); the headless clock stands still, so an open popup's
+    /// enter fade is run out by hand.
+    #[cfg(test)]
+    fn shot_press(&mut self, cx: &mut gpui::Context<Self>) {
+        let (queue, wait) = &mut self.shot_presses;
+        if queue.is_empty() {
+            if !self.view.read(cx).layers().is_empty() {
+                self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            }
+            return;
+        }
+        if *wait > 0 {
+            *wait -= 1;
+            cx.notify();
+            return;
+        }
+        let id = queue.pop_front().unwrap_or_default();
+        *wait = 2;
+        self.view.update(cx, |view, cx| {
+            if let Some(index) = view.index_of(&id) {
+                view.fire(index, "press", None, cx);
+            }
+        });
+        cx.notify();
+    }
+
+    fn on_speaker(&mut self, cx: &mut gpui::Context<Self>) {
+        let now = etalk_gpui::speak_replies::settings(cx);
+        let stale = self.binding.update(cx, |binding, cx| {
+            if binding.state().seen == now {
+                // The download's progress (the Language row's detail).
+                binding.push(cx);
+                return false;
+            }
+            let idle = binding.state().in_flight == 0;
+            binding.update_state(|state| state.seen = now, cx);
+            idle
+        });
+        if stale {
+            self.mark_stale(cx);
+        }
+    }
+
+    /// Drop the cached settings so the next render refetches (a change made
+    /// on another client).
+    pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
+        self.binding.update(cx, |binding, cx| {
+            if binding.state().fixed.is_none() && matches!(binding.state().load, Load::Ready(_)) {
+                binding.update_state(|state| state.load = Load::Idle, cx);
+            }
+        });
+        cx.notify();
+    }
+
+    fn ensure_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.binding.read(cx).state().fixed.is_some() {
+            return;
+        }
+        let account_id = sync::Store::global(cx).session(cx).account_id().map(str::to_string);
+        let trpc = queries::trpc_client(cx);
+        self.binding.update(cx, |binding, cx| {
+            if binding.state().account_id != account_id {
+                binding.update_state(
+                    |state| {
+                        state.account_id = account_id;
+                        state.load = Load::Idle;
+                    },
+                    cx,
+                );
+            }
+            if !matches!(binding.state().load, Load::Idle) {
+                return;
+            }
+            let Some(trpc) = trpc else { return };
+            let mut generation = 0;
+            binding.update_state(
+                |state| {
+                    state.load = Load::Loading;
+                    state.wake_phrase_invalid = None;
+                    state.generation += 1;
+                    generation = state.generation;
+                },
+                cx,
+            );
+            cx.spawn(async move |this, cx| {
+                let result = cx.background_executor().spawn(async move { api::voice::voice_get(&trpc) }).await;
+                let _ = this.update(cx, |binding, cx| {
+                    if binding.state().generation != generation {
+                        return;
+                    }
+                    let load = match result {
+                        Ok(settings) => Load::Ready(settings),
+                        Err(err) => {
+                            crate::action_error::failed_load("your voice settings", false, crate::action_error::action_error_description(&err), cx);
+                            Load::Error
+                        }
+                    };
+                    binding.update_state(|state| state.load = load, cx);
+                });
+            })
+            .detach();
+        });
+    }
+}
+
+impl Render for VoicePrefsPane {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "VoicePrefsPane").entered();
+        self.ensure_loaded(cx);
+        // The menus and the wake placeholder are the tree's: a new device,
+        // agent or app rebuilds it.
+        let now = options(self.binding.read(cx).state(), cx);
+        if now != self.options {
+            let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks::of(cx), &now)).expect("the voice document parses");
+            self.view.update(cx, |view, cx| {
+                view.set_nested(tree, cx);
+            });
+            self.options = now;
+        }
+        #[cfg(test)]
+        self.shot_press(cx);
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{label_of, modifier_events, Field};
-    use etalk::voice::{
-        capture_pending, capture_start, capture_step, voice_device_options, CaptureEvent, CaptureStatus, VoiceDevice,
-    };
+    use super::{document, key_events, label_of, modifier_events, Field, Inks, Options};
+    use etalk::voice::{capture_pending, capture_start, capture_step, voice_device_options, CaptureEvent, CaptureStatus, VoiceDevice};
+    use serde_json::json;
 
     /// #NEW-125 (voice.json): the Voice device row reads the picked option's
     /// label: None while none is picked, EMPTY while the stored device is not
@@ -1114,53 +1196,76 @@ mod tests {
     fn voice_device_value_is_none_or_empty() {
         let mint = VoiceDevice { device_id: "d-mint".into(), name: "mint".into(), kind: "desktop".into() };
         let options = voice_device_options(&[mint]);
-        assert_eq!(label_of(&options, None, "").as_ref(), "None");
-        assert_eq!(label_of(&options, Some("d-mint"), "").as_ref(), "mint");
-        assert_eq!(label_of(&options, Some("d-unsynced"), "").as_ref(), "");
-        assert_eq!(label_of(&voice_device_options(&[]), None, "").as_ref(), "None");
+        assert_eq!(label_of(&options, None, ""), "None");
+        assert_eq!(label_of(&options, Some("d-mint"), ""), "mint");
+        assert_eq!(label_of(&options, Some("d-unsynced"), ""), "");
+        assert_eq!(label_of(&voice_device_options(&[]), None, ""), "None");
     }
 
-    /// S-3: gpui's modifier changes fold into the recorder like the
+    /// S-3: KeyRecorder's `key` payloads fold into the grammar like the
     /// fixture's `down` / `up` events.
     #[test]
-    fn modifier_changes_feed_the_recorder() {
-        let held = gpui::Modifiers { control: true, shift: true, ..Default::default() };
+    fn key_payloads_feed_the_recorder() {
+        let held = json!({"type": "modifiers", "ctrl": true, "shift": true, "alt": false, "meta": false});
         let mut capture = capture_start("ctrl+space");
-        for event in modifier_events(&capture, held) {
+        for event in key_events(&capture, &held) {
             capture = capture_step(&capture, &event);
         }
         assert_eq!(capture_pending(&capture), "Ctrl + Shift + …");
-        assert!(modifier_events(&capture, held).is_empty(), "nothing changed");
-        let events = modifier_events(&capture, gpui::Modifiers { control: true, ..Default::default() });
+        assert!(modifier_events(&capture, &held).is_empty(), "nothing changed");
+        let events = key_events(&capture, &json!({"type": "modifiers", "ctrl": true}));
         assert_eq!(events, vec![CaptureEvent::Up("shift".into())]);
         let mut capture = events.iter().fold(capture, |capture, event| capture_step(&capture, event));
-        capture = capture_step(&capture, &CaptureEvent::Down("k".into()));
+        for event in key_events(&capture, &json!({"type": "down", "key": "k", "ctrl": true})) {
+            capture = capture_step(&capture, &event);
+        }
         assert_eq!((capture.status, capture.value.as_str()), (CaptureStatus::Done, "ctrl+k"));
-        let platform = modifier_events(&capture_start(""), gpui::Modifiers { platform: true, ..Default::default() });
+        let platform = modifier_events(&capture_start(""), &json!({"meta": true}));
         assert_eq!(platform, vec![CaptureEvent::Down("super".into())]);
+        assert_eq!(key_events(&capture_start(""), &json!({"type": "mouse", "button": 4})), vec![CaptureEvent::Mouse(4)]);
     }
 
     #[test]
-    fn typed_cursor_stays_where_the_user_was() {
-        // A control character pasted mid-text: the caret sits after the
-        // paste, not at the end.
-        let raw = "ab\u{7}cd";
-        let typed = Field::WakePhrase.typed(raw);
-        assert_eq!(typed, "abcd");
-        assert_eq!(Field::WakePhrase.typed_cursor(raw, 3, &typed), 2);
-        // Whatever a whitespace control becomes, the caret follows it.
-        let raw = "ab\tcd";
-        let typed = Field::VoiceFile.typed(raw);
-        let at = Field::VoiceFile.typed_cursor(raw, 3, &typed);
-        assert_eq!(&typed[..at], Field::VoiceFile.typed("ab\t"));
-        assert_eq!(&typed[at..], "cd");
-        // An over-long paste: the caret clamps to the cut value.
+    fn a_commit_is_cleaned_and_trimmed() {
+        assert_eq!(Field::WakePhrase.normalized(" ab\u{7}cd "), "abcd");
         let raw = "x".repeat(Field::WakePhrase.limit() + 10);
-        let typed = Field::WakePhrase.typed(&raw);
-        assert_eq!(Field::WakePhrase.typed_cursor(&raw, raw.len(), &typed), typed.len());
-        // A caret inside a multi-byte char never splits it.
-        let raw = "é\u{7}";
-        let typed = Field::WakePhrase.typed(raw);
-        assert_eq!(Field::WakePhrase.typed_cursor(raw, 1, &typed), 0);
+        assert_eq!(Field::WakePhrase.normalized(&raw).len(), Field::WakePhrase.limit());
+    }
+
+    #[test]
+    fn the_document_parses() {
+        let ink = super::super::doc::Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "Lilex".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+        };
+        let options = Options {
+            devices: vec![(String::new(), "None".into()), ("d-mint".into(), "mint".into())],
+            agents: vec![(String::new(), "None".into())],
+            languages: vec![("en".into(), "English".into())],
+            auto_stop: vec![("4".into(), "4 hours".into())],
+            desktop_audio: vec![("off".into(), "Off".into())],
+            apps: vec![("us.zoom.xos".into(), "Zoom".into())],
+            wake_placeholder: "Hey Studio".into(),
+            language_detail: Some("Downloading the voice · 40%".into()),
+        };
+        let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks { ink, danger: "#ff6467ff".into() }, &options)).expect("parses");
+        assert_eq!(tree.id, "root");
     }
 }

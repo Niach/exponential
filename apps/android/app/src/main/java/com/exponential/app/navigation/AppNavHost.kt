@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +64,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.exponential.app.AppConstants
+import io.sentry.android.navigation.SentryNavigationListener
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
@@ -172,6 +174,12 @@ fun AppNavHost() {
     val needsAuth =
         state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
     val navController = key(needsAuth) { rememberNavController() }
+    // #LOGS-2: navigation breadcrumbs + transactions (inert while Sentry is off).
+    DisposableEffect(navController) {
+        val listener = SentryNavigationListener()
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
     val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // EXP-1212: the New issue page holds navigation while its draft has
@@ -1189,7 +1197,8 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
-                // chats.json `agentMenuCases`: an agent chat's menu opens its settings.
+                // chats.json `agentMenuCases` + #EXP-1732 THE gear: an agent
+                // chat's settings page (the gear's pushed item on a phone).
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
@@ -1231,6 +1240,8 @@ private fun AuthenticatedNav(
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
+                // #EXP-1732: THE gear pushes the agent's settings page.
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.PROMPTS_SETTINGS) {

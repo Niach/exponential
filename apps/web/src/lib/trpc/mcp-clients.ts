@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, inArray, max, or, sql } from "drizzle-orm"
-import { apps, mcpCalls, mcpGrants, oauthApplications, teamMembers } from "@/db/schema"
+import { apps, mcpCalls, mcpGrants, oauthClients, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import { revokeClient } from "@/lib/emcp/revoke"
@@ -56,13 +56,13 @@ export const mcpClientsRouter = router({
           kind: mcpGrants.kind,
           access: mcpGrants.access,
           createdAt: mcpGrants.createdAt,
-          name: oauthApplications.name,
-          icon: oauthApplications.icon,
+          name: oauthClients.name,
+          icon: oauthClients.icon,
           userName: users.name,
           userEmail: users.email,
         })
         .from(mcpGrants)
-        .innerJoin(oauthApplications, eq(oauthApplications.clientId, mcpGrants.clientId))
+        .innerJoin(oauthClients, eq(oauthClients.clientId, mcpGrants.clientId))
         .innerJoin(users, eq(users.id, mcpGrants.userId))
         .where(and(inArray(mcpGrants.userId, memberIds), input.scope === `mine` ? undefined : reachesTeam(input.teamId)))
         .orderBy(desc(mcpGrants.createdAt))
@@ -78,7 +78,7 @@ export const mcpClientsRouter = router({
         const key = `${g.clientId}:${g.userId}`
         const row = rows.get(key) ?? {
           clientId: g.clientId,
-          name: g.name,
+          name: g.name ?? `MCP client`,
           icon: g.icon,
           userId: g.userId,
           userName: g.userName,
@@ -148,13 +148,13 @@ export const mcpActivityRouter = router({
           error: mcpCalls.error,
           appName: apps.name,
           userName: users.name,
-          clientName: oauthApplications.name,
+          clientName: oauthClients.name,
           createdAt: mcpCalls.createdAt,
         })
         .from(mcpCalls)
         .leftJoin(apps, eq(apps.id, mcpCalls.appId))
         .leftJoin(users, eq(users.id, mcpCalls.userId))
-        .leftJoin(oauthApplications, eq(oauthApplications.clientId, mcpCalls.clientId))
+        .leftJoin(oauthClients, eq(oauthClients.clientId, mcpCalls.clientId))
         .where(and(eq(mcpCalls.teamId, input.teamId), owner ? undefined : eq(mcpCalls.userId, ctx.session.user.id)))
         .orderBy(desc(mcpCalls.createdAt))
         .limit(input.limit)

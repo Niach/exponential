@@ -188,10 +188,10 @@ describe(`round 4: a valid Form submit closes the nearest dismissible Dialog or 
     it(c.name, async () => {
       const o = await both(tree(c.input, c.data), async (page, step) => {
         await settle(page, 300)
-        const go = `[data-xui-id="${c.form}-go"]`
+        const go = `[data-xui-id="${c.form}_go"]`
         // A Popover open at mount next to an opening Dialog loses to its
         // focus (Radix: focus outside dismisses): open it again, as a person would.
-        if ((await count(page, go)) === 0) for (const t of await page.locator(`[data-xui-id$="-trigger"]`).all()) await t.click()
+        if ((await count(page, go)) === 0) for (const t of await page.locator(`[data-xui-id$="_trigger"]`).all()) await t.click()
         await settle(page, 300)
         // A programmatic click (React's round4.test.tsx `fireEvent.click`):
         // a Popover inside a Dialog sits under the Dialog's backdrop on both.

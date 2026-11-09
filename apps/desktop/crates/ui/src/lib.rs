@@ -39,6 +39,8 @@ mod trigger_editor;
 // NEW-2: THE schedule picker rows (schedule-picker.json ×4).
 mod schedule_fields;
 mod board;
+mod font_warm;
+mod lazy_rows;
 mod board_form;
 mod changelog;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
@@ -46,8 +48,9 @@ mod chat_launch;
 // Session 58cb32df: the chat and agent menus (Stop, Delete, Compact, New conversation).
 mod chat_actions;
 mod chat_list;
-mod chat_transcript;
+mod chat_tab_transcript;
 mod chat_screen;
+mod dawn_mark;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
 mod coding_readiness;
@@ -65,6 +68,7 @@ mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
 mod dev_ready;
+pub mod diagnostics;
 mod description_editor;
 mod emoji;
 mod empty_state_copy;
@@ -140,6 +144,8 @@ mod mention_input;
 mod menu_window;
 #[cfg(test)]
 mod overlay_anchor_tests;
+#[cfg(test)]
+mod pointer_menu_live_tests;
 mod wysiwyg;
 mod native_dialog;
 mod navigation;
@@ -251,6 +257,21 @@ pub mod window_size;
 mod shell;
 mod shell_regions;
 mod local_desktops;
+/// The platform text system for headless test contexts. On macOS it is
+/// built alone: gpui-pre creates `MacPlatform` only on the process main
+/// thread, and libtest runs tests on worker threads.
+#[cfg(test)]
+pub(crate) fn test_text_system() -> std::sync::Arc<dyn gpui::PlatformTextSystem> {
+    #[cfg(target_os = "macos")]
+    {
+        std::sync::Arc::new(gpui_apple::AppleTextSystem::new())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        gpui_platform::current_platform(true).text_system()
+    }
+}
+
 #[cfg(test)]
 mod alert_gallery;
 #[cfg(test)]
@@ -274,7 +295,7 @@ pub use shell::Shell;
 pub use window_hooks::{resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook};
 
 use gpui::{App, AppContext as _};
-use gpui_component::dock::register_panel;
+use gpui_component::dock::{panel_handle, register_panel};
 
 /// Register the panel-name → constructor registry entries (§3.3:
 /// "`DockArea::load(state)` reconstructs panels by name") and the App-global
@@ -282,12 +303,17 @@ use gpui_component::dock::register_panel;
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
     eui_gpui::view::init(cx);
+    // #LOGS-5: Home is the landing screen; its dawn mark rasters meanwhile.
+    chat_screen::warm_dawn(cx);
+    // #LOGS-6: the fonts an issue page shapes load off the main thread.
+    font_warm::warm(cx);
     // Session 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);
     // VAPP-90: the SDK's generic controls read the IDE's token values.
     eui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
+    navigation::start_dev_tour(cx);
     // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.
@@ -325,8 +351,8 @@ pub fn init(cx: &mut App) {
     // §4.2 accept-invite fallback: "Join team…" in the footer account
     // menu (the exponential://invite/<token> deep link routes through oauth.rs).
     join_team::init(cx);
-    register_panel(cx, screens::PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
+    register_panel(cx, screens::PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| screens::ScreensPanel::new(window, cx)))
     });
     // Session bar (EXP-769): the cmd-t/cmd-w/ctrl-tab keybindings scoped to
     // the terminal screen.
@@ -334,8 +360,8 @@ pub fn init(cx: &mut App) {
     // EXP-71: shadow Root's window-wide tab/shift-tab focus-cycle bindings
     // inside the terminal so they reach the PTY (shift+tab = Claude modes).
     terminal::init(cx);
-    register_panel(cx, debug_board::PANEL_NAME, |_, _, _, window, cx| {
-        Box::new(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
+    register_panel(cx, debug_board::PANEL_NAME, |_, window, cx| {
+        panel_handle(cx.new(|cx| debug_board::DebugBoardPanel::new(window, cx)))
     });
 }
 

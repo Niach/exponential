@@ -93,7 +93,17 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   // #VAPP-258: Markdown heading / listItem margins.
   marginTop: [`spacing`],
   marginBottom: [`spacing`],
+  // #EDE-65: a macro box's leading top corner and its width cap (MessageBubble/bubble).
+  borderTopLeftRadius: [`radius`, `spacing`],
+  maxWidth: [`control`, `spacing`],
+  backgroundClip: [],
 }
+/** #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`). */
+const PERCENT_KEYS = new Set([`maxWidth`])
+const isPercent = (value: unknown): boolean => typeof value === `string` && /^[0-9]+(?:\.[0-9]+)?%$/.test(value) && parseFloat(value) <= 100
+/** #EXP-1629: the recipe-only `backgroundClip` (`padding-box` = the fill
+ *  paints inside the border). */
+export const BACKGROUND_CLIPS: readonly string[] = [`border-box`, `padding-box`]
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
 /** The ONLY free text a theme contributes to a stylesheet verbatim: a family
  *  NAME (`tokens.type.family.*`) and a `fonts.*.fallback` list, both pasted
@@ -249,6 +259,10 @@ function checkRecipeValue(key: string, value: unknown, path: string, issues: The
     if (typeof value !== `boolean`) issues.push({ path, message: `expected true|false` })
     return
   }
+  if (key === `backgroundClip`) {
+    if (!BACKGROUND_CLIPS.includes(value as string)) issues.push({ path, message: `expected ${known(BACKGROUND_CLIPS)}` })
+    return
+  }
   if (ENUM_KEYS.has(key)) {
     const allowed = styleKeyEnum(key) ?? []
     if (!allowed.includes(value as string)) issues.push({ path, message: `expected ${known(allowed.map(String))}` })
@@ -272,6 +286,10 @@ function checkRecipeValue(key: string, value: unknown, path: string, issues: The
   if (TOKEN_ONLY_KEYS.has(key)) {
     issues.push({ path, message: `expected a $${groups[0]}.<name> token` })
     return
+  }
+  if (PERCENT_KEYS.has(key)) {
+    if (isPercent(value)) return
+    if (typeof value !== `number` || !Number.isFinite(value)) return void issues.push({ path, message: `expected a number, a percentage 0–100% or a $${groups.join(`|$`)} token` })
   }
   const weights = styleKeyEnum(`fontWeight`) ?? []
   if (typeof value !== `number` || !Number.isFinite(value)) issues.push({ path, message: groups.length ? `expected a number or a $${groups.join(`|$`)} token` : `expected a number` })
@@ -493,11 +511,14 @@ export function tryLoadTheme(source: unknown, options: ThemeOptions = {}): { the
 
 /** #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
  *  after themes shipped takes a sibling's value when the chain sets none, so
- *  every older theme stays complete: `link` = `primary`. */
+ *  every older theme stays complete: `link` = `primary`, #EDE-65
+ *  `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`. */
 function deriveColors(theme: ResolvedTheme): void {
   for (const mode of MODES) {
     const color = theme.modes[mode].color as Record<string, string>
     if (color.link === undefined && color.primary !== undefined) color.link = color.primary
+    if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
+    if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
   }
 }
 

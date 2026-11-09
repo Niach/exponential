@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -372,27 +373,39 @@ internal fun IconLeaf(cx: LeafContext) {
     }
 }
 
-/** `Avatar`: the picture when `src` loads, else tinted initials (the `Avatar/fallback` recipe for an empty seed). */
+/**
+ * `Avatar` (fixtures/avatar.json, #EXP-1629): the picture when `src` loads,
+ * wearing the `Avatar/image` ring over its fill (the whole round box,
+ * #EXP-1629); else the initials of `name`, tinted from
+ * the hue key (#EXP-1754: the `seed`, a user id, else the trimmed `name`,
+ * which may be an email: the palette hue at 20% under the letters in the hue)
+ * or, with no key, in the `Avatar/fallback` recipe's colours. The letters take
+ * the fallback recipe's size and weight.
+ */
 @Composable
 internal fun AvatarLeaf(cx: LeafContext) {
     val name = cx.props.str("name")
-    val seed = cx.props.str("seed").ifEmpty { name }
+    val seed = AvatarFallback.hueKey(cx.props.str("seed"), name).orEmpty()
     val fallback = cx.part("Avatar", "fallback")
     val size = min(cx.size.width, cx.size.height)
     val fs = fallback.px("fontSize")
     val picture = rememberLeafImage(cx, cx.props.str("src"))
+    val ring = if (picture != null) cx.part("Avatar", "image").style else null
     LeafFrame {
         AvatarView(
             name = name,
             modifier = Modifier.align(Alignment.Center),
             seed = seed,
             size = size.dp,
-            dark = cx.dark,
             fill = if (seed.isEmpty()) fallback.style.background else null,
             ink = if (seed.isEmpty()) fallback.color else null,
             fontSize = fs?.sp ?: androidx.compose.ui.unit.TextUnit.Unspecified,
+            fontWeight = fallback.style.fontWeight?.let { FontWeight(it) } ?: FontWeight.Normal,
             contentDescription = null,
+            ring = ring?.borderColor?.takeIf { ring.borderWidth > 0f },
+            ringWidth = (ring?.borderWidth ?: 0f).dp,
             picture = picture?.let { bmp -> { Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
+            pictureFill = ring?.background,
         )
     }
 }

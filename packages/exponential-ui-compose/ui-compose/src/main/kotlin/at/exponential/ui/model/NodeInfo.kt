@@ -90,9 +90,13 @@ class NodeInfo(n: FfiNode) {
     val isContextMenu: Boolean
         get() = component == "Menu" && props.str("openOn") == "contextmenu"
 
-    /** A picker trigger (round 1: the core's `trigger` part opens the owner's popup layer). */
+    /** A picker trigger (round 1: the core's `trigger` part opens the owner's popup layer; #EXP-1629: a `row` Select's is a container of parts). */
     val isPickerTrigger: Boolean
-        get() = part == "trigger" && (component == "Select" || component == "DatePicker" || component == "TimePicker" || component == "DateRangePicker")
+        get() = part == "trigger" && (component == "Select" || component == "DatePicker" || component == "TimePicker" || component == "DateRangePicker" || isSelectRowTrigger)
+
+    /** #EXP-1629: a `row` Select's trigger, a Box of parts (label, spacer, value, chevron). */
+    val isSelectRowTrigger: Boolean
+        get() = part == "trigger" && component == "Box" && ownerComponent == "Select"
 
     /** Keyboard-focusable: pressables, controls, fields, carousel dots. */
     val isFocusable: Boolean

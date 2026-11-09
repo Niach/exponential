@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # EXP-1420: builds a scratch crate OUTSIDE this workspace that depends on one
 # library's crates the way another repo (spezl) does: `git` + a commit of this
-# repo, the ztracing [patch] copied, the desktop Cargo.lock as the starting
-# lock (zed floats in the manifests; the lock is the pin, eui-gpui README).
+# repo, the desktop Cargo.lock as the starting lock (gpui-pre and
+# gpui-component are exact crates.io pins, eui-gpui README).
 # Proves the git-tag policy in docs/libraries.md: no path escapes a checkout,
 # no app crate, the include_str! fixtures resolve from the git checkout.
 # EXP-1460: a lib built on other libs (etalk-gpui: eui-core/eui-gpui,
@@ -65,8 +65,6 @@ src="git = \"file://$repo\", rev = \"$rev\""
   printf '[package]\nname = "consumer-smoke"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[dependencies]\n'
   for c in $crates; do printf '%s = { %s%s }\n' "$c" "$src" "$(features_of "$c")"; done
   printf '%s' "$tagged"
-  printf '\n# A dependency'"'"'s [patch] never reaches its consumers: copied (docs/libraries.md).\n'
-  printf '[patch."https://github.com/zed-industries/zed"]\nztracing = { %s }\nztracing_macro = { %s }\n' "$src" "$src"
 } > "$tmp/Cargo.toml"
 for c in $crates $(printf '%s' "$tagged" | cut -d' ' -f1); do printf 'pub use %s;\n' "${c//-/_}"; done > "$tmp/src/lib.rs"
 cp "$repo/apps/desktop/Cargo.lock" "$tmp/Cargo.lock"

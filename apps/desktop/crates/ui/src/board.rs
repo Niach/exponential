@@ -166,6 +166,7 @@ impl BoardView {
 
 impl Render for BoardView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "BoardView").entered();
         let bulk_bar = self.issue_list.update(cx, |list, cx| list.bulk_bar(cx));
         let pills = self.board_id.is_some().then(|| self.pills(cx));
 

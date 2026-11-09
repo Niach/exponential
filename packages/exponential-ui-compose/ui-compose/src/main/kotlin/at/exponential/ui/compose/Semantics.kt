@@ -140,6 +140,20 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
         }
     }
     if (!node.isLeaf) {
+        // #EXP-1629: a `row` Select's trigger is ONE TalkBack node (its
+        // parts are not stops): the label, the shown value, a dropdown.
+        if (node.isSelectRowTrigger) {
+            val index = node.index
+            val owner = model.ownerProps(index)
+            val disabledNow = model.isDisabled(index)
+            val text = node.props.str("text")
+            return clearAndSetSemantics {
+                contentDescription = a.label ?: owner.str("label").ifEmpty { owner.str("placeholder") }
+                stateDescription = text
+                role = Role.DropdownList
+                if (disabledNow) disabled() else onClick { model.press(index); true }
+            }
+        }
         if (node.pressable) {
             val label = named(a.label ?: model.combinedLabel(node.index), a.description)
             val index = node.index
@@ -199,6 +213,9 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
     val owner = node.ownerComponent
     return when {
         node.isTextField -> fieldErrorSemantics(node, model)
+        // #EDE-65 (a11y.json `Embed`): no role of its own; the nested
+        // surface's nodes join the host's order in place.
+        c == "Embed" -> this
         c == "Image" || c == "Avatar" || c == "Video" || c == "Chart" -> {
             val alt = label ?: chartSummary(node, model)
             if (c == "Image" && alt.isNullOrEmpty()) hiddenFromAccessibility() else clearAndSetSemantics {

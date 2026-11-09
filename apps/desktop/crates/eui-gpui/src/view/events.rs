@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 use eui_core::layout_tree::{LayerClass, ToastSpec};
 use eui_core::surface::{Layer, OutEvent};
 use eui_core::hold::HoldInput;
-use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, Window};
+use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollEvent, Window};
 use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
-use super::{Drag, ScrollDrag, SurfaceView, ToastTimer};
+use super::{Drag, SurfaceView, ToastTimer};
 use crate::host::{ActionEvent, FilePickRequest, FunctionCallEvent, InputEvent, InputKind, UploadEvent};
 
 /// The hover delay of tooltips and hover cards.
@@ -29,7 +29,6 @@ pub const COPIED_RESET: Duration = Duration::from_millis(2000);
 /// How far a Drawer is dragged toward its edge before it dismisses.
 pub const SHEET_DISMISS_PX: f32 = 64.0;
 /// EXP-1555: how long overlay scrollbars stay after the last scroll step.
-pub const SCROLLBAR_LINGER: Duration = Duration::from_millis(1000);
 
 /// A sheet drag's offset: the pointer's travel toward the sheet's edge only.
 pub fn sheet_offset(side: &str, x: f32, y: f32) -> (f32, f32) {
@@ -303,6 +302,12 @@ impl SurfaceView {
         }
     }
 
+    /// #EDE-65 lane O: the host selects Markdown text at the window level
+    /// ([`crate::host::HostPlugin::markdown_window_selection`]).
+    pub(crate) fn host_window_selection(&self, cx: &gpui::App) -> bool {
+        self.host.markdown_window_selection(cx)
+    }
+
     pub(crate) fn press_cancel(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.pressed.as_deref() == Some(id) {
             self.pressed = None;
@@ -313,9 +318,58 @@ impl SurfaceView {
     }
 
     pub(crate) fn hover(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
+        // #EXP-1629: a Select option's `hover` is the cursor: the pointer
+        // moves it (one highlight), leaving keeps it.
+        if self.is_select_item(id) {
+            if hovered {
+                self.move_select_cursor(id, cx);
+            }
+            self.host.on_hover(id, hovered, cx);
+            return;
+        }
+        // #EXP-1629: a row Select's value button lends its `hover` to the
+        // value/placeholder/chevron inside it (the IDE's ghost Button
+        // brightens its whole content); theirs alone is never reported.
+        let part = self.cache.index_of(id).and_then(|i| self.cache.node(i)).filter(|n| n.owner_component.as_deref() == Some("Select")).and_then(|n| n.part.clone());
+        if matches!(part.as_deref(), Some("value" | "placeholder" | "chevron")) && self.cache.index_of(id).and_then(|i| self.cache.node(i)).and_then(|n| n.parent).and_then(|p| self.cache.node(p)).is_some_and(|p| p.part.as_deref() == Some("button")) {
+            return;
+        }
         if self.set_interaction(id, |s| s.hover = hovered) {
+            if part.as_deref() == Some("button") {
+                let inner: Vec<String> = self.cache.index_of(id).and_then(|i| self.cache.node(i)).map(|n| n.children.clone()).unwrap_or_default().into_iter().filter_map(|c| self.cache.node(c).map(|n| n.id.clone())).collect();
+                for child in inner {
+                    self.set_interaction(&child, |s| s.hover = hovered);
+                }
+            }
             self.host.on_hover(id, hovered, cx);
             cx.notify();
+        }
+    }
+
+    /// #EXP-1629: an option row of a Select's popup.
+    pub(crate) fn is_select_item(&self, id: &str) -> bool {
+        self.cache.index_of(id).and_then(|i| self.cache.node(i)).is_some_and(|n| n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item"))
+    }
+
+    /// #EXP-1629: the Select's cursor moves to option `id` (its `hover`).
+    pub(crate) fn move_select_cursor(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(owner) = self.cache.index_of(id).and_then(|i| self.cache.node(i)).and_then(|n| n.owner.clone()) else { return };
+        let mut changed = false;
+        if let Some(old) = self.select_cursor.insert(owner, id.to_string()).filter(|o| o != id) {
+            changed |= self.set_interaction(&old, |s| s.hover = false);
+        }
+        changed |= self.set_interaction(id, |s| s.hover = true);
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// #EXP-1629: the pointer over an option takes the keyboard focus along
+    /// when it sits on another option (never out of the search field).
+    pub(crate) fn select_hover_focus(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let on_option = self.focused.and_then(|i| self.cache.node(i)).is_some_and(|n| n.id != id && n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item"));
+        if on_option && self.is_select_item(id) {
+            self.focus_id(id, window, cx);
         }
     }
 
@@ -494,6 +548,17 @@ impl SurfaceView {
                 s.focus = true;
                 s.focus_visible = keyboard;
             });
+            if self.is_select_item(&id) && self.select_cursor.values().all(|c| *c != id) {
+                self.move_select_cursor(&id, cx);
+                if keyboard {
+                    let reveal = id.clone();
+                    cx.defer_in(window, move |this, _, cx| {
+                        let events = this.surface.scroll_into_view(&reveal);
+                        this.dispatch(events, None, cx);
+                        cx.notify();
+                    });
+                }
+            }
         }
         // Keyboard focus inside a hover-opened trigger (a Tooltip anchor, a
         // hover Popover trigger) is that trigger's `focus-visible`: it opens.
@@ -611,13 +676,13 @@ impl SurfaceView {
 
     pub(crate) fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let m = ev.keystroke.modifiers;
-        if (m.secondary() || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
+        if (m.secondary(cx) || m.control) && ev.keystroke.key == "c" && self.copy_selection(cx) {
             cx.stop_propagation();
             return;
         }
         // VAPP-279: Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a strip tab
         // moves it one place (the core fires `reorder`).
-        if (m.secondary() || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
+        if (m.secondary(cx) || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
             if let Some(i) = self.focused.filter(|&i| self.is_strip_tab(i)) {
                 let key = if ev.keystroke.key == "left" { "ArrowLeft" } else { "ArrowRight" };
                 self.fire(i, "key", Some(json!({"key": key})), cx);
@@ -637,7 +702,12 @@ impl SurfaceView {
 
     /// VAPP-162: a key released on the focused `hold` Button ends a hold
     /// the same key started.
-    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_key_up(&mut self, ev: &KeyUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // #EXP-1629: a recording KeyRecorder takes every key up.
+        if self.record_key_up(ev, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if self.key_up(&ev.keystroke.key, cx) {
             cx.stop_propagation();
         }
@@ -991,6 +1061,7 @@ impl SurfaceView {
             };
             if y >= -0.5 {
                 if self.surface.scroll_to(&n.id, s.offset_x, y.clamp(0.0, max_y)) {
+                    self.reader_scrolled(n.index, s.offset_y, y.clamp(0.0, max_y));
                     self.scrolled(cx);
                 }
                 return true;
@@ -1231,11 +1302,31 @@ impl SurfaceView {
             // EXP-1259: a searchable submenu opens with its field focused.
             let search = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.component == "SearchList" && n.part.as_deref() == Some("search")));
             target = search.or(selected).or(first).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+            // #EXP-1629: a Select opens as the IDE's picker: a fresh pick,
+            // the cursor on the FIRST enabled option (a `multiple` one's on
+            // its first CHOSEN, none while nothing is: the IDE's multi
+            // picker), the search field (if any) focused, else that option.
+            if top.kind == "Select" {
+                let item = |i: &u32| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("item") && !NodeFlags::of(n).disabled);
+                let multiple = self.cache.index_of(&top.owner).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("multiple").and_then(Value::as_bool).unwrap_or(false));
+                let chosen = |i: &u32| item(i) && self.cache.node(*i).is_some_and(|n| n.props.get("selected").and_then(Value::as_bool).unwrap_or(false));
+                let first_item = if multiple { candidates.iter().copied().find(chosen) } else { candidates.iter().copied().find(item) }.and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                let field = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("search"))).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                if let Some(first) = &first_item {
+                    self.move_select_cursor(first, cx);
+                }
+                target = field.or(first_item);
+            }
             let _ = k;
         } else if let Some(o) = closed.last() {
             let inside = self.focused.and_then(|i| self.cache.node(i)).is_none_or(|n| n.layer > 0) || self.focused.is_none();
             if inside {
                 target = self.layer_return.get(o).cloned();
+            }
+        }
+        for o in &closed {
+            if let Some(c) = self.select_cursor.remove(o) {
+                self.set_interaction(&c, |s| s.hover = false);
             }
         }
         self.open_layers = now_open;
@@ -1393,11 +1484,6 @@ impl SurfaceView {
         self.tab_drag = Some(super::TabDrag { tab: tab_id.to_string(), start: x, started: false });
     }
 
-    pub(crate) fn scroll_drag_start(&mut self, id: &str, vertical: bool, pointer: f32, start_offset: f32, ratio: f32, cx: &mut Context<Self>) {
-        self.scroll_drag = Some(ScrollDrag { id: id.to_string(), vertical, start_pointer: pointer, start_offset, ratio });
-        cx.notify();
-    }
-
     pub(crate) fn on_pointer_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if ev.pressed_button != Some(gpui::MouseButton::Left) {
             return;
@@ -1438,16 +1524,6 @@ impl SurfaceView {
             cx.notify();
             return;
         }
-        if let Some(d) = self.scroll_drag.clone() {
-            let p = if d.vertical { f32::from(ev.position.y) } else { f32::from(ev.position.x) };
-            let offset = (d.start_offset + (p - d.start_pointer) * d.ratio).max(0.0);
-            let (x, y) = self.surface.scroll_offset(&d.id);
-            let moved = if d.vertical { self.surface.scroll_to(&d.id, x, offset) } else { self.surface.scroll_to(&d.id, offset, y) };
-            if moved {
-                self.scrolled(cx);
-            }
-            return;
-        }
         let Some(drag) = self.drag.clone() else { return };
         let Some(index) = self.cache.index_of(&drag.track) else { return };
         let Some(bounds) = self.slider_bounds.borrow().get(&drag.track).copied() else { return };
@@ -1480,9 +1556,6 @@ impl SurfaceView {
                 return;
             }
         }
-        if let Some(d) = self.scroll_drag.take() {
-            self.scrollbars_recent(&d.id, cx);
-        }
         self.md_dragging = false;
         if let Some(d) = self.sheet_drag.take() {
             if d.offset.0.abs().max(d.offset.1.abs()) >= SHEET_DISMISS_PX {
@@ -1506,7 +1579,7 @@ impl SurfaceView {
 
     /// The wheel / trackpad over a scroll container: the core's offset
     /// moves; at an edge the event chains to the host.
-    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    pub(crate) fn wheel(&mut self, index: u32, id: &str, ev: &ScrollEvent, cx: &mut Context<Self>) {
         let Some(s) = self.scrolls.get(&index).copied() else { return };
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
         let d = ev.delta.pixel_delta(gpui::px(20.0));
@@ -1521,7 +1594,7 @@ impl SurfaceView {
         cx.stop_propagation();
         if self.surface.scroll_to(id, x, y) {
             self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
-            self.scrollbars_recent(id, cx);
+            self.reader_scrolled(index, s.offset_y, y);
             self.scrolled(cx);
         }
     }
@@ -1536,33 +1609,23 @@ impl SurfaceView {
         cx.notify();
     }
 
-    /// EXP-1555: a scroll shows the container's overlay scrollbars for
-    /// [`SCROLLBAR_LINGER`] after its last step (none at rest, like web).
-    pub(crate) fn scrollbars_recent(&mut self, id: &str, cx: &mut Context<Self>) {
-        let key = id.to_string();
-        let task = cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(SCROLLBAR_LINGER).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.scroll_recent.remove(&key).is_some() {
-                    cx.notify();
-                }
-            });
-        });
-        self.scroll_recent.insert(id.to_string(), task);
-    }
-
-    /// EXP-1555: the pointer entered / left a scroll container.
-    pub(crate) fn scroll_hovered(&mut self, id: &str, hovered: bool, cx: &mut Context<Self>) {
-        let changed = if hovered { self.scroll_hover.insert(id.to_string()) } else { self.scroll_hover.remove(id) };
-        if changed {
-            cx.notify();
+    /// #EXP-1629: a thumb drag's offset (`view/scrollbar.rs`) goes to the
+    /// core; returns whether one moved.
+    pub(crate) fn take_scrollbar_drags(&mut self) -> bool {
+        let pending: Vec<(String, (u32, f32, f32))> = self.scrollbars.borrow().iter().filter_map(|(id, h)| Some((id.clone(), h.take_pending()?))).collect();
+        let mut moved = false;
+        for (id, (index, x, y)) in pending {
+            let Some(s) = self.scrolls.get(&index).copied() else { continue };
+            let f = self.frames.get(index as usize).copied().unwrap_or_default();
+            let x = if s.scroll_x { x.clamp(0.0, (s.content_width - f.w).max(0.0)) } else { s.offset_x };
+            let y = if s.scroll_y { y.clamp(0.0, (s.content_height - f.h).max(0.0)) } else { s.offset_y };
+            if self.surface.scroll_to(&id, x, y) {
+                self.scrolls.insert(index, eui_core::surface::ScrollOutput { offset_x: x, offset_y: y, ..s });
+                self.reader_scrolled(index, s.offset_y, y);
+                moved = true;
+            }
         }
-    }
-
-    /// EXP-1555: does scroll container `id` show its scrollbars (hovered,
-    /// just scrolled, or its thumb dragged)?
-    pub(crate) fn scrollbars_shown(&self, id: &str) -> bool {
-        self.scroll_hover.contains(id) || self.scroll_recent.contains_key(id) || self.scroll_drag.as_ref().is_some_and(|d| d.id == id)
+        moved
     }
 
     // -- Segmented, charts --------------------------------------------------

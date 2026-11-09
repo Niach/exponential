@@ -25,7 +25,7 @@ import { importShadcnCss } from "../src/builder"
 import { CONTROL_PARTS, controlGeometry } from "../src/geometry"
 import { nativeRecipeProps, recipeParts, RECIPE_KEYS, RECIPE_STATES } from "../src/recipes"
 import { reduceNested } from "../src/reducer"
-import { MODES, THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "../src/theme"
+import { BACKGROUND_CLIPS, MODES, THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "../src/theme"
 import { STYLE_TRANSFORM_PATTERN, styleKeyEnum } from "../src/style"
 import type { ModeName, RecipeQuery, ResolvedStyle, ResolvedTheme, ThemeSource } from "../src/theme-types"
 import type { NestedNode, UiNode } from "../src/types"
@@ -67,6 +67,13 @@ function hex(value: string): `#${string}` {
   return h
 }
 
+/** `top` (`#rrggbbaa`) composited source-over onto the opaque `bottom`. */
+function over(bottom: `#${string}`, top: `#${string}`): `#${string}` {
+  const channel = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)
+  const alpha = top.length === 9 ? channel(top, 3) / 255 : 1
+  return `#${[0, 1, 2].map((i) => Math.round(channel(top, i) * alpha + channel(bottom, i) * (1 - alpha)).toString(16).padStart(2, `0`)).join(``)}`
+}
+
 export function composeExponential(): ThemeSource {
   const design = JSON.parse(readFileSync(join(repoRoot, `packages/design-tokens/tokens.json`), `utf8`)) as DesignTokens
   const css = readFileSync(join(repoRoot, `packages/ui/src/styles.css`), `utf8`)
@@ -84,6 +91,9 @@ export function composeExponential(): ThemeSource {
   dark.secondary = hex(design.glass.fillRow)
   dark.accent = hex(design.glass.fillActive)
   dark.border = hex(design.glass.strokeCard)
+  // #EXP-1629: every floating surface is the app's `--color-card-opaque`
+  // (the glass card over the opaque popover; the IDE theme's `popover`).
+  dark.popover = over(hex(dark.popover!), hex(design.glass.fillCard))
   dark.input = hex(design.palette.input)
   // #VAPP-258: a link's ink is the app's `--link` (light palette first, then
   // dark, as styles.css declares them).
@@ -91,6 +101,17 @@ export function composeExponential(): ThemeSource {
   if (links.length < 2) throw new Error(`styles.css lacks the light + dark --link`)
   light.link = links[0]!
   dark.link = links[1]!
+  // #EDE-65: the stronger stroke (an outgoing bubble's edge) is the IDE's
+  // glass STROKE_STRONG in dark; light takes the next neutral step past
+  // `border` (#e5e5e5 → neutral-300), as the dark pair steps 10% → 12%.
+  dark.borderStrong = hex(design.glass.strokeStrong)
+  light.borderStrong = `#d4d4d4`
+  // #EXP-1629: a ghost button's hover (the picker row's value button) is
+  // gpui-component's ghost hover: the accent at half in dark (the glass
+  // active fill's alpha halved), the light accent (neutral-100) in light.
+  const active = hex(design.glass.fillActive)
+  dark.ghostHover = `${active.slice(0, 7)}${Math.round(parseInt(active.slice(7, 9) || `ff`, 16) / 2).toString(16).padStart(2, `0`)}` as `#${string}`
+  light.ghostHover = `#f5f5f5`
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -109,6 +130,11 @@ export function composeExponential(): ThemeSource {
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
     lg: [{ x: 0, y: 12, blur: 32, spread: -8, color: hex(`rgb(0 0 0 / ${a})`) }],
     xl: [{ x: 0, y: 20, blur: 48, spread: -12, color: hex(`rgb(0 0 0 / ${a})`) }],
+    // #EXP-1629: the IDE's popovers = gpui's `shadow_lg`, in both modes.
+    popover: [
+      { x: 0, y: 10, blur: 15, spread: -3, color: `#0000001a` as const },
+      { x: 0, y: 4, blur: 6, spread: -4, color: `#0000001a` as const },
+    ],
   })
   const s = design.size
   const mono = `ui-monospace`
@@ -139,7 +165,7 @@ export function composeExponential(): ThemeSource {
         pill: s.controlSm, badge: 20, chip: s.controlSm,
         toggle: s.controlMd, switch: 20, checkbox: 16, slider: 16,
         progress: 8, meter: 8,
-        avatarSm: 24, avatarMd: 32, avatarLg: 40,
+        avatarSm: 24, avatarMd: 32, avatarLg: 40, avatarXl: 48,
         iconSm: 16, iconMd: 20, iconLg: 24,
         hairline: 1,
         appBar: 48, tabBar: 56, toast: 56,
@@ -203,6 +229,9 @@ export function themeSchema(): Record<string, unknown> {
     gap: numOrToken([`spacing`]),
     marginTop: numOrToken([`spacing`]),
     marginBottom: numOrToken([`spacing`]),
+    // #EDE-65: MessageBubble/bubble's leading corner and width cap.
+    borderTopLeftRadius: numOrToken([`radius`, `spacing`]),
+    maxWidth: { anyOf: [...numOrToken([`control`, `spacing`]).anyOf, { type: `string`, pattern: `^[0-9]+(\\.[0-9]+)?%$` }] },
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),
     minWidth: numOrToken([`control`, `spacing`]),
@@ -223,6 +252,7 @@ export function themeSchema(): Record<string, unknown> {
     backdropBlur: { type: `string`, pattern: `^\\$blur\\.[a-zA-Z0-9]+$` },
     animation: { enum: styleKeyEnum(`animation`) },
     native: { type: `boolean` },
+    backgroundClip: { enum: BACKGROUND_CLIPS },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
   const whenValue = { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }, { type: `array`, items: { anyOf: [{ type: `string` }, { type: `number` }, { type: `boolean` }] } }] }

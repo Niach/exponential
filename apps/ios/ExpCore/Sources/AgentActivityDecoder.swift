@@ -159,7 +159,7 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case toolUpdate(AgentToolUpdate)
     /// The worktree diff behind the "Latest changes" chip; nil clears it.
     case diff(String?)
-    case userMessage(text: String, subagentId: String?)
+    case userMessage(text: String, subagentId: String?, at: Int? = nil)
     case question(AgentQuestionDraft)
     case questionResolved(id: String?, askId: String?, answers: [String], dismissed: Bool)
     case answerAck(id: String)
@@ -225,7 +225,14 @@ public enum AgentActivityDecoder {
             return .diff((diff?.isEmpty == false) ? diff : nil)
         case "user_message":
             guard let text = event["text"] as? String, !blank(text) else { return nil }
-            return .userMessage(text: text, subagentId: string(event["subagentId"]))
+            return .userMessage(
+                text: text,
+                subagentId: string(event["subagentId"]),
+                at: (event["at"] as? NSNumber).flatMap { number in
+                    let value = number.doubleValue
+                    return value.isFinite && value > 0 && value < 1e15 ? Int(value) : nil
+                }
+            )
         case "question":
             guard let draft = question(event) else { return nil }
             return .question(draft)

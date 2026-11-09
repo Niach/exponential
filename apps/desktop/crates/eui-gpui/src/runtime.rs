@@ -1559,6 +1559,13 @@ impl HostPlugin for HostAdapter {
         }
     }
 
+    fn markdown_options_for(&self, text: &str, cx: &App) -> crate::host::MarkdownOptions {
+        match self.host.upgrade().and_then(|host| host.read(cx).policy.markdown_options) {
+            Some(options) => options,
+            None => self.base.markdown_options_for(text, cx),
+        }
+    }
+
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
         self.base.open_media_file(path, cx)
     }

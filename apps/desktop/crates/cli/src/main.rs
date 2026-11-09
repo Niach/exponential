@@ -59,7 +59,8 @@ fn install_logger(command: &str, rest: &[String]) {
     };
     let logger = coding::logging::ExpLogger::new(level)
         .with_file(&context::data_dir(), file_name)
-        .with_stderr(print_stderr, stderr_min);
+        .with_stderr(print_stderr, stderr_min)
+        .with_tap(observability::log_tap);
     if let Some(logger) = coding::logging::install(logger) {
         // File only: an interactive command must not print a banner.
         logger.file_only(
@@ -73,6 +74,15 @@ fn install_logger(command: &str, rest: &[String]) {
         );
     }
     coding::logging::install_panic_hook();
+    // #LOGS-2: from the cached server config (no network here); the daemon
+    // connects once it knows its account. Off unless the server and the
+    // person (`exponential diagnostics`, `EXP_DIAGNOSTICS=0`) both say on.
+    observability::init(observability::Setup {
+        product: observability::Product::Cli,
+        version: cli_version().to_string(),
+        data_dir: context::data_dir(),
+        http: api::http::shared,
+    });
 }
 
 const USAGE: &str = "\
@@ -101,6 +111,7 @@ Commands:
   daemon [--foreground] [--label <name>]  Run the device daemon (runs the sessions queued here)
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update
+  diagnostics [on|off]                    Send diagnostics (errors, performance) to your server
   uninstall [--yes]                       Remove the daemon service and delete this binary
   version                                 Print the CLI version
 
@@ -116,8 +127,27 @@ Options for run:
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
   token; non-interactive login), EXP_INSTALL_TOKEN (one-time expi_… token from
-  the web's Add device dialog), EXP_LOG=debug
+  the web's Add device dialog), EXP_ACCOUNT (email or id when several are signed
+  in), EXP_DATA_DIR (data dir for accounts, tokens, settings and the daemon;
+  default shared with the desktop app), EXP_LOG=debug, EXP_DIAGNOSTICS=0
 ";
+
+/// `exponential diagnostics [on|off]`: the desktop's "Send diagnostics"
+/// switch (`sendDiagnostics` in `{data_dir}/diagnostics.json`, shared).
+fn diagnostics(rest: &[String]) -> anyhow::Result<ExitCode> {
+    match rest.first().map(String::as_str) {
+        Some("on") => observability::set_diagnostics_enabled(true),
+        Some("off") => observability::set_diagnostics_enabled(false),
+        None => {}
+        Some(other) => {
+            eprintln!("Unknown option `{other}`: exponential diagnostics [on|off]");
+            return Ok(ExitCode::from(2));
+        }
+    }
+    let on = observability::diagnostics_enabled();
+    println!("Send diagnostics: {}", if on { "on" } else { "off" });
+    Ok(ExitCode::SUCCESS)
+}
 
 fn maybe_prompt_auto_update() {
     if !term::stdin_is_tty() {
@@ -195,6 +225,7 @@ fn main() -> ExitCode {
         "bundle" => commands::bundle::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),
+        "diagnostics" => diagnostics(rest),
         "uninstall" => commands::uninstall::run(rest),
         "version" | "--version" | "-V" => {
             println!("exponential {}", cli_version());
@@ -211,6 +242,7 @@ fn main() -> ExitCode {
         }
     };
 
+    observability::flush();
     match result {
         Ok(code) => code,
         Err(err) => {

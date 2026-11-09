@@ -1,9 +1,9 @@
 //! #EXP-1561 / #EXP-1562 (`fixtures/waiting-cards.json` ×4; web
 //! `ask-card.tsx` `AskDismissButton` / `AskDismissedCard`,
 //! `session-chat-view.tsx` `ChatWaitingChips`): a WAITING question or
-//! plan card's ×, the DISMISSED card's one quiet line, the chat strip's
-//! waiting chips and the ring a chip leaves on the card it scrolled to.
-//! Desktop is always the wide `chips` layout.
+//! plan card's ×, the DISMISSED card's one quiet line and the ring a reveal
+//! leaves on the card it scrolled to. #EXP-1732: the chat strip (and its
+//! waiting chips) is gone.
 
 use std::time::{Duration, Instant};
 
@@ -14,8 +14,8 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::ask_dock::{ask_dock_title, AskDockKind};
-use domain::waiting_cards::{waiting_chips, WaitingCardInput, WaitingChipsLayout, WAITING_CARDS};
+use domain::ask_dock::ask_dock_title;
+use domain::waiting_cards::WAITING_CARDS;
 
 use crate::icons::registry;
 
@@ -61,26 +61,6 @@ pub(crate) fn highlight(id: &str, cx: &mut App) {
 /// The card a chip highlighted, while its ring shows.
 pub(crate) fn highlighted_id(cx: &App) -> Option<&str> {
     cx.try_global::<CardHighlight>()?.id.as_deref()
-}
-
-/// Scroll the list row `ix` holding the card `id` to the CENTRE of the
-/// viewport, then ring the card: the row goes to the top first (it may not
-/// be measured yet), and one frame later the measured row is centred.
-pub(crate) fn reveal_in_list(list: &gpui::ListState, ix: usize, id: &str, cx: &mut App) {
-    list.scroll_to(gpui::ListOffset { item_ix: ix, offset_in_item: px(0.) });
-    cx.refresh_windows();
-    let (list, id) = (list.clone(), id.to_string());
-    cx.spawn(async move |cx| {
-        cx.background_executor().timer(Duration::from_millis(32)).await;
-        let _ = cx.update(|cx| {
-            if let Some(bounds) = list.bounds_for_item(ix) {
-                let viewport = list.viewport_bounds();
-                list.scroll_by(bounds.center().y - viewport.center().y);
-            }
-            highlight(&id, cx);
-        });
-    })
-    .detach();
 }
 
 /// The ring's opacity on the card `id` now (`None` = no ring): full for
@@ -184,112 +164,9 @@ pub(crate) fn dismissed_card(plan: bool, text: &str, message_id: &str, cx: &App)
         .into_any_element()
 }
 
-/// The kind's concept glyph (`icons[kind]`) in the ask-dock tint (a plan
-/// primary, a question yellow), web `size-3.5`.
-pub(crate) fn kind_icon(kind: AskDockKind, cx: &App) -> Icon {
-    let (glyph, tint) = match kind {
-        AskDockKind::Plan => (registry::CODING_PLAN, cx.theme().primary),
-        AskDockKind::Question => (registry::UI_HELP, theme::tokens::YELLOW.to_hsla()),
-    };
-    Icon::new(glyph).with_size(px(14.)).flex_shrink_0().text_color(tint)
-}
-
-/// What a chip's press does: the card's id.
-pub(crate) type OnWaitingPick = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
-
-/// The chat strip's WAITING chips (`waitingChips`, `chips` layout): THE
-/// StripChip per card in Conversation order — the tinted kind glyph, the
-/// clipped label, the full title as its tooltip — side by side in a row that
-/// shrinks (labels truncating) ahead of the issue / group zone. `None` when
-/// none waits (nothing drawn, no placeholder).
-pub(crate) fn strip_chips(prefix: &str, cards: &[WaitingCardInput], on_pick: OnWaitingPick, cx: &App) -> Option<AnyElement> {
-    let chips = waiting_chips(cards, false);
-    if chips.layout == WaitingChipsLayout::Hidden {
-        return None;
-    }
-    let mut row = h_flex()
-        .id(SharedString::from(format!("{prefix}-waiting-chips")))
-        .min_w_0()
-        .gap_1()
-        .items_center()
-        .overflow_x_hidden();
-    // Web `shrink-[2]`: the chips give way first.
-    row.style().flex_shrink = Some(2.);
-    for chip in chips.chips {
-        let title = cards
-            .iter()
-            .find(|card| card.id == chip.id)
-            .map(|card| ask_dock_title(&card.text))
-            .filter(|title| !title.is_empty())
-            .unwrap_or_else(|| chip.label.clone());
-        let id = chip.id.clone();
-        let on_pick = on_pick.clone();
-        let mut element = crate::session_chat::strip_chip(
-            SharedString::from(format!("{}-{}", WAITING_CARDS.test_ids.chip, chip.id)),
-            false,
-            cx,
-        )
-        .child(kind_icon(chip.kind, cx))
-        .child(div().min_w_0().truncate().child(SharedString::from(chip.label)))
-        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(title.clone()).build(window, cx))
-        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_pick(&id, window, cx));
-        element.style().flex_shrink = Some(1.);
-        row = row.child(element);
-    }
-    Some(row.into_any_element())
-}
-
-/// The conversation's WAITING cards for the chips: a chat's
-/// `chat_pending_asks` over its rows (Conversation order). #EXP-1662: only
-/// the questions; a waiting plan's chip is the strip's plan tab.
-pub(crate) fn chat_waiting_cards(rows: &[domain::session_tree::SessionChatRow]) -> Vec<WaitingCardInput> {
-    domain::ask_dock::chat_pending_asks(rows, |_| None)
-        .into_iter()
-        .filter(|ask| ask.kind != AskDockKind::Plan)
-        .map(|ask| WaitingCardInput { id: ask.id, kind: ask.kind, text: ask.text })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// #EXP-1662: a waiting plan has no chip (it is the strip's plan tab); the
-    /// chips keep the questions.
-    #[test]
-    fn the_chips_keep_only_the_questions() {
-        use domain::session_tree::SessionChatRow;
-        let rows = [
-            SessionChatRow::Plan {
-                id: "p".into(),
-                session_id: "s".into(),
-                plan: "# Plan: one".into(),
-                questions: Vec::new(),
-                surface: None,
-                decision: None,
-                fresh: false,
-                answers: None,
-                feedback: None,
-                surface_data: None,
-            },
-            SessionChatRow::Question {
-                id: "q".into(),
-                session_id: "s".into(),
-                question: "Which?".into(),
-                options: Vec::new(),
-                custom: true,
-                multi: false,
-                surface: None,
-                answer: None,
-                answers: None,
-                surface_data: None,
-                answered: false,
-                dismissed: None,
-            },
-        ];
-        let ids: Vec<String> = chat_waiting_cards(&rows).into_iter().map(|card| card.id).collect();
-        assert_eq!(ids, ["q"]);
-    }
 
     #[gpui::test]
     fn the_ring_steps_out_and_ends(cx: &mut gpui::TestAppContext) {

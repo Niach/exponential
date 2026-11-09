@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use eui_core::layout_tree::{LayerClass, NodeKind};
 use eui_core::surface::{Layer, PlacedNode};
+use gpui_component::scroll::{Scrollbar, ScrollbarAxis};
 use gpui::{canvas, div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, Div, ExternalPaths, Hsla, MouseButton, SharedString, Stateful, Window};
 use serde_json::{json, Value};
 
@@ -107,17 +108,6 @@ pub(crate) fn group_dim(mut style: PaintStyle, ink: Hsla, under: Option<Hsla>, d
     (style, under.blend(inked.opacity(dim)))
 }
 
-/// The scrollbar thumb `(offset, length)` along a track `len` long.
-pub fn thumb_geometry(viewport: f32, content: f32, offset: f32, len: f32) -> Option<(f32, f32)> {
-    if content <= viewport + 0.5 || viewport <= 0.0 {
-        return None;
-    }
-    let thumb = (len * viewport / content).clamp(20.0_f32.min(len), len);
-    let travel = (len - thumb).max(0.0);
-    let at = if content > viewport { travel * (offset / (content - viewport)).clamp(0.0, 1.0) } else { 0.0 };
-    Some((at, thumb))
-}
-
 impl SurfaceView {
     fn now(&self) -> Instant {
         self.now_or_instant()
@@ -180,7 +170,7 @@ impl SurfaceView {
         Some(fills.into_iter().rev().fold(base, |under, fill| under.blend(fill)))
     }
 
-    fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
+    pub(crate) fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
         let o = self.cache.owner_of(index);
         self.cache.node(o).map(|n| n.props.clone()).unwrap_or_default()
     }
@@ -237,7 +227,7 @@ impl SurfaceView {
         // Round 2 §2: a keyframe animation composes OUTSIDE the node's own
         // transform; opacity multiplies; a leaf scales about its centre; a
         // rotation turns an Icon's glyph (gpui rotates no other box).
-        let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window) };
+        let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window, cx) };
         if let Some(a) = &anim {
             style.opacity = Some(style.opacity.unwrap_or(1.0) * a.opacity as f32);
             style.transform.tx += a.translate_x as f32;
@@ -305,7 +295,7 @@ impl SurfaceView {
         // `native: true`: the platform control paints the part itself.
         // Round 8: gpui-component's checkbox has no mixed state, so a MIXED
         // box always paints the eUI look (the dash).
-        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
+        let native = style.native && leaf && !is_mixed(n) && matches!((n.component.as_str(), n.part.as_deref()), ("Checkbox", Some("box" | "checkbox")));
         let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
         // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
         // its label never shows its own fill through it. On an opaque
@@ -321,8 +311,15 @@ impl SurfaceView {
         }
         // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
         let pulses = leaf && n.component == "Skeleton";
-        el = el.when_some(style.bg.filter(|_| !pulses), |d, bg| d.bg(bg));
+        let inset_bg = style.padding_box && style.has_border();
+        el = el.when_some(style.bg.filter(|_| !pulses && !inset_bg), |d, bg| d.bg(bg));
         el = rounded(el, radii);
+        // #EXP-1629: a padding-box fill sits inside the border overlay.
+        if let Some(bg) = style.bg.filter(|_| !pulses && inset_bg) {
+            let [t, r, b, l] = style.border;
+            let inner = [radii[0] - t.max(l), radii[1] - t.max(r), radii[2] - b.max(r), radii[3] - b.max(l)].map(|x| x.max(0.0));
+            el = el.child(rounded(div().absolute().top(px(t)).left(px(l)).w(px((w - l - r).max(0.0))).h(px((h - t - b).max(0.0))).bg(bg), inner));
+        }
         if !style.shadows.is_empty() {
             el = el.shadow(style.shadows.clone());
         }
@@ -392,7 +389,9 @@ impl SurfaceView {
         // Children: the content origin shifts by the scroll offset.
         let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
-        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0), dim: child_dim };
+        // #EDE-65 lane O: an end-anchored List's short rows sit at its end.
+        let slack = self.end_slack(index);
+        let mut child_place = Place { origin: (f.x + sx, f.y + sy - slack), abs, clip, scale: ps, shift: (0.0, 0.0), dim: child_dim };
         let mut kids_shown = true;
         if n.component == "VoiceWave" && !leaf && natives::voice_wave_is_bars(&n.props) {
             // VAPP-162: the `bars` meter has no child (it stays in the tree,
@@ -419,15 +418,27 @@ impl SurfaceView {
         let kids = self.children_elements(index, child_place, window, cx);
         let kids = if kids_shown { kids } else { Vec::new() };
         el = el.children(kids);
+        // FEED-200: the trackpad pages a swipeable Tabs (`view/swipe.rs`):
+        // its content's probe paints after the subtree, a node that pans
+        // itself inside reports the pointer over it.
+        if !ghost && !style.pointer_none {
+            if self.is_swipe_content(index) {
+                el = el.child(self.swipe_content_probe(index));
+            } else if self.is_swipe_blocker(index) {
+                el = el.child(self.swipe_blocker_probe(index));
+            }
+        }
         // The shimmer band sweeps OVER the content (the web's `::after`),
         // clipped to its own box; the node's children stay unclipped.
         if let (Some(band), Some(a)) = (anim.and_then(|a| a.band), style.animation.as_ref()) {
             el = el.child(self.shimmer_band(&a.name, band as f32, w, h, radii));
         }
         if let Some(s) = self.scrolls.get(&index).copied() {
-            el = self.scroll_container(el, index, n, s, w, h, ink, cx);
+            el = self.scroll_container(el, index, n, s, w, h, cx);
         }
-        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() {
+        // #EXP-1629: a Select option's cursor is its fill, never a ring.
+        let option = n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("item");
+        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() && !option {
             let ring = theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "ring").unwrap_or(ink.opacity(0.5));
             el = el.child(rounded(div().absolute().top(px(-2.0)).left(px(-2.0)).w(px(w + 4.0)).h(px(h + 4.0)).border_2().border_color(ring), radii.map(|r| r + 2.0)));
         }
@@ -437,7 +448,7 @@ impl SurfaceView {
     /// The keyframe frame of an animated node now (`None` = not animated);
     /// asks for the next frame while it moves (reduced motion: the rest
     /// frame, never moving).
-    fn animation_frame(&self, index: u32, style: &PaintStyle, window: &mut Window) -> Option<eui_core::animation::AnimationFrame> {
+    fn animation_frame(&self, index: u32, style: &PaintStyle, window: &mut Window, cx: &mut Context<Self>) -> Option<eui_core::animation::AnimationFrame> {
         let a = style.animation.as_ref()?;
         let reduced = a.reduced || self.surface.settings().reduced_motion;
         let now = self.now();
@@ -447,7 +458,15 @@ impl SurfaceView {
         let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, reduced)?;
         let total = a.timing.duration_ms * a.timing.iterations.count();
         if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
-            window.request_animation_frame();
+            // #LOGS-3: a LOOP (a spinner's `spin`, a `pulse`) lives as long
+            // as what it marks: on the shared stepped grid, not every frame.
+            // A finite run (an entrance) keeps every frame.
+            if total.is_infinite() {
+                let _span = tracing::trace_span!("anim.step", id = "eui.loop").entered();
+                crate::controls::repaint_on_next_step(&self.loop_armed_until, crate::controls::SMOOTH_STEP, window, cx);
+            } else {
+                window.request_animation_frame();
+            }
         }
         Some(frame)
     }
@@ -596,71 +615,34 @@ impl SurfaceView {
     }
 
     /// A scroll container: wheel / trackpad scroll the core's offset (a
-    /// scroll at an edge chains to the host), overlay scrollbars show the
-    /// position and drag.
+    /// scroll at an edge chains to the host), the IDE's overlay scrollbar
+    /// shows the position and drags.
     #[allow(clippy::too_many_arguments)]
-    fn scroll_container(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, s: eui_core::surface::ScrollOutput, w: f32, h: f32, ink: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn scroll_container(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, s: eui_core::surface::ScrollOutput, w: f32, h: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let overflows_y = s.scroll_y && s.content_height > h + 0.5;
         let overflows_x = s.scroll_x && s.content_width > w + 0.5;
         if !overflows_x && !overflows_y {
             return el;
         }
         let id = n.id.clone();
-        el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
-        // EXP-1555: no scrollbars at rest (the web hides them): a
-        // non-blocking overlay tracks the pointer over the container; the
-        // bars show while it hovers, scrolls or drags a thumb.
-        let hid = n.id.clone();
-        el = el.child(
+        el = el.on_scroll(cx.listener(move |this, ev: &gpui::ScrollEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        // #EXP-1629: the IDE's own scrollbar over the container
+        // (`view/scrollbar.rs`), fed the core's offset.
+        let handle = self.scrollbars.borrow_mut().entry(n.id.clone()).or_default().clone();
+        handle.sync(index, (s.offset_x, s.offset_y), (s.content_width, s.content_height));
+        let axis = match (overflows_x, overflows_y) {
+            (true, true) => ScrollbarAxis::Both,
+            (true, false) => ScrollbarAxis::Horizontal,
+            _ => ScrollbarAxis::Vertical,
+        };
+        el.child(
             div()
-                .id(SharedString::from(format!("{}.scroll-hover", n.id)))
                 .absolute()
                 .top_0()
                 .left_0()
                 .size_full()
-                .on_hover(cx.listener(move |this, h: &bool, _, cx| this.scroll_hovered(&hid, *h, cx))),
-        );
-        if !self.scrollbars_shown(&n.id) {
-            return el;
-        }
-        let color = ink.opacity(0.28);
-        if let Some((at, len)) = overflows_y.then(|| thumb_geometry(h, s.content_height, s.offset_y, h - 4.0)).flatten() {
-            let (sid, ratio) = (n.id.clone(), (s.content_height - h) / (h - 4.0 - len).max(1.0));
-            let start = s.offset_y;
-            let bar = div()
-                .id(SharedString::from(format!("{}.scrollbar-y", n.id)))
-                .absolute()
-                .top(px(2.0 + at))
-                .w(px(6.0))
-                .h(px(len))
-                .rounded_full()
-                .bg(color)
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    this.scroll_drag_start(&sid, true, f32::from(ev.position.y), start, ratio, cx);
-                }));
-            el = el.child(if self.rtl { bar.left(px(2.0)) } else { bar.right(px(2.0)) });
-        }
-        if let Some((at, len)) = overflows_x.then(|| thumb_geometry(w, s.content_width, s.offset_x, w - 4.0)).flatten() {
-            let (sid, ratio) = (n.id.clone(), (s.content_width - w) / (w - 4.0 - len).max(1.0));
-            let start = s.offset_x;
-            el = el.child(
-                div()
-                    .id(SharedString::from(format!("{}.scrollbar-x", n.id)))
-                    .absolute()
-                    .bottom(px(2.0))
-                    .left(px(2.0 + at))
-                    .h(px(6.0))
-                    .w(px(len))
-                    .rounded_full()
-                    .bg(color)
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.scroll_drag_start(&sid, false, f32::from(ev.position.x), start, ratio, cx);
-                    })),
-            );
-        }
-        el
+                .child(Scrollbar::new(&handle).id(SharedString::from(format!("{}.scrollbar", n.id))).axis(axis).viewport_from_layout()),
+        )
     }
 
     /// Pointer / hover handlers of a node.
@@ -673,6 +655,21 @@ impl SurfaceView {
                 cx.stop_propagation();
                 this.context_menu(index, ev.position, cx);
             }));
+        }
+        // #EXP-1629: a KeyRecorder's field, while it records: modifier
+        // changes and mouse buttons 3-5 over it go to `record`.
+        if self.key_recorder_field(index).is_some() {
+            el = el
+                .on_any_mouse_down(cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                    if this.record_mouse(ev.button, &ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
+                    if this.record_modifiers(&ev.modifiers, cx) {
+                        cx.stop_propagation();
+                    }
+                }));
         }
         // FileUpload: OS file drops (the `dragover` state while over it).
         if owner == "FileUpload" && n.part.as_deref() == Some("dropzone") {
@@ -760,6 +757,9 @@ impl SurfaceView {
                 // gpui may repeat a hover: only a real enter fires.
                 let entered = *hovered && !this.interaction.get(&hid).is_some_and(|s| s.hover);
                 this.hover(&hid, *hovered, cx);
+                if *hovered {
+                    this.select_hover_focus(&hid, window, cx);
+                }
                 if box_hover && entered {
                     if let Some(i) = this.cache.index_of(&hid) {
                         this.fire(i, "hover", None, cx);
@@ -820,7 +820,19 @@ impl SurfaceView {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
-                        cx.stop_propagation();
+                        // #EDE-65 lane O: a press on the host's window-selectable
+                        // text is the text's too: the pressable takes it without
+                        // stopping it, so the window's selection begins under it
+                        // (a gpui `on_click` over selectable text, as the IDE's
+                        // own views do); an outer pressable leaves it.
+                        if ev.click_count == 1 && this.host_window_selection(cx) && gpui_base::TextSelection::is_selectable_at(ev.position, window, cx) {
+                            if this.text_press == Some(ev.position) {
+                                return;
+                            }
+                            this.text_press = Some(ev.position);
+                        } else {
+                            cx.stop_propagation();
+                        }
                         if strip_tab {
                             this.tab_drag_down(&down, f32::from(ev.position.x));
                         }
@@ -830,13 +842,24 @@ impl SurfaceView {
                 .on_mouse_up(
                     MouseButton::Left,
                     cx.listener(move |this, _, window, cx| {
+                        // A sweep across the text selected it: no press.
+                        if this.text_press.take().is_some() && this.pressed.as_deref() == Some(up.as_str()) && gpui_base::TextSelection::has_selection(window, cx) {
+                            this.press_cancel(&up, cx);
+                            return;
+                        }
                         if this.pressed.as_deref() == Some(up.as_str()) {
                             cx.stop_propagation();
                         }
                         this.press_up(&up, window, cx)
                     }),
                 )
-                .on_mouse_up_out(MouseButton::Left, cx.listener(move |this, _, _, cx| this.press_cancel(&out, cx)));
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        this.text_press = None;
+                        this.press_cancel(&out, cx)
+                    }),
+                );
         }
         el
     }
@@ -967,14 +990,18 @@ impl SurfaceView {
                 let text = lcx.str("text");
                 let ph = lcx.str("placeholder");
                 let is_placeholder = text.is_empty() || (!ph.is_empty() && text == ph && !has_value(n));
-                natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
+                if n.component == "Select" {
+                    natives::select_trigger(&lcx, if text.is_empty() { ph } else { text }, is_placeholder || lcx.bool("placeholder"), lcx.str("icon"))
+                } else {
+                    natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
+                }
             }
             ("Text", _) => self.paint_text(&lcx, window, cx),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
             ("Button" | "Toggle", _) => natives::button(&lcx, &n.component, window),
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx, cx),
-            ("Avatar", _) => natives::avatar(&lcx),
+            ("Avatar", _) => natives::avatar(&lcx, window, cx),
             ("Image", _) => natives::image(&lcx, self.image_surround(n), self.cache.ids.get(i).map(|id| (id, &self.held_images)), window, cx),
             // An exiting layer paints nothing live (the view is the open tree's).
             ("ZoomableImage", _) if self.ghosting.get() => return None,
@@ -983,6 +1010,8 @@ impl SurfaceView {
             ("Motion", _) => self.motion_element(n, cx),
             // Round 8: the shapes' raster + native text (view/canvas_leaf.rs).
             ("Canvas", _) => self.canvas_element(n, cx),
+            // #EDE-65: the nested surface in place (view/embed.rs).
+            ("Embed", _) => self.embed_element(n, window, cx)?,
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
@@ -994,11 +1023,6 @@ impl SurfaceView {
             ("QrScanner", _) => self.paint_qr_scanner(&lcx, index, window, cx),
             ("Unknown", _) => natives::unknown(&lcx),
             ("Checkbox", Some("box" | "checkbox")) if style.native && !is_mixed(n) => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
-            // #EXP-1629: the native switch is THE switch the SDK's controls
-            // paint (`controls::web_switch`), so a host whose theme asks for
-            // it draws exactly its own screens' switch. No handler: the press
-            // stays the core's, and the recipe's opacity dims it.
-            ("Switch", Some("track")) if style.native => crate::controls::web_switch(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
             ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n), is_mixed(n)),
             ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
             ("Radio", Some("dot")) => {
@@ -1046,6 +1070,7 @@ impl SurfaceView {
         let id = self.cache.ids.get(index as usize)?.clone();
         let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        let _span = tracing::trace_span!("anim.step", id = "eui.shimmer").entered();
         crate::controls::repaint_on_next_step(&self.shimmer_armed_until, crate::controls::SMOOTH_STEP, window, cx);
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == eui_core::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
     }
@@ -1240,7 +1265,11 @@ impl SurfaceView {
             ("Select", Some("item")) => {
                 let check = lcx.str("check");
                 let selected = NodeFlags::of(n).selected || lcx.bool("selected");
-                row = row.child(div().flex_none().size(px(16.0)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, 16.0, lcx.ink))));
+                // #EXP-1629: the `check` part's recipe size and colour.
+                let cp = lcx.part_props("Select", "check", &[]);
+                let size = px_prop(&cp, "width").or_else(|| px_prop(&cp, "height")).unwrap_or(16.0) * lcx.scale;
+                let ink = lcx.part("Select", "check", &[]).color.unwrap_or(lcx.ink);
+                row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
             }
             ("Table", Some("headerCell")) => {
                 let icon = lcx.str("sortIcon");
@@ -1293,21 +1322,22 @@ impl SurfaceView {
                 return div().absolute().left(px(x)).top(px(y)).w(px(w)).child(el).into_any_element();
             }
         }
+        // #VAPP-258 step 5: the host's options (the chat rhythm, selection;
+        // #EDE-65 lane O: per text, the streaming reply's own).
+        let options = self.host.markdown_options_for(&text, cx);
         let blocks = {
             let mut cache = self.markdown.borrow_mut();
             match cache.get(&index) {
-                Some((t, b)) if *t == text => b.clone(),
+                Some((t, streaming, b)) if *t == text && *streaming == options.streaming => b.clone(),
                 _ => {
                     let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text, cx));
-                    cache.insert(index, (text.clone(), b.clone()));
+                    cache.insert(index, (text.clone(), options.streaming, b.clone()));
                     b
                 }
             }
         };
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
-        // #VAPP-258 step 5: the host's options (the chat rhythm, selection).
-        let options = self.host.markdown_options(cx);
         let viewport = f32::from(window.viewport_size().height);
         // #VAPP-258: an unchanged paint reuses the laid-out blocks
         // ([`crate::paint::markdown_memo`]) when the host versions its answers.
@@ -1499,9 +1529,19 @@ impl SurfaceView {
         let empty = self.fields.get(&n.id).is_none_or(|f| f.value(cx).trim().is_empty());
         let mut out = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
         if let Some(field) = self.fields.get(&n.id) {
+            // #EDE-65 R: a pasted image fires `attach` {files} (composerPaste).
+            let paste = {
+                let (view, id) = (cx.entity().downgrade(), n.id.clone());
+                move |item: &gpui::ClipboardItem, _: &mut Window, cx: &mut gpui::App| {
+                    // Files without an image do nothing (no path as text).
+                    let images = super::composer_paste::clipboard_images(item);
+                    let taken = !images.is_empty() && view.update(cx, |this, cx| this.composer_paste(&id, images, cx)).unwrap_or(false);
+                    taken || super::composer_paste::clipboard_has_files(item)
+                }
+            };
             let el = match &field.input {
-                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).into_any_element(),
-                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).into_any_element(),
+                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
+                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
             };
             // The field claims its presses (see `field_element`).
             out = out.child(
@@ -1526,6 +1566,11 @@ impl SurfaceView {
                     .on_click(cx.listener(move |this, _, _, cx| this.fire(idx, "attach", None, cx)))
                     .child(icons::concept(lcx.host, "ui-attach", 16.0, att.color.unwrap_or(lcx.ink))),
             );
+        }
+        // #EDE-65 R: the core lays the `trailing` slot out before the send
+        // disc; the attach control sits before it (composerSlots).
+        if let Some(t) = self.cache.index_of(&format!("{}.trailing", n.id)).and_then(|i| self.frames.get(i as usize)) {
+            bar = bar.child(div().flex_none().w(px(t.w)).h(px(1.0)));
         }
         let label = self.composer_labels(n).0;
         let fid = n.id.clone();
@@ -1964,15 +2009,6 @@ mod tests {
         assert_eq!(inherit_radii([0.0; 4], (4.0, 4.0, 192.0, 92.0), &card), [8.0; 4], "an inset child takes the radius minus the inset");
         assert_eq!(inherit_radii([0.0; 4], (20.0, 20.0, 20.0, 20.0), &card), [0.0; 4], "a child away from the corners keeps square ones");
         assert_eq!(inherit_radii([16.0, 0.0, 0.0, 0.0], (0.0, 0.0, 10.0, 10.0), &card)[0], 16.0, "its own larger radius wins");
-    }
-
-    #[test]
-    fn scrollbar_thumbs_track_the_offset() {
-        assert_eq!(thumb_geometry(100.0, 100.0, 0.0, 96.0), None);
-        let (at, len) = thumb_geometry(100.0, 400.0, 0.0, 96.0).unwrap();
-        assert_eq!((at, len), (0.0, 24.0));
-        let (at, _) = thumb_geometry(100.0, 400.0, 300.0, 96.0).unwrap();
-        assert_eq!(at, 72.0);
     }
 }
 

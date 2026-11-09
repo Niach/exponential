@@ -611,3 +611,234 @@ fn overlay_anchor_cases_close_on_scroll_move_and_removal_like_the_reference() {
         assert_eq!(open(&mut s, &mut m), c["after"].as_bool().unwrap(), "{name}");
     }
 }
+
+/// #EXP-1629 keyRecorder at the core: what every painter sends for a step
+/// (`press`, `record` with the canonical payload, `blur`) and the guards the
+/// core keeps (a press only while idle; `record` and `blur` only while
+/// recording). The capture half (platform keys → payload, focus) replays in
+/// each painter.
+#[test]
+fn key_recorder_cases_start_record_and_stop_like_the_reference() {
+    let f = fixture();
+    let k = &f["keyRecorder"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(k["surface"].clone());
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        let flags = |mods: &Value| {
+            let held = |m: &str| mods.as_array().is_some_and(|a| a.iter().any(|x| x == m));
+            json!({"ctrl": held("ctrl"), "alt": held("alt"), "shift": held("shift"), "meta": held("meta")})
+        };
+        for step in c["steps"].as_array().unwrap() {
+            let field = s.nodes().iter().position(|n| n.id == "ptt.field").unwrap_or_else(|| panic!("{name}: no field")) as u32;
+            let (kind, value) = step.as_object().unwrap().iter().next().unwrap();
+            let out = match kind.as_str() {
+                "press" => s.event(field, "press", None),
+                "blur" => s.event(field, "blur", None),
+                "down" | "up" => {
+                    let mut p = flags(&step["mods"]);
+                    p["type"] = json!(kind);
+                    p["key"] = value.clone();
+                    s.event(field, "record", Some(p))
+                }
+                "modifiers" => {
+                    let mut p = flags(value);
+                    p["type"] = json!("modifiers");
+                    s.event(field, "record", Some(p))
+                }
+                "mouse" => {
+                    let button = value.as_u64().unwrap();
+                    let mut p = flags(&Value::Null);
+                    p["type"] = json!("mouse");
+                    p["button"] = json!(button);
+                    if (3..=5).contains(&button) { s.event(field, "record", Some(p)) } else { vec![] }
+                }
+                "hostWrite" => {
+                    s.set_data(value["path"].as_str().unwrap(), Some(value["value"].clone())).unwrap();
+                    vec![]
+                }
+                other => panic!("{name}: step {other}"),
+            };
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/recording").cloned().unwrap_or(Value::Null), c["recording"], "{name}: /recording");
+    }
+}
+
+/// #EDE-65 composerKeys at the core: what a painter sends for each step
+/// (`change` for the field's edit; with menuKeys on, a menu key without a
+/// modifier or an IME composition = `key` {key}; else the field's own Enter
+/// = `submit` {value} then `change` "") fires and writes like the
+/// reference. The capture half (which platform keys a Composer takes)
+/// replays in each painter.
+#[test]
+fn composer_key_cases_fire_key_or_submit_like_the_reference() {
+    let f = fixture();
+    let k = &f["composerKeys"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(k["surface"].clone());
+        for (path, value) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{path}"), Some(value.clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        let mut text = String::new();
+        for step in c["steps"].as_array().unwrap() {
+            let composer = s.nodes().iter().position(|n| n.id == "c").unwrap_or_else(|| panic!("{name}: no composer")) as u32;
+            let out = if let Some(t) = step["type"].as_str() {
+                text = t.to_string();
+                s.event(composer, "change", Some(json!({"value": t})))
+            } else if let Some(key) = step["key"].as_str() {
+                let plain = step["mods"].as_array().is_none_or(|a| a.is_empty()) && step["composing"].as_bool() != Some(true);
+                let menu = s.get_data("/menu") == Some(&json!(true));
+                if menu && plain {
+                    s.event(composer, "key", Some(json!({"key": key})))
+                } else if key == "Enter" && plain && !text.trim().is_empty() {
+                    let mut out = s.event(composer, "submit", Some(json!({"value": text.trim()})));
+                    text.clear();
+                    out.extend(s.event(composer, "change", Some(json!({"value": ""}))));
+                    out
+                } else {
+                    vec![]
+                }
+            } else if let Some(w) = step.get("hostWrite") {
+                s.set_data(w["path"].as_str().unwrap(), Some(w["value"].clone())).unwrap();
+                vec![]
+            } else {
+                panic!("{name}: step {step}")
+            };
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/draft").cloned().unwrap_or(Value::Null), c["draft"], "{name}: /draft");
+    }
+}
+
+/// #EDE-65 R composerSlots at the core: the slots sit in the Composer's
+/// controls row (the send disc's row at the bottom of its content box):
+/// `leading` at the start edge, `trailing` one gap before the disc, every
+/// slot centred on it, the composer's size unchanged; a slot child is a
+/// live node. The attach control is painted by each painter (its place
+/// before `trailing` replays there).
+#[test]
+fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
+    let f = fixture();
+    let k = &f["composerSlots"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let rtl = c["direction"] == "rtl";
+        let mut composer = k["surface"].clone();
+        for (p, v) in c["props"].as_object().unwrap() {
+            composer["props"][p] = v.clone();
+        }
+        let slots = c["slots"].as_object().unwrap();
+        if !slots.is_empty() {
+            composer["slots"] = c["slots"].clone();
+        }
+        let plain = {
+            let mut p = k["surface"].clone();
+            for (key, v) in c["props"].as_object().unwrap() {
+                p["props"][key] = v.clone();
+            }
+            p
+        };
+        let run = |tree: Value| {
+            let root = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "direction": if rtl { "rtl" } else { "ltr" }}, "children": [tree]});
+            let mut s = Surface::new("t", SurfaceOptions { theme: eui_core::themes::builtin_theme("neutral"), ..SurfaceOptions::default() });
+            s.set_nested(serde_json::from_value(root).unwrap());
+            assert!(s.issues().is_empty(), "{name}: {:?}", s.issues());
+            s.set_viewport(400.0, 0.0, None);
+            let out = s.layout(&mut fixed());
+            let nodes = s.nodes();
+            let frames: HashMap<String, (f32, f32, f32, f32)> = out.frames.iter().map(|f| (nodes[f.index as usize].id.clone(), (f.x, f.y, f.w, f.h))).collect();
+            (s, frames)
+        };
+        let (mut s, frames) = run(composer);
+        let (_, bare) = run(plain);
+        let frame = |id: &str| *frames.get(id).unwrap_or_else(|| panic!("{name}: no frame for {id}"));
+        let cf = frame("c");
+        assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
+        let ci = s.index_of("c").unwrap();
+        let v = s.visual(ci).cloned().unwrap();
+        let pad = v.padding.unwrap_or([0.0; 4]);
+        let b = v.border_width.unwrap_or(0.0);
+        let (start, end) = if rtl { (cf.0 + cf.2 - pad[1] - b, cf.0 + pad[3] + b) } else { (cf.0 + pad[3] + b, cf.0 + cf.2 - pad[1] - b) };
+        if slots.is_empty() {
+            assert!(!frames.contains_key("c.bar"), "{name}: no row without slots");
+            continue;
+        }
+        let send = frame("c.sendSpace");
+        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let edge = |f: (f32, f32, f32, f32), lead: bool| if rtl == lead { f.0 + f.2 } else { f.0 };
+        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
+        near(edge(send, false), end, "send ends at the content end");
+        near(send.1 + send.3, cf.1 + cf.3 - pad[2] - b, "the row sits at the content bottom");
+        let centre = send.1 + send.3 / 2.0;
+        let order: Vec<&str> = c["order"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).filter(|o| *o != "attachment").collect();
+        for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
+            if !slots.contains_key(slot) {
+                assert!(!frames.contains_key(&format!("c.{slot}")), "{name}: no {slot} wrapper");
+                continue;
+            }
+            assert!(order.contains(&slot), "{name}: {slot} in order");
+            let w = frame(&format!("c.{slot}"));
+            let child = frame(id);
+            near(child.1 + child.3 / 2.0, centre, &format!("{slot} centred on the disc"));
+            assert!(child.0 >= cf.0 - 0.01 && child.0 + child.2 <= cf.0 + cf.2 + 0.01 && child.1 >= cf.1 - 0.01 && child.1 + child.3 <= cf.1 + cf.3 + 0.01, "{name}: {slot} inside the composer");
+            if slot == "leading" {
+                near(edge(w, true), start, "leading starts at the content start");
+            } else {
+                let gap = if rtl { w.0 - (send.0 + send.2) } else { send.0 - (w.0 + w.2) };
+                near(gap, xs, "trailing ends one gap before send");
+            }
+        }
+        let mut fired = vec![];
+        for step in c["steps"].as_array().unwrap() {
+            let id = step["press"].as_str().unwrap();
+            let i = s.index_of(id).unwrap_or_else(|| panic!("{name}: no {id}"));
+            fired.extend(s.event(i, "press", None).into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+        }
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+    }
+}
+
+/// #EDE-65 R composerPaste at the core: what a painter sends for a paste
+/// (image files = `attach` {files: the images}; files without one =
+/// nothing; else the field's own edit = `change`) fires like the reference. Which clipboard a paste carries and
+/// the bytes' upload replay in each painter.
+#[test]
+fn composer_paste_cases_fire_attach_or_change_like_the_reference() {
+    let f = fixture();
+    let k = &f["composerPaste"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(k["surface"].clone());
+        for (path, value) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{path}"), Some(value.clone())).unwrap();
+        }
+        s.layout(&mut fixed());
+        let composer = s.index_of("c").unwrap();
+        let clip = &c["clipboard"];
+        let images: Vec<Value> = clip["files"].as_array().into_iter().flatten().filter(|f| f["type"].as_str().is_some_and(|t| t.starts_with("image/"))).cloned().collect();
+        let out = if !images.is_empty() {
+            s.event(composer, "attach", Some(json!({"files": images})))
+        } else if clip["files"].as_array().is_some_and(|f| !f.is_empty()) {
+            vec![]
+        } else if let Some(t) = clip["text"].as_str() {
+            let draft = s.get_data("/draft").and_then(Value::as_str).unwrap_or("").to_string();
+            s.event(composer, "change", Some(json!({"value": format!("{draft}{t}")})))
+        } else {
+            vec![]
+        };
+        let fired: Vec<Value> = out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }).collect();
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/draft").cloned().unwrap_or(Value::Null), c["draft"], "{name}: /draft");
+    }
+}

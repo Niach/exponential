@@ -15,8 +15,9 @@ public let avatarHueCount = 8
 private let fnvOffsetBasis: UInt32 = 0x811C_9DC5
 private let fnvPrime: UInt32 = 0x0100_0193
 
-/// The palette slot for a user id; a nil id hashes as the empty string, so an
-/// unresolved member still gets a stable colour instead of a special case.
+/// The palette slot for a hue key (`avatarHueKey`); a nil key hashes as the
+/// empty string here, but the avatar itself paints a nil key muted grey
+/// (#EXP-1754) and never asks for its slot.
 public func avatarHueIndex(_ userId: String?) -> Int {
     var hash = fnvOffsetBasis
     for byte in (userId ?? "").utf8 {
@@ -24,4 +25,18 @@ public func avatarHueIndex(_ userId: String?) -> Int {
         hash = hash &* fnvPrime
     }
     return Int(hash % UInt32(avatarHueCount))
+}
+
+/// #EXP-1754 (packages/exponential-ui/fixtures/avatar.json `keys`): what an
+/// avatar's hue is keyed on — the person's id, else their name, else their
+/// email (trimmed; blank counts as absent). nil = no key: the muted grey chip,
+/// never a hash of "". A widget reporter is keyed on their name or email; an
+/// anonymous one (no name, no email) has no key, whatever copy is shown.
+public func avatarHueKey(id: String?, name: String? = nil, email: String? = nil) -> String? {
+    if let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return id }
+    for label in [name, email] {
+        let trimmed = (label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+    }
+    return nil
 }

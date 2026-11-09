@@ -7,13 +7,13 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@exponential_app/eui": "^0.19.1",
-    "@exponential_app/eui-solid": "^0.19.1",
+    "@exponential_app/eui": "^0.21.0",
+    "@exponential_app/eui-solid": "^0.21.0",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
-    "vite": "^7.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
     "vite-plugin-solid": "^2.11.0"
   }
 }

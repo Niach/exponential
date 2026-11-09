@@ -28,7 +28,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
     let mode = Mode { size: backend.window_size(), refresh: 60_000 };
     let output = Output::new(
         "winit".to_string(),
-        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into() },
+        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Exponential".into(), model: "Desktop (nested)".into(), serial_number: "Unknown".into() },
     );
     let _global = output.create_global::<Ede>(&state.display_handle);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
@@ -64,6 +64,8 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
         }
         WinitEvent::Input(event) => state.process_input_event(event),
         WinitEvent::Redraw => {
+            // #LOGS-2: the frame's time, render through submit.
+            let frame_started = std::time::Instant::now();
             let age = backend_mut.buffer_age().unwrap_or(0);
             let damage = {
                 let (renderer, mut framebuffer) = match backend_mut.bind() {
@@ -90,6 +92,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Ede>, state: &mut Ede) -> Result
                     if let Err(e) = backend_mut.submit(Some(&damage)) {
                         tracing::warn!("submit failed: {e}");
                     }
+                    ede_observability::record_frame(&output.name(), frame_started.elapsed());
                     backend_mut.window().request_redraw();
                 }
                 None => {

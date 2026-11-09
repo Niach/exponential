@@ -176,6 +176,9 @@ struct Live {
     turn_text: String,
     /// The agent message row the turn's prose lands in.
     turn_row: Option<String>,
+    /// A turn started and has not ended: the engine seeds `ended` before the
+    /// first prompt (EXP-848), which is no turn end to report.
+    in_turn: bool,
 }
 
 pub struct LocalRuns {
@@ -625,7 +628,7 @@ impl LocalRuns {
             system.push(' ');
             system.push_str(note);
         }
-        let brief = Brief::new(sid, text).cwd(cwd).system_append(&system);
+        let brief = Brief::new(sid, &localize_attachments(&self.desktop, text)).cwd(cwd).system_append(&system);
         let sink: Arc<dyn EventSink> = Arc::new(Sink { session_id: session_id.to_string(), tx: self.events.0.clone() });
         let (runner, missing) = self.runner_for(session_id);
         if let Some(missing) = missing {
@@ -633,7 +636,7 @@ impl LocalRuns {
         }
         match runner.start(brief, grant, sink) {
             Ok(run) => {
-                self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None });
+                self.live.lock().expect("live").insert(session_id.to_string(), Live { run, turn_text: String::new(), turn_row: None, in_turn: false });
             }
             Err(e) => {
                 log::warn!("run {session_id}: {e}");
@@ -713,7 +716,7 @@ impl LocalRuns {
                 // A message into a live run goes to the CLI as the next prompt.
                 if let Some(live) = self.live.lock().expect("live").get(id) {
                     if !text.trim().is_empty() {
-                        live.run.send(&text);
+                        live.run.send(&localize_attachments(&self.desktop, &text));
                     }
                 }
             }
@@ -747,8 +750,23 @@ impl LocalRuns {
                 }
                 let mut live = self.live.lock().expect("live");
                 let Some(run) = live.get_mut(session_id) else { return };
+                // A new assistant message (after a tool call) is a new block:
+                // a blank line between blocks, as the hub's copies join them
+                // (eagent-hub-core `copy`); a message's own chunks join as sent.
+                let last = run.turn_row.as_deref().and_then(|r| r.split_once('|')).map(|(_, m)| m);
+                if let (Some(new), Some(last)) = (message_id.as_deref(), last) {
+                    if !last.is_empty() && new != last && !run.turn_text.trim_end().is_empty() {
+                        let trimmed = run.turn_text.trim_end().len();
+                        run.turn_text.truncate(trimmed);
+                        run.turn_text.push_str("\n\n");
+                    }
+                }
                 run.turn_text.push_str(&text);
-                let same_row = message_id.as_deref().is_some_and(|m| run.turn_row.as_deref().is_some_and(|r| r.ends_with(m))) || run.turn_row.is_some();
+                if let (Some(row), Some(new)) = (run.turn_row.as_mut(), message_id.as_deref()) {
+                    let id = row.split('|').next().unwrap_or("").to_string();
+                    *row = format!("{id}|{new}");
+                }
+                let same_row = run.turn_row.is_some();
                 if let (true, Some(row_id)) = (same_row, run.turn_row.as_ref().map(|r| r.split('|').next().unwrap_or("").to_string())) {
                     if let Ok(Some(mut row)) = self.desktop.store.row("messages", &row_id) {
                         row.insert("body".into(), json!(run.turn_text));
@@ -766,6 +784,9 @@ impl LocalRuns {
                 self.step("device.reply", json!({"sessionId": session_id, "card": card}));
             }
             ActivityEvent::Turn { state: TurnState::Started, .. } => {
+                if let Some(run) = self.live.lock().expect("live").get_mut(session_id) {
+                    run.in_turn = true;
+                }
                 let device_id = self.desktop.executor.device_id();
                 self.step("device.report", json!({"sessionId": session_id, "deviceId": device_id, "busy": true}));
             }
@@ -773,6 +794,9 @@ impl LocalRuns {
                 let (reply, row) = {
                     let mut live = self.live.lock().expect("live");
                     let Some(run) = live.get_mut(session_id) else { return };
+                    if !std::mem::take(&mut run.in_turn) {
+                        return;
+                    }
                     let row = run.turn_row.take().map(|r| r.split('|').next().unwrap_or("").to_string());
                     (std::mem::take(&mut run.turn_text), row)
                 };
@@ -816,6 +840,52 @@ impl LocalRuns {
 /// The noun subset over the desktop's store, as the server's tools are named.
 struct LocalTools {
     desktop: Arc<LocalDesktop>,
+}
+
+/// The folder a desktop's agents read their messages' attachments from.
+pub const AGENT_FILES_DIR: &str = "agent-files";
+
+/// #EDE-65 lane L: a CLI cannot GET `/api/attachments/{id}` (the server's
+/// devices download them first, `.exp-steer-images`), so every attachment a
+/// message names is copied out of the blob store to
+/// `<desktop>/agent-files/<id>/<filename>` and that path replaces its URL.
+/// An id the desktop holds no bytes for keeps its URL.
+pub fn localize_attachments(desktop: &LocalDesktop, text: &str) -> String {
+    const URL: &str = "/api/attachments/";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(URL) {
+        let tail = &rest[at + URL.len()..];
+        let len = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).unwrap_or(tail.len());
+        let id = &tail[..len];
+        out.push_str(&rest[..at]);
+        match (!id.is_empty()).then(|| agent_file(desktop, id)).flatten() {
+            Some(path) => out.push_str(&path.to_string_lossy()),
+            None => {
+                out.push_str(URL);
+                out.push_str(id);
+            }
+        }
+        rest = &tail[len..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// One attachment's bytes on disk under its filename (written once).
+fn agent_file(desktop: &LocalDesktop, id: &str) -> Option<PathBuf> {
+    let (bytes, _) = desktop.blobs.get(id)?;
+    let row = desktop.store.row("attachments", id).ok().flatten();
+    let name = row.as_ref().and_then(|r| r.get("filename")).and_then(Value::as_str).filter(|n| !n.is_empty());
+    // Only the last path component: a stored name never escapes the folder.
+    let name = name.and_then(|n| std::path::Path::new(n).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| id.to_string());
+    let dir = desktop.dir.join(AGENT_FILES_DIR).join(id);
+    let path = dir.join(name);
+    if !path.is_file() {
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::write(&path, bytes).ok()?;
+    }
+    Some(path)
 }
 
 /// The noun subset as a provider of its own (#VAPP-273: an app's `action`
@@ -939,6 +1009,20 @@ mod tests {
 
     impl FakeRun {
         fn turn(&self, text: &str) {
+            if text.contains("[seed-only]") {
+                // The engine's seed before any prompt: no turn ran.
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                return;
+            }
+            if text.contains("[two-blocks]") {
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Started, started_at: None, tokens: None, at: None, writing: None });
+                self.sink.send(ActivityEvent::Narration { text: "I'll open the image.".into(), before_question_id: None, message_id: Some("m1".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Narration { text: "It is red.".into(), before_question_id: None, message_id: Some("m2".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Narration { text: " Text: 42.".into(), before_question_id: None, message_id: Some("m2".into()), subagent_id: None, at: None });
+                self.sink.send(ActivityEvent::Turn { state: TurnState::Ended, started_at: None, tokens: None, at: None, writing: None });
+                return;
+            }
             self.sink.send(ActivityEvent::Turn { state: TurnState::Started, started_at: None, tokens: None, at: None, writing: None });
             self.sink.send(ActivityEvent::Narration { text: format!("Hello {text}"), before_question_id: None, message_id: Some("a1".into()), subagent_id: None, at: None });
             self.sink.send(ActivityEvent::Narration { text: " there".into(), before_question_id: None, message_id: Some("a1".into()), subagent_id: None, at: None });
@@ -1016,6 +1100,66 @@ mod tests {
         assert_eq!(out["structuredContent"]["by"], json!("run-1"));
         let out = merged.call(&caller, "exponential_boards", json!({"op": "list"}));
         assert!(out["structuredContent"].is_array());
+    }
+
+    /// #EDE-65 lane L: a sent image reaches the CLI as a file on disk under
+    /// its name, in place of its URL; an id without bytes keeps its URL.
+    #[test]
+    fn a_message_s_attachments_reach_the_agent_as_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = desktops.open_desktop(desktops.current().unwrap()).unwrap();
+        let row = desktop.executor.attachment_create("shot.png", "image/png", b"PNG!", None).unwrap();
+        let id = row["id"].as_str().unwrap().to_string();
+        let text = format!("look\n\n![shot.png](/api/attachments/{id})\n[x](/api/attachments/missing-1)");
+        let local = localize_attachments(&desktop, &text);
+        let path = desktop.dir.join(AGENT_FILES_DIR).join(&id).join("shot.png");
+        assert_eq!(local, format!("look\n\n![shot.png]({})\n[x](/api/attachments/missing-1)", path.display()));
+        assert_eq!(std::fs::read(&path).unwrap(), b"PNG!");
+        assert_eq!(localize_attachments(&desktop, "no files"), "no files");
+    }
+
+    /// #EDE-65: a turn with two assistant messages (prose, a tool call,
+    /// more prose) lands as two blocks with a blank line between them, and
+    /// a message's own chunks join as they came; the session goes idle.
+    #[test]
+    fn a_turns_assistant_messages_keep_their_block_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("[two-blocks] look".into());
+        let session = api::sessions::send(&desktop.client(), &send).unwrap().session_id;
+        wait_for(&changes, || desktop.store.row("sessions", &session).unwrap().unwrap()["status"] == json!("idle"));
+        let bodies: Vec<String> = desktop.store.rows_where("messages", "root_id", &session).unwrap().into_iter().filter(|m| m["author_kind"] == "agent").filter_map(|m| m["body"].as_str().map(str::to_string)).collect();
+        assert_eq!(bodies, ["I'll open the image.\n\nIt is red. Text: 42."]);
+        runs.stop_all();
+    }
+
+    /// #EDE-65: the engine seeds a turn `ended` before the first prompt; that
+    /// is no turn end: the session stays running until a turn really ends.
+    #[test]
+    fn the_engines_seeded_turn_end_is_no_turn_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let desktops = crate::Desktops::open(dir.path()).unwrap();
+        let desktop = Arc::new(desktops.open_desktop(desktops.current().unwrap()).unwrap());
+        let runner = Arc::new(FakeRunner { prompts: Arc::new(Mutex::new(Vec::new())), grants: Arc::new(Mutex::new(Vec::new())) });
+        let runs = LocalRuns::start(desktop.clone(), runner, dir.path().to_path_buf()).unwrap();
+        let changes = runs.changes();
+        let mut send = api::sessions::SendInput::default();
+        send.team_id = Some(desktop.executor.team_id().to_string());
+        send.text = Some("[seed-only] look".into());
+        let session = api::sessions::send(&desktop.client(), &send).unwrap().session_id;
+        let status = |d: &LocalDesktop| d.store.row("sessions", &session).unwrap().unwrap()["status"].as_str().unwrap_or("").to_string();
+        wait_for(&changes, || runs.is_running(&session));
+        // Every event the run sent is handled by now (one worker, in order).
+        while changes.recv_timeout(Duration::from_millis(500)).is_ok() {}
+        assert_eq!(status(&desktop), "running");
+        runs.stop_all();
     }
 
     #[test]

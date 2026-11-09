@@ -276,7 +276,7 @@
           },
           "exponential": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           },
           "playful": {
             "light": "#ffffff",
@@ -284,7 +284,7 @@
           },
           "orange": {
             "light": "#ffffff",
-            "dark": "#171717"
+            "dark": "#252525"
           }
         }
       },
@@ -923,6 +923,50 @@
           "orange": {
             "light": "#2b59c8",
             "dark": "#5f8bea"
+          }
+        }
+      },
+      {
+        "name": "borderStrong",
+        "ref": "$color.borderStrong",
+        "values": {
+          "neutral": {
+            "light": "#e5e5e5",
+            "dark": "#ffffff1a"
+          },
+          "exponential": {
+            "light": "#d4d4d4",
+            "dark": "#ffffff1f"
+          },
+          "playful": {
+            "light": "#e9d5ff",
+            "dark": "#4c3a7a"
+          },
+          "orange": {
+            "light": "#d4d4d4",
+            "dark": "#ffffff1f"
+          }
+        }
+      },
+      {
+        "name": "ghostHover",
+        "ref": "$color.ghostHover",
+        "values": {
+          "neutral": {
+            "light": "#f5f5f5",
+            "dark": "#262626"
+          },
+          "exponential": {
+            "light": "#f5f5f5",
+            "dark": "#ffffff0e"
+          },
+          "playful": {
+            "light": "#ffe4e6",
+            "dark": "#4c1d95"
+          },
+          "orange": {
+            "light": "#f5f5f5",
+            "dark": "#ffffff0e"
           }
         }
       }
@@ -1589,6 +1633,16 @@
           "playful": 64,
           "orange": 56
         }
+      },
+      {
+        "name": "avatarXl",
+        "ref": "$control.avatarXl",
+        "values": {
+          "neutral": 48,
+          "exponential": 48,
+          "playful": 48,
+          "orange": 48
+        }
       }
     ],
     "shadow": [
@@ -1999,6 +2053,148 @@
             ]
           }
         }
+      },
+      {
+        "name": "popover",
+        "ref": "$shadow.popover",
+        "values": {
+          "neutral": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "exponential": {
+            "light": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ]
+          },
+          "playful": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "orange": {
+            "light": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 10,
+                "blur": 15,
+                "spread": -3,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -4,
+                "color": "#0000001a"
+              }
+            ]
+          }
+        }
       }
     ],
     "opacity": [
@@ -2387,7 +2583,10 @@
     "animation",
     "native",
     "marginTop",
-    "marginBottom"
+    "marginBottom",
+    "borderTopLeftRadius",
+    "maxWidth",
+    "backgroundClip"
   ],
   "components": [
     {
@@ -2656,6 +2855,15 @@
       "parts": [
         "root",
         "label"
+      ],
+      "props": []
+    },
+    {
+      "name": "KbdGroup",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "key"
       ],
       "props": []
     },
@@ -3298,7 +3506,9 @@
         "striped",
         "density",
         "stickyHeader",
-        "align"
+        "align",
+        "totals",
+        "total"
       ]
     },
     {
@@ -3436,7 +3646,8 @@
       ],
       "props": [
         "type",
-        "disabled"
+        "disabled",
+        "variant"
       ]
     },
     {
@@ -3581,12 +3792,20 @@
         "item",
         "check",
         "empty",
-        "error"
+        "error",
+        "value",
+        "chevron",
+        "fade",
+        "description",
+        "labels",
+        "control",
+        "button"
       ],
       "props": [
         "multiple",
         "searchable",
-        "disabled"
+        "disabled",
+        "triggerVariant"
       ]
     },
     {
@@ -3625,6 +3844,24 @@
       ],
       "props": [
         "disabled"
+      ]
+    },
+    {
+      "name": "KeyRecorder",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "field",
+        "none",
+        "value",
+        "placeholder",
+        "held",
+        "pending",
+        "ellipsis",
+        "error"
+      ],
+      "props": [
+        "recording"
       ]
     },
     {
@@ -3835,6 +4072,14 @@
       ]
     },
     {
+      "name": "Embed",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": []
+    },
+    {
       "name": "Calendar",
       "kind": "macro",
       "parts": [
@@ -3946,6 +4191,8 @@
         "root",
         "unknown",
         "toolbar",
+        "search",
+        "filter",
         "count",
         "add",
         "loading",

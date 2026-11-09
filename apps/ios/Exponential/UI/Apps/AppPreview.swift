@@ -77,27 +77,24 @@ struct AppPreview: View {
                 EmptyState(title: Apps.Copy.needsUpdate, icon: glyph, size: .page)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-            ScrollView {
-                Group {
-                    if let packageJSON {
-                        AppPackageSurface(
-                            packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
-                            migrateFrom: migrateFrom, shown: screens.shown, shownKey: screens.shownKey,
-                            viewportHeight: max(0, visibleHeight - Apps.Preview.padding * 2),
-                            onNavigate: { request in screen.wrappedValue = request },
-                            onRefused: { refusedKey = surfaceKey }
-                        )
-                        .id(hostKey)
-                    } else {
-                        EmptyState(title: emptyTitle, icon: emptyIcon, size: .page)
-                            .frame(maxWidth: .infinity, minHeight: 192)
-                    }
+            // #FEED-201: the bar's screens page like every phone tab strip
+            // (THE pager, `FacePager`; a neighbour mounts as it comes into
+            // reach); a detail screen (`nav: false`) stands alone.
+            if let shown = screens.shown, screens.tabs.contains(where: { $0.screen == shown.screen }),
+               Apps.screenShell(screenCount: screens.tabs.count, phone: true) == .bar {
+                FacePager(
+                    pages: screens.tabs.map(\.screen),
+                    selection: Binding(
+                        get: { shown.screen },
+                        set: { next in if next != shown.screen { screen.wrappedValue = Apps.ScreenRequest(screen: next) } }
+                    )
+                ) { tab in
+                    let page = tab == shown.screen ? screens : AppPreviewScreens(packageJSON: packageJSON, request: Apps.ScreenRequest(screen: tab))
+                    surfaceScroller(page, surfaceKey: "\(page.shownKey):\(hostKey)", hostKey: hostKey)
                 }
-                .padding(Apps.Preview.padding)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            } else {
+                surfaceScroller(screens, surfaceKey: surfaceKey, hostKey: hostKey)
             }
-            .scrollContentBackground(.hidden)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
             if Apps.screenShell(screenCount: screens.tabs.count, phone: true) == .bar {
                 PhoneTabCapsule(
                     tabs: screens.tabs.map(\.screen),
@@ -127,6 +124,35 @@ struct AppPreview: View {
         .overlay(shape.strokeBorder(framed ? GlassTokens.strokeCard : Color.clear, lineWidth: GlassTokens.hairline))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(framed ? Apps.TestIds.preview : Apps.TestIds.run)
+    }
+}
+
+extension AppPreview {
+    /// One screen's surface in its scroller (the pager's page, or the whole
+    /// pane without a pager).
+    @ViewBuilder
+    fileprivate func surfaceScroller(_ page: AppPreviewScreens, surfaceKey: String, hostKey: String) -> some View {
+        ScrollView {
+            Group {
+                if let packageJSON {
+                    AppPackageSurface(
+                        packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
+                        migrateFrom: migrateFrom, shown: page.shown, shownKey: page.shownKey,
+                        viewportHeight: max(0, visibleHeight - Apps.Preview.padding * 2),
+                        onNavigate: { request in screen.wrappedValue = request },
+                        onRefused: { refusedKey = surfaceKey }
+                    )
+                    .id(hostKey)
+                } else {
+                    EmptyState(title: emptyTitle, icon: emptyIcon, size: .page)
+                        .frame(maxWidth: .infinity, minHeight: 192)
+                }
+            }
+            .padding(Apps.Preview.padding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollContentBackground(.hidden)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
     }
 }
 

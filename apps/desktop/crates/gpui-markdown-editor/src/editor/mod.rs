@@ -42,6 +42,8 @@ mod tests;
 mod tree;
 mod window_state;
 
+pub use render::editor_text_font;
+
 /// Top-level reusable editor component.
 pub struct Editor {
     document: DocumentTree,
@@ -68,6 +70,12 @@ pub struct Editor {
     prev_visible_block_ids: Vec<EntityId>,
     row_stride_cache: HashMap<EntityId, f32>,
     prev_render_window: Option<(usize, usize)>,
+    /// #LOGS-6: how many rows an embedded editor with its host's scroll
+    /// handle mounted last frame (`None` before its first).
+    embedded_mounted: Option<usize>,
+    /// #LOGS-6: the host needs every row laid out now (a scroll anchor
+    /// below the description).
+    mount_all_rows: bool,
     /// Window-space origin of the editor's content area, recorded by the
     /// slot-width prepaint listener (see `render.rs`). The drop indicator
     /// converts window-space boundary Y coordinates into content-relative
@@ -245,6 +253,7 @@ impl Editor {
         markdown: String,
         document_base_dir: Option<PathBuf>,
     ) -> Self {
+        let _span = tracing::debug_span!("markdown.parse", bytes = markdown.len()).entered();
         let options = MarkdownEditorOptions {
             environment: MarkdownEditorEnvironment {
                 document_base_dir,
@@ -288,6 +297,8 @@ impl Editor {
             prev_visible_block_ids: Vec::new(),
             row_stride_cache: HashMap::new(),
             prev_render_window: None,
+            embedded_mounted: None,
+            mount_all_rows: false,
             last_content_origin: None,
             drop_indicator: None,
             context_menu: None,

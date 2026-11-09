@@ -9,6 +9,7 @@ import { For, Show, createComputed, createRenderEffect, createEffect, createMemo
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
 import { mediaClock } from "@exponential_app/eui/web"
+import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 import { useSurfaceContext } from "../context"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
 import { createMediaSource, createMediaSrc } from "../media"
@@ -180,21 +181,13 @@ export function AudioPlayerNative(props: NativeProps): JSX.Element {
   )
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!)
-    .join(``)
-    .toUpperCase()
-}
-
-/** A stable hue for a seed (two avatars of one person always match). */
-export function seedHue(seed: string): number {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  return h % 360
+/** #EXP-1629 (fixtures/avatar.json): the hue key (#EXP-1754: the seed, a
+ *  user id, else the trimmed name, which may be an email) picks
+ *  `AVATAR_PALETTE[fnv1a32(key) % 8]`, the hue at 20% behind initials in
+ *  it, the app's own avatar; no key = the recipe's muted fallback. */
+export function avatarTint(seed: string, name?: string): { backgroundColor: string; color: string } | undefined {
+  const key = avatarHueKey(seed, name)
+  return key === undefined ? undefined : avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(key)]!)
 }
 
 export function AvatarNative(props: NativeProps): JSX.Element {
@@ -202,12 +195,10 @@ export function AvatarNative(props: NativeProps): JSX.Element {
   const part = parts(props)
   const name = () => str(props.props.name)
   const src = () => str(props.props.src)
-  const seed = () => str(props.props.seed) || name()
-  const hue = () => (seed() ? seedHue(seed()) : null)
   const url = createMediaSrc(() => ctx.host, src)
   const tint = () => {
-    const h = hue()
-    return h === null ? undefined : css({ backgroundColor: `color-mix(in oklab, hsl(${h} 70% 55%) 22%, transparent)`, color: `hsl(${h} 60% ${ctx.mode === `dark` ? 72 : 38}%)` })
+    const colors = avatarTint(str(props.props.seed), name())
+    return colors ? css(colors) : undefined
   }
   // AvatarPrimitive.Image is only mounted with a src.
   const status = createImageLoadingStatus(() => (src() ? url() : undefined))
@@ -231,7 +222,7 @@ export function AvatarNative(props: NativeProps): JSX.Element {
       </Show>
       <Show when={canRender() && imageStatus() !== `loaded`}>
         <span {...part(`fallback`)} style={tint()}>
-          {initials(name()) || `?`}
+          {avatarInitials(name())}
         </span>
       </Show>
     </span>

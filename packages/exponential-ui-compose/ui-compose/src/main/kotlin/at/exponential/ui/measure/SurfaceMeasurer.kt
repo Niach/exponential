@@ -132,6 +132,8 @@ class SurfaceMeasurer(
     val fontScale: Float = 1f,
     /** The surface's viewport height an uncapped Markdown image stops at (`imageMaxHeight: null`); null = unknown. */
     val viewportHeight: Float? = null,
+    /** #EDE-65: an Embed's nested surface laid out at a content width (component id, resolved `surface`, wrap; null = max-content) → its size; null = 0×0. */
+    val embedSize: ((String, JsonValue?, Float?) -> Size)? = null,
     /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
     val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
@@ -243,6 +245,11 @@ class SurfaceMeasurer(
                 // EXP-1604 (contract §4): the composition's px size, shrinking to the width, aspect kept.
                 // Round 8 (layout.json `canvas`): a Canvas boxes like a Motion (intrinsic = `size`).
                 "Motion", "Canvas" -> at.exponential.ui.compose.motionBox(props, inner).let { plain(it.width, it.height) }
+                // #EDE-65: the nested surface at the width it gets (a card fills it), as tall as its content.
+                "Embed" -> if (p == null) {
+                    val s = embedSize?.invoke(leaf.id, props["surface"], inner) ?: Size.Zero
+                    plain(s.width, s.height)
+                } else plain(0f, 0f)
                 "AudioPlayer" -> {
                     // Round 2 §7: the title line + xs + a controls row of `$control.row`.
                     val track = if (props.str("title").isEmpty()) 0f else ts.lineHeight + spacing("xs")
@@ -313,7 +320,12 @@ class SurfaceMeasurer(
                     plain(n * dot + max(n - 1f, 0f) * gap, recipe.height ?: dot)
                 } else plain(0f, 0f)
                 "Input" -> when (p) {
-                    "field" -> Content(FIELD_INTRINSIC_WIDTH, ts.lineHeight, baseline(ts))
+                    // #EXP-1629: a `row` field leads with its label (the `label` part) + the gap.
+                    "field" -> if (at.exponential.ui.compose.inputRowVariant(props) && props.str("label").isNotEmpty()) {
+                        val lts = at.exponential.ui.compose.inputRowLabelStyle(ts, part("Input", "label", props))
+                        val gap = at.exponential.ui.compose.inputRowGap(leaf.control.gap, spacing("md"))
+                        Content(line(shown(props.str("label"), leaf), lts) + gap + FIELD_INTRINSIC_WIDTH, max(ts.lineHeight, lts.lineHeight), baseline(ts))
+                    } else Content(FIELD_INTRINSIC_WIDTH, ts.lineHeight, baseline(ts))
                     null -> plain(FIELD_INTRINSIC_WIDTH, 36f)
                     else -> plain(0f, 0f)
                 }
@@ -584,7 +596,10 @@ class SurfaceMeasurer(
         val c = leaf.control
         val text = leaf.props.str("text").ifEmpty { leaf.props.str("placeholder") }
         val gap = max(c.gap, spacing("sm"))
-        return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
+        if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
+        // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
+        val glyph = part("Select", "chevron", leaf.props).width ?: 16f
+        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
     }
 
     /**

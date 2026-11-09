@@ -329,7 +329,26 @@ extension SurfaceModel {
             if let t = typed, t.count == 1, !t.trimmingCharacters(in: .whitespaces).isEmpty {
                 return typeahead(set, current: n.index, typed: t)
             }
-        case ("Text", "Select", "item"), ("Text", "TimePicker", "item"):
+        case ("Text", "Select", "item"):
+            // #EXP-1629: the keys act on the CURSOR (the pointer moves it too).
+            guard let ownerId = n.owner else { break }
+            let set = rovingSet(n)
+            let current = selectCursorIndex(ownerId).flatMap { set.contains($0) ? $0 : nil } ?? n.index
+            if key == "enter" || key == "space" {
+                press(current)
+                return true
+            }
+            if let t = Self.rovingTarget(set, current: current, key: key, step: vertical) {
+                focusKey(t)
+                moveSelectCursor(ownerId, to: t, reveal: true)
+                return true
+            }
+            if let t = typed, t.count == 1, !t.trimmingCharacters(in: .whitespaces).isEmpty {
+                let handled = typeahead(set, current: current, typed: t)
+                if handled, let f = focusedIndex { moveSelectCursor(ownerId, to: f, reveal: true) }
+                return handled
+            }
+        case ("Text", "TimePicker", "item"):
             let set = rovingSet(n)
             if let t = Self.rovingTarget(set, current: n.index, key: key, step: vertical) {
                 focusKey(t)
@@ -400,6 +419,12 @@ extension SurfaceModel {
             }
             return true
         }
+        // #EXP-1629: a searchable Select's field keeps the focus; ↑/↓ move
+        // the cursor over the options (Enter picks it: `fieldCommitted`).
+        if n.ownerComponent == "Select", n.part == "search", let ownerId = n.owner, key == "down" || key == "up" {
+            stepSelectCursor(ownerId, key == "down" ? 1 : -1)
+            return true
+        }
         switch (n.ownerComponent ?? "", key) {
         case ("NumberField", "up"), ("NumberField", "down"), ("NumberField", "pageup"), ("NumberField", "pagedown"):
             guard let ownerId = n.owner else { return false }
@@ -427,6 +452,81 @@ extension SurfaceModel {
     public func searchKey(_ index: Int, _ key: String) {
         flushPending(index)
         fire(index, "key", payload: .object(["key": .string(key)]))
+    }
+
+    // MARK: - #EXP-1629: the Select cursor
+
+    /// An open Select's options in paint order.
+    func selectItems(_ owner: String) -> [Int] {
+        guard let l = layers.first(where: { $0.owner == owner }) else { return [] }
+        return l.order.filter { i in
+            guard let m = node(i) else { return false }
+            return m.owner == owner && m.part == "item" && m.component == "Text" && !m.hidden
+        }
+    }
+
+    /// The live option under a Select's cursor.
+    func selectCursorIndex(_ owner: String) -> Int? {
+        guard let id = selectCursor[owner], let i = byId[id], selectItems(owner).contains(i) else { return nil }
+        return i
+    }
+
+    /// Move a Select's cursor: the ONE option reporting `hover` (a chosen
+    /// option stays `selected` only, the core's).
+    func moveSelectCursor(_ owner: String, to index: Int?, reveal: Bool = false) {
+        let id = index.flatMap { node($0)?.id }
+        let prev = selectCursor[owner]
+        if prev != id {
+            selectCursor[owner] = id
+            if let p = prev { setInteraction(p) { $0.hover = false } }
+            if let id { setInteraction(id) { $0.hover = true } }
+        }
+        if reveal, let id, let i = byId[id] { revealOption(i) }
+    }
+
+    /// ↑/↓ from the search field: the next enabled option, no wrap (the
+    /// first one when the cursor is not on a shown option).
+    func stepSelectCursor(_ owner: String, _ step: Int) {
+        let set = selectItems(owner).filter { !isDisabled($0) }
+        guard !set.isEmpty else { return }
+        let next: Int
+        if let c = selectCursorIndex(owner), let pos = set.firstIndex(of: c) {
+            next = set[min(max(pos + step, 0), set.count - 1)]
+        } else {
+            next = set[0]
+        }
+        moveSelectCursor(owner, to: next, reveal: true)
+    }
+
+    /// A Select popup opened: a fresh pick (the IDE's picker), the cursor
+    /// on the FIRST enabled option (a `multiple` one's on its first chosen,
+    /// none while nothing is: the IDE's multi picker); the core opens the
+    /// list at its top.
+    func selectOpened(_ owner: String) {
+        let enabled = selectItems(owner).filter { !isDisabled($0) }
+        let multiple = byId[owner].flatMap { node($0) }?.props.flag("multiple") ?? false
+        let target = multiple ? enabled.first { node($0)?.selected == true } : enabled.first
+        selectCursor[owner] = nil
+        moveSelectCursor(owner, to: target)
+    }
+
+    /// A Select popup closed: its cursor goes.
+    func selectClosed(_ owner: String) {
+        guard let prev = selectCursor.removeValue(forKey: owner) else { return }
+        setInteraction(prev) { $0.hover = false }
+    }
+
+    /// Scroll an option's list so the whole option shows.
+    func revealOption(_ index: Int) {
+        guard let list = node(index)?.parent, let s = scrolls[list], let l = node(list) else { return }
+        let view = frame(list).height
+        let top = frame(index).minY - frame(list).minY
+        let bottom = top + frame(index).height
+        var y = s.offset.y
+        if top < y { y = top } else if bottom > y + view { y = bottom - view }
+        let maxY = max(0, s.contentSize.height - view)
+        y = min(max(0, y), maxY)
+        if abs(y - s.offset.y) > 0.5 { scrollTo(id: l.id, offset: CGPoint(x: s.offset.x, y: y)) }
     }
 
     /// The siblings a roving widget moves between: same owner + part +

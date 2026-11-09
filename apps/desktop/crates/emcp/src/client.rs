@@ -199,10 +199,7 @@ impl Client {
                 }
             }
         }
-        // reqwest builds its TLS from the process default provider, and this
-        // can be the process's first emcp call (before `runtime()` installs it).
-        crate::runtime::install_crypto();
-        let http = reqwest::Client::builder()
+        let http = crate::runtime::http_client()
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|err| ClientError::Transport(format!("{}: {err}", upstream.name)))?;

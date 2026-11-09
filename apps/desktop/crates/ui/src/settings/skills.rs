@@ -176,6 +176,7 @@ impl SkillsPane {
 
 impl Render for SkillsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SkillsPane").entered();
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -571,6 +572,7 @@ fn spawn_skill_delete(cx: &mut App, skill_id: String) {
 
 impl Render for SkillPage {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SkillPage").entered();
         let read_only = self.read_only(cx);
         let creating = self.skill_id.is_none();
         let muted = cx.theme().muted_foreground;

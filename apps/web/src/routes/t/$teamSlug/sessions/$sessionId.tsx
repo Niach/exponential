@@ -7,51 +7,37 @@ import { SessionScreen } from "@/components/chat/session-body"
 import { emptyStateCopy } from "@/lib/empty-states"
 import { useSessionChat, useSessionRow } from "@/hooks/use-session-tree"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useSession } from "@/hooks/use-session"
+import { useApps } from "@/hooks/use-apps"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { CHATS_LIST_COPY, type SessionRow } from "@/lib/session-tree"
 
 // EXP-1733: ONE route per session. A chat IS a root session, so
-// `/sessions/$id` of a ROOT renders THE chat screen (fixture
-// `session-chat.json` ×4, `buildSessionChat`). Header: the title (EXP-1316:
-// derived, `Implement EXP-12` / `Run <action>` / the agent's auto-name;
-// nobody renames it; a lock when private) + ONE tab strip that never
-// scrolls (#EXP-1433, `ChatTabs`): "+" (THE chat menu) · Conversation | the
-// one issue chip OR ONE group tab (every issue and session in THE Menu) |
-// Results. md+: while the Guide's PR is open the header's trailing slot
-// carries Merge on EVERY tab, then the `…` (Guide tab only).
-// `?tab=` names the tab on show:
+// `/sessions/$id` of a ROOT renders THE session screen (#EXP-1732,
+// session-screen.json ×4, `components/chat/chat-screen.tsx`): the header
+// (the lead disc, the title over ONE subtitle line, the merge pill, the
+// `…`) and THE SegmentedControl Chat · Issues · Sessions · Results; wide =
+// the chat beside the tab's pane. The search:
 //
-//   (absent)               the conversation = the DISPATCHER (EXP-1334: no
-//                          card of its own): its messages, THE session card
-//                          per child, question and plan cards (its own and
-//                          its children's) answered in the card, EXP-1323:
-//                          the suggested tasks card, report lines and the
-//                          live tail (Tasks card + status line), the
-//                          composer at the bottom
-//   issue&issue=<id>       that issue's body, embedded (no header bar, no
-//                          Start, no pin, no Chats row)
-//   results[&section=&file=] the root's Results over its pull request
-//   session&session=<id>   EXP-1316: that session's RAW WORK in place under
-//                          this header + strip, its Stop pill in the header
-//                          (EXP-1343: phones too, no own screen), picked
-//                          from the group tab's tree rows.
+//   tab=chat|issues|sessions|results   the active tab (legacy ids map
+//                                      through `legacyTabs`)
+//   open=issue&issue=<id>              that issue's body, IN PLACE
+//   open=session&session=<id>          EXP-1316: that session's RAW WORK in
+//                                      place (its composer under it)
+//   open=plan&plan=<id>                the plan page (plan-page.json)
+//   tab=results[&section=&file=]       the Results body / its review pane
 //
 // A CHILD's `/sessions/$id` REDIRECTS (replace) to its root with
-// `?tab=session&session=<id>`, keeping `from` and `back` (deep links,
-// notifications, the work-tab strip). A session under a team AGENT has no
-// chat page: it keeps its own screen here (back to the agent's channel); an
-// agent's conversation ROOT (NEW-2: a root with `agentId`) redirects to the
-// agent's page.
+// `?tab=sessions&open=session&session=<id>`, keeping `from` and `back`. A
+// session under a team AGENT keeps its own screen here (back to the agent);
+// an agent's conversation ROOT (NEW-2: a root with `agentId`) redirects to
+// the agent's page; an app's editor ROOT (`appId`) to its app editor,
+// keeping `tab` / `open`.
 //
-// EXP-1291: old PR body footers link `sessions/<rootId>?view=guide`; S-3:
-// the Guide tab is gone, so that URL opens the chat's conversation.
-// S-3: `back` = the inter-session back stack (`lib/session-back.ts`).
-//
-// Phones: the strip IS the pager under the header (#EXP-1433: Conversation ·
-// the one issue | the item open from the group · Results — swipe or tap,
-// `lib/chat-pages.ts`). No right sidebar, no Show work, no captions.
-// EXP-1347: an issue pill of one of this chat's issues selects its tab
-// (`IssueRefOutlet`).
+// EXP-1291: old PR body footers link `sessions/<rootId>?view=guide`: that
+// URL opens the chat. S-3: `back` = the inter-session back stack
+// (`lib/session-back.ts`). EXP-1347: an issue pill of one of this chat's
+// issues opens it in place (`IssueRefOutlet`).
 type SessionSearch = ChatSearch & { view?: `guide` }
 
 /** How long a missing root waits for its row before "not found". */
@@ -109,9 +95,28 @@ function ChildSession({
   search: SessionSearch
 }) {
   const { row: root, isReady: rootReady } = useSessionRow(rootId)
+  const { data: auth } = useSession()
   // The root decides: an agent's conversation tree has no chat page.
   if (!root && !rootReady) return <Loading />
   if (root?.agentId && search.view !== `guide`) {
+    // #EXP-1732: a session under MY conversation with the agent opens in
+    // place on the agent's screen (its Sessions tab); anyone else's keeps
+    // its own screen.
+    if (root.userId && root.userId === auth?.user?.id) {
+      return (
+        <Navigate
+          to="/t/$teamSlug/agents/$agentId"
+          params={{ teamSlug, agentId: root.agentId }}
+          search={{
+            tab: `sessions` as const,
+            open: `session` as const,
+            session: row.id,
+            ...(search.back ? { back: search.back } : {}),
+          }}
+          replace
+        />
+      )
+    }
     return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} back={search.back} />
   }
   return (
@@ -122,7 +127,8 @@ function ChildSession({
         search.view === `guide`
           ? {}
           : {
-              tab: `session` as const,
+              tab: `sessions` as const,
+              open: `session` as const,
               session: row.id,
               ...(search.from ? { from: search.from } : {}),
               ...(search.back ? { back: search.back } : {}),
@@ -144,9 +150,10 @@ function ChatPage({
 }) {
   const team = useTeamBySlug(teamSlug)
   const navigate = useNavigate()
+  const { apps, isReady: appsReady } = useApps(team?.id)
   const chat = useSessionChat(
     sessionId,
-    search.tab === `session` ? (search.session ?? null) : null
+    search.open === `session` ? (search.session ?? null) : null
   )
   usePageTitle(
     chat.view && chat.titleReady
@@ -173,6 +180,27 @@ function ChatPage({
         replace
       />
     )
+  }
+
+  // #EXP-1732: an app's editor session (a root with `appId`) is no chat
+  // page: its page is the app editor (keeping `tab` / `open`).
+  if (chat.root?.appId) {
+    const app = apps.find((row) => row.id === chat.root!.appId)
+    if (app) {
+      return (
+        <Navigate
+          to="/t/$teamSlug/app-editor/$appSlug"
+          params={{ teamSlug, appSlug: app.slug }}
+          search={{
+            ...(search.tab ? { tab: search.tab } : {}),
+            ...(search.open ? { open: search.open } : {}),
+            ...(search.open === `session` && search.session ? { session: search.session } : {}),
+          }}
+          replace
+        />
+      )
+    }
+    if (!appsReady) return <Loading />
   }
 
   // An agent's conversation (NEW-2: a root with `agentId`) is no chat page:

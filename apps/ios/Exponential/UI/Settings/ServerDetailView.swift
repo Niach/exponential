@@ -25,6 +25,8 @@ struct ServerDetailView: View {
     /// never flashes a wrong zone.
     @State private var timezone: String?
     @State private var timezoneLoaded = false
+    /// #LOGS-2: per device, default on.
+    @AppStorage(Monitoring.sendDiagnosticsKey) private var sendDiagnostics = true
 
     private var account: ServerAccount? {
         deps.auth.accounts.first { $0.id == accountId }
@@ -74,6 +76,7 @@ struct ServerDetailView: View {
                     if account?.token != nil {
                         SignInMethodsSection(accountId: accountId)
                     }
+                    privacySection
                     actionsSection
                     if account?.token != nil {
                         dangerZone
@@ -195,7 +198,7 @@ struct ServerDetailView: View {
             // Web's account header: the avatar + name + email on the page,
             // on no card.
             HStack(spacing: 12) {
-                UserAvatar(user: identityUser, id: account?.userId, size: 44)
+                UserAvatar(user: identityUser, id: account?.userId, size: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     let name = memberDisplayName(identityUser, id: account?.userId)
                     // Web's 16 / 14.
@@ -379,6 +382,18 @@ struct ServerDetailView: View {
             }
             .glassSection()
         }
+    }
+
+    /// #LOGS-2: web's Privacy section (after Passkeys), ×4.
+    private var privacySection: some View {
+        sectionStack(title: "Privacy") {
+            GlassToggleRow("Send diagnostics", isOn: $sendDiagnostics)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .glassSection()
+                .accessibilityIdentifier("send-diagnostics")
+        }
+        .onChange(of: sendDiagnostics) { _, _ in Observability.diagnosticsChanged() }
     }
 
     /// EXP-1554: web's Danger zone, ×4: the danger band, then ONE row = the

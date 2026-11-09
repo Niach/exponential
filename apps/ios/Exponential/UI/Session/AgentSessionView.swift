@@ -117,6 +117,17 @@ struct AgentSessionView: View {
     /// EXP-1343: the claimed model, handed to the host (nil once the page
     /// left), keyed by this session's id.
     var onModel: ((String, AgentSessionModel?) -> Void)? = nil
+    /// #EXP-1732 / #FEED-204: an app editor's Chat tab (its root's session
+    /// view): the composer "+" Device row; a pick on a live root also moves
+    /// it (`moveDevice`). nil = no Device row.
+    var editorDevice: SessionComposerFooter.DeviceMenu? = nil
+    /// #FEED-204 / #EXP-1732: an app editor's ended root, revived on another
+    /// device: the next send is `sessions.send({appId, deviceId})`.
+    var editorMove: ChatComposerDraft.AppMove? = nil
+    /// #EXP-1729: an app editor's Account and Model rows (an ended root's
+    /// = the launch picks riding its next send; a live root's are its own,
+    /// `liveAccount` standing in when its switch offers no row).
+    var editorPicks: ChatEditorPicks? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -186,6 +197,17 @@ struct AgentSessionView: View {
     @State private var highlightId: String?
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: SessionChatRow] = [:]
+    /// EXP-1323 / #EXP-1732: a ROOT's suggested tasks rows (`buildSessionChat`
+    /// over its tree): a row with an open item rides THE Dock for a viewer
+    /// who may post, otherwise it draws inline.
+    @State private var suggestionRows: [SessionChatRow] = []
+    /// In-flight suggestion actions (`ChatSuggestionActions.key`).
+    @State private var suggestionPending: Set<String> = []
+    /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
+    /// synced `scope_team_ids` and re-seeded when another client moves it.
+    @State private var teamsPicked: [String]?
+    /// #EXP-1714: optional, a specimen may mount the view without one.
+    @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1736: this session's tree snapshot (the senders' names and
     /// avatars, transcript-grouping.json) and its S-3 `origin` (the session
     /// that started it; nil = a person did).
@@ -383,7 +405,10 @@ struct AgentSessionView: View {
                             actions: [
                                 GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                                 GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
-                                    if let model { Task { await model.sendDraft() } }
+                                    if let model {
+                                        prepareSend(model)
+                                        Task { await model.sendDraft() }
+                                    }
                                 },
                             ]
                         )
@@ -398,6 +423,9 @@ struct AgentSessionView: View {
         content
             .task(id: session.id) { await observeToolAsks() }
             .task(id: session.id) { await observeTranscriptSenders() }
+            .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds, initial: true) { _, ids in
+                teamsPicked = ids
+            }
             .task(id: session.viaAppId) { await observeViaApp() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
@@ -810,6 +838,9 @@ struct AgentSessionView: View {
                                     model: model
                                 )
                             }
+                            // EXP-1323 / #EXP-1732: the root's suggested
+                            // tasks with nothing open left (or for a reader).
+                            inlineSuggestionCards(model)
                             // EXP-389: the agent-is-busy footer. EXP-848: the
                             // model's ONE working predicate — it used to read a
                             // looser local copy, so this row could pulse while
@@ -1052,7 +1083,9 @@ struct AgentSessionView: View {
                     preview: preview, output: output, live: id == liveToolRowId,
                     script: script, settledAt: settledAt
                 )
-            case let .userMessage(_, text, _):
+            case let .userMessage(_, text, _, at):
+                // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
+                let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // NEW-2: the contract catalog alone (agent commands hidden).
@@ -1070,13 +1103,13 @@ struct AgentSessionView: View {
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble (its name ` ›`).
-                    senderBubble(input.body, layout: layout, streaming: false)
+                    senderBubble(input.body, layout: layout, streaming: false, time: time)
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
                     // origin's bubble (the session that started this one).
-                    senderBubble(text, layout: layout, streaming: false)
+                    senderBubble(text, layout: layout, streaming: false, time: time)
                 } else {
-                    UserMessageBubble(text: text, context: markdownContext)
+                    UserMessageBubble(text: text, context: markdownContext, caption: time)
                 }
             case let .question(question):
                 questionCard(question)
@@ -1109,13 +1142,18 @@ struct AgentSessionView: View {
     /// #EXP-1736: anyone-but-the-viewer's bubble in the feed: the group's
     /// first one names its sender; a cross-session sender's press pushes
     /// that session.
-    private func senderBubble(_ text: String, layout: TranscriptGrouping.RowLayout?, streaming: Bool) -> some View {
+    private func senderBubble(
+        _ text: String,
+        layout: TranscriptGrouping.RowLayout?,
+        streaming: Bool,
+        time: String? = nil
+    ) -> some View {
         let author = layout?.name == true ? layout?.sender?.displayName : nil
         let link = layout?.sender?.link
         return MessageBubble(
             side: .other,
             author: author,
-            time: nil,
+            time: time,
             onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } }
         ) {
             AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
@@ -1142,8 +1180,8 @@ struct AgentSessionView: View {
     /// the agent's message; a person's prompt = the viewer's own, unless
     /// it parses as a session input (`crossSessionInput`: that session's
     /// message); tool / thought / subagent / edits runs = `trace`;
-    /// everything else (cards, pills, errors) and the tool-posted cards
-    /// = `full`. ONE origin rule (data first): the S-3 `origin` from the
+    /// everything else (cards, pills, errors, a `Workflow` call's Work
+    /// card) and the tool-posted cards = `full`. ONE origin rule (data first): the S-3 `origin` from the
     /// synced rows + `fromStart` (the window holds the feed's first row)
     /// go to the grouping, which reads the first prompt as the origin's.
     private func feedGrouping(
@@ -1164,7 +1202,7 @@ struct AgentSessionView: View {
                 switch feedItem {
                 case .narration:
                     item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
-                case let .userMessage(_, text, _):
+                case let .userMessage(_, text, _, _):
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
                     }
@@ -1179,7 +1217,13 @@ struct AgentSessionView: View {
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
                         )
                     }
-                case .tool, .thought, .subagent:
+                case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _):
+                    // EXP-1750: a `Workflow` call draws as THE Work card,
+                    // a full row (web, desktop, Android alike).
+                    if model.workflow(for: callId) == nil {
+                        item = TranscriptGrouping.Item(id: id, kind: .trace)
+                    }
+                case .thought, .subagent:
                     item = TranscriptGrouping.Item(id: id, kind: .trace)
                 default:
                     break
@@ -1442,11 +1486,20 @@ struct AgentSessionView: View {
                     originSessionId = nil
                     continue
                 }
-                let link = await Task.detached(priority: .utility) {
-                    rows.view(now: Date(), focus: id == rows.root.id ? nil : id).origin
+                let (link, suggestions) = await Task.detached(priority: .utility) {
+                    let view = rows.view(now: Date(), focus: id == rows.root.id ? nil : id)
+                    // EXP-1323: only a ROOT's own Conversation holds them.
+                    let suggestions: [SessionChatRow] = id == rows.root.id
+                        ? view.rows.filter { row in
+                            if case .suggestions = row { return true }
+                            return false
+                        }
+                        : []
+                    return (view.origin, suggestions)
                 }.value
                 transcriptRows = rows
                 originSessionId = link?.sessionId
+                suggestionRows = suggestions
             }
         } catch {}
     }
@@ -1551,12 +1604,15 @@ struct AgentSessionView: View {
     /// banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
     /// is never a DockCard; it stays inline in the transcript.
     private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
-        Dock.rows(SessionDock.sources(model, session: session))
+        // EXP-1323 / #EXP-1732: a root's suggested tasks with an open item
+        // lead (the old Conversation's order), for a viewer who may act.
+        let suggestions = canSuggest(model) ? Dock.suggestionSources(suggestionRows) : []
+        return Dock.rows(suggestions + SessionDock.sources(model, session: session))
     }
 
     /// A DockCard's sheet: THE Queue / the queued messages their lists.
     private func dockSheet(_ row: Dock.Row, model: AgentSessionModel, close: @escaping () -> Void) -> AnyView? {
-        SessionDock.sheet(row, model: model, close: close)
+        suggestionsSheet(row, close: close) ?? SessionDock.sheet(row, model: model, close: close)
     }
 
     /// A banner's one button: Reconnect, the usage wall's account switch.
@@ -2034,15 +2090,24 @@ struct AgentSessionView: View {
         // interrupt) in the send slot; the first typed character brings Send
         // back.
         let showsStop = model.agentWorking && !model.hasContent
+        // #EXP-1729: an ended editor root's Account and Model = the launch
+        // picks riding its next send.
+        let launchPicks = model.session?.isLive == false ? editorPicks : nil
         return SessionComposerCard(
             draft: model,
             // EXP-820: the generic prompt — a pending card's free answer is
             // the card's own inline field.
             placeholder: model.composerPlaceholder,
             controls: SessionComposerFooter.Controls(
-                modelValue: model.composerModelValue(),
-                agent: model.catalogAgent,
-                onPickModel: { alias in sendModelSwitch(model, alias) },
+                modelValue: launchPicks?.model ?? model.composerModelValue(),
+                agent: launchPicks?.agent ?? model.catalogAgent,
+                onPickModel: { alias in
+                    if let launchPicks {
+                        launchPicks.onPickModel(alias)
+                        return
+                    }
+                    sendModelSwitch(model, alias)
+                },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true },
@@ -2062,7 +2127,17 @@ struct AgentSessionView: View {
                     }
                 },
                 // #EXP-1535: the "+" Account page = the usage wall's switch.
-                account: model.composerAccountMenu
+                account: launchPicks?.account ?? model.composerAccountMenu ?? editorPicks?.liveAccount,
+                // #EXP-1715: the viewer's Assistant root's Teams pick.
+                teams: teamsPick,
+                device: editorDevice.map { menu in
+                    SessionComposerFooter.DeviceMenu(devices: menu.devices, current: menu.current) { picked in
+                        menu.onPick(picked)
+                        guard model.session?.isLive == true else { return }
+                        Task { await model.moveDevice(to: picked) }
+                    }
+                },
+                editor: editorPicks != nil
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits
@@ -2142,7 +2217,174 @@ struct AgentSessionView: View {
                 return
             }
         }
+        prepareSend(model)
         Task { await model.sendDraft() }
+    }
+
+    /// #EXP-1715 / #FEED-204: what the next send carries: the Assistant
+    /// root's Teams pick, an app editor's move to another device.
+    private func prepareSend(_ model: AgentSessionModel) {
+        model.sendScope = teamsPick?.scope
+        model.sendAppMove = editorMove
+    }
+
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
+    /// view is the viewer's OWN Assistant conversation ROOT; nil anywhere
+    /// else (a child included: the server refuses a scope there).
+    private var teamsPick: ComposerTeamsBinding? {
+        guard session.parentId == nil,
+              AgentSettings.isMyAssistant(transcriptRows?.agent, me: deps.auth.userId)
+        else { return nil }
+        return ComposerTeamsBinding(
+            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            picked: teamsPicked,
+            onChange: { teamsPicked = $0 }
+        )
+    }
+
+    // MARK: - Suggested tasks (EXP-1323, the root's)
+
+    /// A viewer who may post acts on the suggestions (and they dock).
+    private func canSuggest(_ model: AgentSessionModel) -> Bool { model.mayPost }
+
+    private var suggestionActions: ChatSuggestionActions {
+        ChatSuggestionActions(
+            onStart: { rowId, itemId in startSuggestion(rowId, itemId, where: .child) },
+            onStartAll: { rowId in
+                runSuggestion(ChatSuggestionActions.key(rowId), verb: "start", thing: "the tasks") { api, accountId in
+                    try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
+                }
+            },
+            onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
+            devices: { [teamId = session.teamId] in await loadSuggestionDevices(teamId: teamId) },
+            pending: suggestionPending
+        )
+    }
+
+    /// The suggestions rows that draw INLINE: every one for a reader who
+    /// cannot act, else the ones with no open item left (the rest dock).
+    private func inlineSuggestions(_ model: AgentSessionModel) -> [SessionChatRow] {
+        guard canSuggest(model) else { return suggestionRows }
+        return suggestionRows.filter { Dock.suggestionSources([$0]).isEmpty }
+    }
+
+    @ViewBuilder
+    private func inlineSuggestionCards(_ model: AgentSessionModel) -> some View {
+        ForEach(inlineSuggestions(model), id: \.id) { row in
+            if case let .suggestions(id, _, header, startAll, items) = row {
+                ChatSuggestionsCard(
+                    rowId: id,
+                    header: header,
+                    startAll: startAll,
+                    items: items,
+                    actions: canSuggest(model) ? suggestionActions : nil,
+                    onOpenSession: { sessionId in openSuggestionSession(sessionId) },
+                    onOpenIssue: { issueId in
+                        openIssueInnermost(issueId, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
+                    }
+                )
+                .padding(.top, DesignTokens.Transcript.gapBlock)
+            }
+        }
+    }
+
+    /// The suggestions DockCard's sheet (N-12).
+    private func suggestionsSheet(_ row: Dock.Row, close: @escaping () -> Void) -> AnyView? {
+        guard case let .suggestions(id, _, _, startAll, items)? = suggestionRows.first(where: { $0.id == row.id })
+        else { return nil }
+        return AnyView(ChatSuggestionsSheet(
+            row: row,
+            rowId: id,
+            startAll: startAll,
+            items: items,
+            actions: suggestionActions,
+            onOpenSession: { sessionId in
+                close()
+                openSuggestionSession(sessionId)
+            },
+            onOpenIssue: { [deps, accountId, chatIssueOutlet] issueId in
+                close()
+                openIssueInnermost(issueId, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
+            },
+            onClose: close
+        ))
+    }
+
+    /// A started item's session (inbox-route.json `sessionTarget`).
+    private func openSuggestionSession(_ sessionId: String) {
+        pushRoute(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+    }
+
+    private func startSuggestion(
+        _ rowId: String, _ itemId: String, where target: SuggestionStartWhere,
+        deviceId: String? = nil, model: String? = nil
+    ) {
+        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "start", thing: "the task") { api, accountId in
+            try await api.startSuggestion(
+                accountId: accountId, messageId: rowId, itemId: itemId, where: target,
+                deviceId: deviceId, model: model
+            )
+        }
+    }
+
+    private func dismissSuggestion(_ rowId: String, _ itemId: String) {
+        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
+            try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
+        }
+    }
+
+    /// One suggestion call: its key waits while it is out (the Electric echo
+    /// moves the item), a refusal toasts `Couldn't <verb> <thing>`.
+    private func runSuggestion(
+        _ key: String, verb: String, thing: String,
+        _ call: @escaping @Sendable (SessionsApi, String) async throws -> Void
+    ) {
+        guard !suggestionPending.contains(key) else { return }
+        suggestionPending.insert(key)
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await call(api, accountId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: verb, thing: thing),
+                    description: error.userFacingMessage
+                )
+            }
+            suggestionPending.remove(key)
+        }
+    }
+
+    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
+    private func runSuggestionMenu(_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) {
+        switch action {
+        case .here:
+            startSuggestion(rowId, itemId, where: .here)
+        case let .startOn(deviceId):
+            startSuggestion(rowId, itemId, where: .child, deviceId: deviceId)
+        case let .startWith(model):
+            startSuggestion(rowId, itemId, where: .child, model: model)
+        case .file:
+            runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
+                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
+            }
+        case .dismiss:
+            dismissSuggestion(rowId, itemId)
+        }
+    }
+
+    /// Start on…'s rows: the machines a start can reach right now with an
+    /// agent to run (the composer's pool).
+    private func loadSuggestionDevices(teamId: String?) async -> [SuggestionOptionsSheet.Device] {
+        let devices = await DeviceQueries.onlineStartTargets(
+            db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
+        )
+        return devices.filter(\.hasRunnableAgent).map {
+            SuggestionOptionsSheet.Device(
+                id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
+            )
+        }
     }
 }
 
@@ -3895,7 +4137,7 @@ struct SubagentItemRow: View {
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)
-        case let .userMessage(_, text, _):
+        case let .userMessage(_, text, _, _):
             UserMessageBubble(text: text, context: context)
         default:
             EmptyView()

@@ -1,17 +1,31 @@
 package at.exponential.ui
 
+import android.view.KeyEvent as AndroidKeyEvent
 import at.exponential.ui.compose.handleKey
+import at.exponential.ui.compose.keyRecorderKeyName
+import at.exponential.ui.compose.keyRecorderKeyPayload
 import at.exponential.ui.host.ClosureHost
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.InputKind
 import at.exponential.ui.host.NoHost
+import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.boxHover
+import at.exponential.ui.model.keyRecorderBlur
+import at.exponential.ui.model.keyRecorderMouse
+import at.exponential.ui.model.keyRecorderPayload
+import at.exponential.ui.model.keyRecorderPress
+import at.exponential.ui.model.keyRecorderRecord
+import at.exponential.ui.model.keyRecorderRecording
 import at.exponential.ui.model.checked
+import at.exponential.ui.model.composerKey
+import at.exponential.ui.model.composerMenuKey
+import at.exponential.ui.model.composerPaste
+import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.escape
 import at.exponential.ui.model.INPUT_DEBOUNCE_MS
 import at.exponential.ui.model.field
@@ -19,6 +33,7 @@ import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldText
 import at.exponential.ui.model.focus
+import at.exponential.ui.model.hover
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.press
 import at.exponential.ui.model.pressDown
@@ -361,6 +376,65 @@ class InteractionTest {
     }
 
     /**
+     * #EXP-1629: an open Select popup (the core's layer, painted overlays)
+     * starts at the TOP with its ONE `hover` (the cursor) on the first
+     * enabled option, the bottom fade while options sit below; the pointer
+     * moves the cursor (leaving keeps it), `selected` stays the chosen
+     * option's, a reopen starts over.
+     */
+    @Test
+    fun selectPopupCursorStartsOnTheFirstOption() {
+        val options = (0 until 30).joinToString(",") { """{"label":"Option $it","value":"o$it"}""" }
+        val m = SurfaceModel("select-cursor", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+        m.fixedMeasure = true
+        m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Pick","name":"s","options":[$options],"value":"o20"}}]}""")
+        m.setViewport(390f, 800f)
+        val hovered = { m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id } }
+        m.press("s.trigger")
+        assertEquals(listOf("s.item.0"), hovered())
+        assertTrue(m.node(m.idx("s.item.20"))!!.selected)
+        val list = m.nodes.first { it.owner == "s" && it.part == "list" }
+        assertEquals("the list starts at the top", 0f, m.scrolls[list.index]?.offsetY ?: 0f)
+        assertTrue("more options below: the fade", m.nodes.any { it.owner == "s" && it.part == "fade" && !it.hidden })
+        m.hover("s.item.3", true)
+        assertEquals(listOf("s.item.3"), hovered())
+        m.hover("s.item.3", false)
+        assertEquals(listOf("s.item.3"), hovered())
+        assertFalse(m.node(m.idx("s.item.3"))!!.selected)
+        assertTrue(m.escape())
+        assertTrue(m.layers.none { it.owner == "s" })
+        m.press("s.trigger")
+        assertEquals(listOf("s.item.0"), hovered())
+    }
+
+    /** #EXP-1629: the popup's cursor rules, alignment, spacing and width (a row: under its value, `start`, layout `selectRowPopupWidth`). */
+    @Test
+    fun selectPopupRules() {
+        val opts = listOf("a", "b", "c", "d").mapIndexed { i, v -> at.exponential.ui.compose.SelectOption(JsonValue.Str(v), v.uppercase(), null, i == 0 || i == 2) }
+        assertEquals(1, at.exponential.ui.compose.selectInitialCursor(opts))
+        // A `multiple` one: its first enabled CHOSEN option, none while nothing is (the IDE's multi picker).
+        assertEquals(3, at.exponential.ui.compose.selectInitialCursor(opts, listOf("c", "d")))
+        assertEquals(-1, at.exponential.ui.compose.selectInitialCursor(opts, emptyList()))
+        assertEquals(3, at.exponential.ui.compose.selectStep(opts, 1, 1))
+        assertEquals(3, at.exponential.ui.compose.selectStep(opts, 3, 1))
+        assertEquals(1, at.exponential.ui.compose.selectStep(opts, 3, -1))
+        val row = mapOf("triggerVariant" to JsonValue.Str("row"))
+        assertTrue(at.exponential.ui.compose.selectRowVariant(row))
+        assertFalse(at.exponential.ui.compose.selectRowVariant(emptyMap()))
+        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(row))
+        assertEquals("start", at.exponential.ui.compose.selectPopupAlign(emptyMap()))
+        assertEquals("center", at.exponential.ui.compose.selectPopupAlign(mapOf("align" to JsonValue.Str("center"))))
+        assertEquals(1f to 7f, at.exponential.ui.compose.selectPopupSpacing(row = true))
+        assertEquals(4f to 8f, at.exponential.ui.compose.selectPopupSpacing(row = false))
+        assertTrue(at.exponential.ui.compose.selectMoreBelow(0, 200))
+        assertFalse(at.exponential.ui.compose.selectMoreBelow(199, 200))
+        assertFalse(at.exponential.ui.compose.selectMoreBelow(0, 0))
+        assertEquals(262f, at.exponential.ui.compose.selectPopupWidth(row, row = true))
+        assertNull(at.exponential.ui.compose.selectPopupWidth(emptyMap(), row = false))
+        assertEquals(300f, at.exponential.ui.compose.selectPopupWidth(mapOf("popupWidth" to JsonValue.Num(300.0)), row = false))
+    }
+
+    /**
      * fixtures/interactions-round1.json `foldRow` (#VAPP-284): a foldable
      * Row (children); a press on the head or its fold button, or
      * ArrowRight / ArrowLeft through [handleKey] on the focused one
@@ -470,6 +544,269 @@ class InteractionTest {
             assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
         }
         }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `keyRecorder` (#EXP-1629): what the
+     * painter sends for each step: a press = [keyRecorderPress], a key
+     * down / up = the Android key code of the canonical name with the held
+     * mods' meta state through [keyRecorderKeyPayload] (the capture half),
+     * a modifier change = one `modifiers` payload, a mouse button =
+     * [keyRecorderMouse] (3-5 only), blur = [keyRecorderBlur], hostWrite =
+     * the host's data write; then the fired actions {name, context} and
+     * /recording (null = unset), and the field's live `recording`.
+     */
+    @Test
+    fun keyRecorderCasesStartRecordAndStop() {
+        val f = Fixtures.json("interactions-round1.json")["keyRecorder"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertTrue(cases.size >= 10)
+        val codes = (0..400).filter { it != AndroidKeyEvent.KEYCODE_BACK && it != AndroidKeyEvent.KEYCODE_NUMPAD_ENTER }
+            .mapNotNull { c -> keyRecorderKeyName(c)?.let { it to c } }.toMap()
+        fun meta(mods: List<JsonValue>): Int = mods.mapNotNull { it.string }.fold(0) { acc, m ->
+            acc or when (m) {
+                "ctrl" -> AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON
+                "alt" -> AndroidKeyEvent.META_ALT_ON or AndroidKeyEvent.META_ALT_LEFT_ON
+                "shift" -> AndroidKeyEvent.META_SHIFT_ON or AndroidKeyEvent.META_SHIFT_LEFT_ON
+                "meta" -> AndroidKeyEvent.META_META_ON or AndroidKeyEvent.META_META_LEFT_ON
+                else -> error("mod $m")
+            }
+        }
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("key_recorder", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            m.setViewport(390f, 800f)
+            for (step in c["steps"]?.array.orEmpty()) {
+                val field = m.idx("ptt.field")
+                val held = step["mods"]?.array.orEmpty()
+                when {
+                    step["press"] != null -> m.keyRecorderPress(field)
+                    step["blur"] != null -> m.keyRecorderBlur(field)
+                    step["down"] != null || step["up"] != null -> {
+                        val down = step["down"] != null
+                        val key = (step["down"] ?: step["up"])!!.string!!
+                        val code = codes[key] ?: error("$name: no key code for $key")
+                        keyRecorderKeyPayload(code, down, meta(held))?.let { m.keyRecorderRecord(field, it) }
+                    }
+                    step["modifiers"] != null -> {
+                        val set = step["modifiers"]!!.array.orEmpty().mapNotNull { it.string }.toSet()
+                        m.keyRecorderRecord(field, keyRecorderPayload("modifiers", "ctrl" in set, "alt" in set, "shift" in set, "meta" in set))
+                    }
+                    step["mouse"] != null -> m.keyRecorderMouse(field, step["mouse"]!!.number!!.toInt())
+                    step["hostWrite"] != null -> m.setData(step["hostWrite"]!!["path"]!!.string!!, step["hostWrite"]!!["value"])
+                    else -> error("$name: unknown step ${step.json}")
+                }
+            }
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            val recording = JsonValue.parse(m.surface.dataJson())["recording"] ?: JsonValue.Null
+            assertEquals("$name: /recording", c["recording"] ?: JsonValue.Null, recording)
+            assertEquals("$name: the field records", recording.bool == true, m.keyRecorderRecording(m.idx("ptt.field")))
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerKeys` (#EDE-65): a
+     * Composer `c` (value /draft, menuKeys /menu). `type` = the field's own
+     * edit ([fieldEdited]), a key = [composerKey] with the held mods and
+     * the IME composition; a key it leaves is the field's own, and the
+     * field's own unmodified, uncomposed Enter is [composerSubmit] (the
+     * view's Enter); `handled` = the Composer took it. `hostWrite` = the
+     * host's data write; then, the debounce run out, the fired actions
+     * {name, context} and /draft (null = unset).
+     */
+    @Test
+    fun composerKeyCasesFireKeyOrSubmit() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerKeys"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertTrue(cases.size >= 10)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_keys", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            m.setViewport(390f, 800f)
+            for (step in c["steps"]?.array.orEmpty()) {
+                val field = m.idx("c")
+                when {
+                    step["type"] != null -> m.fieldEdited(field, step["type"]!!.string!!)
+                    step["key"] != null -> {
+                        val key = step["key"]!!.string!!
+                        val modified = step["mods"]?.array.orEmpty().isNotEmpty()
+                        val composing = step["composing"]?.bool == true
+                        var handled = m.composerKey(field, key, modified, composing)
+                        if (!handled && key == "Enter" && !modified && !composing) {
+                            m.composerSubmit(field)
+                            handled = true
+                        }
+                        assertEquals("$name: $key ${step.json} handled", step["handled"]?.bool == true, handled)
+                    }
+                    step["hostWrite"] != null -> m.setData(step["hostWrite"]!!["path"]!!.string!!, step["hostWrite"]!!["value"])
+                    else -> error("$name: unknown step ${step.json}")
+                }
+            }
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            assertEquals("$name: /draft", c["draft"] ?: JsonValue.Null, m.data["draft"] ?: JsonValue.Null)
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerSlots` (#EDE-65 R): through
+     * the MODEL (the core's layout), the slot roots sit in the controls row
+     * in `order` (start → end, mirrored in RTL), centred on the send disc's
+     * row (`c.sendSpace`), inside the composer; `trailing` ends before the
+     * disc; a press on a slot child fires its own action. The attach
+     * control's place is the leaf's (`ComposerLeaf`: before `trailing`).
+     */
+    @Test
+    fun composerSlotCasesSitInTheControlsRow() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertEquals(7, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val rtl = c["direction"]?.string == "rtl"
+            val surface = f["surface"]!!.obj!!
+            val slots = c["slots"]?.obj.orEmpty()
+            val composer = surface + ("props" to JsonValue.Obj(surface["props"]!!.obj!! + c["props"]?.obj.orEmpty())) + (if (slots.isEmpty()) emptyMap<String, JsonValue>() else mapOf<String, JsonValue>("slots" to JsonValue.Obj(slots)))
+            val tree = JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "style" to JsonValue.Obj(mapOf("display" to JsonValue.Str("flex"), "flexDirection" to JsonValue.Str("column"), "direction" to JsonValue.Str(if (rtl) "rtl" else "ltr"))), "children" to JsonValue.Arr(listOf(JsonValue.Obj(composer)))))
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_slots", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(tree.json)
+            m.setViewport(390f, 800f)
+            val cf = m.frame(m.idx("c"))
+            if (slots.isEmpty()) {
+                assertNull("$name: no row without slots", m.indexOf("c.bar"))
+                continue
+            }
+            val send = m.frame(m.idx("c.sendSpace"))
+            val along = ArrayList<Pair<Float, String>>()
+            for ((slot, id) in listOf("leading" to "plus", "trailing" to "ring")) {
+                val i = m.indexOf(id)
+                if (i == null) {
+                    assertNull("$name: $slot laid out", slots[slot])
+                    continue
+                }
+                val b = m.frame(i)
+                assertEquals("$name: $slot centred on the disc", send.center.y, b.center.y, 0.01f)
+                assertTrue("$name: $slot inside the composer", b.left >= cf.left - 0.01f && b.right <= cf.right + 0.01f && b.top >= cf.top - 0.01f && b.bottom <= cf.bottom + 0.01f)
+                along.add((if (rtl) -b.right else b.left) to slot)
+                if (slot == "trailing") assertTrue("$name: trailing before the disc", if (rtl) b.left >= send.right else b.right <= send.left)
+            }
+            val order = c["order"]?.array.orEmpty().mapNotNull { it.string }.filter { it == "leading" || it == "trailing" }
+            assertEquals("$name: order", order, along.sortedBy { it.first }.map { it.second })
+            for (step in c["steps"]?.array.orEmpty()) m.press(step["press"]!!.string!!)
+            runCurrent()
+            assertEquals("$name: events", c["events"]?.array.orEmpty().map { it["name"]?.string }, host.actions.map { it.name })
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `composerPaste` (#EDE-65 R): through
+     * the MODEL, [composerPaste] with the clipboard's files (what the field
+     * reads off the system clipboard, `composerClipboard`); not taken +
+     * text = the field's own edit. The fired actions, the uploads (named by
+     * the Composer) and /draft.
+     */
+    @Test
+    fun composerPasteCasesAttachImages() = runTest {
+        val f = Fixtures.json("interactions-round1.json")["composerPaste"]!!
+        val cases = f["cases"]?.array.orEmpty()
+        assertEquals(5, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val host = RecordingHost()
+            val m = SurfaceModel("composer_paste", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(f["surface"]!!.json)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            m.setViewport(390f, 800f)
+            val field = m.idx("c")
+            val files = c["clipboard"]?.get("files")?.array.orEmpty().map { PickedFile(it["name"]!!.string!!, it["size"]!!.number!!.toLong(), it["type"]!!.string!!) }
+            val taken = m.composerPaste(field, files, files.map { "content://clip/${it.name}" })
+            val text = c["clipboard"]?.get("text")?.string
+            if (!taken && text != null) m.fieldEdited(field, (m.data["draft"]?.string ?: "") + text)
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
+            val want = c["events"]?.array.orEmpty()
+            assertEquals("$name: names", want.map { it["name"]?.string }, host.actions.map { it.name })
+            assertEquals("$name: contexts", want.map { it["context"] ?: JsonValue.Obj(emptyMap()) }, host.actions.map { it.context })
+            assertEquals("$name: uploads", c["uploads"]?.array.orEmpty().map { it.string }, host.uploads.flatMap { u -> u.files.map { it.name } })
+            assertTrue("$name: the upload names the Composer", host.uploads.all { it.componentId == "c" && it.name == "c" && it.uris.size == it.files.size })
+            assertEquals("$name: /draft", c["draft"] ?: JsonValue.Null, m.data["draft"] ?: JsonValue.Null)
+        }
+    }
+
+    /** #EDE-65: the five menu keys pass unmodified; a held modifier or another key is the field's. */
+    @Test
+    fun composerMenuKeyNames() {
+        for (k in listOf("ArrowUp", "ArrowDown", "Enter", "Tab", "Escape")) {
+            assertEquals(k, composerMenuKey(k, modified = false))
+            assertNull(composerMenuKey(k, modified = true))
+        }
+        assertNull(composerMenuKey("ArrowLeft", modified = false))
+        assertNull(composerMenuKey("a", modified = false))
+    }
+
+    /** #EXP-1629: Android key codes → the canonical KeyRecorder names (the physical key). */
+    @Test
+    fun keyRecorderKeyNamesAreCanonical() {
+        val want = mapOf(
+            AndroidKeyEvent.KEYCODE_A to "a", AndroidKeyEvent.KEYCODE_K to "k", AndroidKeyEvent.KEYCODE_Z to "z",
+            AndroidKeyEvent.KEYCODE_0 to "0", AndroidKeyEvent.KEYCODE_1 to "1", AndroidKeyEvent.KEYCODE_9 to "9",
+            AndroidKeyEvent.KEYCODE_F1 to "f1", AndroidKeyEvent.KEYCODE_F12 to "f12", AndroidKeyEvent.KEYCODE_F13 to "f13", AndroidKeyEvent.KEYCODE_F24 to "f24",
+            AndroidKeyEvent.KEYCODE_SPACE to "space", AndroidKeyEvent.KEYCODE_ENTER to "enter", AndroidKeyEvent.KEYCODE_NUMPAD_ENTER to "enter",
+            AndroidKeyEvent.KEYCODE_TAB to "tab", AndroidKeyEvent.KEYCODE_ESCAPE to "escape", AndroidKeyEvent.KEYCODE_BACK to "escape",
+            AndroidKeyEvent.KEYCODE_DEL to "backspace", AndroidKeyEvent.KEYCODE_FORWARD_DEL to "delete", AndroidKeyEvent.KEYCODE_INSERT to "insert",
+            AndroidKeyEvent.KEYCODE_MOVE_HOME to "home", AndroidKeyEvent.KEYCODE_MOVE_END to "end",
+            AndroidKeyEvent.KEYCODE_PAGE_UP to "pageup", AndroidKeyEvent.KEYCODE_PAGE_DOWN to "pagedown",
+            AndroidKeyEvent.KEYCODE_DPAD_UP to "up", AndroidKeyEvent.KEYCODE_DPAD_DOWN to "down",
+            AndroidKeyEvent.KEYCODE_DPAD_LEFT to "left", AndroidKeyEvent.KEYCODE_DPAD_RIGHT to "right",
+            AndroidKeyEvent.KEYCODE_MINUS to "-", AndroidKeyEvent.KEYCODE_EQUALS to "=",
+            AndroidKeyEvent.KEYCODE_LEFT_BRACKET to "[", AndroidKeyEvent.KEYCODE_RIGHT_BRACKET to "]",
+            AndroidKeyEvent.KEYCODE_BACKSLASH to "\\", AndroidKeyEvent.KEYCODE_SEMICOLON to ";",
+            AndroidKeyEvent.KEYCODE_APOSTROPHE to "'", AndroidKeyEvent.KEYCODE_COMMA to ",",
+            AndroidKeyEvent.KEYCODE_PERIOD to ".", AndroidKeyEvent.KEYCODE_SLASH to "/", AndroidKeyEvent.KEYCODE_GRAVE to "`",
+        )
+        for ((code, name) in want) assertEquals("key code $code", name, keyRecorderKeyName(code))
+        for (code in listOf(AndroidKeyEvent.KEYCODE_NUMPAD_1, AndroidKeyEvent.KEYCODE_VOLUME_UP, AndroidKeyEvent.KEYCODE_CTRL_LEFT, AndroidKeyEvent.KEYCODE_SHIFT_RIGHT, AndroidKeyEvent.KEYCODE_AT, AndroidKeyEvent.KEYCODE_UNKNOWN)) {
+            assertNull("key code $code", keyRecorderKeyName(code))
+        }
+        // Every canonical name is reached: 86 names (a-z, 0-9, f1-f24, 15 named, 11 punctuation).
+        assertEquals(26 + 10 + 24 + 15 + 11, (0..400).mapNotNull(::keyRecorderKeyName).toSet().size)
+    }
+
+    /** #EXP-1629: the shifted digit reads its key; modifiers alone; repeats; unknown keys. */
+    @Test
+    fun keyRecorderKeyPayloads() {
+        val shift = AndroidKeyEvent.META_SHIFT_ON or AndroidKeyEvent.META_SHIFT_LEFT_ON
+        val ctrl = AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON
+        assertEquals(keyRecorderPayload("down", false, false, true, false, key = "1"), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_1, true, shift))
+        assertEquals(keyRecorderPayload("up", true, false, false, false, key = "k"), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_K, false, ctrl))
+        // A modifier alone: the flags after the event, whatever the event's meta state says about itself.
+        assertEquals(keyRecorderPayload("modifiers", true, false, false, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, true, 0))
+        assertEquals(keyRecorderPayload("modifiers", true, false, true, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_SHIFT_LEFT, true, ctrl))
+        assertEquals(keyRecorderPayload("modifiers", false, false, true, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, false, ctrl or shift))
+        // The other side still held keeps the flag.
+        assertEquals(
+            keyRecorderPayload("modifiers", true, false, false, false),
+            keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_CTRL_LEFT, false, AndroidKeyEvent.META_CTRL_ON or AndroidKeyEvent.META_CTRL_LEFT_ON or AndroidKeyEvent.META_CTRL_RIGHT_ON),
+        )
+        assertEquals(keyRecorderPayload("modifiers", false, false, false, true), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_META_RIGHT, true, 0))
+        assertEquals(keyRecorderPayload("modifiers", false, true, false, false), keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_ALT_RIGHT, true, 0))
+        assertNull(keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_K, true, ctrl, repeatCount = 1))
+        assertNull(keyRecorderKeyPayload(AndroidKeyEvent.KEYCODE_VOLUME_UP, true, 0))
     }
 
     /**

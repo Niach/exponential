@@ -31,6 +31,15 @@ coolify deploy uuid <app-uuid>
 
 Or click "Deploy" in the Coolify UI.
 
+Electric (cloud and next) is a Coolify dockerimage app PINNED to the same
+`electricsql/electric:<version>` tag as `docker-compose.yaml` and
+`selfhost/docker-compose.yaml` (1.8.1 since #2394), never a floating `latest`:
+a restart must not upgrade it. To upgrade: bump both compose files in a PR,
+then set the Coolify image tag on next first, check `/api/health` and the
+Electric log, then the cloud. A version that changes Electric's shape storage
+starts with 0 shapes, so every client resyncs once (one 409 each); the
+rollback is the previous pin.
+
 Health (EXP-1474): `build-web.yml` boots each image leg before pushing it
 (`apps/web/scripts/smoke-server.ts`: `/`, `/auth/login` must be our app
 shell, `/api/health` must say `{"ok":true}`), and the image's HEALTHCHECK
@@ -117,6 +126,7 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`, `NOTARY_KEY` | secret | `macos-app` | App Store Connect API key for notarytool (`NOTARY_KEY` = base64 .p8) | person (App Store Connect) |
 | `IOS_DIST_CERT_P12`, `IOS_DIST_CERT_PASSWORD` | secret | `apple-signing` | Apple Development + Distribution certs (base64 .p12) | person |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` | secret | `build-ios.yml`, `testflight-upload` | App Store Connect API key (profiles + TestFlight upload) | person |
+| `GLITCHTIP_AUTH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secret | `build-ios.yml` | #LOGS-2: dSYM upload to GlitchTip (upload-only token + Cloudflare Access service token); absent = step skipped | person |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | secret | `windows-sign` | an Entra app registration with the "Artifact Signing Certificate Profile Signer" role | person (Azure; identity validation first). A PARTIAL set fails the Windows leg |
 | `WINDOWS_SIGNING_ENDPOINT`, `WINDOWS_SIGNING_ACCOUNT`, `WINDOWS_SIGNING_PROFILE` | variable | `windows-sign` | Artifact Signing region endpoint, account, certificate profile | person |
 | `UPDATE_SIGNING_KEY` | secret | `updater-feed` | minisign secret key (`minisign -G -W`, base64 of the file) signing `SHA256SUMS.txt` | person (generate once, keep in KeePass) |
@@ -125,6 +135,7 @@ copies in Niach/spezl; the Apple ones can be the same values (same team).
 | `PLAY_SERVICE_ACCOUNT_JSON` | secret | `play-upload` | Google Cloud service-account key, invited in Play Console as Release manager on the app | person. The Play app record + first upload must exist (the API cannot create apps) |
 | `RELEASE_BOT_TOKEN` | secret | `bump-versions.yml` | token for the bump PR so `gate` runs on it (GITHUB_TOKEN PRs trigger no workflows) | person (optional) |
 | `RUNNER_STATUS_TOKEN` | secret | `pick-runner.yml` | lists the self-hosted runners (Administration: read) | person (optional) |
+| `GLITCHTIP_AUTH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | secret | `build-ede.yml` (releases) | #LOGS-2: `sentry-cli debug-files upload` of eDE's split debug info to GlitchTip (org `exponential`, project `ede`): an upload-only token and the Cloudflare Access service token in front of `glitchtip.exponential.at`. Missing = a notice, a failed upload = a warning | person |
 | `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_PASSWORD`, `SWIFT_DIST_TOKEN` | secret | `release-eui.yml` | Exponential UI package publishing | person |
 
 Turning on the signed updater feed: `minisign -G -W -p update.pub -s update.key`,

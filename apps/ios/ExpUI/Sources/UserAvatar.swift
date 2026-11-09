@@ -18,9 +18,10 @@ public struct UserAvatar: View {
     /// #EXP-1383: set = an AGENT where a person would be (an actor, an
     /// assignee): THE AGENT MARK, never initials.
     var agent: UserAvatarAgent?
-    /// What the fallback hue is keyed on — the synced row's id when there is
-    /// one, the raw id otherwise; both are the same string, so a member whose
-    /// row lands mid-session keeps its colour.
+    /// What the fallback hue is keyed on (#EXP-1754 `avatarHueKey`): the id
+    /// (the synced row's, else the raw one: the same string, so a member whose
+    /// row lands mid-session keeps its colour), else the name, else the email;
+    /// nil = the muted grey chip.
     let hueKey: String?
     var size: CGFloat = 32
 
@@ -28,7 +29,7 @@ public struct UserAvatar: View {
         self.init(
             image: user?.image,
             initials: memberInitials(user, id: id),
-            hueKey: user?.id ?? id,
+            hueKey: avatarHueKey(id: user?.id ?? id, name: user?.name, email: user?.email),
             size: size
         )
     }
@@ -87,17 +88,21 @@ public struct UserAvatar: View {
     // initials to a lone "…" — visible in the App Store screenshots
     // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
     private var initialsChip: some View {
-        AvatarView(name: initials, size: size, fill: Self.fill(hueKey), ink: Self.ink(hueKey), fontSize: size * UserAvatarTokens.initialsScale, initials: initials, minimumScaleFactor: UserAvatarTokens.minimumScaleFactor)
+        AvatarView(name: initials, size: size, fill: Self.fill(hueKey), ink: Self.ink(hueKey), fontSize: size * UserAvatarTokens.initialsScale, fontWeight: .medium, initials: initials, minimumScaleFactor: UserAvatarTokens.minimumScaleFactor)
     }
 
-    /// The initials' colour: the avatar hue picked off the key.
+    /// The initials' colour: the avatar hue picked off the key; no key = the
+    /// muted foreground (#EXP-1754, web `text-muted-foreground`).
     static func ink(_ hueKey: String?) -> Color {
-        DesignTokens.Avatar.hues[avatarHueIndex(hueKey)]
+        guard let hueKey else { return DesignTokens.Palette.mutedForeground }
+        return DesignTokens.Avatar.hues[avatarHueIndex(hueKey)]
     }
 
-    /// The chip's fill: the hue at 20 %.
+    /// The chip's fill: the hue at 20 %; no key = the muted chip (web
+    /// `bg-muted`).
     static func fill(_ hueKey: String?) -> Color {
-        ink(hueKey).opacity(UserAvatarTokens.fillOpacity)
+        guard let hueKey else { return DesignTokens.Palette.muted }
+        return DesignTokens.Avatar.hues[avatarHueIndex(hueKey)].opacity(UserAvatarTokens.fillOpacity)
     }
 }
 

@@ -15,6 +15,7 @@ import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
+import { keyRecorderCode } from "@exponential_app/eui/web"
 
 afterEach(() => cleanup())
 
@@ -612,6 +613,207 @@ describe.each([`boxHover`, `tilePress`] as const)(`fixtures/interactions-round1.
         else fireEvent.click(box(s.press))
       }
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})
+
+// #EXP-1629 keyRecorder: a press while idle starts recording (`start` +
+// recording true), then every key and mouse buttons 3-5 go to `key`; blur
+// stops it; a host write of recording false stops it silently.
+type KeyRecorderMod = `ctrl` | `alt` | `shift` | `meta`
+interface KeyRecorderStep {
+  press?: boolean
+  down?: string
+  up?: string
+  mods?: KeyRecorderMod[]
+  modifiers?: KeyRecorderMod[]
+  mouse?: number
+  blur?: boolean
+  hostWrite?: { path: string; value: unknown }
+}
+interface KeyRecorderCase {
+  name: string
+  steps: KeyRecorderStep[]
+  events: { name: string; context: Record<string, unknown> }[]
+  recording: boolean | null
+}
+const keyRecorderFixture = (fixture as unknown as { keyRecorder: { surface: NestedNode; cases: KeyRecorderCase[] } }).keyRecorder
+const MOD_CODES: Record<KeyRecorderMod, string> = { ctrl: `ControlLeft`, alt: `AltLeft`, shift: `ShiftLeft`, meta: `MetaLeft` }
+const DOM_BUTTON: Record<number, number> = { 1: 0, 2: 2, 3: 1, 4: 3, 5: 4 }
+const modFlags = (mods: readonly KeyRecorderMod[]) => ({ ctrlKey: mods.includes(`ctrl`), altKey: mods.includes(`alt`), shiftKey: mods.includes(`shift`), metaKey: mods.includes(`meta`) })
+
+function KeyRecorderSurface({ onState, onAction }: { onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `kr`, data: {}, initial: keyRecorderFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="kr" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json keyRecorder`, () => {
+  for (const c of keyRecorderFixture.cases) {
+    it(`keyRecorder: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<KeyRecorderSurface onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const field = () => container.querySelector(`[data-xui-id="ptt.field"]`) as HTMLElement
+      let held: KeyRecorderMod[] = []
+      for (const s of c.steps) {
+        if (s.press) fireEvent.click(field())
+        else if (s.down !== undefined) fireEvent.keyDown(field(), { code: keyRecorderCode(s.down), key: s.down, ...modFlags(s.mods ?? []) })
+        else if (s.up !== undefined) fireEvent.keyUp(field(), { code: keyRecorderCode(s.up), key: s.up, ...modFlags(s.mods ?? []) })
+        else if (s.modifiers) {
+          // One platform modifier-change event: a keydown of an added key, else a keyup of a released one.
+          const added = s.modifiers.find((m) => !held.includes(m))
+          const released = held.find((m) => !s.modifiers!.includes(m))
+          const flags = modFlags(s.modifiers)
+          if (added) fireEvent.keyDown(field(), { code: MOD_CODES[added], key: added, ...flags })
+          else if (released) fireEvent.keyUp(field(), { code: MOD_CODES[released], key: released, ...flags })
+          held = s.modifiers
+        } else if (s.mouse !== undefined) fireEvent.mouseDown(field(), { button: DOM_BUTTON[s.mouse] })
+        else if (s.blur) fireEvent.blur(field())
+        else if (s.hostWrite) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `kr`, path: s.hostWrite!.path, value: s.hostWrite!.value } }))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect((state.data as Record<string, unknown>).recording ?? null).toBe(c.recording)
+      if (c.recording !== null) expect(field().getAttribute(`aria-pressed`)).toBe(String(c.recording))
+      if (c.recording) expect(document.activeElement).toBe(field())
+    })
+  }
+})
+
+// #EDE-65 composerKeys: while menuKeys is on, Up, Down, Enter, Tab and
+// Escape (no modifier, no IME composition) fire `key` {key} only; off,
+// Enter submits as before.
+interface ComposerKeyStep {
+  type?: string
+  key?: string
+  mods?: KeyRecorderMod[]
+  composing?: boolean
+  handled?: boolean
+  hostWrite?: { path: string; value: unknown }
+}
+interface ComposerKeyCase {
+  name: string
+  data: Record<string, unknown>
+  steps: ComposerKeyStep[]
+  events: { name: string; context: Record<string, unknown> }[]
+  draft: string | null
+}
+const composerKeysFixture = (fixture as unknown as { composerKeys: { surface: NestedNode; cases: ComposerKeyCase[] } }).composerKeys
+
+function ComposerKeysSurface({ data, onState, onAction }: { data: Record<string, unknown>; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `ck`, data: structuredClone(data), initial: composerKeysFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="ck" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json composerKeys`, () => {
+  for (const c of composerKeysFixture.cases) {
+    it(`composerKeys: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ComposerKeysSurface data={c.data} onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      const field = () => container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+      for (const s of c.steps) {
+        if (s.type !== undefined) fireEvent.change(field(), { target: { value: s.type } })
+        else if (s.key !== undefined) {
+          const kept = fireEvent.keyDown(field(), { key: s.key, isComposing: s.composing ?? false, ...modFlags(s.mods ?? []) })
+          expect(!kept, `${s.key} handled`).toBe(s.handled!)
+        } else if (s.hostWrite) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `ck`, path: s.hostWrite!.path, value: s.hostWrite!.value } }))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect((state.data as Record<string, unknown>).draft ?? null).toBe(c.draft)
+    })
+  }
+})
+
+// #EDE-65 R composerSlots: the slots sit in the Composer's controls row,
+// in order leading · attach · trailing · send (DOM order = start → end; a
+// CSS renderer mirrors it in RTL); a slot child is a live node.
+interface ComposerSlotsCase {
+  name: string
+  props: Record<string, unknown>
+  slots: Record<string, NestedNode>
+  direction?: `rtl`
+  order: string[]
+  steps: { press: string }[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+const composerSlotsFixture = (fixture as unknown as { composerSlots: { surface: NestedNode; cases: ComposerSlotsCase[] } }).composerSlots
+
+/** The controls row's children by fixture name, start → end. */
+function composerRowOrder(root: ParentNode): string[] {
+  const bar = root.querySelector(`[data-xui-id="c"] .xui-composer-bar`)!
+  return Array.from(bar.children).map((el) => {
+    const c = el.className
+    if (c.includes(`xui-composer-leading`)) return `leading`
+    if (c.includes(`xui-composer-trailing`)) return `trailing`
+    if (c.includes(`xui-Composer-attachment`)) return `attachment`
+    if (c.includes(`xui-Composer-send`)) return `send`
+    return c
+  })
+}
+
+function NestedSurface({ tree, host }: { tree: NestedNode; host: Record<string, unknown> }) {
+  const surface = useSurface({ surfaceId: `cs`, data: {}, initial: tree })
+  return <ExponentialSurface surface={surface} theme="neutral" id="cs" host={host} />
+}
+
+describe(`fixtures/interactions-round1.json composerSlots`, () => {
+  for (const c of composerSlotsFixture.cases) {
+    it(`composerSlots: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const composer = { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
+      const root = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
+      const { container } = render(<NestedSurface tree={root} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
+      expect(composerRowOrder(container)).toEqual(c.order)
+      for (const s of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${s.press}"]`)!)
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+    })
+  }
+})
+
+// #EDE-65 R composerPaste: a paste with image files fires `attach` {files}
+// and hands the bytes to onUpload; files without one do nothing; text alone
+// is the field's own paste.
+interface ComposerPasteCase {
+  name: string
+  data: Record<string, unknown>
+  clipboard: { text?: string; files?: { name: string; size: number; type: string }[] }
+  events: { name: string; context: Record<string, unknown> }[]
+  uploads: string[]
+  draft: string | null
+}
+const composerPasteFixture = (fixture as unknown as { composerPaste: { surface: NestedNode; cases: ComposerPasteCase[] } }).composerPaste
+
+function ComposerPasteSurface({ data, onState, host }: { data: Record<string, unknown>; onState: (s: SurfaceState) => void; host: Record<string, unknown> }) {
+  const surface = useSurface({ surfaceId: `cp`, data: structuredClone(data), initial: composerPasteFixture.surface })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="cp" host={host} />
+}
+
+describe(`fixtures/interactions-round1.json composerPaste`, () => {
+  for (const c of composerPasteFixture.cases) {
+    it(`composerPaste: ${c.name}`, () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      const uploads: [string[], unknown][] = []
+      const host = { onAction: (e: SurfaceActionEvent) => void actions.push(e), onUpload: (files: File[], t: unknown) => void uploads.push([files.map((f) => f.name), t]) }
+      const { container } = render(<ComposerPasteSurface data={c.data} onState={(s) => (state = s)} host={host} />)
+      const field = container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+      const files = (c.clipboard.files ?? []).map((f) => new File([`x`.repeat(f.size)], f.name, { type: f.type }))
+      const kept = fireEvent.paste(field, { clipboardData: { files, getData: () => c.clipboard.text ?? `` } })
+      // jsdom inserts nothing: a paste the Composer leaves is the browser's.
+      if (kept && c.clipboard.text) fireEvent.change(field, { target: { value: `${field.value}${c.clipboard.text}` } })
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect(uploads.flatMap((u) => u[0])).toEqual(c.uploads)
+      for (const u of uploads) expect((u[1] as { name: string }).name).toBe(`c`)
+      expect((state.data as Record<string, unknown>).draft ?? null).toBe(c.draft)
     })
   }
 })

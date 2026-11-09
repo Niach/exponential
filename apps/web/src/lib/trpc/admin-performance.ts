@@ -177,7 +177,7 @@ export async function probePushRelay(
 
 // ── Database stat SQL ─────────────────────────────────────────────────────────
 
-// Plain read-only pg_stat queries, vanilla PG17 — no pg_stat_statements or
+// Plain read-only pg_stat queries, vanilla PG18 — no pg_stat_statements or
 // other extensions. Exported as constants so admin-performance.test.ts can
 // pin the load-bearing clauses.
 

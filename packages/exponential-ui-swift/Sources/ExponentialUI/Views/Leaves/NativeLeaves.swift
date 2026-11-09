@@ -55,9 +55,14 @@ struct InlineFieldLeaf: View {
         let icon: String? = kind == .search ? (cx.props["icon"]?.string ?? BuiltinIcons.name("Select.search")) : nil
         let label = owner.str("label").isEmpty ? cx.props.str("placeholder") : owner.str("label")
         let disabled = model.isDisabled(cx.index) || cx.props.flag("disabled")
-        HStack(spacing: icon == nil ? 0 : 8) {
+        // #EXP-1629: the glyph-to-text gap is the field's recipe `gap` (else
+        // 8); the glyph takes the placeholder's ink (`mutedForeground`) as
+        // the IDE's search rows draw it, else the text's at 60%.
+        let iconGap = cx.style.gap > 0 ? cx.style.gap : 8
+        let glyph = cx.themeColor("mutedForeground").map { ($0, 1.0) } ?? (cx.ink, 0.6)
+        HStack(spacing: icon == nil ? 0 : iconGap) {
             if let icon {
-                ConceptIcon(name: icon, size: 16, color: cx.ink, model: model).opacity(0.6)
+                ConceptIcon(name: icon, size: 16, color: glyph.0, model: model).opacity(glyph.1)
             }
             OwnedTextField(
                 index: cx.index,
@@ -88,18 +93,31 @@ struct InlineFieldLeaf: View {
 /// the core's text (dates re-formatted in the surface locale from the ISO
 /// value), muted while it is the placeholder, and the trigger glyph the
 /// core named. The press opens the core's popup LAYER (`triggerFor`).
+/// #EXP-1629: a Select's text is its `value` part and its glyph its
+/// `chevron` part (a `row` trigger is the core's container of parts,
+/// painted as nodes, never this leaf).
 struct PickerTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
         let ph = cx.part(cx.node.recipeComponent, "placeholder")
+        let select = cx.node.recipeComponent == "Select"
+        let value = select ? cx.part("Select", "value") : .empty
+        let chevron = select ? cx.part("Select", "chevron") : .empty
         let icon = cx.props.str("icon").isEmpty ? "ui-chevron-down" : cx.props.str("icon")
+        let glyph = SelectTrigger.glyphSize(chevron)
+        let glyphView = ConceptIcon(name: icon, size: glyph, color: chevron.color ?? cx.ink, model: cx.model)
+            .opacity(chevron.style.opacity ?? 0.6)
+            .frame(width: glyph, height: glyph)
+        let ink = isPlaceholder ? (ph.color ?? cx.muted) : (value.color ?? cx.ink)
+        let inkOpacity = isPlaceholder ? 1 : (value.style.opacity ?? 1)
         HStack(spacing: cx.spacing("sm")) {
-            TextLabel(text(isPlaceholder), cx.textStyle, color: isPlaceholder ? (ph.color ?? cx.muted) : cx.ink, align: cx.style.textAlign, lines: 1)
+            TextLabel(text(isPlaceholder), cx.textStyle, color: ink, align: cx.style.textAlign, lines: 1)
+                .opacity(inkOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
-            ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model).opacity(0.6)
+            glyphView
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
@@ -128,6 +146,9 @@ struct SelectItemLeaf: View {
     var body: some View {
         let selected = cx.node.selected || cx.props.flag("selected")
         let check = cx.props.str("check").isEmpty ? BuiltinIcons.name("Select.check") : cx.props.str("check")
+        // #EXP-1629: the check is the `check` part (its size and ink).
+        let look = cx.part("Select", "check", states: selected ? ["selected"] : [])
+        let size = SelectTrigger.glyphSize(look)
         HStack(spacing: max(cx.style.gap, 4)) {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
@@ -136,9 +157,9 @@ struct SelectItemLeaf: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
             ZStack {
-                if selected { ConceptIcon(name: check, size: 16, color: cx.ink, model: cx.model) }
+                if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
             }
-            .frame(width: 16, height: 16)
+            .frame(width: size, height: size)
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
@@ -214,6 +235,8 @@ struct TableCellLeaf: View {
             guard let n = value.number ?? Double(value.displayText), !value.isNull, value.displayText != "" else { return fallback }
             return cx.model.formatNumber(n, precision: nil)
         case "date":
+            // FEED-202: a column `format` (dd.MM.yy) is the core's text.
+            if !cx.props.str("format").isEmpty { return fallback }
             return value.string.flatMap { cx.model.formatDate($0) } ?? fallback
         default:
             return fallback

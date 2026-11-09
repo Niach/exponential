@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { agents, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { probeRealDb, retryingConflict } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 
 vi.mock(`@/lib/steer`, async (importOriginal) => {
@@ -94,10 +94,10 @@ async function world() {
 afterAll(async () => {
   if (!ready.ok) return
   if (made.teams.length) {
-    await db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`)
+    await retryingConflict(() => db.execute(sql`DELETE FROM teams WHERE id IN ${sql.raw(`('${made.teams.join(`','`)}')`)}`))
   }
   if (made.users.length) {
-    await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
+    await retryingConflict(() => db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`))
   }
 })
 

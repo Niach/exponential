@@ -16,6 +16,7 @@ struct Root;
 
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Root").entered();
         div()
             .size_full()
             .bg(gpui::rgb(0x808080))
@@ -75,9 +76,8 @@ fn openers() -> Vec<(String, Opener)> {
 #[ignore]
 fn alert_gallery() {
     let dir = std::env::var("EXP_ALERT_SHOTS").expect("EXP_ALERT_SHOTS = the output folder");
-    let platform = gpui_platform::current_platform(true);
-    let mut cx = HeadlessAppContext::with_platform(
-        platform.text_system(),
+        let mut cx = HeadlessAppContext::with_platform(
+        crate::test_text_system(),
         Arc::new(gpui_component_assets::Assets),
         gpui_platform::current_headless_renderer,
     );

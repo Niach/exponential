@@ -212,13 +212,13 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
             outbound = rx.recv_async() => {
                 let Ok(outbound) = outbound else {
                     // Every handle dropped without End: hang up.
-                    let _ = sink.send(Message::Text(json!({ "t": "call_end" }).to_string().into())).await;
+                    let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
                     return Ok(());
                 };
                 match outbound {
                     Outbound::Event(event) => {
                         let frame = json!({ "t": "call_event", "event": event }).to_string();
-                        sink.send(Message::Text(frame.into())).await.map_err(|err| err.to_string())?;
+                        sink.send(Message::text(frame)).await.map_err(|err| err.to_string())?;
                     }
                     Outbound::Speech { pcm, rate } => {
                         if encoder.as_ref().is_none_or(|encoder| encoder.rate != rate) {
@@ -234,7 +234,7 @@ async fn run(url: &str, rx: &flume::Receiver<Outbound>, on_event: &(impl Fn(Call
                         }
                     }
                     Outbound::End => {
-                        let _ = sink.send(Message::Text(json!({ "t": "call_end" }).to_string().into())).await;
+                        let _ = sink.send(Message::text(json!({ "t": "call_end" }).to_string())).await;
                         let _ = sink.close().await;
                         return Ok(());
                     }

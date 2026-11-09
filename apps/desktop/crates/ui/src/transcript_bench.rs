@@ -121,6 +121,7 @@ struct Transcript {
 
 impl Render for Transcript {
     fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Transcript").entered();
         gpui::list(
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| {
@@ -155,9 +156,8 @@ pub(crate) fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 fn headless() -> HeadlessAppContext {
-    let platform = gpui_platform::current_platform(true);
-    let mut cx = HeadlessAppContext::with_platform(
-        platform.text_system(),
+        let mut cx = HeadlessAppContext::with_platform(
+        crate::test_text_system(),
         Arc::new(gpui_component_assets::Assets),
         gpui_platform::current_headless_renderer,
     );
@@ -228,6 +228,7 @@ struct Doc {
 
 impl Render for Doc {
     fn render(&mut self, _: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Doc").entered();
         let view = crate::markdown::MarkdownView::new(format!("bench-doc-{}", self.id), self.text.clone())
             .selectable(true)
             .chat(self.chat)

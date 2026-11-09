@@ -1453,7 +1453,7 @@ impl Block {
                 .on_mouse_up(
                     MouseButton::Left,
                     cx.listener(move |block, event: &MouseUpEvent, _window, cx| {
-                        if event.modifiers.secondary() {
+                        if event.modifiers.secondary(cx) {
                             block.open_rendered_link(&link, cx);
                         }
                     }),
@@ -2193,6 +2193,7 @@ impl Focusable for Block {
 /// - The [`BlockTextElement`] handles text layout, selection, and cursor.
 impl Render for Block {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("markdown.block.render").entered();
         let focused = self.focus_handle.is_focused(window);
         let code_language_focused = self.code_language_focus_handle.is_focused(window);
         let input_active = focused || code_language_focused;
@@ -3751,7 +3752,7 @@ impl Element for LinkFollowCursor {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if hitbox.is_hovered(window) && window.modifiers().secondary() {
+        if hitbox.is_hovered(window) && window.modifiers().secondary(cx) {
             // The editor root repaints on follow-modifier toggles, so the hand
             // cursor re-evaluates here even while the pointer stays still.
             window.set_cursor_style(CursorStyle::PointingHand, hitbox);

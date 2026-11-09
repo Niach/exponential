@@ -28,7 +28,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{Panel, PanelControl, PanelEvent},
+    dock::{BasePanel, Panel, PanelControl, PanelEvent},
     h_flex,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -225,6 +225,7 @@ struct NeverUndocked;
 
 impl Render for NeverUndocked {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "NeverUndocked").entered();
         div()
     }
 }
@@ -813,11 +814,49 @@ pub struct ScreensPanel {
 /// EXP-1551: `temporary` is Home's "+" at its ROOT, no row lit, with the
 /// agent row on Temporary session ([`dev_composer_menu_temporary`]): the
 /// state every client photographs for `composer-menu`.
-pub(crate) fn take_dev_composer_menu(dialog: bool) -> bool {
+///
+/// #EXP-1749: the open also waits for the "+" (`trigger`, window bounds) to
+/// hold still for [`DEV_MENU_STEADY`]: the page settles after its data is in
+/// (rows landing above the composer move it), and #EXP-1739 closes a menu
+/// whose anchor moved, so an early open photographed closed. `view` is
+/// re-rendered once the wait may be over.
+pub(crate) fn take_dev_composer_menu(
+    dialog: bool,
+    trigger: gpui::Bounds<gpui::Pixels>,
+    view: gpui::EntityId,
+    cx: &mut App,
+) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static TAKEN: AtomicBool = AtomicBool::new(false);
     let value = std::env::var("EXP_DEV_COMPOSER_MENU").ok();
-    dev_composer_menu_wanted(value.as_deref(), dialog) && !TAKEN.swap(true, Ordering::SeqCst)
+    dev_composer_menu_wanted(value.as_deref(), dialog)
+        && !TAKEN.load(Ordering::SeqCst)
+        && dev_trigger_steady(trigger, view, cx)
+        && !TAKEN.swap(true, Ordering::SeqCst)
+}
+
+/// #EXP-1749: how long a dev-opened menu's trigger holds still before it opens.
+const DEV_MENU_STEADY: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// #EXP-1749: whether `trigger` has sat where it is for [`DEV_MENU_STEADY`];
+/// a move restarts the wait and re-renders `view` when it ends.
+fn dev_trigger_steady(trigger: gpui::Bounds<gpui::Pixels>, view: gpui::EntityId, cx: &mut App) -> bool {
+    thread_local! {
+        static SINCE: std::cell::Cell<Option<(gpui::Bounds<gpui::Pixels>, std::time::Instant)>> =
+            const { std::cell::Cell::new(None) };
+    }
+    match SINCE.get() {
+        Some((at, since)) if at == trigger => since.elapsed() >= DEV_MENU_STEADY,
+        _ => {
+            SINCE.set(Some((trigger, std::time::Instant::now())));
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(DEV_MENU_STEADY).await;
+                let _ = cx.update(|cx| cx.notify(view));
+            })
+            .detach();
+            false
+        }
+    }
 }
 
 /// Whether `EXP_DEV_COMPOSER_MENU=value` opens the "+" of a page
@@ -2216,13 +2255,9 @@ impl ScreensPanel {
     }
 }
 
-impl Panel for ScreensPanel {
+impl BasePanel for ScreensPanel {
     fn panel_name(&self) -> &'static str {
         PANEL_NAME
-    }
-
-    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        "Team"
     }
 
     /// The screens ARE the center — closing them would leave an empty center
@@ -2231,8 +2266,23 @@ impl Panel for ScreensPanel {
         false
     }
 
-    fn zoomable(&self, _cx: &App) -> Option<PanelControl> {
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl Panel for ScreensPanel {
+    fn title(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        "Team"
+    }
+
+    fn zoom_control(&self, _cx: &App) -> Option<PanelControl> {
         None
+    }
+
+    /// Chrome-less: alone in the center it draws no title bar (EXP-851).
+    fn title_bar(&self, _cx: &App) -> bool {
+        false
     }
 }
 
@@ -2575,6 +2625,7 @@ impl ScreensPanel {
 
 impl Render for ScreensPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ScreensPanel").entered();
         let screen = resolved_screen(&self.nav, cx);
 
         self.fire_dev_dialog(window, cx);
@@ -3109,6 +3160,7 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "PanelProbe").entered();
                 // A settings list's real shapes (the retired Actions page's
                 // rows, machines.rs), with production-like text. The action rows
                 // mirror `render_action_row` (EXP-618): full-width, a
@@ -3269,6 +3321,7 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Split").entered();
                 use gpui_component::resizable::{h_resizable, resizable_panel};
                 div().size_full().child(
                     h_resizable("center-split")

@@ -7,15 +7,15 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "@exponential_app/eui": "^0.19.1",
-    "@exponential_app/eui-react": "^0.19.1",
+    "@exponential_app/eui": "^0.21.0",
+    "@exponential_app/eui-react": "^0.21.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "typescript": "^5.7.2",
-    "vite": "^7.1.0"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6"
   }
 }

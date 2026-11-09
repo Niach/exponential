@@ -10,6 +10,11 @@ publish = false
 # of app.exponential.at (see login.rs `CLOUD_INSTANCE`), and the app data dir
 # moves aside so channels never share saved accounts (api/staging).
 staging = ["api/staging"]
+# #LOGS-2 frame timings for the lag diagnostics: gpui's `profiler` feature
+# (ungated at our previous zed pin; a feature since zed #62496). It compiles
+# always-on bookkeeping into gpui (per-frame histograms, a per-task counter),
+# so it stays opt-in: without it the lag sampler records stalls but no frames.
+frame-stats = ["gpui/profiler"]
 
 [dependencies]
 theme = { path = "../theme" }
@@ -17,6 +22,9 @@ domain = { path = "../domain" }
 eengine = { path = "../eengine" }
 sync = { path = "../sync" }
 api = { path = "../api" }
+observability = { path = "../observability" }
+# #LOGS-2: the per-view render spans the lag instrumentation reads.
+tracing = "0.1"
 # VAPP-239: the shared MCP URL rule (`emcp::contract::upstream::mcp_url_allowed`); api already depends on it.
 emcp = { path = "../emcp" }
 terminal = { path = "../terminal" }
@@ -64,6 +72,12 @@ imagesize = "0.13"
 # screenshot) and cut it into strips — see tall_image.rs. Already in the tree
 # via gpui; default features stay off, only the accepted formats.
 image = { workspace = true, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+# #LOGS-5: the Home dawn's mark rendered off the main thread as gpui would
+# (dawn_mark.rs): gpui's resvg, the PNG encoder `image` uses, base64. All
+# already in the tree.
+resvg = { version = "0.46", default-features = false }
+png = "0.18"
+base64 = "0.22"
 # §4.7 ExpIcon: icon_named!(ExpIcon, "../../assets/icons") — the project-local
 # Lucide set (status circles, priority signal bars, …).
 gpui-component-macros.workspace = true
@@ -145,3 +159,9 @@ raw-window-handle = "0.6"
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xkb", "randr"] }
 raw-window-handle = "0.6"
+
+# The headless test text system on macOS without the Mac platform: gpui-pre
+# builds `MacPlatform` only on the process main thread, and libtest runs
+# tests on worker threads (`crate::test_text_system`).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui_apple = { package = "gpui-pre-apple", version = "=0.3.11", features = ["font-kit"] }

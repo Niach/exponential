@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use gpui::{
     div, point, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, Modifiers, MouseButton,
-    ParentElement as _, Render, ScrollHandle, ScrollWheelEvent, StatefulInteractiveElement as _, Styled as _,
+    ParentElement as _, Render, ScrollHandle, ScrollEvent, StatefulInteractiveElement as _, Styled as _,
     VisualTestContext, Window,
 };
 use gpui_component::button::Button;
@@ -47,6 +47,7 @@ fn menu_row() -> PopupMenuItem {
 
 impl Render for Scene {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Scene").entered();
         let row: gpui::AnyElement = match self.kind {
             Kind::ContextMenu => div()
                 .id("source")
@@ -162,11 +163,12 @@ impl Harness<'_> {
 
     fn scroll_by_wheel(&mut self, dy: f32) {
         let at = point(px(700.), px(300.));
-        self.cx.simulate_event(ScrollWheelEvent {
+        self.cx.simulate_event(ScrollEvent {
             position: at,
             delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-dy))),
             modifiers: Modifiers::default(),
             touch_phase: gpui::TouchPhase::Moved,
+            source: gpui::ScrollSource::Pointer,
         });
         self.settle();
     }

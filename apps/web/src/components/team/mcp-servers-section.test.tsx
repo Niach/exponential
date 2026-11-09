@@ -52,6 +52,12 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
+// The real hook subscribes to better-auth's session atom, whose refresh
+// cleanup runs on a timer AFTER jsdom has torn the window down (an uncaught
+// `window is not defined` that failed the shard). No test here reads the
+// session (the "Runs on" picker only lists the viewer's own devices).
+vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
+
 vi.mock(`sonner`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
   toast: { success: mockState.toastSuccess, error: mockState.toastError },

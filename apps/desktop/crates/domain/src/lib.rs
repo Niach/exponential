@@ -131,6 +131,8 @@ pub mod prose_links;
 pub mod board;
 // Chat 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
 pub mod chats;
+// #EDE-65 lane O: the session tree's chat rows as the shared uicore chat document's (eDE + the IDE).
+pub mod chat_document;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
 pub mod coding_readiness;
@@ -195,6 +197,8 @@ pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;
 pub mod session_title;
+// #EXP-1732: THE session screen ×4 (tabs per kind, the gear, the beside rule), fixture-locked ×4.
+pub mod session_screen;
 // EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;
 // #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.

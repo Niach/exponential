@@ -88,7 +88,7 @@ final class Round1NativesTests: XCTestCase {
     /// painter knows (no bare boxes where content belongs).
     func testRound1MacrosExpandToKnownLeaves() throws {
         let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
-        for name in ["Rating", "Stepper", "Breadcrumb", "Row", "Section", "Chip", "AppBar", "Kbd", "Label", "Sparkline"] {
+        for name in ["Rating", "Stepper", "Breadcrumb", "Row", "Section", "Chip", "AppBar", "Kbd", "KbdGroup", "Label", "Sparkline"] {
             guard let spec = specimens.first(where: { $0["component"]?.string == name }), let tree = spec["node"] else { XCTFail("no \(name) specimen"); continue }
             let m = try model(name)
             try m.setNested(json: tree.json)
@@ -117,25 +117,25 @@ final class Round1NativesTests: XCTestCase {
         try m.setNested(json: try XCTUnwrap(spec["node"]).json)
         let painted = paint(m)
         XCTAssertNil(m.nodes.first { $0.component == "Unknown" })
-        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.trigger" })
+        let trigger = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.trigger" })
         XCTAssertTrue(painted.contains(trigger.index), "the collapsed card paints")
         XCTAssertEqual(trigger.layer, 0)
         let drawer = try XCTUnwrap(m.layers.first { $0.kind == "Drawer" }, "the open card's sheet is a Drawer layer")
-        XCTAssertEqual(drawer.owner, "c0-dock-card.sheet")
+        XCTAssertEqual(drawer.owner, "c0_dock_card.sheet")
         XCTAssertEqual(drawer.position, "bottom")
         // The `footer` slot lands in the Drawer's own footer part.
-        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0-dock-card.sheet.footer" })
+        let footerPart = try XCTUnwrap(m.nodes.first { $0.id == "c0_dock_card.sheet.footer" })
         XCTAssertEqual(footerPart.part, "footer")
-        XCTAssertEqual(m.nodes.first { $0.id == "c0-footer" }?.parent, footerPart.index)
+        XCTAssertEqual(m.nodes.first { $0.id == "c0_footer" }?.parent, footerPart.index)
         XCTAssertTrue(drawer.modal)
-        for id in ["c0-p", "c0-no", "c0-yes"] {
+        for id in ["c0_p", "c0_no", "c0_yes"] {
             let n = try XCTUnwrap(m.nodes.first { $0.id == id }, id)
             XCTAssertGreaterThan(n.layer, 0, "\(id) rides the sheet")
             XCTAssertTrue(painted.contains(n.index), "\(id) paints")
         }
         // The footer sits under the body inside the sheet.
-        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0-p" })
-        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0-yes" })
+        let body = try XCTUnwrap(m.nodes.first { $0.id == "c0_p" })
+        let yes = try XCTUnwrap(m.nodes.first { $0.id == "c0_yes" })
         XCTAssertGreaterThan(m.frame(yes.index).minY, m.frame(body.index).minY)
         XCTAssertGreaterThanOrEqual(m.frame(yes.index).minY, drawer.frame.minY)
     }
@@ -419,6 +419,120 @@ final class Round1NativesTests: XCTestCase {
         m.flushPending(search)
         XCTAssertEqual(m.liveParts("sel", "item").map { $0.props.str("text") }, ["Sprint"])
         paint(m)
+    }
+
+    /// #EXP-1629: a `row` Select's `description` stacks under its label in
+    /// the `labels` column; the value and chevron sit in the `control`
+    /// column; the row grows past its 40.82 to hold the hint (10.5 around).
+    func testSelectRowDescription() throws {
+        let options: JSONValue = .array(["English", "Deutsch"].map { .object(["label": .string($0), "value": .string($0)]) })
+        let m = try surface(node("lang", "Select", ["label": .string("Language"), "description": .string("Spoken replies and dictation use it"), "triggerVariant": .string("row"), "value": .string("English"), "options": options]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "lang.trigger"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["lang.labels", "lang.control"])
+        let labels = try XCTUnwrap(m.index(of: "lang.labels"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == labels && !$0.removed }.map(\.id), ["lang.label", "lang.description"])
+        let hint = m.part("Select", "description", props: m.ownerProps(trigger))
+        XCTAssertEqual(hint.style.opacity ?? 1, 0.5, accuracy: 0.001, "the IDE's 50 % hint")
+        let (t, l, d) = (m.frame(trigger), m.frame(m.index(of: "lang.label")!), m.frame(m.index(of: "lang.description")!))
+        XCTAssertGreaterThanOrEqual(d.minY, l.maxY)
+        XCTAssertEqual(t.height, 21 + (d.maxY - l.minY), accuracy: 0.01)
+    }
+
+    /// #EXP-1629: a `row` Select's trigger is the core's container of parts
+    /// (label, spacer, value, chevron); opening puts the cursor (the ONE
+    /// `hover`) on the FIRST enabled option and focus in the search field;
+    /// the pointer and the arrows move it, `selected` stays the chosen one;
+    /// ↑/↓ in a searchable Select's field move it too and Enter picks it.
+    func testSelectRowTriggerAndTheCursor() throws {
+        let options: JSONValue = .array(["Monday", "Tuesday", "Sunday"].map { .object(["label": .string($0), "value": .string($0.lowercased())]) })
+        let m = try surface(node("week", "Select", ["label": .string("Week starts on"), "triggerVariant": .string("row"), "value": .string("tuesday"), "options": options]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "week.trigger"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.button"])
+        // #EXP-1629: the IDE picker's ghost value button holds the value and the chevron.
+        let button = try XCTUnwrap(m.index(of: "week.button"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == button && !$0.removed }.map(\.id), ["week.value", "week.chevron"])
+        XCTAssertEqual(m.node(m.index(of: "week.label")!)?.props.str("text"), "Week starts on")
+        XCTAssertEqual(m.node(m.index(of: "week.value")!)?.props.str("text"), "Tuesday")
+        let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))
+        XCTAssertEqual(SelectTrigger.glyphSize(chevron), 14, "the row recipe's chevron")
+        XCTAssertEqual(chevron.style.opacity ?? 1, 0.7, accuracy: 0.001)
+        XCTAssertEqual(m.part("Select", "value", props: m.ownerProps(trigger)).style.opacity ?? 1, 0.7, accuracy: 0.001)
+        XCTAssertNil(m.part("Select", "chevron", props: [:]).style.opacity, "the field glyph keeps its look")
+
+        m.setOpen("week", true)
+        paint(m)
+        let hovered = { m.liveParts("week", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id) }
+        XCTAssertEqual(hovered(), ["week.item.0"], "the cursor starts on the first option: a fresh pick")
+        m.setHover(id: "week.item.2", true)
+        XCTAssertEqual(hovered(), ["week.item.2"], "the pointer moves the one cursor")
+        m.setHover(id: "week.item.2", false)
+        XCTAssertEqual(hovered(), ["week.item.2"])
+        XCTAssertEqual(m.liveParts("week", "item").filter(\.selected).map(\.id), ["week.item.1"], "the cursor is never `selected`")
+        m.requestFocus("week.item.2", keyboard: true)
+        m.handleKey(key: "up")
+        XCTAssertEqual(hovered(), ["week.item.1"], "the arrows step from the cursor")
+        m.handleKey(key: "enter")
+        XCTAssertFalse(m.layers.contains { $0.owner == "week" })
+
+        let zones: JSONValue = .array(["Europe/Berlin", "Europe/London", "Europe/Vienna", "UTC"].map { .object(["label": .string($0), "value": .string($0)]) })
+        let s = try surface(node("tz", "Select", ["label": .string("Timezone"), "triggerVariant": .string("row"), "searchable": .bool(true), "value": .string("Europe/Vienna"), "options": zones]))
+        // No `paint` here: the open popup's focus is in its search FIELD, and
+        // on iOS `paint` renders into a throwaway UIWindow whose teardown
+        // takes the first responder back: the field blurs and the popup
+        // closes (the release suite's iOS Simulator leg). `setOpen` already
+        // ran the pass the assertions read.
+        s.setOpen("tz", true)
+        let tzHovered = { s.liveParts("tz", "item").filter { s.states(of: $0.id).contains("hover") }.map(\.id) }
+        XCTAssertEqual(tzHovered(), ["tz.item.0"])
+        XCTAssertEqual(s.focusedId, "tz.search", "focus in the search field")
+        let search = try XCTUnwrap(s.index(of: "tz.search"))
+        for _ in 0..<2 { s.fieldKey(search, key: "down") }
+        XCTAssertTrue(s.fieldKey(search, key: "down"))
+        XCTAssertEqual(tzHovered(), ["tz.item.3"])
+        s.fieldKey(search, key: "down")
+        XCTAssertEqual(tzHovered(), ["tz.item.3"], "no wrap")
+        s.fieldCommitted(search)
+        XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
+    }
+
+    /// #EXP-1629: a `row` Input IS a Group row: no label above, the field
+    /// carries the label (its row-weight `label` part) and the IDE metrics,
+    /// measures label + gap + field; the default Input keeps its label.
+    func testInputRowCarriesItsLabelInsideTheField() throws {
+        let m = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com"), "variant": .string("row")]))
+        let painted = paint(m)
+        XCTAssertNil(m.index(of: "mail.label"), "a row has no label above")
+        let field = try XCTUnwrap(m.index(of: "mail.field"))
+        XCTAssertTrue(painted.contains(field))
+        let props = m.node(field)!.props
+        XCTAssertTrue(InputRow.isRow(props))
+        XCTAssertEqual(props.str("label"), "Email")
+        XCTAssertEqual(m.frame(field).height, 40.82, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).gap, 10.5, accuracy: 0.01)
+        XCTAssertEqual(m.style(field).paddingHorizontal, 14, accuracy: 0.01)
+        let look = m.part("Input", "label", props: m.ownerProps(field))
+        let labelStyle = InputRow.labelStyle(m.textStyle(field), look)
+        XCTAssertEqual(labelStyle.fontSize, 12.25, accuracy: 0.001)
+        XCTAssertEqual(labelStyle.lineHeight, 19.82, accuracy: 0.001)
+        XCTAssertEqual(look.style.fontWeight, 400, "the row label is regular")
+        XCTAssertEqual(InputRow.labelWidth("Email", labelStyle, width: 4), 4, "at most the row")
+        XCTAssertEqual(InputRow.valueOpacity, 0.7, accuracy: 0.001)
+
+        let measurer = SurfaceMeasurer(theme: m.theme, mode: m.mode, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        let ts = TextStyle.body
+        let rowStyle = InputRow.labelStyle(ts, m.part("Input", "label", props: ["variant": .string("row")]))
+        let row = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email"), "variant": .string("row")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(row.width, TextShaper.width("Email", rowStyle) + 12 + 160, accuracy: 0.01)
+        XCTAssertEqual(row.height, max(ts.lineHeight, rowStyle.lineHeight), accuracy: 0.01)
+        let plain = measurer.measureLeaf(LeafRequest(component: "Input", part: "field", props: ["label": .string("Email")], textStyle: ts, control: ControlBox(gap: 12)), wrap: nil)
+        XCTAssertEqual(plain.width, 160, accuracy: 0.01, "the default field is unchanged")
+
+        let d = try surface(node("mail", "Input", ["label": .string("Email"), "placeholder": .string("you@example.com")]))
+        paint(d)
+        XCTAssertNotNil(d.index(of: "mail.label"), "the default Input keeps its label")
+        XCTAssertFalse(InputRow.isRow(d.node(d.index(of: "mail.field")!)!.props))
     }
 
     func testDateRangePickerSelectsInTwoSteps() throws {

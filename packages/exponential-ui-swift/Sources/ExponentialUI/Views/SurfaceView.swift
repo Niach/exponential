@@ -75,6 +75,12 @@ private struct SurfaceBody: View {
         } action: { offset in
             model.setSurfaceScroll(offset)
         }
+        #if os(iOS)
+        // #EXP-1629: anchored popups fit into the window around the surface.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            model.setPopupWindow(CGRect(origin: CGPoint(x: -frame.minX, y: -frame.minY), size: UIScreen.main.bounds.size))
+        }
+        #endif
         // Round 2: a `formatRelativeTime` without `now` re-binds once a minute.
         .task {
             while !Task.isCancelled {

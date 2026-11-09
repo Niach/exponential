@@ -198,6 +198,9 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     surface.set_viewport(400.0, 700.0, None);
     assert!(surface.set_layer_viewport(1000.0, 800.0), "VAPP-253: the layer viewport goes through");
     assert!(surface.set_layer_viewport(0.0, 0.0), "and unsets");
+    assert!(surface.set_popup_bounds(-10.0, -200.0, 390.0, 844.0), "#EXP-1629: the popup bounds go through");
+    assert!(!surface.set_popup_bounds(-10.0, -200.0, 390.0, 844.0), "unchanged");
+    assert!(surface.set_popup_bounds(0.0, 0.0, 0.0, 0.0), "and unset");
     let out = surface.layout_fixed(None, true).unwrap();
     assert!(out.layers.is_empty());
     let b = surface.index_of("b".into()).unwrap();

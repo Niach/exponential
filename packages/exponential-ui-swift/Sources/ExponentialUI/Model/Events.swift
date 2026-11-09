@@ -134,6 +134,8 @@ extension SurfaceModel {
         default:
             if n.isTextField { return }
         }
+        // #EXP-1629: a press elsewhere takes the focus from a recording KeyRecorder.
+        keyRecorderBlurOthers(pressing: index)
         // EXP-1605: a Motion's state machine gets the click first.
         motionDrivers[n.id]?.post("click")
         fire(index, "press")
@@ -198,9 +200,23 @@ extension SurfaceModel {
     /// closes the overlay from the states (`hoverTimer` closes it late).
     public func setHover(id: String, _ hovered: Bool) {
         if hovered { pointerSeen() }
+        // #EXP-1629: the pointer moves a Select's cursor (one highlight;
+        // leaving keeps it where it is).
+        if let i = byId[id], nodes[i].part == "item", nodes[i].ownerComponent == "Select", let owner = nodes[i].owner {
+            if hovered && !isDisabled(i) { moveSelectCursor(owner, to: i) }
+            return
+        }
         if let i = byId[id], let target = nodes[i].triggerFor, opensOnHover(target) {
             hoverTrigger(id, target: target, hovered)
             return
+        }
+        // #EXP-1629: a row Select's value button lends its `hover` to the
+        // value/placeholder/chevron inside it; theirs alone is never reported.
+        if let i = byId[id], nodes[i].ownerComponent == "Select" {
+            if ["value", "placeholder", "chevron"].contains(nodes[i].part ?? ""), let p = nodes[i].parent, nodes[p].part == "button" { return }
+            if nodes[i].part == "button" {
+                for c in nodes[i].children { setInteraction(nodes[c].id) { $0.hover = hovered } }
+            }
         }
         setInteraction(id) { $0.hover = hovered }
     }
@@ -348,11 +364,21 @@ extension SurfaceModel {
             let selected = candidates.first { i in node(i).map { $0.selected && !$0.isTextField } ?? false }
             let first = candidates.first { i in !(node(i)?.isTextField ?? true) }
             target = (autoTarget ?? selected ?? first).flatMap { node($0)?.id }
+            // #EXP-1629: a Select opens as the IDE's picker: the cursor on
+            // the FIRST enabled option, focus in its search field (if any),
+            // else on that option.
+            if node(id: top.owner)?.component == "Select" {
+                let field = candidates.first { i in node(i).map { $0.ownerComponent == "Select" && $0.part == "search" } ?? false }
+                let option = selectItems(top.owner).first { !isDisabled($0) }
+                target = (field ?? option).flatMap { node($0)?.id }
+            }
         } else if let o = closed.last {
             let inside = focusedId.flatMap { node(id: $0) }.map { $0.layer > 0 } ?? true
             if inside { target = layerReturn[o] }
         }
         openLayerKeys = now
+        for o in closed { selectClosed(o) }
+        for l in opened where node(id: l.owner)?.component == "Select" { selectOpened(l.owner) }
         let open = Set(layers.map(\.owner))
         for owner in Array(layerReturn.keys) where !open.contains(owner) {
             layerReturn[owner] = nil
@@ -714,6 +740,62 @@ extension SurfaceModel {
         fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
     }
 
+    /// FEED-200: the `content` part of a `swipeable` Tabs (its panels page
+    /// under a horizontal touch drag).
+    public func isSwipeContent(_ index: Int) -> Bool {
+        guard let n = node(index), n.ownerComponent == "Tabs", n.part == "content" else { return false }
+        return ownerProps(index)["swipeable"]?.bool == true
+    }
+
+    /// FEED-200: a swipeable Tabs' swipe (`phase` = start | move | end |
+    /// cancel, `offset` = SCREEN pt since the touch started, positive =
+    /// rightwards, never mirrored; `velocity` = pt/ms at the release). The
+    /// core draws the pages and the `thumb` and settles (`fixtures/swipe.json`).
+    public func tabSwipe(_ index: Int, phase: String, offset: CGFloat, velocity: CGFloat = 0) {
+        fire(index, "swipe", payload: .object(["phase": .string(phase), "offset": .number(Double(offset)), "velocity": .number(Double(velocity))]))
+    }
+
+    /// FEED-200: the axis a touch that moved (`dx`, `dy`) commits to
+    /// (`pending` | `horizontal` | `vertical`, the core's `swipeLock`).
+    public func swipeAxis(dx: CGFloat, dy: CGFloat) -> String {
+        ExponentialUICore.swipeLock(dx: Double(dx), dy: Double(dy))
+    }
+
+    /// FEED-200: does node `index` pan by itself (`swipeBlocks` of its
+    /// component, `direction` prop and resolved `overflowX`)?
+    func swipeBlocker(_ index: Int) -> Bool {
+        guard let n = node(index) else { return false }
+        let s = style(index)
+        let scrollsX = s.scrollX || scroll(index)?.scrollsX == true
+        let overflowX: String? = scrollsX ? "auto" : (s.clipX ? "hidden" : nil)
+        return ExponentialUICore.swipeBlocks(component: n.component, direction: n.props["direction"]?.string, overflowX: overflowX)
+    }
+
+    /// FEED-200: is a touch starting at `point` (surface coordinates,
+    /// unscrolled like `frame`) inside swipeable content `content` the
+    /// touch of a node that scrolls, pans or drags sideways? Walks from the
+    /// deepest hit node (topmost in paint order, skipping hidden,
+    /// `pointerEvents: none` and invisible boxes, through scroll offsets)
+    /// up to the content.
+    public func swipeBlocked(_ content: Int, at point: CGPoint) -> Bool {
+        var at = content
+        var p = point
+        var path: [Int] = []
+        while path.count < 512 {
+            if let s = scroll(at) { p = CGPoint(x: p.x + s.offset.x, y: p.y + s.offset.y) }
+            let layer = node(at)?.layer
+            let hit = (children[safe: at] ?? []).reversed().first { k in
+                guard let n = node(k), !n.hidden, n.layer == layer else { return false }
+                let s = style(k)
+                return !s.pointerNone && !s.invisible && frame(k).contains(p)
+            }
+            guard let hit else { break }
+            path.append(hit)
+            at = hit
+        }
+        return path.contains { swipeBlocker($0) }
+    }
+
     /// A key on a node the core handles itself (a Resizable handle: the
     /// arrows, Home, End, Enter).
     public func nodeKey(_ index: Int, key: String) {
@@ -824,6 +906,24 @@ extension SurfaceModel {
         let owner = node(id: dropzoneId)?.owner ?? dropzoneId
         setDragover(id: dropzoneId, false)
         filesPicked(componentId: owner, urls: urls)
+    }
+
+    /// #EDE-65 R (interactions-round1.json composerPaste): a paste into
+    /// Composer `index` carrying `files` (read off the pasteboard,
+    /// `ComposerPasteboard`): the images (`image/*`, pasteboard order) go to
+    /// the host's `onUpload` (`name` = the Composer's id) and fire `attach`
+    /// {files: [{name, size, type}]}. `true` = taken (files present: the
+    /// field inserts nothing, also when none is an image); `false` = no
+    /// files, the field's own paste.
+    @discardableResult
+    public func composerPaste(_ index: Int, files: [SurfaceUploadFile]) -> Bool {
+        guard !files.isEmpty else { return false }
+        let images = files.filter { $0.type.hasPrefix("image/") }
+        guard !images.isEmpty, let n = node(index), n.component == "Composer" else { return true }
+        host.onUpload(SurfaceUploadEvent(surfaceId: id, componentId: n.id, name: n.id, files: images))
+        let meta: [JSONValue] = images.map { .object(["name": .string($0.name), "size": .number(Double($0.size)), "type": .string($0.type)]) }
+        fire(index, "attach", payload: .object(["files": .array(meta)]))
+        return true
     }
 
     /// The UTTypes a FileUpload's `accept` allows (`image/*`, `.pdf`…; empty = any).

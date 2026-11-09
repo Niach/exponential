@@ -19,9 +19,10 @@ private let logger = Logger(subsystem: "at.exponential", category: "voice-call")
 /// host warms up on our stream) → the host's `call_event`s (rang, ready,
 /// noSound, then the turns) fold into `VoiceCall.callStep`; rang + ready
 /// answer the call (the ring stops, the timer starts) → End call /
-/// `call_end` (`hungUp`) / an error ends it (a failure with a toast). A call keeps running with the
-/// screen locked or the app in the background (the `audio` background mode);
-/// while one runs the screen never dims on its own.
+/// `call_end` (`hungUp`) / an error ends it (a failure with a toast). The app leaving the foreground
+/// (screen locked, another app in front) ends the call: no `audio`
+/// background mode (App Review 2.5.4); while one runs the screen never dims
+/// on its own.
 @MainActor
 @Observable
 final class VoiceCallClient {

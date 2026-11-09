@@ -13,7 +13,7 @@ const text = (x: string): DomNode => ({ x })
 describe(`generated ids`, () => {
   test(`React useId, Radix and Kobalte tokens are generated; renderer ids are not`, () => {
     for (const t of [`:r1:`, `:r1a:`, `«r3»`, `_r_7_`, `radix-_r_7_`, `radix-:r2:-content-a`, `cl-12`, `cl-3-trigger`]) expect(isGeneratedId(t), t).toBe(true)
-    for (const t of [`xui-specimen-title`, `c0-button`, `dash-bar`, `search_r_1`, `ocl-12`, `circle-1`]) expect(isGeneratedId(t), t).toBe(false)
+    for (const t of [`xui-specimen-title`, `c0_button`, `dash-bar`, `search_r_1`, `ocl-12`, `circle-1`]) expect(isGeneratedId(t), t).toBe(false)
   })
 
   test(`normalised to #id-N in first-seen order, relations keep pointing at their target`, () => {

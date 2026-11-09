@@ -383,11 +383,17 @@ class SurfaceModel(
     internal val motionDrivers = HashMap<String, at.exponential.ui.compose.MotionDriver>()
     internal val fieldsMap = HashMap<String, FieldState>()
 
+    /** #EDE-65: each painted Embed's nested surface by its component id ([embed]; fixtures/embed.json). */
+    internal val embeds = HashMap<String, EmbedSlot>()
+
     /** The host-owned text fields by node id (`writeGeneration` = reload the view's value). */
     val fields: Map<String, FieldState> get() = fieldsMap
 
     /** The trigger id that opened each layer owner (focus returns there). */
     val layerReturn = HashMap<String, String>()
+
+    /** #EXP-1629: each open Select popup's cursor (owner id → the `item` carrying its ONE `hover`). */
+    internal val selectCursors = HashMap<String, String>()
 
     /** The overlay owner dismissed in the last 300 ms (its trigger's own tap must not reopen it). */
     var justDismissed: String? = null
@@ -827,6 +833,20 @@ class SurfaceModel(
         if (this.width > 0f) pass()
     }
 
+    /** #EXP-1629: the window around the surface (surface coordinates, dp): anchored popups fit into it, not the surface. */
+    private var popupWindow: FloatArray? = null
+
+    /**
+     * #EXP-1629: [popupWindow], kept for the next pass, which it only forces
+     * while a layer is open (a host scroll moves it on every frame).
+     */
+    internal fun setPopupWindow(x: Float, y: Float, width: Float, height: Float) {
+        val next = floatArrayOf(x, y, width, height)
+        if (popupWindow?.contentEquals(next) == true) return
+        popupWindow = next
+        if (layers.isNotEmpty() && this.width > 0f) pass()
+    }
+
     /** The surface's width from its own layout (`ExponentialSurface`). */
     internal fun setSurfaceWidth(width: Float) = applyViewport(width, viewportHeight, maxHeight)
 
@@ -896,6 +916,7 @@ class SurfaceModel(
             passAgain = false
         }
         layersChanged()
+        pruneEmbeds()
         reportUnknowns()
         echoFields()
         syncToasts()
@@ -928,15 +949,17 @@ class SurfaceModel(
         benchCounters?.sent(0)
         surface.setViewport(width, viewportHeight, maxHeight)
         surface.setLayerViewport(layerViewportWidth ?: 0f, 0f)
+        popupWindow.let { surface.setPopupBounds(it?.get(0) ?: 0f, it?.get(1) ?: 0f, it?.get(2) ?: 0f, it?.get(3) ?: 0f) }
         var measureCalls = 0
         var tries = 0
         val touched = HashSet<Int>()
         var out: FfiLayout
+        var embedSizes: Map<String, Size> = emptyMap()
         while (true) {
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
-            out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }) { mediaRequest(it) != null }.let {
+            out = (if (fixedMeasure) runCatching { surface.layoutFixed(fixedSizesJson(embedSizes), true) }.getOrNull() else null)
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks, markdownOptions = host.markdownOptions, fontScale = textScale, viewportHeight = viewportHeight.takeIf { it > 0f }, embedSize = { cid, value, wrap -> embedSize(cid, value, wrap) }) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
                 }
@@ -951,6 +974,16 @@ class SurfaceModel(
                 patchNodes(d, out.structureVersion.toLong(), touched)
             }
             tries += 1
+            // #EDE-65: the fixed measure knows no nested surface: each Embed's
+            // card lays out at the frame it got, the pass runs again with it.
+            if (fixedMeasure && tries < 3) {
+                val sizes = fixedEmbedSizes(out)
+                if (sizes != embedSizes) {
+                    embedSizes = sizes
+                    for (id in sizes.keys) ids[id]?.let { surface.markDirty(it.toUInt()) }
+                    continue
+                }
+            }
             // An extension leaf measured before its kind was known (its
             // first pass): measure it again now that the slots know it.
             if (fixedMeasure || tries >= 3) break
@@ -1385,7 +1418,7 @@ class SurfaceModel(
      */
     fun nativePicker(n: NodeInfo): Boolean {
         if (options.overlays != OverlayPresentation.Native || !n.isPickerTrigger) return false
-        return when (n.component) {
+        return when (n.ownerComponent ?: n.component) {
             "DatePicker" -> true
             "Select" -> !selectPainted(ownerProps(n.index))
             else -> false

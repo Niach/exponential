@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated. VAPP-202: `records-25k`'s core timings on `mint` are the eApps §15 line, not a measurement: p95 ≤ 16 ms on a mid phone ≈ 5 ms on a desktop CPU 3× faster (each p50 and p95 at 5 ms, warnings on `mint` like every timing there); its `matched` count gates everywhere. The web runner's timings are recorded from its first CI run (`ratchet --write`). VAPP-289: cold-start nodes and theme-switch restyled +10 where the regenerated scenarios add EXP-1740's Window specimen (suite 42507452622).",
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated. VAPP-202: `records-25k`'s core timings on `mint` are the eApps §15 line, not a measurement: p95 ≤ 16 ms on a mid phone ≈ 5 ms on a desktop CPU 3× faster (each p50 and p95 at 5 ms, warnings on `mint` like every timing there); its `matched` count gates everywhere. The web runner's timings are recorded from its first CI run (`ratchet --write`). VAPP-289: cold-start nodes and theme-switch restyled +10 where the regenerated scenarios add EXP-1740's Window specimen (suite 42507452622); the same +10 on macbook swift-ios-simulator (suite 42566418462). mint core cold-start allocations 267106 = the CI measure after #2438 (KeyRecorder) and #2440 (Select) grew the catalog, +2.1 % past the ±1 % tolerance (suite 42566418462).",
   "floor": 0.5,
   "$countTolerance": "allocations gate within ±1 %: the Rust core's cold-start allocation count moves with every eui-core change, so an exact budget was always stale one release behind master and every genUI tag needed its own budget PR (rounds 129-136). Other counts stay exact.",
   "countTolerance": {
@@ -12,13 +12,89 @@
   "rendererTimings": {
     "compose-android": "warn"
   },
+  "$derivedCounts": "VAPP-289: these count budgets are DERIVED, gated on every PR (src/counts.test.ts): each machine's budget = counts.json (the core's canonical count from the committed scenarios, kept current by eui-core tests/bench_counts.rs on the PR's cargo test) + the renderer's offset here. `nodes` = the core's live nodes (core, gpui; the web renderers' [data-xui-id] elements matched it exactly at cb66fd7, offset 0, a measured fact the release suite keeps checking); `visibleNodes` = live and not hidden (SwiftUI and Compose drop the hidden nodes from SurfaceModel.nodes: 731 vs 736 at cb66fd7, no offset); `restyled` comes from the core's pass stats on every renderer that reports it. A catalog change that moves them: `bun run --filter @exponential_app/eui-bench counts --write` (recomputes counts.json, rewrites these budgets on every machine). NOT derived (layout- or renderer-specific, `ratchet --write` from a measured run): upcalls, measure and FFI calls and bytes, list-100k renderedItems, table-1k renderedRows (the web count follows the machine's viewport), records-25k matched, cold-start allocations (±1 %: rerun the core bench and `ratchet --write` its fragment).",
+  "derivedCounts": {
+    "cold-start.nodes": {
+      "nodes": {
+        "core": 0,
+        "gpui": 0,
+        "react-chromium": 0,
+        "solid-chromium": 0,
+        "element-chromium": 0
+      },
+      "visibleNodes": {
+        "swift-macos": 0,
+        "swift-ios-simulator": 0,
+        "swift-ios": 0,
+        "compose-jvm": 0,
+        "compose-android": 0
+      }
+    },
+    "theme-switch.restyled": {
+      "restyled": {
+        "core": 0,
+        "gpui": 0,
+        "swift-macos": 0,
+        "swift-ios-simulator": 0,
+        "swift-ios": 0,
+        "compose-jvm": 0,
+        "compose-android": 0
+      }
+    },
+    "streaming.nodes": {
+      "nodes": {
+        "core": 0,
+        "gpui": 0,
+        "react-chromium": 0,
+        "solid-chromium": 0,
+        "element-chromium": 0
+      },
+      "visibleNodes": {
+        "swift-macos": 0,
+        "swift-ios-simulator": 0,
+        "swift-ios": 0,
+        "compose-jvm": 0,
+        "compose-android": 0
+      }
+    },
+    "template-10k.nodes": {
+      "nodes": {
+        "core": 0,
+        "gpui": 0,
+        "react-chromium": 0,
+        "solid-chromium": 0,
+        "element-chromium": 0
+      },
+      "visibleNodes": {
+        "swift-macos": 0,
+        "swift-ios-simulator": 0,
+        "swift-ios": 0,
+        "compose-jvm": 0,
+        "compose-android": 0
+      }
+    },
+    "deep-nesting.depth": {
+      "depth": {
+        "core": 0,
+        "gpui": 0,
+        "react-chromium": 0,
+        "solid-chromium": 0,
+        "element-chromium": 0,
+        "swift-macos": 0,
+        "swift-ios-simulator": 0,
+        "swift-ios": 0,
+        "compose-jvm": 0,
+        "compose-android": 0
+      }
+    }
+  },
   "machines": {
     "apple-m4-pro-darwin": {
       "compose-android": {
         "cold-start": {
           "coldStartMs": 10228.9,
           "firstPaintMs": 158.8,
-          "nodes": 656,
+          "nodes": 731,
           "memoryMb": 48.9
         },
         "card-grid": {
@@ -46,7 +122,7 @@
         "theme-switch": {
           "themeSwitchMs": 89.3,
           "modeSwitchMs": 35.3,
-          "restyled": 661
+          "restyled": 736
         },
         "resize": {
           "resizeMs": 15.8,
@@ -77,7 +153,7 @@
         "cold-start": {
           "coldStartMs": 1153.5,
           "firstPaintMs": 36.2,
-          "nodes": 656,
+          "nodes": 731,
           "memoryMb": 260
         },
         "card-grid": {
@@ -105,7 +181,7 @@
         "theme-switch": {
           "themeSwitchMs": 20.8,
           "modeSwitchMs": 8.3,
-          "restyled": 661
+          "restyled": 736
         },
         "resize": {
           "resizeMs": 5,
@@ -138,7 +214,7 @@
           "coldStartMs": 18,
           "firstPaintMs": 11.8,
           "memoryMb": 32.1,
-          "nodes": 688
+          "nodes": 736
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -159,7 +235,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 2.9,
-          "restyled": 688,
+          "restyled": 736,
           "themeSwitchMs": 7.4
         },
         "resize": {
@@ -190,7 +266,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 182.2,
-          "nodes": 690,
+          "nodes": 736,
           "coldStartMs": 226.4,
           "memoryMb": 32.4
         },
@@ -241,7 +317,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 146.7,
-          "nodes": 690,
+          "nodes": 736,
           "coldStartMs": 253.1,
           "memoryMb": 24.5
         },
@@ -292,7 +368,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 182.3,
-          "nodes": 690,
+          "nodes": 736,
           "coldStartMs": 229.7,
           "memoryMb": 32.6
         },
@@ -350,7 +426,7 @@
           "coldStartMs": 113.1,
           "firstPaintMs": 50.2,
           "memoryMb": 45.5,
-          "nodes": 683
+          "nodes": 731
         },
         "deep-nesting": {
           "depth": 48,
@@ -395,7 +471,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 13.5,
-          "restyled": 688,
+          "restyled": 736,
           "themeSwitchMs": 39
         }
       },
@@ -409,7 +485,7 @@
           "coldStartMs": 175.9,
           "firstPaintMs": 47.3,
           "memoryMb": 52.1,
-          "nodes": 683
+          "nodes": 731
         },
         "deep-nesting": {
           "depth": 48,
@@ -454,7 +530,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 13.8,
-          "restyled": 688,
+          "restyled": 736,
           "themeSwitchMs": 35.8
         }
       }
@@ -464,7 +540,7 @@
         "cold-start": {
           "coldStartMs": 3131.7,
           "firstPaintMs": 492.5,
-          "nodes": 724,
+          "nodes": 731,
           "memoryMb": 347.8
         },
         "card-grid": {
@@ -492,7 +568,7 @@
         "theme-switch": {
           "themeSwitchMs": 196,
           "modeSwitchMs": 25.5,
-          "restyled": 729
+          "restyled": 736
         },
         "resize": {
           "resizeMs": 55.5,
@@ -523,7 +599,7 @@
         "cold-start": {
           "coldStartMs": 3814.1,
           "firstPaintMs": 108.1,
-          "nodes": 724,
+          "nodes": 731,
           "memoryMb": 130.7
         },
         "card-grid": {
@@ -551,7 +627,7 @@
         "theme-switch": {
           "themeSwitchMs": 45.6,
           "modeSwitchMs": 9.6,
-          "restyled": 729
+          "restyled": 736
         },
         "resize": {
           "resizeMs": 18.2,
@@ -581,7 +657,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 512.7,
-          "nodes": 729,
+          "nodes": 736,
           "coldStartMs": 628.2,
           "memoryMb": 32.5
         },
@@ -632,7 +708,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 719,
+          "nodes": 736,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -686,7 +762,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 719,
+          "nodes": 736,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -746,7 +822,7 @@
           "coldStartMs": 65.6,
           "firstPaintMs": 32.6,
           "memoryMb": 46.4,
-          "nodes": 714
+          "nodes": 731
         },
         "deep-nesting": {
           "depth": 48,
@@ -791,7 +867,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.8,
-          "restyled": 719,
+          "restyled": 736,
           "themeSwitchMs": 25.5
         }
       },
@@ -805,7 +881,7 @@
           "coldStartMs": 158,
           "firstPaintMs": 29.5,
           "memoryMb": 56.1,
-          "nodes": 724
+          "nodes": 731
         },
         "deep-nesting": {
           "depth": 48,
@@ -850,7 +926,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.7,
-          "restyled": 729,
+          "restyled": 736,
           "themeSwitchMs": 22.5
         }
       }
@@ -858,11 +934,11 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 261714,
+          "allocations": 267106,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
-          "nodes": 729
+          "nodes": 736
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -883,7 +959,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 4.6,
-          "restyled": 729,
+          "restyled": 736,
           "themeSwitchMs": 11.5
         },
         "resize": {
@@ -929,7 +1005,7 @@
           "coldStartMs": 66.8,
           "firstPaintMs": 44.3,
           "memoryMb": 87.8,
-          "nodes": 719
+          "nodes": 736
         },
         "card-grid": {
           "upcallsPerPass": 1,
@@ -950,7 +1026,7 @@
         },
         "theme-switch": {
           "modeSwitchMs": 66,
-          "restyled": 719,
+          "restyled": 736,
           "themeSwitchMs": 94.5
         },
         "resize": {

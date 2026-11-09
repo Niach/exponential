@@ -51,6 +51,8 @@ import {
   AskPrompt,
   ChatDock,
   ChatConversation,
+  chatDockedIds,
+  type ChatSuggestionActions,
   TranscriptDivider,
   useLiveArrivals,
   ASK_CARD_COPY,
@@ -93,6 +95,7 @@ import {
   STARTING_COPY,
   SkeletonRows,
   MessageBubble,
+  userMessageTime,
   SenderAvatar,
   TranscriptRow,
   transcriptSenderName,
@@ -105,7 +108,7 @@ import {
   type TranscriptRowLayout,
 } from "@exp/domain-contract/transcript-grouping"
 import { useXrefAgent } from "@/hooks/use-session-nav"
-import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
+import type { SessionXref as SessionXrefModel, TreeIssue } from "@exp/domain-contract/session-tree"
 import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -168,7 +171,8 @@ import {
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
-import { useAnswerMessage } from "@/hooks/use-answer-message"
+import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
+import { useSession } from "@/hooks/use-session"
 import { useOpenPlan } from "@/hooks/use-open-plan"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { FeedText } from "@/components/feed-text"
@@ -318,7 +322,23 @@ export function AgentSessionView({
   composerFloats = false,
   onOpenSession,
   origin = null,
+  tree,
+  issues,
+  dockChildren,
+  suggestions,
+  renderIssueRef,
 }: {
+  /** #EXP-1732 (the Chat tab = the ROOT's session view): every session of
+   *  the tree (the suggested-tasks card's started children). */
+  tree?: readonly SessionRow[]
+  /** The tree's issues (a filed suggestion's identifier). */
+  issues?: readonly TreeIssue[]
+  /** #EXP-1545: the root's children (a Live child's Queue in THE Dock). */
+  dockChildren?: readonly DockChild[]
+  /** EXP-1323: the suggested-tasks card's actions (absent = read-only). */
+  suggestions?: ChatSuggestionActions
+  /** A filed suggestion's issue (THE issue chip). */
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
   /** #EXP-1736: a cross-session bubble was pressed (the host's back stack). */
@@ -419,8 +439,33 @@ export function AgentSessionView({
   // answerable.
   /** N-12: THE Dock's band height = the transcript's bottom padding. */
   const [dockHeight, setDockHeight] = useState(0)
-  const sessionDock = useSessionDock(session)
+  const sessionDock = useSessionDock(session, dockChildren)
   const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
+  // #EXP-1732: what the retired Conversation body drew off the synced
+  // messages, ported here: the suggested-tasks card (open = THE Dock's card,
+  // settled = inline, EXP-1323) and the viewer's queued messages with their
+  // X (EXP-1317).
+  const unqueue = useUnqueueMessage()
+  const { data: auth } = useSession()
+  const viewerId = auth?.user?.id ?? null
+  const chatRows = useMemo(
+    () => chatExtraRows(session, sessionMessages, tree ?? NO_TREE, issues ?? NO_ISSUES),
+    [session, sessionMessages, tree, issues]
+  )
+  const suggestionRows = useMemo(() => chatRows.filter((row) => row.type === `suggestions`), [chatRows])
+  const queuedRows = useMemo(() => chatRows.filter((row) => row.type === `message`), [chatRows])
+  // #EXP-1756: a queued bubble's `HH:mm`, off its synced row.
+  const messageTime = useCallback(
+    (row: { id: string }) => {
+      const at = sessionMessages.find((message) => message.id === row.id)?.createdAt
+      return at ? userMessageTime(new Date(at)) : null
+    },
+    [sessionMessages]
+  )
+  const dockedIds = useMemo(
+    () => (suggestions ? chatDockedIds(suggestionRows, noSessionName) : NO_DOCKED),
+    [suggestions, suggestionRows]
+  )
   // Chat 58cb32df (chats.json SURFACE CARD): an agent's inline preview
   // (`session_self_show`) sits right after the call that posted it, like a
   // tool-posted card; a `reply` press sends its text as the next message.
@@ -444,7 +489,12 @@ export function AgentSessionView({
         const row = toolCards.find((r) => r.id === id) ?? surfaceCards.find((r) => r.id === id)
         if (!row) return null
         return (
-          <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
+          <div
+            key={`${keyPrefix}-${id}`}
+            className={TRANSCRIPT_GAP_CLASS.gapBlock}
+            data-testid="session-tool-card"
+            data-card-id={id}
+          >
             <ChatConversation
               rows={[row]}
               renderText={renderChatText}
@@ -786,6 +836,7 @@ export function AgentSessionView({
             side={layout?.side === `other` ? `in` : `out`}
             author={bubbleName}
             onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
+            time={item.at ? userMessageTime(item.at) : null}
           />
         )
       }
@@ -863,6 +914,36 @@ export function AgentSessionView({
     const timer = window.setTimeout(() => setStalled(true), TRANSCRIPT_STALL_MS)
     return () => window.clearTimeout(timer)
   }, [waitingForRoom])
+  // #EXP-1732: the settled suggested-tasks cards (an open one is THE
+  // Dock's) and the viewer's queued messages (a person's FIRST message
+  // included) show under any empty-feed placeholder too, same column.
+  const chatExtras =
+    suggestionRows.length + queuedRows.length > 0 ? (
+      <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-chat-extras">
+        <ChatConversation
+          rows={[...suggestionRows, ...queuedRows]}
+          renderText={renderChatText}
+          attachmentSrc={attachmentUrl}
+          chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
+          viewerId={viewerId}
+          messageTime={messageTime}
+          onUnqueue={(rowId) => void unqueue(rowId)}
+          onOpenSession={onOpenSession}
+          suggestions={suggestions}
+          docked={dockedIds}
+          renderIssueRef={renderIssueRef}
+          pending={cardsPending}
+        />
+      </div>
+    ) : null
+  const placeholderShown =
+    noFeedAway ||
+    (feedPlaceholder && starting) ||
+    noFeedIdle ||
+    (waitingForRoom && stalled) ||
+    (feedPlaceholder && (phase.kind === `connecting` || phase.kind === `starting`)) ||
+    (feedPlaceholder && live) ||
+    (feedPlaceholder && deviceOffline && phase.kind === `ended`)
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -906,7 +987,9 @@ export function AgentSessionView({
             onScroll={follow.onScroll}
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
-              `agent-feed h-full overflow-y-auto overscroll-contain`,
+              // #EXP-1732: a column, so a placeholder takes the room the
+              // extras under it leave.
+              `agent-feed flex h-full flex-col overflow-y-auto overscroll-contain`,
               !isMobile && DETAIL_FADE_BOTTOM_CLASS
             )}
             style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
@@ -925,7 +1008,7 @@ export function AgentSessionView({
               /* N-11: no status row over the feed; before the first turn the
                  column holds the placeholder rows over "Starting on …". */
               <div
-                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                className={cn(TRANSCRIPT_COLUMN, `flex shrink-0 flex-col gap-2 py-4`)}
                 data-testid="transcript-placeholder"
               >
                 <SkeletonRows rowHeight={36} className="-mx-3" />
@@ -943,7 +1026,7 @@ export function AgentSessionView({
               /* EXP-1259 D8.3: placeholder rows in the column, the phase as
                  a muted caption. */
               <div
-                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                className={cn(TRANSCRIPT_COLUMN, `flex shrink-0 flex-col gap-2 py-4`)}
                 data-testid="transcript-placeholder"
               >
                 <SkeletonRows rowHeight={36} className="-mx-3" />
@@ -971,7 +1054,7 @@ export function AgentSessionView({
             ) : activeAgent !== null ? (
               <div
                 ref={follow.contentRef}
-                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 <AgentConversation
@@ -983,7 +1066,7 @@ export function AgentSessionView({
             ) : (
               <div
                 ref={follow.contentRef}
-                className={cn(`flex min-h-full flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
+                className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: dockHeight + DOCK_GAP }}
               >
                 {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
@@ -1018,6 +1101,7 @@ export function AgentSessionView({
                     />
                   </div>
                 ))}
+                {chatExtras}
                 {/* EXP-389: the agent-is-busy footer under the newest event. */}
                 {working && (
                   <div
@@ -1041,6 +1125,15 @@ export function AgentSessionView({
                 )}
               </div>
             )}
+            {placeholderShown && chatExtras && (
+              <div
+                className={cn(`shrink-0 py-2`, TRANSCRIPT_COLUMN)}
+                style={{ paddingBottom: dockHeight + DOCK_GAP }}
+                data-testid="session-placeholder-extras"
+              >
+                {chatExtras}
+              </div>
+            )}
           </div>
           {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
           <JumpToBottomButton
@@ -1054,7 +1147,10 @@ export function AgentSessionView({
               queued messages and the status banners, then the composer (a
               phone's floats in the work bar instead). */}
           <ChatDock
-            rows={NO_ROWS}
+            rows={suggestions ? suggestionRows : NO_ROWS}
+            suggestions={suggestions}
+            onOpenSession={onOpenSession}
+            renderIssueRef={renderIssueRef}
             sessionName={noSessionName}
             renderText={renderChatText}
             attachmentSrc={attachmentUrl}
@@ -1083,6 +1179,34 @@ export function AgentSessionView({
 const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
 const noSessionName = () => null
 const NO_ROWS: SessionChatRow[] = []
+const NO_TREE: readonly SessionRow[] = []
+const NO_ISSUES: readonly TreeIssue[] = []
+const NO_DOCKED: ReadonlySet<string> = new Set()
+
+/** #EXP-1732: the session's suggested-tasks cards and the person's queued
+ *  messages (`consumedAt` null) in THE chat row form, oldest first. */
+function chatExtraRows(
+  session: SessionRow,
+  messages: readonly MessageRowLike[],
+  tree: readonly SessionRow[],
+  issues: readonly TreeIssue[]
+): SessionChatRow[] {
+  const picks = messages.filter(
+    (message) =>
+      (message.card as { kind?: unknown } | null)?.kind === `suggestions` ||
+      (message.authorKind === `user` && message.consumedAt === null)
+  )
+  if (picks.length === 0) return []
+  return buildSessionChat({
+    root: toTreeSession(session),
+    sessions: tree.map(toTreeSession),
+    sessionIssues: [],
+    issues,
+    messages: picks.map(toTreeMessage),
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `suggestions` || (row.type === `message` && row.queued))
+}
 const NO_DOCK_SLOTS: SteerDockSlots = { taskList: [], backgroundTasks: [], queue: [], compacting: null, rateLimit: null }
 
 /** EXP-1280: this session's TOOL-posted cards (ask-dock.json
@@ -1252,7 +1376,7 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
 // connecting spinner, which is not an empty state) in the scroller.
 function CenteredState({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
       {children}
     </div>
   )
@@ -1735,12 +1859,15 @@ const UserMessageBubble = memo(function UserMessageBubble({
   side = `out`,
   author = null,
   onPress,
+  time = null,
 }: {
   text: string
   /** #EXP-1736: `in` = another session's input (its bubble, its name). */
   side?: `in` | `out`
   author?: string | null
   onPress?: () => void
+  /** #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json). */
+  time?: string | null
 }) {
   const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
@@ -1761,7 +1888,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress}>
+      <MessageBubble side={side} author={author} onPress={onPress} time={time}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}

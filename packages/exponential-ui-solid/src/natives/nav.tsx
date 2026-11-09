@@ -16,7 +16,7 @@
 // `focusFirst` in a timeout, `createRovingGroup` in ../behaviors; Accordion:
 // the root's arrow handler here, the content = `createCollapsibleContent`).
 
-import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
+import { For, Show, batch, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
 import type { UiNode } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
@@ -25,7 +25,7 @@ import { NodeView } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type PartFn } from "./shared"
 import { createCollapsibleContent, createRovingGroup } from "../behaviors"
-import { isReorderKey, segmentedBadge, startStripDrag, stripFit, stripKeyMove } from "@exponential_app/eui/web"
+import { isReorderKey, sameSpans, segmentedBadge, startStripDrag, startTabSwipe, stripFit, stripKeyMove, tabPage, tabPageStyle, tabSpans, tabThumbStyle, type TabSpan, type TabSwipeDrag } from "@exponential_app/eui/web"
 
 interface Tab {
   label: string
@@ -44,6 +44,125 @@ function keysOf<T>(list: Accessor<T[]>, key: (item: T) => string): Accessor<stri
 
 /** The child node at `index`, followed live. */
 const childAt = (node: () => UiNode, index: Accessor<number>) => createMemo(() => node().children[index()] as UiNode | undefined)
+
+/** FEED-200 (React's `useTabSwipe`): a `swipeable` Tabs' pager
+ *  (`@exponential_app/eui/web` tabs-swipe, the core's `tab_pages` /
+ *  `tab_thumb` / `tab_swipe` twin): the live drag, each header's span
+ *  (measured after every change and resize) and the `thumb` they place; a
+ *  settle selects like a header press. */
+function createTabSwipe(o: { on: Accessor<boolean>; tabs: Accessor<Tab[]>; value: Accessor<string>; rtl: Accessor<boolean>; select: (value: string) => void; header: (index: number) => HTMLElement | undefined; layout?: () => unknown }) {
+  const [drag, setDrag] = createSignal<TabSwipeDrag | null>(null)
+  const [spans, setSpans] = createSignal<(TabSpan | null)[] | null>(null)
+  let list: HTMLElement | undefined
+  const active = createMemo(() => Math.max(0, o.tabs().findIndex((t) => t.value === o.value())))
+  const measure = () => {
+    if (!untrack(o.on)) return
+    const next = tabSpans(untrack(o.tabs).map((_, i) => o.header(i)))
+    if (!sameSpans(untrack(spans), next)) setSpans(next)
+  }
+  createEffect(() => {
+    o.on()
+    o.tabs()
+    o.value()
+    o.layout?.()
+    measure()
+  })
+  onMount(() => {
+    if (!list || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => measure())
+    observer.observe(list)
+    onCleanup(() => observer.disconnect())
+  })
+  const thumb = createMemo(() => {
+    const s = spans()
+    return o.on() && s ? tabThumbStyle(s, active(), drag(), o.rtl()) : null
+  })
+  return {
+    on: o.on,
+    drag,
+    thumb,
+    active,
+    list: (el: HTMLElement) => void (list = el),
+    pointerDown: (e: PointerEvent, pager: HTMLElement) =>
+      startTabSwipe(e, pager, () => ({ index: untrack(active), count: untrack(o.tabs).length, rtl: untrack(o.rtl) }), {
+        drag: (d) => setDrag(d),
+        settle: (i) => {
+          const next = untrack(o.tabs)[i]?.value
+          if (next !== undefined) batch(() => o.select(next))
+        },
+      }),
+  }
+}
+
+type TabSwipe = ReturnType<typeof createTabSwipe>
+
+/** The `thumb` wears the selected header's recipe (`tab`, `item` on a
+ *  strip) so every theme paints it like that header. */
+const thumbAttrs = (part: PartFn, header: `tab` | `item`) => {
+  const attrs = part(`thumb`, `selected`)
+  return { ...attrs, class: String(attrs.class).replace(`xui-Tabs-thumb`, `xui-Tabs-${header} xui-Tabs-thumb`) }
+}
+
+/** The panels (React's `TabPanels`): only the ACTIVE one is placed
+ *  (`<id>.content`); the others are hidden, but a swipeable Tabs draws the
+ *  active one's neighbours (inert, out of flow) inside the clipping
+ *  `pager`. Radix: the panel active at MOUNT renders
+ *  `animation-duration: 0s` until the first render after its next frame. */
+function tabPanels(o: { node: () => UiNode; keys: Accessor<string[]>; value: Accessor<string>; part: PartFn; swipe: TabSwipe; rtl: Accessor<boolean>; triggerId: (v: string) => string; contentId: (v: string) => string; initial: string; mountPrevented: () => boolean }): JSX.Element {
+  const panels = () => (
+    <For each={o.keys()}>
+      {(key, index) => {
+        const child = childAt(o.node, index)
+        const present = () => key === o.value()
+        const side = () => (o.swipe.on() ? tabPage(index(), o.swipe.active()) : null)
+        const shown = () => present() || side() !== null
+        const attrs = () => {
+          const a = o.part(`content`)
+          if (!present()) delete a[`data-xui-id`]
+          return a
+        }
+        const styled = key === o.initial
+        const style = () => {
+          o.value()
+          const mount = styled ? (o.mountPrevented() ? { "animation-duration": `0s` } : {}) : undefined
+          const s = side()
+          return s === null ? mount : { ...tabPageStyle(s, o.swipe.drag(), o.rtl()), ...mount }
+        }
+        return (
+          <div
+            data-state={present() ? `active` : `inactive`}
+            data-orientation="horizontal"
+            role="tabpanel"
+            aria-labelledby={o.triggerId(key)}
+            hidden={!shown()}
+            id={o.contentId(key)}
+            tabindex={0}
+            {...attrs()}
+            data-xui-page={side() === -1 ? `prev` : side() === 1 ? `next` : undefined}
+            aria-hidden={side() ? `true` : undefined}
+            attr:inert={side() ? `` : undefined}
+            style={style()}
+          >
+            <Show when={shown() && child()}>
+              <NodeView node={child()!} />
+            </Show>
+          </div>
+        )
+      }}
+    </For>
+  )
+  return (
+    <>
+      {o.swipe.on() ? (
+        <div class="xui-Tabs-pager" onPointerDown={(e) => o.swipe.pointerDown(e, e.currentTarget)}>
+          {panels()}
+        </div>
+      ) : (
+        panels()
+      )}
+    </>
+  )
+}
 
 // ── Tabs ────────────────────────────────────────────────────────────────
 
@@ -126,6 +245,7 @@ function TabsStrip(props: NativeProps): JSX.Element {
     if (move) void props.emit(`reorder`, { from: move.from, to: move.to, value: untrack(tabs)[move.from]?.value ?? null })
   }
   const keys = keysOf(tabs, (t) => t.value)
+  const swipe = createTabSwipe({ on: () => bool(props.props.swipeable), tabs, value, rtl, select, header: (i) => items.get(i), layout: () => [order(), fit()] })
   const initial = untrack(value)
   let mountPrevented = true
   onMount(() => {
@@ -134,7 +254,20 @@ function TabsStrip(props: NativeProps): JSX.Element {
   })
   return (
     <div {...props.rootProps} dir={ctx.direction} data-orientation="horizontal">
-      <div ref={list} role="tablist" aria-orientation="horizontal" {...part(`list`)} {...roving.group()} style={{ outline: `none` }} {...roving.groupHandlers}>
+      <div
+        ref={(el) => {
+          list = el
+          swipe.list(el)
+        }}
+        role="tablist"
+        aria-orientation="horizontal"
+        {...part(`list`)}
+        data-xui-swipe={swipe.on() ? `` : undefined}
+        {...roving.group()}
+        style={{ outline: `none` }}
+        {...roving.groupHandlers}
+      >
+        <Show when={swipe.thumb()}>{(style) => <div {...thumbAttrs(part, `item`)} aria-hidden="true" style={style()} />}</Show>
         <For each={order()}>
           {(i) => {
             const tab = createMemo(() => tabs()[i]!)
@@ -144,7 +277,7 @@ function TabsStrip(props: NativeProps): JSX.Element {
             let el: HTMLButtonElement | undefined
             const item = roving.item(() => el, () => !folded())
             return (
-              <div ref={(node) => items.set(i, node)} {...part.at(`item`, i, selected() && `selected`)} data-folded={folded() ? `` : undefined}>
+              <div ref={(node) => items.set(i, node)} {...part.at(`item`, i, selected() && `selected`)} data-folded={folded() ? `` : undefined} style={selected() && swipe.thumb() ? { "background-color": `transparent` } : undefined}>
                 <button
                   ref={el}
                   type="button"
@@ -226,29 +359,7 @@ function TabsStrip(props: NativeProps): JSX.Element {
           </button>
         </Show>
       </div>
-      <For each={keys()}>
-        {(key, index) => {
-          const child = childAt(() => props.node, index)
-          const present = () => key === value()
-          const attrs = () => {
-            const a = part(`content`)
-            if (!present()) delete a[`data-xui-id`]
-            return a
-          }
-          const styled = key === initial
-          const style = () => {
-            value()
-            return styled ? (mountPrevented ? { "animation-duration": `0s` } : {}) : undefined
-          }
-          return (
-            <div data-state={present() ? `active` : `inactive`} data-orientation="horizontal" role="tabpanel" aria-labelledby={triggerId(key)} hidden={!present()} id={contentId(key)} tabindex={0} {...attrs()} style={style()}>
-              <Show when={present() && child()}>
-                <NodeView node={child()!} />
-              </Show>
-            </div>
-          )
-        }}
-      </For>
+      {tabPanels({ node: () => props.node, keys, value, part, swipe, rtl, triggerId, contentId, initial, mountPrevented: () => mountPrevented })}
     </div>
   )
 }
@@ -279,6 +390,9 @@ function TabsPills(props: NativeProps): JSX.Element {
     void props.emit(`change`, { value: next }, { value: next })
   }
   const keys = keysOf(tabs, (t) => t.value)
+  const heads = new Map<string, HTMLElement>()
+  const rtl = () => ctx.direction === `rtl`
+  const swipe = createTabSwipe({ on: () => bool(props.props.swipeable), tabs, value, rtl, select, header: (i) => heads.get(untrack(tabs)[i]?.value ?? ``) })
   // Radix: the panel active at MOUNT renders `animation-duration: 0s`
   // until the first render after its next frame.
   const initial = untrack(value)
@@ -289,7 +403,21 @@ function TabsPills(props: NativeProps): JSX.Element {
   })
   return (
     <div {...props.rootProps} dir={ctx.direction} data-orientation="horizontal">
-      <div ref={list} role="tablist" aria-orientation="horizontal" {...part(`list`)} data-fill={fill() ? `true` : undefined} {...roving.group()} style={{ outline: `none` }} {...roving.groupHandlers}>
+      <div
+        ref={(el) => {
+          list = el
+          swipe.list(el)
+        }}
+        role="tablist"
+        aria-orientation="horizontal"
+        {...part(`list`)}
+        data-fill={fill() ? `true` : undefined}
+        data-xui-swipe={swipe.on() ? `` : undefined}
+        {...roving.group()}
+        style={{ outline: `none` }}
+        {...roving.groupHandlers}
+      >
+        <Show when={swipe.thumb()}>{(style) => <div {...thumbAttrs(part, `tab`)} aria-hidden="true" style={style()} />}</Show>
         <For each={keys()}>
           {(key, index) => {
             const tab = createMemo(() => tabs()[index()]!)
@@ -298,7 +426,10 @@ function TabsPills(props: NativeProps): JSX.Element {
             const item = roving.item(() => el, () => true)
             const trigger = (
               <button
-                ref={el}
+                ref={(node) => {
+                  el = node
+                  heads.set(key, node)
+                }}
                 type="button"
                 role="tab"
                 aria-selected={selected()}
@@ -306,6 +437,7 @@ function TabsPills(props: NativeProps): JSX.Element {
                 data-state={selected() ? `active` : `inactive`}
                 id={triggerId(key)}
                 {...part.at(`tab`, index(), selected() && `selected`)}
+                style={selected() && swipe.thumb() ? { "background-color": `transparent`, "box-shadow": `none` } : undefined}
                 tabindex={item.tabindex()}
                 data-orientation="horizontal"
                 data-radix-collection-item=""
@@ -360,30 +492,7 @@ function TabsPills(props: NativeProps): JSX.Element {
           </button>
         </Show>
       </div>
-      <For each={keys()}>
-        {(key, index) => {
-          const child = childAt(() => props.node, index)
-          const present = () => key === value()
-          // Only the ACTIVE panel is placed (`<id>.content`); the others are hidden.
-          const attrs = () => {
-            const a = part(`content`)
-            if (!present()) delete a[`data-xui-id`]
-            return a
-          }
-          const styled = key === initial
-          const style = () => {
-            value()
-            return styled ? (mountPrevented ? { "animation-duration": `0s` } : {}) : undefined
-          }
-          return (
-            <div data-state={present() ? `active` : `inactive`} data-orientation="horizontal" role="tabpanel" aria-labelledby={triggerId(key)} hidden={!present()} id={contentId(key)} tabindex={0} {...attrs()} style={style()}>
-              <Show when={present() && child()}>
-                <NodeView node={child()!} />
-              </Show>
-            </div>
-          )
-        }}
-      </For>
+      {tabPanels({ node: () => props.node, keys, value, part, swipe, rtl, triggerId, contentId, initial, mountPrevented: () => mountPrevented })}
     </div>
   )
 }

@@ -24,19 +24,19 @@
 //! by name via the `ui::init` panel registry. v1 scope: layout only — no
 //! per-panel inner-state round-trip.
 
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
     Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement, Pixels, Render, SharedString, Size, StyleRefinement, Styled, Task,
-    WeakEntity, Window,
+    Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    dock::{DockArea, DockAreaState, DockEvent, DockItem, PanelView},
-    h_flex, v_flex, ActiveTheme as _, Icon, Root, Sizable as _,
+    dock::{panel_handle, DockArea, DockAreaState, DockEvent, DockLayout, DockSkin},
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::{SessionPhase, Store};
 
@@ -204,6 +204,13 @@ pub struct Shell {
     /// The JetBrains-style tool-window rail — rendered LEFT of the dock area
     /// (so the session bar spans everything right of it).
     rail: Entity<RailView>,
+    /// #LOGS-4: the cached regions around the rail, the tab band and the
+    /// dock, and the layer that paints their animated glyphs: a working
+    /// mark's frame repaints the mark, not the region around it.
+    rail_region: Entity<eui_gpui::controls::GlyphRegion>,
+    band_region: Entity<eui_gpui::controls::GlyphRegion>,
+    dock_region: Entity<eui_gpui::controls::GlyphRegion>,
+    glyph_layer: Entity<eui_gpui::controls::GlyphLayer>,
     /// EXP-456: the settings navigation — it takes the RAIL's slot (the
     /// window's leftmost column) while `Screen::Settings` is up, sliding in
     /// as the rail slides out; the settings detail fills everything right of
@@ -255,8 +262,16 @@ pub struct Shell {
 
 impl Shell {
     pub fn new(ordinal: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let dock_area =
-            cx.new(|cx| DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx));
+        // The bare area draws its panels and no chrome (the chrome-less
+        // center, EXP-851); only the `EXP_DEV_BOARD=1` tabs wear the skin.
+        let dock_area = cx.new(|cx| {
+            let area = DockArea::new(DOCK_AREA_ID, Some(LAYOUT_VERSION), window, cx);
+            if dev_board_enabled() {
+                area.with_renderer(DockSkin::new(cx))
+            } else {
+                area
+            }
+        });
         let login = cx.new(|cx| LoginView::new(window, cx));
         // EXP-367: the first-run wizard drives the Synced-arm switch below;
         // its own observers (collections, coding hub) notify it, we just
@@ -482,8 +497,17 @@ impl Shell {
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
         // no spurious entry animation.
         let left_anim = SwapAnim::new(window_left_occupant(window, cx));
+        let region = |views: Vec<gpui::AnyView>, cx: &mut gpui::Context<Self>| cx.new(|_| eui_gpui::controls::GlyphRegion::new(views));
+        let rail_region = region(vec![rail.clone().into()], cx);
+        let band_region = region(vec![tab_bar.clone().into(), session_bar.clone().into()], cx);
+        let dock_region = region(vec![dock_area.clone().into()], cx);
+        let glyph_layer = cx.new(|_| eui_gpui::controls::GlyphLayer);
 
         Self {
+            rail_region,
+            band_region,
+            dock_region,
+            glyph_layer,
             dock_area,
             session_bar,
             tab_bar,
@@ -722,7 +746,11 @@ impl Shell {
     /// ITS width.
     fn left_child(&self, occupant: LeftOccupant, width: f32) -> AnyElement {
         let child: AnyElement = match occupant {
-            LeftOccupant::Rail => self.rail.clone().into_any_element(),
+            LeftOccupant::Rail => eui_gpui::controls::glyph_scope(
+                "rail",
+                self.rail_region.clone().cached(StyleRefinement::default().size_full()),
+            )
+            .into_any_element(),
             LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
         };
         div()
@@ -756,19 +784,19 @@ impl Shell {
     /// screens panel is the center, swapped on the per-window navigation).
     fn reset_default_layout(
         dock_area: &Entity<DockArea>,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         dock_area.update(cx, |dock_area, cx| {
-            dock_area.set_version(LAYOUT_VERSION, window, cx);
+            dock_area.set_version(Some(LAYOUT_VERSION), cx);
         });
     }
 
     /// (Re)install the fixed chrome on BOTH the restore and default paths:
     ///
     /// - The **center** is always rebuilt fresh as a chrome-less
-    ///   `DockItem::Panel` holding the [`ScreensPanel`] (EXP-851: the ONE
-    ///   main view) — a `DockItem::Tabs` would grow the redundant
+    ///   lone [`ScreensPanel`] (EXP-851: the ONE main view) in a bare dock
+    ///   area — a skinned tab group would grow the redundant
     ///   "Shell" `TabPanel` title bar (+ zoom control), and a persisted
     ///   panel rehydrates wrapped in a `TabPanel` all the same, so we never
     ///   restore the center from disk. `EXP_DEV_BOARD=1` keeps a tab strip so
@@ -783,20 +811,16 @@ impl Shell {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let weak: WeakEntity<DockArea> = dock_area.downgrade();
-
-        // Fresh chrome-less center (see the doc note): a single `DockItem::Panel`
-        // renders raw (no title bar); the dev-board escape hatch keeps tabs.
+        // Fresh chrome-less center (see the doc note): a lone panel renders
+        // raw (no title bar); the dev-board escape hatch keeps tabs.
         // EXP-851: the SCREENS panel is the center outright — there is no
         // split left to wrap it in.
-        let center_panel: Arc<dyn PanelView> =
-            Arc::new(cx.new(|cx| ScreensPanel::new(window, cx)));
-        let center = if std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1") {
-            let debug: Arc<dyn PanelView> = Arc::new(cx.new(|cx| DebugBoardPanel::new(window, cx)));
-            DockItem::tabs(vec![center_panel, debug], &weak, window, cx)
-        } else {
-            DockItem::panel(center_panel)
-        };
+        let center_panel = panel_handle(cx.new(|cx| ScreensPanel::new(window, cx)));
+        let mut center = DockLayout::tabs().panel_view(center_panel, cx);
+        if dev_board_enabled() {
+            let debug = panel_handle(cx.new(|cx| DebugBoardPanel::new(window, cx)));
+            center = center.panel_view(debug, cx);
+        }
 
         dock_area.update(cx, |dock_area, cx| {
             dock_area.set_center(center, window, cx);
@@ -863,6 +887,7 @@ impl Render for Shell {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Shell").entered();
         // §3.9 gotcha: never mount a zero-size surface — guard layout during
         // rapid resize; skip the tree entirely when the viewport is degenerate.
         let viewport = window.viewport_size();
@@ -879,8 +904,6 @@ impl Render for Shell {
         let client_chrome = crate::app_title_bar::client_chrome(window);
         let blocked = UpdateState::global_ref(cx).is_some_and(|m| m.read(cx).is_blocked());
         if blocked {
-            let sheet_layer = Root::render_sheet_layer(window, cx);
-            let dialog_layer = Root::render_dialog_layer(window, cx);
             // EXP-1557: the in-window dialogs, above the content.
         let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
@@ -916,9 +939,7 @@ impl Render for Shell {
                         // update-required surface is a window a reader can
                         // select text in and drag by its decoration.
                         .child(crate::text_selection_guard::selection_guard())
-                        .children(sheet_layer)
                         .children(native_dialog_layer)
-                    .children(dialog_layer)
                         .child(toast_layer),
                 )
                 .into_any_element();
@@ -1053,9 +1074,12 @@ impl Render for Shell {
                                 // gpui's own `refresh` calls). Caching needs
                                 // a definite size: the wrapper's box.
                                 .child(div().flex_1().min_h_0().child(
-                                    self.dock_area
-                                        .clone()
-                                        .cached(StyleRefinement::default().size_full()),
+                                    eui_gpui::controls::glyph_scope(
+                                        "dock",
+                                        self.dock_region
+                                            .clone()
+                                            .cached(StyleRefinement::default().size_full()),
+                                    ),
                                 )),
                         )
                         .child(
@@ -1068,8 +1092,14 @@ impl Render for Shell {
                                 .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
                                 .mx(px(PANEL_MARGIN))
                                 .mb(crate::window_frame::frame_bottom_resize_inset(window))
-                                .child(self.tab_bar.clone())
-                                .child(self.session_bar.clone()),
+                                // #LOGS-4: a cached region, like the rail
+                                // and the dock.
+                                .child(eui_gpui::controls::glyph_scope(
+                                    "tabs",
+                                    self.band_region
+                                        .clone()
+                                        .cached(StyleRefinement::default().size_full()),
+                                )),
                         )
                 })
                 // EXP-1156: the edge handle LAST, so it hit-tests above the
@@ -1091,11 +1121,10 @@ impl Render for Shell {
                 .into_any_element(),
         };
 
-        // Root overlay layers (the sanctioned gpui-component pattern — story
-        // lib.rs `StoryRoot::render`): the app's root view must compose the
-        // sheet/dialog layers (+ our toast layer) or `window.open_dialog` /
-        // `toast::show` silently never paint (§3.3 "Root MUST be the
-        // first view" is necessary but not sufficient).
+        // Overlay layers: gpui-component's sheet/dialog layers are mounted by
+        // `Root` itself (its window-state plugin, after the content); the
+        // root view still composes our own (toasts, in-window dialogs) or
+        // `toast::show` silently never paints.
         // EXP-760: the issue-chip hover PREVIEW's overlay — one host per
         // window, mounted here so every surface that reports a pill hover
         // (read-only prose, the WYSIWYG description, relation rows) shares
@@ -1103,8 +1132,6 @@ impl Render for Shell {
         // preview, never the other way round. The element itself is empty —
         // the card is `deferred(anchored(..))`.
         let preview_host = crate::issue_preview::host_for_window(window, cx);
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
         // EXP-1557: the in-window dialogs, above the content.
         let native_dialog_layer = crate::native_dialog::render_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
@@ -1113,8 +1140,8 @@ impl Render for Shell {
         let blocking_layer = crate::feedback::Blocking::overlay(cx);
 
         // window_frame: Linux CSD shadow + rounded frame + resize zones
-        // (pass-through elsewhere). The sheet/dialog/notification layers stay
-        // INSIDE it so overlays clip to the visible window.
+        // (pass-through elsewhere). Our overlay layers stay INSIDE it so
+        // they clip to the visible window.
         crate::window_frame::window_frame()
             .child(
                 // EXP-269 corners: the gradient paints to the window edge and
@@ -1172,13 +1199,14 @@ impl Render for Shell {
                     .bg(theme::background_gradient())
                     .text_color(cx.theme().foreground)
                     .child(body)
+                    // #LOGS-4: the regions' animated glyphs, above the
+                    // content and below every overlay layer.
+                    .child(self.glyph_layer.clone())
                     // EXP-837: the text-selection disarm — a window move eats
                     // the mouse-up that would have ended a selection drag.
                     .child(crate::text_selection_guard::selection_guard())
                     .child(preview_host)
-                    .children(sheet_layer)
                     .children(native_dialog_layer)
-                    .children(dialog_layer)
                     .child(toast_layer)
                     .children(blocking_layer),
             )
@@ -1596,6 +1624,11 @@ fn save_layout_state(ordinal: usize, state: &DockAreaState) -> Result<()> {
     Ok(())
 }
 
+/// The `EXP_DEV_BOARD=1` dev tab (the debug board next to the screens).
+fn dev_board_enabled() -> bool {
+    std::env::var("EXP_DEV_BOARD").as_deref() == Ok("1")
+}
+
 /// Layout persistence is best-effort — failures must never take the shell
 /// down, they just cost the user a restored layout.
 fn log_layout(message: &str) {
@@ -1693,6 +1726,7 @@ mod tests {
         struct Dock(Rc<Cell<usize>>);
         impl Render for Dock {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Dock").entered();
                 self.0.set(self.0.get() + 1);
                 div().size_full()
             }
@@ -1700,6 +1734,7 @@ mod tests {
         struct Sidebar;
         impl Render for Sidebar {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Sidebar").entered();
                 div().w(px(40.)).h_full()
             }
         }
@@ -1723,6 +1758,7 @@ mod tests {
         }
         impl Render for StandIn {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "StandIn").entered();
                 self.root_renders.set(self.root_renders.get() + 1);
                 div()
                     .size_full()

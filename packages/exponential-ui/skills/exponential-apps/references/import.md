@@ -1,6 +1,6 @@
 # Importing a spreadsheet (CSV, TSV, xlsx) into records
 
-> Generated from docs/spec/apps.md §10 (genUI 0.19.1) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from docs/spec/apps.md §10 (genUI 0.21.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## 10. Import and export
 

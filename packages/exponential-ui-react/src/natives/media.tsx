@@ -10,6 +10,7 @@ import type { HostPlugin } from "../host"
 import { NodeView, mergeStyle, withClass } from "../node-view"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import { mediaClock } from "@exponential_app/eui/web"
+import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 
 /** The media box's intrinsic width (catalog/layout.json
  *  `mediaIntrinsicWidth`: max-content 320, min-content 0 — a compressible
@@ -177,22 +178,13 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   return <AudioFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} title={str(props.title)} durationMs={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!)
-    .join(``)
-    .toUpperCase()
-}
-
-/** A stable hue for a seed (the app's avatar palette is host-side; the SDK
- *  tints with one hue so two avatars of one person always match). */
-export function seedHue(seed: string): number {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  return h % 360
+/** #EXP-1629 (fixtures/avatar.json): the hue key (#EXP-1754: the seed, a
+ *  user id, else the trimmed name, which may be an email) picks
+ *  `AVATAR_PALETTE[fnv1a32(key) % 8]`, the hue at 20% behind initials in
+ *  it, the app's own avatar; no key = the recipe's muted fallback. */
+export function avatarTint(seed: string, name?: string): { backgroundColor: string; color: string } | undefined {
+  const key = avatarHueKey(seed, name)
+  return key === undefined ? undefined : avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(key)]!)
 }
 
 export function AvatarNative({ node, props, rootProps }: NativeProps) {
@@ -200,17 +192,15 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const name = str(props.name)
   const src = str(props.src)
-  const seed = str(props.seed) || name
-  const hue = seed ? seedHue(seed) : null
   const url = useMediaSrc(ctx.host, src)
-  const tint = hue === null ? undefined : { backgroundColor: `color-mix(in oklab, hsl(${hue} 70% 55%) 22%, transparent)`, color: `hsl(${hue} 60% ${ctx.mode === `dark` ? 72 : 38}%)` }
+  const tint = avatarTint(str(props.seed), name)
   return (
     <AvatarPrimitive.Root {...(rootProps as Record<string, unknown>)} aria-label={name || undefined} role="img">
       {src ? <AvatarPrimitive.Image {...(part(`image`) as Record<string, string>)} src={url} alt={name} /> : null}
       {/* No picture to wait for: the initials paint with the first frame
           (Radix holds a 0 ms delay one timer tick; Solid paints at once). */}
       <AvatarPrimitive.Fallback {...(part(`fallback`) as Record<string, string>)} delayMs={src ? 300 : undefined} style={tint}>
-        {initials(name) || `?`}
+        {avatarInitials(name)}
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>
   )

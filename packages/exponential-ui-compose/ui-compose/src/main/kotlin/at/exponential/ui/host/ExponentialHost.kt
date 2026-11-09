@@ -865,6 +865,7 @@ class ExponentialHost(
         override fun copy(text: String) = base.copy(text)
 
         override fun pickFiles(request: FilePickRequest) = base.pickFiles(request)
+        override fun onUpload(event: UploadEvent) = base.onUpload(event)
     }
 }
 

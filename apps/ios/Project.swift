@@ -140,6 +140,9 @@ let sharedDependencies: [TargetDependency] = [
     .external(name: "cmark-gfm-extensions"),
     // NEW-69: the call screen draws THE VoiceWave (`VoiceWaveView`).
     .external(name: "ExponentialUIPrimitives"),
+    // #LOGS-2: crash/hang/performance reporting (`Observability.swift`), the
+    // app targets only: ExpCore and the extensions stay free of it.
+    .external(name: "Sentry"),
 ] + surfaceDependencies
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/
@@ -252,8 +255,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.119"
-let appBuildVersion = "316"
+let appMarketingVersion = "0.14.120"
+let appBuildVersion = "318"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -349,9 +352,10 @@ let sharedInfoPlist: [String: Plist.Value] = [
             "CFBundleURLName": .string("at.exponential.oauth"),
         ]),
     ]),
-    // NEW-69: `audio` keeps a call with an agent running with the screen
-    // locked or another app in front (voice-call.json BACKGROUND).
-    "UIBackgroundModes": .array([.string("remote-notification"), .string("audio")]),
+    // No `audio`: App Review (2.5.4) refuses it for a call with an agent, so
+    // an iOS call ends when the app leaves the foreground (voice-call.json
+    // BACKGROUND, ios-info-plist.test.ts).
+    "UIBackgroundModes": .array([.string("remote-notification")]),
     // #EXP-1639: a running session on the Lock Screen (push-to-start).
     "NSSupportsLiveActivities": .boolean(true),
     "ITSAppUsesNonExemptEncryption": .boolean(false),

@@ -73,3 +73,24 @@ describe(`mobile-oauth-start: GitHub sign-in follows GITHUB_LOGIN_ENABLED`, () =
     expect(res.headers.get(`location`)).toBe(`https://accounts.google.com/o/oauth2/auth`)
   })
 })
+
+describe(`mobile-oauth-start: OIDC providers (better-auth 1.7)`, () => {
+  beforeEach(() => {
+    h.signInSocial.mockReset()
+  })
+
+  it(`a native's providerId starts the sign-in through /sign-in/social`, async () => {
+    h.signInSocial.mockResolvedValue(
+      Response.json({ url: `https://idp.example/authorize?x=1`, redirect: true })
+    )
+    const res = await start(`providerId=authentik`)
+    expect(h.signInSocial).toHaveBeenCalledTimes(1)
+    expect(h.signInSocial.mock.calls[0]![0].body).toMatchObject({
+      provider: `authentik`,
+      callbackURL: `https://app.example/api/mobile-oauth-return`,
+      errorCallbackURL: `https://app.example/api/mobile-oauth-return`,
+    })
+    expect(res.status).toBe(302)
+    expect(res.headers.get(`location`)).toBe(`https://idp.example/authorize?x=1`)
+  })
+})

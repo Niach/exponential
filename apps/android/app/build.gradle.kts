@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -26,18 +25,6 @@ licenseReport {
     copyCsvReportToAssets = false
     copyHtmlReportToAssets = false
     copyJsonReportToAssets = false
-}
-
-// Hilt's annotation processor parses @Metadata off every annotation it sees on an
-// @AndroidEntryPoint class — kotlin.OptIn among them — and hilt 2.58 pins
-// kotlin-metadata-jvm 2.2.20, which hard-refuses metadata newer than 2.3.0.
-// coil 3.5.0 floors kotlin-stdlib at 2.4.0, so those stdlib annotation classes
-// carry metadata 2.4.0 and Hilt aborts with "update the kotlin-metadata-jvm
-// library". Doing exactly that, pinned to the toolchain's own Kotlin version.
-// Drop this once Hilt ships a build that both reads 2.4 metadata and supports
-// AGP 8 (2.59+ requires AGP 9).
-configurations.configureEach {
-    resolutionStrategy.force("org.jetbrains.kotlin:kotlin-metadata-jvm:${libs.versions.kotlin.get()}")
 }
 
 // Release signing is fed by gradle properties or environment variables so CI can inject a
@@ -82,9 +69,15 @@ val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
     inputs.files(File(enetFfiCrate, "build-android.sh"), File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
     outputs.dir(File(enetFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        // CI never ships an app without its eNet node.
-        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
-        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+        // CI never ships an app without its eNet node. An explicit
+        // ENET_SKIP_NATIVE=1 skips first (gate's `android` job: the JVM tests
+        // load the host build); CI without it still throws.
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") {
+            false
+        } else {
+            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
+            cargoNdk != null
+        }
     }
     environment("SKIP_BINDINGS", "1")
     environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
@@ -105,8 +98,13 @@ val buildEngineFfi = tasks.register<Exec>("buildEngineFfi") {
     inputs.files(File(engineFfiCrate, "build-android.sh"), File(engineFfiCrate, "Cargo.toml"), File(desktop, "crates/eengine/Cargo.toml"), File(desktop, "Cargo.lock"))
     outputs.dir(File(engineFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
-        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+        // ENET_SKIP_NATIVE=1 skips first (see buildEnetFfi).
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") {
+            false
+        } else {
+            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
+            cargoNdk != null
+        }
     }
     environment("SKIP_BINDINGS", "1")
     environment("EENGINE_FFI_FEATURES", "")
@@ -138,7 +136,7 @@ tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(syncSpecimenS
 
 android {
     namespace = "com.exponential.app"
-    compileSdk = 36
+    compileSdk = 37
 
     testOptions {
         // JVM unit tests exercise classes that log via android.util.Log
@@ -175,8 +173,12 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 209
-        versionName = "0.14.126"
+        versionCode = 210
+        versionName = "0.14.127"
+
+        // #LOGS-2: release CI mints one per build and uploads the R8 mapping
+        // under it (build-android.yml); empty = no mapping to name.
+        buildConfigField("String", "SENTRY_PROGUARD_UUID", "\"${releaseProp("SENTRY_PROGUARD_UUID").orEmpty()}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -278,6 +280,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // The flavors' resValue strings (AGP 9 turns the feature off by default).
+        resValues = true
     }
     packaging {
         resources {
@@ -320,6 +324,12 @@ dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.okhttp)
+    // #LOGS-2: crash/ANR/trace reporting through our backend (Observability.kt),
+    // native crashes via the NDK module, network spans on the shared OkHttp engine.
+    implementation(libs.sentry.android.core)
+    implementation(libs.sentry.android.ndk)
+    implementation(libs.sentry.android.navigation)
+    implementation(libs.sentry.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.auth)
@@ -356,6 +366,7 @@ dependencies {
     implementation(libs.media3.effect)
     // EXP-1162: the Work screen's header + bottom-bar backdrop blur.
     implementation(libs.haze)
+    implementation(libs.haze.blur)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

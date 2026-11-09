@@ -456,6 +456,10 @@ pub struct FfiVisual {
     /// Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
     #[uniffi(default = false)]
     pub sticky: bool,
+    /// #EXP-1629: `padding-box` = the background paints inside the border
+    /// (a recipe's `backgroundClip`); `None` = under it (`border-box`).
+    #[uniffi(default = None)]
+    pub background_clip: Option<String>,
 }
 
 /// What a host sets per surface. `strings_json` = `{id: text}` overrides;
@@ -714,6 +718,7 @@ fn visual(v: &eui_core::style::Visual) -> FfiVisual {
         backdrop_blur: v.backdrop_blur,
         animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
         sticky: v.sticky,
+        background_clip: v.background_clip.clone(),
     }
 }
 
@@ -926,6 +931,35 @@ pub fn qr_matrix_json(value: String, level: String) -> String {
 #[uniffi::export]
 pub fn segmented_badge_text(count: Option<f64>) -> Option<String> {
     shield("segmented_badge_text", || None, || eui_core::segmented::badge_text(count.map(serde_json::Value::from).as_ref()))
+}
+
+/// FEED-200 (fixtures/swipe.json): the swipe pager's axis lock for a touch
+/// that moved (`dx`, `dy`): `pending`, `horizontal` or `vertical`.
+#[uniffi::export]
+pub fn swipe_lock(dx: f64, dy: f64) -> String {
+    shield("swipe_lock", || "pending".to_string(), || eui_core::swipe::swipe_lock(dx, dy).to_string())
+}
+
+/// FEED-200: the offset a pager's pages are DRAWN at while the finger is at
+/// `offset` (screen px; resisted past an end, at most one page).
+#[uniffi::export]
+pub fn swipe_offset(index: u32, count: u32, offset: f64, width: f64, rtl: bool) -> f64 {
+    shield("swipe_offset", || 0.0, || eui_core::swipe::swipe_offset(index as usize, count as usize, offset, width, rtl))
+}
+
+/// FEED-200: the page a released swipe settles on (`offset` screen px,
+/// `velocity` px/ms at the release).
+#[uniffi::export]
+pub fn swipe_settle(index: u32, count: u32, offset: f64, velocity: f64, width: f64, rtl: bool) -> u32 {
+    shield("swipe_settle", || index, || eui_core::swipe::swipe_settle(index as usize, count as usize, offset, velocity, width, rtl) as u32)
+}
+
+/// FEED-200: whether a touch starting inside a node of `component` (its
+/// `direction` prop, its resolved `overflowX`) is that node's, not an
+/// enclosing pager's.
+#[uniffi::export]
+pub fn swipe_blocks(component: String, direction: Option<String>, overflow_x: Option<String>) -> bool {
+    shield("swipe_blocks", || false, || eui_core::swipe::swipe_blocks(&component, direction.as_deref(), overflow_x.as_deref()))
 }
 
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
@@ -1465,6 +1499,16 @@ impl Surface {
     pub fn set_layer_viewport(&self, width: f32, height: f32) -> bool {
         self.shield("set_layer_viewport", || false, || {
             self.core().set_layer_viewport(width, height)
+        })
+    }
+
+    /// #EXP-1629: where anchored popups (Popover, Menu, the pickers) may
+    /// go, in SURFACE coordinates: the host's window around the surface (a
+    /// popup that does not fit is fitted into it, not into the surface).
+    /// Width or height <= 0 = unset, the default: the surface's own view.
+    pub fn set_popup_bounds(&self, x: f32, y: f32, width: f32, height: f32) -> bool {
+        self.shield("set_popup_bounds", || false, || {
+            self.core().set_popup_bounds((width > 0.0 && height > 0.0).then_some((x, y, width, height)))
         })
     }
 

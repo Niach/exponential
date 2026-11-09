@@ -129,9 +129,53 @@ pub fn agent_inputs(agents: &[AgentDefRow], team_id: &str, team_ids: &[&str], me
 pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     let agents = agents(&rows.account, &chat.team_id);
     let mut input = ChatInput { agent_id: agents.first().map(|a| a.id.clone()), agents, ..Default::default() };
-    let Some(root) = chat.session_id.as_deref().and_then(|id| rows.account.sessions.iter().find(|s| s.id == id)) else {
+    let Some((root, view, keyed)) = session_chat(rows, chat, now_ms) else {
         return input;
     };
+    let by_id: HashMap<&str, &MessageRow> = keyed.iter().map(|m| (m.id.as_str(), m)).collect();
+    let users: HashMap<&str, &User> = rows.users.iter().map(|u| (u.id.as_str(), u)).collect();
+    let agent = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id));
+    input.icon = agent.map(|a| a.icon.clone()).unwrap_or_default();
+    input.title = if root.agent_id.is_some() { agent.map(|a| a.name.clone()).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
+    input.bubbles = domain::session_tree::chat_mode(root.agent_id.as_deref()) == domain::session_tree::ChatMode::Bubbles;
+    input.busy = view.busy;
+    input.session_id = Some(root.id.clone());
+    input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
+    // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
+    let transcript = domain::transcript_grouping::TranscriptInput {
+        viewer_id: Some(rows.account.user_id.clone()),
+        chat: domain::transcript_grouping::TranscriptChat { session_id: root.id.clone(), title: view.title.clone(), agent_id: root.agent_id.clone(), ..Default::default() },
+        members: rows.users.iter().map(|u| domain::transcript_grouping::TranscriptMember { id: u.id.clone(), name: author_label(Some(u)) }).collect(),
+        agents: input.agents.iter().map(|a| domain::transcript_grouping::TranscriptAgent { id: a.id.clone(), name: a.name.clone() }).collect(),
+        ..Default::default()
+    };
+    let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
+    crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(avatar_icon(sender, &icons)));
+    input
+}
+
+/// #EDE-65 lane O: a sender's avatar as the chat document names it (the
+/// host paints `avatar:<icon>` as the IDE's disc): an agent's own glyph, a
+/// session's, a person's.
+pub fn avatar_icon(sender: &domain::transcript_grouping::TranscriptSender, agent_icons: &HashMap<String, String>) -> String {
+    use domain::transcript_grouping::SenderKind;
+    let icon = match sender.kind {
+        SenderKind::Agent => agent_icons.get(&sender.id).cloned().unwrap_or_else(|| agent_icon(&sender.id)),
+        SenderKind::Session => SESSION_AVATAR_ICON.into(),
+        SenderKind::Member => MEMBER_AVATAR_ICON.into(),
+    };
+    format!("{}{icon}", crate::chat::AVATAR_ICON_PREFIX)
+}
+
+/// The muted session avatar's glyph (the IDE's `session_avatar`).
+const SESSION_AVATAR_ICON: &str = "coding-assistant";
+/// A person without a picture.
+const MEMBER_AVATAR_ICON: &str = "user";
+
+/// The open session's chat as the domain builds it (session-chat.json),
+/// with the tree's messages it read.
+fn session_chat<'a>(rows: &'a TeamRows, chat: &TeamChat, now_ms: i64) -> Option<(&'a SessionRow, domain::session_tree::SessionChatView, Vec<MessageRow>)> {
+    let root = chat.session_id.as_deref().and_then(|id| rows.account.sessions.iter().find(|s| s.id == id))?;
     let tree: Vec<&SessionRow> = rows.account.sessions.iter().filter(|s| s.root_id_or_self() == root.root_id_or_self()).collect();
     let in_tree = |m: &&MessageRow| m.root_id.as_deref().is_none_or(|r| r == root.id);
     // #EXP-1730: a message names its own session (`session_id`).
@@ -144,16 +188,20 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
         domain::session_tree::SessionChatInput { root, sessions: &tree, session_issues: &session_issues, issues: &issues, messages: &message_refs, pull_requests: &prs, now_ms },
         None,
     );
-    let by_id: HashMap<&str, &MessageRow> = keyed.iter().map(|m| (m.id.as_str(), m)).collect();
-    let users: HashMap<&str, &User> = rows.users.iter().map(|u| (u.id.as_str(), u)).collect();
-    let agent = root.agent_id.as_deref().and_then(|id| input.agents.iter().find(|a| a.id == id));
-    input.icon = agent.map(|a| a.icon.clone()).unwrap_or_default();
-    input.title = if root.agent_id.is_some() { agent.map(|a| a.name.clone()).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
-    input.bubbles = domain::session_tree::chat_mode(root.agent_id.as_deref()) == domain::session_tree::ChatMode::Bubbles;
-    input.busy = view.busy;
-    input.session_id = Some(root.id.clone());
-    input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
-    input
+    Some((root, view, keyed))
+}
+
+/// Lane Q: what an Embed's inner event on card `message_id` asks
+/// (`domain::chat_document::card_reply` over the open session's rows).
+pub fn card_reply(rows: &TeamRows, chat: &TeamChat, message_id: &str, name: &str, context: &serde_json::Value, now_ms: i64) -> Option<crate::chat::CardReply> {
+    let (_, view, _) = session_chat(rows, chat, now_ms)?;
+    crate::chat::card_reply(&view.rows, message_id, Some(name), Some(context))
+}
+
+/// A card reply's send: the text into the card's session.
+pub fn reply_input(chat: &TeamChat, reply: &crate::chat::CardReply) -> api::sessions::SendInput {
+    let crate::chat::CardReply::Send { session_id, text } = reply;
+    api::sessions::SendInput { team_id: Some(chat.team_id.clone()), session_id: Some(session_id.clone()), text: Some(text.clone()), ..Default::default() }
 }
 
 /// A person's label (the IDE's `author_label`): the name, else the email.
@@ -161,13 +209,15 @@ fn author_label(user: Option<&User>) -> String {
     user.and_then(|u| u.name.clone().filter(|n| !n.is_empty()).or_else(|| u.email.clone().filter(|e| !e.is_empty()))).unwrap_or_else(|| "Someone".into())
 }
 
-/// The send: into the open session, else to the picked agent on the team.
-pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str) -> Option<api::sessions::SendInput> {
+/// The send: into the open session, else to the picked agent on the team;
+/// `attachments` = files ride it, so it may go without text.
+pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str, attachments: bool) -> Option<api::sessions::SendInput> {
     let text = text.trim();
-    if text.is_empty() {
+    if text.is_empty() && !attachments {
         return None;
     }
-    let mut input = api::sessions::SendInput { team_id: Some(chat.team_id.clone()), text: Some(text.to_string()), ..Default::default() };
+    let text = (!text.is_empty()).then(|| text.to_string());
+    let mut input = api::sessions::SendInput { team_id: Some(chat.team_id.clone()), text, ..Default::default() };
     match (&chat.session_id, agent_id) {
         (Some(session), _) => input.session_id = Some(session.clone()),
         (None, Some(agent)) => input.agent_id = Some(agent.to_string()),
@@ -200,6 +250,19 @@ pub fn demo_glyphs() -> HashMap<String, AgentGlyph> {
     HashMap::from([(agent_icon("a2"), agent_glyph(Some("bug"), Some("#a855f7")))])
 }
 
+/// The demo's result card: three counts and a reply button.
+pub fn demo_card() -> serde_json::Value {
+    let tile = |id: &str, label: &str, path: &str| serde_json::json!({"id": id, "component": "StatTile", "props": {"label": label, "value": {"@path": path}}});
+    serde_json::json!({
+        "version": "1.0",
+        "root": {"id": "root", "component": "Stack", "props": {"gap": "md"}, "children": [
+            {"id": "tiles", "component": "Grid", "props": {"columns": 3, "gap": "sm"}, "children": [tile("new", "New", "/new"), tile("merged", "Merged", "/merged"), tile("coding", "Coding", "/coding")]},
+            {"id": "ship", "component": "Button", "props": {"label": "Label the rest", "variant": "secondary", "size": "sm"}, "on": {"press": {"event": {"name": "reply", "context": {"text": "Label the rest too"}}}}}
+        ]},
+        "data": {"new": "2", "merged": "1", "coding": "1"}
+    })
+}
+
 /// The demo's team chat (the goldens): an agent conversation.
 pub fn demo_input() -> ChatInput {
     let message = |id: &str, author: &str, body: &str, time: &str| uicore_model::chat::ChatRowInput::Message {
@@ -209,12 +272,13 @@ pub fn demo_input() -> ChatInput {
         name: (author == "user").then(|| "Dana Reyes".to_string()),
         time: time.into(),
         queued: false,
+        group: None,
     };
     let agents = vec![
         ChatAgentInput { id: "a1".into(), name: "Assistant".into(), icon: ASSISTANT_ICON.into() },
         ChatAgentInput { id: "a2".into(), name: "Triage".into(), icon: agent_icon("a2") },
     ];
-    ChatInput {
+    let mut input = ChatInput {
         session_id: Some("s1".into()),
         title: "Triage".into(),
         icon: agent_icon("a2"),
@@ -224,18 +288,44 @@ pub fn demo_input() -> ChatInput {
         agents,
         rows: vec![
             message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:", "09:02"),
-            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()) },
+            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()), surface: None },
             message("m2", "user", "Label the Android ones too, and check the board every hour.", "09:14"),
             message("m3", "agent", "Done, 3 issues labelled android.", "09:14"),
+            // Lane Q: an agent's result card (`exponential_show`), drawn in an Embed.
+            uicore_model::chat::ChatRowInput::Card {
+                id: "c2".into(),
+                icon: "ui-widget".into(),
+                title: "Widget reports today".into(),
+                text: String::new(),
+                target: Some("s1".into()),
+                surface: Some(demo_card()),
+            },
         ],
         ..Default::default()
-    }
+    };
+    crate::chat::demo_group(&mut input.rows, &agent_icon("a2"), "Triage");
+    input
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// #EDE-65 lane O: the golden's agent bubbles sit under the agent's
+    /// avatar disc with its name like the IDE's, the person's own on the right.
+    #[test]
+    fn the_demo_groups_like_the_ide_transcript() {
+        let view = uicore_model::chat::chat_view(&demo_input());
+        let row = |id: &str| view.rows.iter().find(|r| r.id == id).unwrap();
+        let avatar = format!("{}{}", crate::chat::AVATAR_ICON_PREFIX, agent_icon("a2"));
+        assert_eq!((row("m1").side.as_str(), row("m1").avatar.as_str(), row("m1").indent, row("m1").author.as_str()), ("in", avatar.as_str(), true, "Triage"));
+        assert_eq!((row("m2").side.as_str(), row("m2").avatar.as_str()), ("out", ""));
+        assert_eq!((row("m3").side.as_str(), row("m3").avatar.as_str(), row("m3").gap), ("in", avatar.as_str(), 12));
+        let sender = domain::transcript_grouping::TranscriptSender { kind: domain::transcript_grouping::SenderKind::Agent, id: "a1".into(), name: "Assistant".into(), link: None };
+        let icons = HashMap::from([("a1".to_string(), ASSISTANT_ICON.to_string())]);
+        assert_eq!(avatar_icon(&sender, &icons), format!("{}{ASSISTANT_ICON}", crate::chat::AVATAR_ICON_PREFIX));
+    }
 
     fn rows() -> TeamRows {
         let account = AccountRows {
@@ -306,12 +396,15 @@ mod tests {
 
     #[test]
     fn a_send_goes_to_the_open_session_else_to_the_picked_agent() {
-        let open = send_input(&chat(Some("s1")), Some("a1"), " hi ").unwrap();
+        let open = send_input(&chat(Some("s1")), Some("a1"), " hi ", false).unwrap();
         assert_eq!((open.session_id.as_deref(), open.agent_id.as_deref(), open.text.as_deref()), (Some("s1"), None, Some("hi")));
-        let home = send_input(&chat(None), Some("a2"), "hi").unwrap();
+        let home = send_input(&chat(None), Some("a2"), "hi", false).unwrap();
         assert_eq!((home.session_id.as_deref(), home.agent_id.as_deref(), home.team_id.as_deref()), (None, Some("a2"), Some("t1")));
-        assert!(send_input(&chat(None), None, "hi").is_none());
-        assert!(send_input(&chat(Some("s1")), None, "  ").is_none());
+        assert!(send_input(&chat(None), None, "hi", false).is_none());
+        assert!(send_input(&chat(Some("s1")), None, "  ", false).is_none());
+        // #EDE-65 lane L: attachments go without text.
+        let files = send_input(&chat(Some("s1")), None, "  ", true).unwrap();
+        assert_eq!((files.session_id.as_deref(), files.text.as_deref()), (Some("s1"), None));
         let r = rows();
         assert_eq!(target_root(&r.account, &home).map(|s| s.id.as_str()), Some("s1"), "my conversation with Triage");
     }
@@ -324,5 +417,24 @@ mod tests {
         let keyed: SessionRow = serde_json::from_value(json!({"id": "s1", "seal_public_key": public, "seal_epoch": 2})).unwrap();
         let sealed = seal(&keyed, "hi").expect("sealed");
         assert!(sealed.starts_with("exp-sealed:v1:2:"), "{sealed}");
+    }
+
+    #[test]
+    fn a_show_card_draws_its_surface_and_its_reply_is_a_send_into_its_session() {
+        let mut rows = rows();
+        rows.messages.push(
+            serde_json::from_value(json!({"id": "m4", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "agent", "body": "", "created_at": "2026-11-08T09:17:00Z",
+                "card": {"kind": "surface", "title": "Reports", "surface": demo_card()}}))
+            .unwrap(),
+        );
+        let open = chat(Some("s1"));
+        let card = input(&rows, &open, 0).rows.into_iter().find(|r| matches!(r, uicore_model::chat::ChatRowInput::Card { id, .. } if id == "m4"));
+        let Some(uicore_model::chat::ChatRowInput::Card { title, surface: Some(surface), .. }) = card else { panic!("{card:?}") };
+        assert_eq!((title.as_str(), &surface["data"]["new"]), ("Reports", &json!("2")));
+        let reply = card_reply(&rows, &open, "m4", "reply", &json!({"text": "Label the rest too"}), 0).expect("a reply");
+        let send = reply_input(&open, &reply);
+        assert_eq!((send.team_id.as_deref(), send.session_id.as_deref(), send.text.as_deref()), (Some("t1"), Some("s1"), Some("Label the rest too")));
+        assert!(card_reply(&rows, &open, "m4", "picked", &json!({"text": "x"}), 0).is_none(), "only reply answers");
+        assert!(card_reply(&rows, &open, "m2", "reply", &json!({"text": "x"}), 0).is_none(), "a message is no card");
     }
 }

@@ -57,6 +57,9 @@ struct CommentRepliesView: View {
     /// detail view model fetches), naming the reporter's comments; nil (no
     /// submission, or none yet) reads as the anonymous visitor.
     var reporterName: String? = nil
+    /// #EXP-1754: the submission's `reporterEmail`, the reporter avatar's hue
+    /// key when there is no name (`avatarHueKey`).
+    var reporterEmail: String? = nil
     /// The editor backing the comment currently being edited (re-seeded on each
     /// Edit tap; only one comment edits at a time). Owned by the DETAIL view,
     /// not by this timeline: its `@`/`#`/`:` menu is mounted screen-level, in
@@ -445,6 +448,7 @@ struct CommentRepliesView: View {
                 agents: agents,
                 appNames: appNames,
                 reporterName: reporterName,
+                reporterEmail: reporterEmail,
                 currentUserId: deps.auth.userId,
                 editingCommentId: editingCommentId,
                 editEditor: editEditor,
@@ -470,7 +474,7 @@ struct CommentRepliesView: View {
     /// or initials chip; a reporter's reply wears the initials of the name its
     /// card reads (SLOP-4), never a member's.
     private func commentAvatar(_ comment: CommentEntity, size: CGFloat) -> some View {
-        commentAvatarView(comment, users: users, agents: agents, reporterName: reporterName, size: size)
+        commentAvatarView(comment, users: users, agents: agents, reporterName: reporterName, reporterEmail: reporterEmail, size: size)
     }
 
     /// One comment's edit/delete callbacks — the same for a top-level card and
@@ -783,6 +787,7 @@ private struct RegularCommentRow: View {
     let appNames: [String: String]
     /// SLOP-4: the submission's reporter, named on `source == reporter` rows.
     let reporterName: String?
+    let reporterEmail: String?
     let currentUserId: String?
     let editingCommentId: String?
     let editEditor: IssueEditorModel
@@ -811,7 +816,7 @@ private struct RegularCommentRow: View {
                 .padding(.bottom, 4)
             ForEach(replies) { reply in
                 HStack(alignment: .top, spacing: 8) {
-                    commentAvatarView(reply, users: users, agents: agents, reporterName: reporterName, size: 20)
+                    commentAvatarView(reply, users: users, agents: agents, reporterName: reporterName, reporterEmail: reporterEmail, size: 20)
                         .padding(.top, 2)
                     content(for: reply)
                 }
@@ -1245,7 +1250,7 @@ private func commentAuthorName(
 @ViewBuilder
 private func commentAvatarView(
     _ comment: CommentEntity, users: [String: UserEntity], agents: [String: AgentDefinitionEntity],
-    reporterName: String?, size: CGFloat
+    reporterName: String?, reporterEmail: String?, size: CGFloat
 ) -> some View {
     if let agent = commentAuthorAgent(comment, agents: agents) {
         // #EXP-1383: THE AGENT MARK, never the member's avatar.
@@ -1254,7 +1259,13 @@ private func commentAvatarView(
         UserAvatar(user: user, id: authorId, size: size)
     } else {
         let name = commentAuthorName(comment, users: users, agents: agents, reporterName: reporterName)
-        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)
+        // #EXP-1754: the hue keys on the REPORTER's real name, else email (an
+        // anonymous one = grey), a former member's on their id: never the
+        // shown copy ("Anonymous", "Former member").
+        let hueKey = comment.isFromReporter
+            ? avatarHueKey(id: nil, name: reporterName, email: reporterEmail)
+            : avatarHueKey(id: comment.authorId)
+        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: hueKey, size: size)
     }
 }
 

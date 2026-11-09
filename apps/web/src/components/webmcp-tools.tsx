@@ -32,7 +32,9 @@ import {
 } from "@/lib/webmcp/resolve"
 
 // WebMCP tool surface (EXP-245): one useWebMCP call per tool, registered for
-// the lifetime of the mounted component. Handlers read the app-context store
+// the lifetime of the mounted component. Input schemas are zod objects
+// (Standard Schema, @mcp-b/react-webmcp 6): the hook publishes their JSON
+// Schema and validates every call before `execute` runs. Handlers read the app-context store
 // and collection snapshots at CALL time (never React closures), so a tool
 // invoked long after registration still acts on what's currently on screen.
 // Reads come straight from the synced Electric collections; writes go through
@@ -152,12 +154,41 @@ const assigneeRefSchema = z
 
 const readAnnotations = { readOnlyHint: true, idempotentHint: true }
 
+// What agents receive, pinned to the 4.x wire format (#EXP-245 tools predate
+// @mcp-b/react-webmcp 6): results as pretty-printed JSON text, failures as an
+// `Error: <message>` text with `isError`. 6.x defaults would drop the
+// indentation-free JSON into `structuredContent` and the `Error:` prefix.
+export function formatWebMcpOutput(result: unknown) {
+  return {
+    content: [
+      {
+        type: `text` as const,
+        text: typeof result === `string` ? result : JSON.stringify(result, null, 2),
+      },
+    ],
+  }
+}
+
+export function formatWebMcpError(error: Error) {
+  return {
+    content: [{ type: `text` as const, text: `Error: ${error.message}` }],
+    isError: true,
+  }
+}
+
+const agentResponse = {
+  formatOutput: formatWebMcpOutput,
+  formatError: formatWebMcpError,
+}
+
 export function WebMcpReadTools() {
   useWebMCP({
+    ...agentResponse,
     name: `get_context`,
     description: `Get what is currently open in the Exponential workspace: team, board, issue on screen, and the signed-in user. Call this first to orient.`,
+    inputSchema: z.object({}),
     annotations: readAnnotations,
-    handler: async () => {
+    execute: async () => {
       const ctx = getWebMcpAppContext()
       const boards = await getTeamBoards(ctx.teamId)
       const board = ctx.boardSlug
@@ -175,10 +206,12 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `list_boards`,
     description: `List the boards in the current team with their slugs and issue counts.`,
+    inputSchema: z.object({}),
     annotations: readAnnotations,
-    handler: async () => {
+    execute: async () => {
       const ctx = getWebMcpAppContext()
       const { boards, issues } = await getTeamIssues(ctx.teamId)
       const countByBoard = new Map<string, number>()
@@ -197,9 +230,10 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `list_issues`,
     description: `List issues on a board of the current team (newest-updated first). Ignores any filters active in the UI.`,
-    inputSchema: {
+    inputSchema: z.object({
       board: boardRefSchema,
       statuses: z
         .array(issueStatusSchema)
@@ -210,9 +244,9 @@ export function WebMcpReadTools() {
         .optional()
         .describe(`Only issues assigned to this member (email or name) or agent (name)`),
       limit: z.number().int().min(1).max(100).optional(),
-    },
+    }),
     annotations: readAnnotations,
-    handler: async (input) => {
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { boards, issues } = await getTeamIssues(ctx.teamId)
       const board = resolveBoard(input.board, ctx.boardSlug, boards)
@@ -258,14 +292,15 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `search_issues`,
     description: `Full-text search across all issues of the current team (titles, descriptions, comments).`,
-    inputSchema: {
+    inputSchema: z.object({
       query: z.string().min(1).max(256),
       limit: z.number().int().min(1).max(50).optional(),
-    },
+    }),
     annotations: readAnnotations,
-    handler: async (input) => {
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const [results, boards] = await Promise.all([
         trpc.issues.search.query({
@@ -289,11 +324,12 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `get_issue`,
     description: `Get the full detail of one issue: fields, description (GFM markdown), labels, and comment chat.`,
-    inputSchema: { issue: issueRefSchema },
+    inputSchema: z.object({ issue: issueRefSchema }),
     annotations: readAnnotations,
-    handler: async (input) => {
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { boardById, issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
@@ -329,16 +365,17 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `list_notifications`,
     description: `List the signed-in user's inbox notifications (newest first, max 50).`,
-    inputSchema: {
+    inputSchema: z.object({
       unreadOnly: z
         .boolean()
         .optional()
         .describe(`Only unread notifications (default true)`),
-    },
+    }),
     annotations: readAnnotations,
-    handler: async (input) => {
+    execute: async (input) => {
       await Promise.all([
         notificationCollection.preload(),
         issueCollection.preload(),
@@ -366,15 +403,16 @@ export function WebMcpReadTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `navigate`,
     description: `Navigate the app to a board, an issue, the notification inbox, or the Chats list of the current team. Changes what the user sees; modifies no data.`,
-    inputSchema: {
+    inputSchema: z.object({
       to: z.enum([`board`, `issue`, `inbox`, `chats`]),
       board: boardRefSchema,
       issue: issueRefSchema,
-    },
+    }),
     annotations: { idempotentHint: true },
-    handler: async (input) => {
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       if (input.to === `inbox` || input.to === `chats`) {
         ctx.navigate({ kind: input.to })
@@ -409,9 +447,10 @@ export function WebMcpReadTools() {
 
 export function WebMcpWriteTools() {
   useWebMCP({
+    ...agentResponse,
     name: `create_issue`,
     description: `Create a new issue on a board of the current team.`,
-    inputSchema: {
+    inputSchema: z.object({
       board: boardRefSchema,
       title: z.string().min(1).max(500),
       description: z
@@ -426,8 +465,8 @@ export function WebMcpWriteTools() {
         .describe(`Team member email or display name, or an agent name`),
       dueDate: dateOnlySchema.optional().describe(`YYYY-MM-DD`),
       labels: z.array(z.string()).optional().describe(`Existing label names`),
-    },
-    handler: async (input) => {
+    }),
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const board = resolveBoard(
         input.board,
@@ -462,9 +501,10 @@ export function WebMcpWriteTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `update_issue`,
     description: `Update fields of an issue in the current team. Only the fields you pass change.`,
-    inputSchema: {
+    inputSchema: z.object({
       issue: issueRefSchema,
       title: z.string().min(1).max(500).optional(),
       status: issueStatusSchema.optional(),
@@ -476,8 +516,8 @@ export function WebMcpWriteTools() {
         .optional()
         .describe(`GFM markdown; null clears it`),
       dueDate: dateOnlySchema.nullable().optional().describe(`YYYY-MM-DD; null clears it`),
-    },
-    handler: async (input) => {
+    }),
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
@@ -501,13 +541,14 @@ export function WebMcpWriteTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `comment_on_issue`,
     description: `Add a comment to an issue in the current team. The comment is posted as the signed-in user.`,
-    inputSchema: {
+    inputSchema: z.object({
       issue: issueRefSchema,
       body: z.string().min(1).describe(`GFM markdown`),
-    },
-    handler: async (input) => {
+    }),
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
@@ -520,14 +561,15 @@ export function WebMcpWriteTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `change_issue_labels`,
     description: `Add and/or remove labels on an issue in the current team. Labels must already exist (see list_issues output or team settings).`,
-    inputSchema: {
+    inputSchema: z.object({
       issue: issueRefSchema,
       add: z.array(z.string()).optional().describe(`Label names to add`),
       remove: z.array(z.string()).optional().describe(`Label names to remove`),
-    },
-    handler: async (input) => {
+    }),
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
@@ -555,14 +597,15 @@ export function WebMcpWriteTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `set_issue_subscription`,
     description: `Subscribe or unsubscribe the signed-in user to an issue's notifications.`,
-    inputSchema: {
+    inputSchema: z.object({
       issue: issueRefSchema,
       subscribed: z.boolean(),
-    },
+    }),
     annotations: { idempotentHint: true },
-    handler: async (input) => {
+    execute: async (input) => {
       const ctx = getWebMcpAppContext()
       const { issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
@@ -576,16 +619,17 @@ export function WebMcpWriteTools() {
   })
 
   useWebMCP({
+    ...agentResponse,
     name: `mark_notifications_read`,
     description: `Mark one notification (by id from list_notifications) or ALL notifications as read.`,
-    inputSchema: {
+    inputSchema: z.object({
       id: z
         .string()
         .optional()
         .describe(`Notification id; omit to mark everything read`),
-    },
+    }),
     annotations: { idempotentHint: true },
-    handler: async (input) => {
+    execute: async (input) => {
       if (input.id !== undefined) {
         await trpc.notifications.markRead.mutate({ id: input.id })
         return { markedRead: input.id }

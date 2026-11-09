@@ -4,7 +4,9 @@
 //! links inline) laid out as absolutely placed blocks. VAPP-103: link and
 //! image destinations parse balanced parentheses (CommonMark); a link the
 //! URL policy denies paints as text, an image the media policy denies as
-//! its alt text ([`resolve_images`]); an image inside a line paints its alt
+//! its alt text ([`resolve_images`]); #FEED-208: an image directly in a
+//! top-level paragraph's text splits it around a block image, anywhere else
+//! (a heading, list item, cell, quote, or inside a span) it paints its alt
 //! text. The SAME block layout answers the measurer and places the
 //! painted blocks, so the height taffy reserves is the height painted
 //! (the spike's markdown estimate was 7 px short until it counted a gap per
@@ -96,10 +98,12 @@ pub enum BlockKind {
     CodeBlock,
     Table { header: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
     Rule,
-    /// A paragraph that is one `![alt](src)`: painted through the host's
-    /// media policy and loader in an `image_height` box (the alt text there
-    /// while it loads or when it fails). #VAPP-258: `size` = the host's
-    /// `image_size(src)` (the box keeps its aspect, [`image_box`]).
+    /// A paragraph that is one `![alt](src)` (#FEED-208: or an image directly
+    /// in a top-level paragraph's text, which splits around it): painted
+    /// through the host's media policy and loader in an `image_height` box
+    /// (the alt text there while it loads or when it fails). #VAPP-258:
+    /// `size` = the host's `image_size(src)` (the box keeps its aspect,
+    /// [`image_box`]).
     Image { src: String, alt: String, size: Option<(f32, f32)> },
     /// #VAPP-258: a top-level paragraph that is exactly one link the host
     /// classified (`attachment(href)`): the Video / AudioPlayer / FileUpload
@@ -332,7 +336,7 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
 /// Markdown options (#VAPP-258 step 5: hard breaks, a streamed prefix).
 pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str, cx: &App) -> Vec<Block> {
     let urls = host.url_policy();
-    let options = host.markdown_options(cx);
+    let options = host.markdown_options_for(text, cx);
     resolve_urls(parse_with(text, options.hard_breaks, options.streaming), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
 }
 
@@ -578,9 +582,19 @@ impl<'a> InlineSrc<'a> {
     }
 }
 
+/// #FEED-208: a top-level paragraph cut at the images directly in its text.
+enum Piece {
+    /// The spans before an image.
+    Text(Vec<Inline>),
+    Image { src: String, alt: String },
+}
+
 /// The spans of `src.s[start..end]` (`depth` = enclosing link labels).
+/// #FEED-208: `images` (only a top-level paragraph's own frame, never inside
+/// a span or a link label) takes each image directly in the text: the spans
+/// so far move into it, then the image.
 #[allow(clippy::too_many_arguments)]
-fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: Option<&str>, depth: i32, out: &mut Vec<Inline>) {
+fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: Option<&str>, depth: i32, out: &mut Vec<Inline>, mut images: Option<&mut Vec<Piece>>) {
     let s = &src.s[..end];
     let mut plain_start = start;
     let mut i = start;
@@ -605,16 +619,23 @@ fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: 
                 handled = Some(close + 2);
             }
         } else if c == b'!' && rest[1..].starts_with('[') {
-            // An image inside a line paints its alt text.
-            if let Some((alt, _src, n)) = src.link(i + 1, end) {
+            // #FEED-208: an image directly in a top-level paragraph's text
+            // splits it (`images`); anywhere else it paints its alt text.
+            if let Some((alt, dest, n)) = src.link(i + 1, end) {
                 push_text(out, &s[plain_start..i], f, link);
-                push_text(out, &s[alt], f, link);
+                match images.as_deref_mut() {
+                    Some(pieces) => {
+                        pieces.push(Piece::Text(std::mem::take(out)));
+                        pieces.push(Piece::Image { src: dest, alt: decode_entities(&s[alt]).into_owned() });
+                    }
+                    None => push_text(out, &s[alt], f, link),
+                }
                 handled = Some(n + 1);
             }
         } else if c == b'[' && depth < MAX_NESTING {
             if let Some((label, href, n)) = src.link(i, end) {
                 push_text(out, &s[plain_start..i], f, link);
-                parse_inline_into(src, label.start, label.end, f, Some(href.as_str()), depth + 1, out);
+                parse_inline_into(src, label.start, label.end, f, Some(href.as_str()), depth + 1, out, None);
                 handled = Some(n);
             }
         } else if (c == b'*' || c == b'_' || c == b'~') && !(c == b'_' && s[..i].chars().next_back().is_some_and(char::is_alphanumeric)) {
@@ -627,19 +648,19 @@ fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: 
             if let Some((inner, n)) = triple {
                 // `***x***` is both.
                 push_text(out, &s[plain_start..i], f, link);
-                parse_inline_into(src, i + 3, i + 3 + inner.len(), Flags { bold: true, italic: true, ..f }, link, depth, out);
+                parse_inline_into(src, i + 3, i + 3 + inner.len(), Flags { bold: true, italic: true, ..f }, link, depth, out, None);
                 handled = Some(n);
             } else if let Some((inner, n)) = delimited(rest, double) {
                 push_text(out, &s[plain_start..i], f, link);
                 let nf = if c == b'~' { Flags { strike: true, ..f } } else { Flags { bold: true, ..f } };
                 let at = i + double.len();
-                parse_inline_into(src, at, at + inner.len(), nf, link, depth, out);
+                parse_inline_into(src, at, at + inner.len(), nf, link, depth, out, None);
                 handled = Some(n);
             } else if c != b'~' {
                 let single = if c == b'*' { "*" } else { "_" };
                 if let Some((inner, n)) = delimited(rest, single) {
                     push_text(out, &s[plain_start..i], f, link);
-                    parse_inline_into(src, i + 1, i + 1 + inner.len(), Flags { italic: true, ..f }, link, depth, out);
+                    parse_inline_into(src, i + 1, i + 1 + inner.len(), Flags { italic: true, ..f }, link, depth, out, None);
                     handled = Some(n);
                 }
             }
@@ -659,8 +680,54 @@ fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: 
 pub fn parse_inline(s: &str) -> Vec<Inline> {
     let mut out = Vec::new();
     let src = InlineSrc::new(s);
-    parse_inline_into(&src, 0, s.len(), Flags::default(), None, 0, &mut out);
+    parse_inline_into(&src, 0, s.len(), Flags::default(), None, 0, &mut out, None);
     out
+}
+
+/// #FEED-208 (markdown-render.json `image_split_*`): a top-level paragraph
+/// with images directly in its text = the text before each image (a
+/// paragraph), the image (a block image), the text after it. ASCII spaces,
+/// tabs and line breaks at a split edge trim; an empty side drops.
+fn split_images(text: &str) -> Vec<Block> {
+    let paragraph = |inlines: Vec<Inline>| Block { kind: BlockKind::Paragraph, inlines, list_group: None, lang: None };
+    let mut pieces = Vec::new();
+    let mut tail = Vec::new();
+    let src = InlineSrc::new(text);
+    parse_inline_into(&src, 0, text.len(), Flags::default(), None, 0, &mut tail, Some(&mut pieces));
+    if pieces.is_empty() {
+        return vec![paragraph(tail)];
+    }
+    pieces.push(Piece::Text(tail));
+    let edge: &[char] = &[' ', '\t', '\n'];
+    let plain_run = |i: &Inline| !i.bold && !i.italic && !i.code && !i.strike && i.link.is_none();
+    pieces
+        .into_iter()
+        .filter_map(|piece| match piece {
+            Piece::Text(mut inlines) => {
+                while let Some(first) = inlines.first_mut().filter(|i| plain_run(&**i)) {
+                    let cut = first.text.len() - first.text.trim_start_matches(edge).len();
+                    first.text.replace_range(..cut, "");
+                    if !first.text.is_empty() {
+                        break;
+                    }
+                    inlines.remove(0);
+                }
+                while let Some(last) = inlines.last_mut().filter(|i| plain_run(&**i)) {
+                    let kept = last.text.trim_end_matches(edge).len();
+                    last.text.truncate(kept);
+                    if !last.text.is_empty() {
+                        break;
+                    }
+                    inlines.pop();
+                }
+                (!inlines.is_empty()).then(|| paragraph(inlines))
+            }
+            Piece::Image { src, alt } => {
+                let inlines = if alt.is_empty() { Vec::new() } else { vec![Inline { text: alt.clone(), ..Inline::default() }] };
+                Some(Block { kind: BlockKind::Image { src, alt, size: None }, inlines, list_group: None, lang: None })
+            }
+        })
+        .collect()
 }
 
 fn is_table_row(line: &str) -> bool {
@@ -1017,7 +1084,8 @@ fn parse_hard(text: &str, hard: bool) -> Vec<Block> {
             let joined = join_paragraph(para, hard);
             match whole_image(joined.trim()) {
                 Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone(), size: None }, inlines: parse_inline(&alt), list_group: None, lang: None }),
-                None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None, lang: None }),
+                // #FEED-208: images directly in its text split it.
+                None => blocks.extend(split_images(&joined)),
             }
             para.clear();
         }
@@ -1748,6 +1816,7 @@ fn gap_before(blocks: &[Block], i: usize, s: &MdStyles) -> f32 {
 
 /// Lay the blocks out `width` wide.
 pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText) -> MdLayout {
+    let _span = tracing::trace_span!("eui.markdown.layout", blocks = blocks.len()).entered();
     let mut y = 0.0;
     let mut out = Vec::with_capacity(blocks.len());
     for (i, b) in blocks.iter().enumerate() {
@@ -2705,6 +2774,24 @@ impl gpui::Element for LazyMdBlock {
 mod tests {
     use super::*;
 
+    /// #EDE-65 lane O: a host showing many Markdowns answers its options per
+    /// text: only the reply still streaming holds its unfinished tail back
+    /// (the measurer and the painter both parse through [`parse_for`]).
+    #[gpui::test]
+    fn the_streaming_option_is_the_hosts_answer_for_that_text(cx: &mut gpui::TestAppContext) {
+        struct Host;
+        impl crate::host::HostPlugin for Host {
+            fn markdown_options_for(&self, text: &str, cx: &App) -> crate::host::MarkdownOptions {
+                crate::host::MarkdownOptions { streaming: text.starts_with("Say"), ..self.markdown_options(cx) }
+            }
+        }
+        let shown = |blocks: Vec<Block>| blocks.iter().flat_map(|b| b.inlines.iter().map(|i| i.text.clone())).collect::<String>();
+        cx.update(|cx| {
+            assert_eq!(shown(parse_for(&Host, "Say **bo", cx)), "Say bo", "the live reply holds its open mark back");
+            assert_eq!(shown(parse_for(&Host, "Done **bo", cx)), "Done **bo", "a settled text reads whole");
+        });
+    }
+
     /// `fixtures/markdown-text-links.json`: a Markdown's text asks the host's text links.
     #[test]
     fn markdown_text_asks_the_hosts_text_links() {
@@ -3297,9 +3384,14 @@ mod tests {
 
     #[test]
     fn whole_line_images_are_blocks_and_the_policy_resolves_them() {
-        let blocks = parse("![chart](https://exponential.at/c.png)\n\ntext ![inline](https://x/y.png) [bad](javascript:alert(1)) [ok](https://exponential.at)");
+        let blocks = parse("![chart](https://exponential.at/c.png)\n\ntext **![inline](https://x/y.png)** [bad](javascript:alert(1)) [ok](https://exponential.at)");
         assert_eq!(blocks[0].kind, BlockKind::Image { src: "https://exponential.at/c.png".into(), alt: "chart".into(), size: None });
-        assert_eq!(plain(&blocks[1].inlines), "text inline bad ok", "an inline image is its alt text");
+        assert_eq!(plain(&blocks[1].inlines), "text inline bad ok", "an image inside a span is its alt text");
+        // #FEED-208: an image directly in a top-level paragraph splits it.
+        let split = parse("see ![x](https://x/y.png) here");
+        assert_eq!(split.len(), 3);
+        assert_eq!(split[1].kind, BlockKind::Image { src: "https://x/y.png".into(), alt: "x".into(), size: None });
+        assert_eq!((plain(&split[0].inlines), plain(&split[2].inlines)), ("see".to_string(), "here".to_string()));
         let s = MdStyles::plain(body());
         assert_eq!(Some(layout(&blocks[..1], &s, 300.0, &mut Fixed).height), s.image_height);
         let resolved = resolve_urls(blocks, |h| h.starts_with("https:"), |_| false);

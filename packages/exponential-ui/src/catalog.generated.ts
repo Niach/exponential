@@ -15,13 +15,13 @@ export const CATALOG_VERSION = "1"
 export const UNKNOWN_COMPONENT_NAME = "Unknown"
 
 /** Every component in source order (the hidden placeholder included). */
-export const COMPONENT_NAMES = ["Box","Stack","Grid","Card","Window","Separator","List","Resizable","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Text","Heading","Markdown","CodeBlock","Kbd","Label","Image","ZoomableImage","Icon","Video","AudioPlayer","Avatar","QrCode","Carousel","Mosaic","Tabs","Segmented","Accordion","Collapsible","Trace","TraceItem","Plan","Pagination","Breadcrumb","Outline","Stepper","Dialog","Drawer","DockCard","AlertDialog","Popover","Tooltip","Menu","Toast","Badge","Alert","Chip","EmptyState","Progress","Meter","Ring","Spinner","Skeleton","VoiceWave","CallSurface","Table","Chart","Sparkline","StatTile","Button","Link","Toggle","Form","FieldGroup","FormActions","SettingsRow","Input","Textarea","NumberField","Checkbox","Radio","ChoiceTiles","Switch","Slider","Rating","Select","SearchList","ChipInput","DatePicker","DateRangePicker","TimePicker","FileUpload","QrScanner","Composer","Row","Tree","MessageBubble","TreeGuides","Unknown","Motion","Canvas","Calendar","Timeline","RecordForm","RecordTable"] as const
+export const COMPONENT_NAMES = ["Box","Stack","Grid","Card","Window","Separator","List","Resizable","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Text","Heading","Markdown","CodeBlock","Kbd","KbdGroup","Label","Image","ZoomableImage","Icon","Video","AudioPlayer","Avatar","QrCode","Carousel","Mosaic","Tabs","Segmented","Accordion","Collapsible","Trace","TraceItem","Plan","Pagination","Breadcrumb","Outline","Stepper","Dialog","Drawer","DockCard","AlertDialog","Popover","Tooltip","Menu","Toast","Badge","Alert","Chip","EmptyState","Progress","Meter","Ring","Spinner","Skeleton","VoiceWave","CallSurface","Table","Chart","Sparkline","StatTile","Button","Link","Toggle","Form","FieldGroup","FormActions","SettingsRow","Input","Textarea","NumberField","Checkbox","Radio","ChoiceTiles","Switch","Slider","Rating","Select","SearchList","ChipInput","KeyRecorder","DatePicker","DateRangePicker","TimePicker","FileUpload","QrScanner","Composer","Row","Tree","MessageBubble","TreeGuides","Unknown","Motion","Canvas","Embed","Calendar","Timeline","RecordForm","RecordTable"] as const
 export type ComponentName = (typeof COMPONENT_NAMES)[number]
-export const NATIVE_COMPONENTS = ["Box","List","Resizable","Text","Markdown","CodeBlock","Image","ZoomableImage","Icon","Video","AudioPlayer","Avatar","QrCode","Carousel","Tabs","Segmented","Accordion","Dialog","Drawer","Popover","Tooltip","Menu","Toast","Ring","Spinner","Skeleton","VoiceWave","Table","Chart","Button","Link","Toggle","Form","Input","Textarea","NumberField","Checkbox","Radio","ChoiceTiles","Switch","Slider","Select","SearchList","ChipInput","DatePicker","DateRangePicker","TimePicker","FileUpload","QrScanner","Composer","TreeGuides","Unknown","Motion","Canvas"] as const
-export const MACRO_COMPONENTS = ["Stack","Grid","Card","Window","Separator","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Heading","Kbd","Label","Mosaic","Collapsible","Trace","TraceItem","Plan","Pagination","Breadcrumb","Outline","Stepper","DockCard","AlertDialog","Badge","Alert","Chip","EmptyState","Progress","Meter","CallSurface","Sparkline","StatTile","FieldGroup","FormActions","SettingsRow","Rating","Row","Tree","MessageBubble","Calendar","Timeline","RecordForm","RecordTable"] as const
+export const NATIVE_COMPONENTS = ["Box","List","Resizable","Text","Markdown","CodeBlock","Image","ZoomableImage","Icon","Video","AudioPlayer","Avatar","QrCode","Carousel","Tabs","Segmented","Accordion","Dialog","Drawer","Popover","Tooltip","Menu","Toast","Ring","Spinner","Skeleton","VoiceWave","Table","Chart","Button","Link","Toggle","Form","Input","Textarea","NumberField","Checkbox","Radio","ChoiceTiles","Switch","Slider","Select","SearchList","ChipInput","DatePicker","DateRangePicker","TimePicker","FileUpload","QrScanner","Composer","TreeGuides","Unknown","Motion","Canvas","Embed"] as const
+export const MACRO_COMPONENTS = ["Stack","Grid","Card","Window","Separator","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Heading","Kbd","KbdGroup","Label","Mosaic","Collapsible","Trace","TraceItem","Plan","Pagination","Breadcrumb","Outline","Stepper","DockCard","AlertDialog","Badge","Alert","Chip","EmptyState","Progress","Meter","CallSurface","Sparkline","StatTile","FieldGroup","FormActions","SettingsRow","Rating","KeyRecorder","Row","Tree","MessageBubble","Calendar","Timeline","RecordForm","RecordTable"] as const
 /** The core-lite subset (no overlays, media or Chart). */
-export const LITE_COMPONENTS = ["Box","Stack","Grid","Card","Window","Separator","List","Resizable","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Text","Heading","Markdown","CodeBlock","Kbd","Label","Icon","Avatar","Tabs","Segmented","Collapsible","Trace","TraceItem","Plan","Breadcrumb","Outline","Stepper","Badge","Alert","Chip","EmptyState","Progress","Meter","Ring","Skeleton","StatTile","Button","Link","Form","FieldGroup","FormActions","SettingsRow","Input","Textarea","NumberField","Checkbox","Switch","Rating","Select","SearchList","ChipInput","DatePicker","DateRangePicker","TimePicker","FileUpload","Composer","Row","Tree","MessageBubble","Motion","Canvas","Calendar","Timeline","RecordForm"] as const
-export const COMPONENT_GROUPS: Record<ComponentName, string> = {"Box":"layout","Stack":"layout","Grid":"layout","Card":"layout","Window":"layout","Separator":"layout","List":"layout","Resizable":"layout","ScrollArea":"layout","Sidebar":"layout","SplitView":"layout","AppBar":"layout","Page":"layout","Toolbar":"layout","Section":"list","Group":"list","Text":"text","Heading":"text","Markdown":"text","CodeBlock":"text","Kbd":"text","Label":"text","Image":"media","ZoomableImage":"media","Icon":"media","Video":"media","AudioPlayer":"media","Avatar":"media","QrCode":"media","Carousel":"media","Mosaic":"media","Tabs":"navigation","Segmented":"navigation","Accordion":"navigation","Collapsible":"navigation","Trace":"list","TraceItem":"list","Plan":"list","Pagination":"navigation","Breadcrumb":"navigation","Outline":"navigation","Stepper":"navigation","Dialog":"overlay","Drawer":"overlay","DockCard":"overlay","AlertDialog":"overlay","Popover":"overlay","Tooltip":"overlay","Menu":"overlay","Toast":"overlay","Badge":"feedback","Alert":"feedback","Chip":"feedback","EmptyState":"feedback","Progress":"feedback","Meter":"feedback","Ring":"feedback","Spinner":"feedback","Skeleton":"feedback","VoiceWave":"feedback","CallSurface":"media","Table":"data","Chart":"data","Sparkline":"data","StatTile":"data","Button":"action","Link":"action","Toggle":"action","Form":"input","FieldGroup":"input","FormActions":"input","SettingsRow":"input","Input":"input","Textarea":"input","NumberField":"input","Checkbox":"input","Radio":"input","ChoiceTiles":"input","Switch":"input","Slider":"input","Rating":"input","Select":"input","SearchList":"input","ChipInput":"input","DatePicker":"input","DateRangePicker":"input","TimePicker":"input","FileUpload":"input","QrScanner":"input","Composer":"input","Row":"list","Tree":"list","MessageBubble":"list","TreeGuides":"list","Unknown":"feedback","Motion":"media","Canvas":"media","Calendar":"data","Timeline":"data","RecordForm":"data","RecordTable":"data"}
+export const LITE_COMPONENTS = ["Box","Stack","Grid","Card","Window","Separator","List","Resizable","ScrollArea","Sidebar","SplitView","AppBar","Page","Toolbar","Section","Group","Text","Heading","Markdown","CodeBlock","Kbd","KbdGroup","Label","Icon","Avatar","Tabs","Segmented","Collapsible","Trace","TraceItem","Plan","Breadcrumb","Outline","Stepper","Badge","Alert","Chip","EmptyState","Progress","Meter","Ring","Skeleton","StatTile","Button","Link","Form","FieldGroup","FormActions","SettingsRow","Input","Textarea","NumberField","Checkbox","Switch","Rating","Select","SearchList","ChipInput","DatePicker","DateRangePicker","TimePicker","FileUpload","Composer","Row","Tree","MessageBubble","Motion","Canvas","Calendar","Timeline","RecordForm"] as const
+export const COMPONENT_GROUPS: Record<ComponentName, string> = {"Box":"layout","Stack":"layout","Grid":"layout","Card":"layout","Window":"layout","Separator":"layout","List":"layout","Resizable":"layout","ScrollArea":"layout","Sidebar":"layout","SplitView":"layout","AppBar":"layout","Page":"layout","Toolbar":"layout","Section":"list","Group":"list","Text":"text","Heading":"text","Markdown":"text","CodeBlock":"text","Kbd":"text","KbdGroup":"text","Label":"text","Image":"media","ZoomableImage":"media","Icon":"media","Video":"media","AudioPlayer":"media","Avatar":"media","QrCode":"media","Carousel":"media","Mosaic":"media","Tabs":"navigation","Segmented":"navigation","Accordion":"navigation","Collapsible":"navigation","Trace":"list","TraceItem":"list","Plan":"list","Pagination":"navigation","Breadcrumb":"navigation","Outline":"navigation","Stepper":"navigation","Dialog":"overlay","Drawer":"overlay","DockCard":"overlay","AlertDialog":"overlay","Popover":"overlay","Tooltip":"overlay","Menu":"overlay","Toast":"overlay","Badge":"feedback","Alert":"feedback","Chip":"feedback","EmptyState":"feedback","Progress":"feedback","Meter":"feedback","Ring":"feedback","Spinner":"feedback","Skeleton":"feedback","VoiceWave":"feedback","CallSurface":"media","Table":"data","Chart":"data","Sparkline":"data","StatTile":"data","Button":"action","Link":"action","Toggle":"action","Form":"input","FieldGroup":"input","FormActions":"input","SettingsRow":"input","Input":"input","Textarea":"input","NumberField":"input","Checkbox":"input","Radio":"input","ChoiceTiles":"input","Switch":"input","Slider":"input","Rating":"input","Select":"input","SearchList":"input","ChipInput":"input","KeyRecorder":"input","DatePicker":"input","DateRangePicker":"input","TimePicker":"input","FileUpload":"input","QrScanner":"input","Composer":"input","Row":"list","Tree":"list","MessageBubble":"list","TreeGuides":"list","Unknown":"feedback","Motion":"media","Canvas":"media","Embed":"layout","Calendar":"data","Timeline":"data","RecordForm":"data","RecordTable":"data"}
 /** The specimen id each component has on ui.exponential.at (`exponential-ui-<kebab name>`, derived so the bundles carry no table, VAPP-289). */
 export const SPECIMEN_IDS = Object.fromEntries(COMPONENT_NAMES.map((n) => [n, `exponential-ui-${n.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()}`])) as Record<ComponentName, string>
 
@@ -42,6 +42,7 @@ export const ENUMS = {
   validateOn: ["change","blur","submit"],
   alertType: ["info","success","warning","error"],
   controlSize: ["sm","default","lg"],
+  avatarSize: ["sm","default","lg","xl"],
   spinnerSize: ["xs","sm","default","lg"],
   tabClosable: ["none","hover","always"],
   tabsVariant: ["pill","strip"],
@@ -85,6 +86,8 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
+  selectTrigger: ["field","row"],
+  inputVariant: ["field","row"],
 } as const
 export type VariantValue = (typeof ENUMS)["variant"][number]
 export type SizeValue = (typeof ENUMS)["size"][number]
@@ -102,6 +105,7 @@ export type InputTypeValue = (typeof ENUMS)["inputType"][number]
 export type ValidateOnValue = (typeof ENUMS)["validateOn"][number]
 export type AlertTypeValue = (typeof ENUMS)["alertType"][number]
 export type ControlSizeValue = (typeof ENUMS)["controlSize"][number]
+export type AvatarSizeValue = (typeof ENUMS)["avatarSize"][number]
 export type SpinnerSizeValue = (typeof ENUMS)["spinnerSize"][number]
 export type TabClosableValue = (typeof ENUMS)["tabClosable"][number]
 export type TabsVariantValue = (typeof ENUMS)["tabsVariant"][number]
@@ -145,18 +149,20 @@ export type MotionDirectionValue = (typeof ENUMS)["motionDirection"][number]
 export type MotionFitValue = (typeof ENUMS)["motionFit"][number]
 export type CalendarViewValue = (typeof ENUMS)["calendarView"][number]
 export type StepperCollapseValue = (typeof ENUMS)["stepperCollapse"][number]
+export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
+export type InputVariantValue = (typeof ENUMS)["inputVariant"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],
   "type.lineHeight": ["xs","sm","base","lg","xl","xl2","xl3"],
   "type.weight": ["regular","medium","semibold","bold"],
   "type.family": ["sans","mono","serif"],
-  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast"],
-  "shadow": ["none","sm","md","lg","xl"],
+  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl"],
+  "shadow": ["none","sm","md","lg","xl","popover"],
   "opacity": ["primary","secondary","tertiary","quaternary","disabled"],
   "border": ["none","hairline","thick"],
   "motion": ["fast","standard","slow"],
@@ -194,7 +200,7 @@ export interface Shapes {
   valueFormat: { type?: "number" | "currency" | "percent" | "compact"; currency?: string; decimals?: number }
   pageItem: { title?: string }
   step: { label: string; description?: string }
-  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean }
+  column: { key: string; label: string; type?: CellTypeValue; slot?: string; width?: number; align?: "start" | "center" | "end"; sortable?: boolean; currency?: string; decimals?: number; truncate?: boolean; format?: string }
   sort: { key: string; direction: SortDirectionValue }
   panel: { min?: number; max?: number; collapsible?: boolean }
   file: { name: string; size?: number; type?: string; url?: string }
@@ -227,17 +233,18 @@ export interface ComponentProps {
   Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }
   Kbd: { keys: string }
+  KbdGroup: { keys: string[] | Dynamic }
   Label: { text: string | Dynamic; for?: string; required?: boolean }
   Image: { src?: string | Dynamic; alt: string | Dynamic; fit?: ImageFitValue; width?: number; height?: number; aspectRatio?: number; fallback?: IconName; loading?: ImageLoadingValue; focalX?: number; focalY?: number; style?: Style }
   ZoomableImage: { src: string | Dynamic; alt: string | Dynamic; naturalWidth?: number; naturalHeight?: number; initial?: ZoomInitialValue; maxScale?: number; controls?: ZoomControlsValue; scale?: number | Dynamic; style?: Style }
   Icon: { name: IconName | Dynamic; size?: ControlSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
   AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
-  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: ControlSizeValue; seed?: string }
+  Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: AvatarSizeValue; seed?: string | Dynamic }
   QrCode: { value: string | Dynamic; size?: number; level?: QrLevelValue; label?: string }
   Carousel: { page?: number | Dynamic; loop?: boolean; indicators?: boolean; counter?: boolean; thumbnails?: string[] }
   Mosaic: { pictures: Shapes["picture"][]; label?: string }
-  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean }
+  Tabs: { tabs: Shapes["tab"][]; value?: string | Dynamic; variant?: TabsVariantValue; fill?: boolean; closable?: TabClosableValue; addable?: boolean; swipeable?: boolean }
   Segmented: { items: Shapes["option"][]; type?: GroupTypeValue; value?: string | Dynamic; variant?: SegmentedVariantValue; size?: ControlSizeValue; fill?: boolean; orientation?: OrientationValue }
   Accordion: { items: Shapes["accordionItem"][]; type?: GroupTypeValue; value?: string | Dynamic }
   Collapsible: { title: string; open?: boolean | Dynamic; count?: number }
@@ -266,8 +273,8 @@ export interface ComponentProps {
   Spinner: { size?: SpinnerSizeValue; label?: string }
   Skeleton: { width?: string; height?: string; rounded?: boolean; rows?: number; rowHeight?: number; dot?: boolean }
   VoiceWave: { activity?: VoiceWaveActivityValue | Dynamic; variant?: VoiceWaveVariantValue; level?: number | Dynamic; bands?: number[] | Dynamic; size?: VoiceWaveSizeValue; label?: string }
-  CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
-  Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean }
+  CallSurface: { name: string | Dynamic; avatar?: string | Dynamic; seed?: string | Dynamic; state?: CallStateValue | Dynamic; activity?: VoiceWaveActivityValue | Dynamic; level?: number | Dynamic; bands?: number[] | Dynamic; status?: string | Dynamic; caption?: string | Dynamic; muted?: boolean | Dynamic; speaker?: boolean | Dynamic }
+  Table: { columns: Shapes["column"][]; rows: Record<string, unknown>[] | Dynamic; rowKey?: string; sort?: Shapes["sort"] | Dynamic; selectable?: SelectableValue; selected?: string[] | Dynamic; caption?: string; emptyText?: string; striped?: boolean; density?: DensityValue; stickyHeader?: boolean; totals?: boolean }
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; rows?: Record<string, unknown>[] | Dynamic; categoryField?: string; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; valueFormat?: Shapes["valueFormat"]; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
   StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic; pressable?: boolean }
@@ -278,7 +285,7 @@ export interface ComponentProps {
   FieldGroup: { columns?: number }
   FormActions: { submit: string | Dynamic; cancel?: boolean; destructive?: boolean }
   SettingsRow: { label: string | Dynamic; description?: string | Dynamic; stackBelow?: CollapseBelowValue }
-  Input: { label: string; name: string; type?: InputTypeValue; placeholder?: string; value?: string | Dynamic; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Input: { label: string; name: string; type?: InputTypeValue; placeholder?: string; value?: string | Dynamic; variant?: InputVariantValue; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   Textarea: { label: string; name: string; placeholder?: string; rows?: number; autosize?: boolean; maxRows?: number; value?: string | Dynamic; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   NumberField: { label: string; name: string; value?: number | Dynamic; min?: number; max?: number; step?: number; precision?: number; unit?: string; placeholder?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   Checkbox: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; indeterminate?: boolean | Dynamic; disabled?: boolean; checks?: Shapes["check"][] }
@@ -287,15 +294,16 @@ export interface ComponentProps {
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic; icon?: IconName; endLabel?: string | Dynamic; showValue?: boolean }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
-  Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Select: { label?: string; description?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
+  KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }
   DatePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number; inline?: boolean; marks?: Shapes["dateMark"][]; today?: string }
   DateRangePicker: { label?: string; name: string; start?: string | Dynamic; end?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number }
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   QrScanner: { hint?: string | Dynamic; formats?: string[]; label?: string; disabled?: boolean }
-  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean }
+  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; menuKeys?: boolean | Dynamic }
   Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
   MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }
@@ -303,10 +311,11 @@ export interface ComponentProps {
   Unknown: { component: string; catalogId?: string }
   Motion: { layers?: Record<string, unknown>[]; size?: number[]; duration?: number; fps?: number; assets?: Record<string, unknown>; markers?: Record<string, unknown>[]; lottie?: Record<string, unknown>; src?: string; autoplay?: boolean; loop?: boolean; plays?: number; direction?: MotionDirectionValue; speed?: number; segment?: number[]; marker?: string; progress?: number | Dynamic; play?: boolean | Dynamic; poster?: number; fit?: MotionFitValue; slots?: Record<string, unknown>; stateMachine?: Record<string, unknown>; inputs?: Record<string, unknown> | Dynamic; label?: string; style?: Style }
   Canvas: { size: number[]; shapes: Record<string, unknown>[] | Dynamic; fit?: MotionFitValue; label?: string; pointer?: boolean; style?: Style }
+  Embed: { surface: Record<string, unknown> | Dynamic }
   Calendar: { source?: string; view?: CalendarViewValue; labelField?: string; detailField?: string; metaField?: string; style?: Style }
   Timeline: { source?: string; labelField?: string; rowTitle?: string; showCount?: boolean; style?: Style }
   RecordForm: { kind: string; recordId?: string | Dynamic; submitLabel?: string; readOnly?: boolean; cancel?: boolean; path?: string; fields?: Record<string, unknown>[]; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic }
-  RecordTable: { kind: string; query?: string; columns?: string[]; add?: boolean; editable?: boolean; title?: string; cols?: Shapes["column"][]; rows?: Record<string, unknown>[] | Dynamic; count?: string | Dynamic; loading?: boolean | Dynamic; fields?: Record<string, unknown>[]; path?: string; editorOpen?: boolean | Dynamic; editorId?: string | Dynamic; deleteOpen?: boolean | Dynamic; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic }
+  RecordTable: { kind: string; query?: string; columns?: unknown[]; search?: boolean; filter?: string; totals?: boolean; add?: boolean; editable?: boolean; title?: string; cols?: Shapes["column"][]; rows?: Record<string, unknown>[] | Dynamic; count?: string | Dynamic; loading?: boolean | Dynamic; fields?: Record<string, unknown>[]; path?: string; editorOpen?: boolean | Dynamic; editorId?: string | Dynamic; deleteOpen?: boolean | Dynamic; missing?: boolean; error?: string | Dynamic; author?: string | Dynamic; authorOptions?: Shapes["option"][] | Dynamic; searchValue?: string | Dynamic; filterValue?: string | Dynamic; filterLabel?: string; filterOptions?: Shapes["option"][] }
 }
 
 /** A2UI basic component → core component. */

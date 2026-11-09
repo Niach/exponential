@@ -24,3 +24,41 @@ export function avatarHueIndex(userId: string | null | undefined): number {
   }
   return hash % AVATAR_HUE_COUNT
 }
+
+// #EXP-1629 (fixtures/avatar.json): the palette itself, for a painter that
+// has no `--avatar-N` vars (the eUI natives), in the hash's order.
+export const AVATAR_PALETTE = [`#F87171`, `#FB923C`, `#FACC15`, `#4ADE80`, `#2DD4BF`, `#60A5FA`, `#A78BFA`, `#F472B6`] as const
+
+/** The hue's alpha in the fallback's fill. */
+export const AVATAR_FILL_ALPHA = 0.2
+
+/** The cross-client initials rule (fixtures/avatar.json `initials`): an
+ *  email reduces to its local part, the rest splits on space . _ - +; two or
+ *  more parts give their first letters, one part its first two characters;
+ *  uppercased; nothing is `?`. */
+export function avatarInitials(label: string | null | undefined): string {
+  const base = (label ?? ``).trim()
+  const at = base.indexOf(`@`)
+  const local = at >= 0 ? base.slice(0, at) : base
+  const parts = local.split(/[ ._\-+]/).filter((part) => part.trim() !== ``)
+  const picked = parts.length >= 2
+    ? [...parts[0]!].slice(0, 1).join(``) + [...parts[1]!].slice(0, 1).join(``)
+    : [...local].slice(0, 2).join(``)
+  return picked === `` ? `?` : picked.toUpperCase()
+}
+
+/** #EXP-1754 (fixtures/avatar.json `keys`): what an avatar's hue is keyed
+ *  on: the person's id, else their name, else their email (trimmed; blank
+ *  counts as absent). `undefined` = no key: the muted fallback. */
+export function avatarHueKey(
+  id: string | null | undefined,
+  name?: string | null,
+  email?: string | null
+): string | undefined {
+  if (id && id.trim() !== ``) return id
+  for (const label of [name, email]) {
+    const trimmed = (label ?? ``).trim()
+    if (trimmed !== ``) return trimmed
+  }
+  return undefined
+}
