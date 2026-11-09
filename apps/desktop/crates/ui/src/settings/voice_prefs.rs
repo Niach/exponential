@@ -42,7 +42,7 @@ use etalk::voice::{
 
 use etalk::meeting::{app_options, apps_value, desktop_audio_options, AudioApp, DesktopAudio, DesktopAudioCapability, MEETING};
 
-use super::doc::{and, eq, faded, hex, mount, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, VALUE_ALPHA, XS};
+use super::doc::{and, faded, hex, mount, not, path, skeleton, IdeToasts, Ink, HINT_ALPHA, SM, VALUE_ALPHA, XS};
 use crate::queries;
 
 /// The member's agents (every team's), by id: the pickers' options and the
@@ -179,7 +179,7 @@ pub(crate) fn wake_placeholder(settings: &VoiceSettings, agents: &[VoiceAgent]) 
 const PATH: &str = "/pane";
 
 /// A picker's value for None (a menu item's value is a string).
-const NONE: &str = "";
+const NONE: &str = "none";
 
 enum Load {
     Idle,
@@ -245,7 +245,7 @@ struct Options {
 }
 
 fn pairs(list: &[VoiceOption]) -> Vec<(String, String)> {
-    list.iter().map(|option| (option.id.clone().unwrap_or_default(), option.label.clone())).collect()
+    list.iter().map(|option| (option.id.clone().unwrap_or_else(|| NONE.to_string()), option.label.clone())).collect()
 }
 
 fn choices(state: &Voice, cx: &App) -> (Vec<VoiceOption>, Vec<VoiceOption>, Vec<VoiceAgent>) {
@@ -327,12 +327,8 @@ fn project(state: &Voice, cx: &App) -> Value {
             .unwrap_or_default();
         let keys = shortcut_keycaps(&settings.ptt_shortcut);
         let meeting_on = settings.meeting();
-        let (capability, live_apps) = audio(state, settings, cx);
+        let (capability, _) = audio(state, settings, cx);
         let apps_shown = settings.desktop_audio.picks_apps() && desktop_audio_options(capability).contains(&settings.desktop_audio);
-        let apps_on: Vec<bool> = app_options(&live_apps, &settings.desktop_audio_apps)
-            .iter()
-            .map(|option| settings.desktop_audio_apps.iter().any(|app| app.id == option.value))
-            .collect();
         let hours = settings.auto_stop_hours();
         tray = json!({
             "header": tray_header(device_name),
@@ -359,7 +355,7 @@ fn project(state: &Voice, cx: &App) -> Value {
             },
             "autoStop": {"value": hours.to_string(), "label": etalk::meeting::auto_stop_option(hours), "disabled": !ready},
             "desktopAudio": {"value": settings.desktop_audio.key(), "label": settings.desktop_audio.label()},
-            "apps": {"shown": apps_shown, "label": apps_value(&settings.desktop_audio_apps), "on": apps_on, "empty": settings.desktop_audio_apps.is_empty(), "some": !settings.desktop_audio_apps.is_empty()},
+            "apps": {"shown": apps_shown, "value": settings.desktop_audio_apps.iter().map(|app| app.id.as_str()).collect::<Vec<_>>().join(",")},
             "wakeInvalid": state.wake_phrase_invalid,
             "hasWakeInvalid": state.wake_phrase_invalid.is_some(),
         });
@@ -372,8 +368,8 @@ fn project(state: &Voice, cx: &App) -> Value {
         // #NEW-96: a device row not (yet) synced leaves the value empty, as
         // web's picker row does (never `…`); web's agent picker trails nothing
         // for an agent not synced here.
-        "device": {"value": settings.voice_device_id.clone().unwrap_or_default(), "label": label_of(&devices, settings.voice_device_id.as_deref(), "")},
-        "agent": {"value": settings.agent_id.clone().unwrap_or_default(), "label": label_of(&agents, settings.agent_id.as_deref(), "")},
+        "device": {"value": settings.voice_device_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&devices, settings.voice_device_id.as_deref(), "")},
+        "agent": {"value": settings.agent_id.clone().unwrap_or_else(|| NONE.to_string()), "label": label_of(&agents, settings.agent_id.as_deref(), "")},
         "language": {"value": language, "label": language_label(&language, device_name.as_deref()), "detail": downloading, "hint": downloading.is_some()},
         "fields": {"wakePhrase": settings.wake_phrase, "voiceFile": settings.voice_file, "voiceTranscript": settings.voice_transcript},
         "hasTray": !tray.is_null(),
@@ -415,8 +411,22 @@ fn control_column(id: &str, children: Vec<Value>) -> Value {
     json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": children})
 }
 
-fn menu_items(list: &[(String, String)], value: &str) -> Vec<Value> {
-    list.iter().map(|(id, label)| json!({"label": label, "value": id, "kind": "checkbox", "checked": eq(path(value), json!(id))})).collect()
+/// A row's Select options.
+fn select_options(list: &[(String, String)]) -> Vec<Value> {
+    list.iter().map(|(value, label)| json!({"label": label, "value": value})).collect()
+}
+
+/// The hinted row's Menu entries: plain items, so a pick closes it.
+fn menu_items(list: &[(String, String)]) -> Vec<Value> {
+    list.iter().map(|(value, label)| json!({"label": label, "value": value})).collect()
+}
+
+/// A picker row (`glass_picker_row` + the IDE's Picker popup): genUI's
+/// `Select` with the `row` trigger; a pick closes it (`multiple` stays open).
+fn select_row(id: &str, visible: Value, label: &str, value: Value, action: &str, options: &[(String, String)], disabled: bool) -> Value {
+    json!({"id": id, "component": "Select", "visible": visible,
+        "props": {"triggerVariant": "row", "label": label, "name": id, "value": value, "options": select_options(options), "disabled": disabled},
+        "on": {"change": {"event": {"name": action}}}})
 }
 
 /// A picker row's trigger: the value at 70% (40% while `dim`) with its
@@ -452,17 +462,20 @@ fn hint_pick(base: &str, hint: bool) -> Value {
     }
 }
 
-/// One picker row, drawn once per hint variant (and per `dim` state).
+/// One picker row: a Select row, and (while `<base>/hint`) the IDE row
+/// with its hint line under the label, which a Select row has no part for.
 #[allow(clippy::too_many_arguments)]
-fn picker_rows(ink: &Ink, id: &str, visible: Value, label: &str, base: &str, action: &str, items: Vec<Value>, dim: Option<Value>) -> Vec<Value> {
+fn picker_rows(ink: &Ink, id: &str, visible: Value, label: &str, base: &str, action: &str, options: &[(String, String)], dim: Option<Value>) -> Vec<Value> {
+    let items = menu_items(options);
     let variants: Vec<(String, Value, bool)> = match &dim {
         Some(disabled) => vec![(id.to_string(), not(disabled.clone()), false), (format!("{id}_dim"), disabled.clone(), true)],
         None => vec![(id.to_string(), json!(true), false)],
     };
     let mut rows = Vec::new();
     for (vid, shown, dim) in variants {
-        for hint in [false, true] {
-            let rid = if hint { format!("{vid}_hinted") } else { vid.clone() };
+        rows.push(select_row(&vid, and(visible.clone(), and(shown.clone(), hint_pick(base, false))), label, path(&format!("{base}/value")), action, options, dim));
+        for hint in [true] {
+            let rid = format!("{vid}_hinted");
             let column = label_column(ink, &format!("{rid}_text"), label, hint.then(|| path(&format!("{base}/detail"))), false);
             let trigger = picker_trigger(ink, &rid, path(&format!("{base}/label")), action, items.clone(), dim);
             rows.push(ink.shell(&rid, false, and(visible.clone(), and(shown.clone(), hint_pick(base, hint))), vec![column, control_column(&format!("{rid}_control"), vec![trigger])]));
@@ -471,18 +484,22 @@ fn picker_rows(ink: &Ink, id: &str, visible: Value, label: &str, base: &str, act
     rows
 }
 
-/// A switch row (`glass_toggle_row`), once per hint variant.
+/// A switch row (`glass_toggle_row`), once per hint variant and per
+/// `<base>/disabled` (a Switch's `disabled` is not bindable).
 fn switch_rows(ink: &Ink, id: &str, label: &str, base: &str, action: &str) -> Vec<Value> {
-    [false, true]
-        .into_iter()
-        .map(|hint| {
-            let rid = if hint { format!("{id}_hinted") } else { id.to_string() };
+    let mut rows = Vec::new();
+    for disabled in [false, true] {
+        for hint in [false, true] {
+            let rid = format!("{id}{}{}", if hint { "_hinted" } else { "" }, if disabled { "_off" } else { "" });
             let column = label_column(ink, &format!("{rid}_text"), label, hint.then(|| path(&format!("{base}/detail"))), true);
-            let switch = json!({"id": format!("{rid}_switch"), "component": "Switch", "props": {"label": "", "name": rid, "checked": path(&format!("{base}/checked")), "disabled": path(&format!("{base}/disabled"))},
+            let switch = json!({"id": format!("{rid}_switch"), "component": "Switch", "props": {"label": "", "name": rid, "checked": path(&format!("{base}/checked")), "disabled": disabled},
                 "on": {"change": {"event": {"name": action}}}});
-            ink.shell(&rid, false, hint_pick(base, hint), vec![column, switch])
-        })
-        .collect()
+            let off = path(&format!("{base}/disabled"));
+            let shown = and(hint_pick(base, hint), if disabled { off } else { not(off) });
+            rows.push(ink.shell(&rid, false, shown, vec![column, switch]));
+        }
+    }
+    rows
 }
 
 /// A text-field row (`glass_input_row`): genUI's row Input (the label
@@ -571,9 +588,9 @@ fn document(inks: &Inks, options: &Options) -> Value {
     let pickers = path("/pane/pickers");
     let tray = path("/pane/hasTray");
 
-    let device = picker_rows(ink, "device", pickers.clone(), &copy.voice_device, "/pane/device", "device", menu_items(&options.devices, "/pane/device/value"), None);
-    let agent = picker_rows(ink, "agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", menu_items(&options.agents, "/pane/agent/value"), None);
-    let language = picker_rows(ink, "language", json!(true), &copy.language, "/pane/language", "language", menu_items(&options.languages, "/pane/language/value"), None);
+    let device = picker_rows(ink, "device", pickers.clone(), &copy.voice_device, "/pane/device", "device", &&options.devices, None);
+    let agent = picker_rows(ink, "agent", pickers.clone(), &copy.agent, "/pane/agent", "agent", &&options.agents, None);
+    let language = picker_rows(ink, "language", json!(true), &copy.language, "/pane/language", "language", &&options.languages, None);
     let first = group(ink, "first", path("/pane/ready"), vec![
         (device, None),
         (agent, Some(pickers.clone())),
@@ -595,35 +612,15 @@ fn document(inks: &Inks, options: &Options) -> Value {
     // #NEW-56: the too-short wake phrase's line, under the tray group (`px_1`).
     let invalid = field_error(inks, "wake_invalid", path("/pane/tray/wakeInvalid"), and(tray.clone(), path("/pane/tray/hasWakeInvalid")), (ink.r(0.25), 0.));
 
-    // #NEW-57: the Apps row's multi pick: each item toggles one app.
-    let apps_items: Vec<Value> = options
-        .apps
-        .iter()
-        .enumerate()
-        .map(|(ix, (id, label))| json!({"label": label, "value": id, "kind": "checkbox", "checked": path(&format!("/pane/tray/apps/on/{ix}"))}))
-        .collect();
-    let apps_value = |empty: bool| {
-        let mut menu = picker_trigger(ink, if empty { "apps_empty" } else { "apps" }, path("/pane/tray/apps/label"), "app", apps_items.clone(), false);
-        if empty {
-            // The trigger reads muted while no app is picked.
-            let text = &mut menu["children"][0]["children"][0]["style"];
-            text["color"] = json!(ink.muted);
-            text["opacity"] = json!(1);
-            let glyph = &mut menu["children"][0]["children"][1]["style"];
-            glyph["color"] = json!(ink.muted);
-            glyph["opacity"] = json!(1);
-        }
-        menu["visible"] = path(if empty { "/pane/tray/apps/empty" } else { "/pane/tray/apps/some" });
-        menu
-    };
-    let apps = ink.shell("apps", false, path("/pane/tray/apps/shown"), vec![
-        label_column(ink, "apps_text", &words.apps, None, false),
-        control_column("apps_control", vec![apps_value(false), apps_value(true)]),
-    ]);
+    // #NEW-57: the Apps row: a multiple Select row (it stays open while
+    // apps are toggled), "None" muted while no app is picked.
+    let mut apps = select_row("apps", path("/pane/tray/apps/shown"), &words.apps, path("/pane/tray/apps/value"), "app", &options.apps, false);
+    apps["props"]["multiple"] = json!(true);
+    apps["props"]["placeholder"] = json!(apps_value(&[]));
     let meeting = group(ink, "meeting", tray.clone(), vec![
         (switch_rows(ink, "meeting", &words.meeting, "/pane/tray/meeting", "meeting"), None),
-        (picker_rows(ink, "auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", menu_items(&options.auto_stop, "/pane/tray/autoStop/value"), Some(path("/pane/tray/autoStop/disabled"))), Some(json!(true))),
-        (picker_rows(ink, "desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", menu_items(&options.desktop_audio, "/pane/tray/desktopAudio/value"), None), Some(json!(true))),
+        (picker_rows(ink, "auto_stop", json!(true), &words.auto_stop_after, "/pane/tray/autoStop", "autoStop", &&options.auto_stop, Some(path("/pane/tray/autoStop/disabled"))), Some(json!(true))),
+        (picker_rows(ink, "desktop_audio", json!(true), &words.desktop_audio, "/pane/tray/desktopAudio", "desktopAudio", &&options.desktop_audio, None), Some(json!(true))),
         (vec![apps], Some(path("/pane/tray/apps/shown"))),
     ]);
 
@@ -900,17 +897,11 @@ fn wire(binding: &mut Binding<Voice>, me: WeakEntity<Binding<Voice>>) {
     });
     let me_app = me.clone();
     binding.on_action("app", move |state, event, cx| {
-        let id = selected(event)?;
+        // The Select's value: the picked ids, comma-joined.
+        let ids: Vec<String> = selected(event)?.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
         let settings = state.ready()?;
         let (_, live) = audio(state, settings, cx);
         let options = app_options(&live, &settings.desktop_audio_apps);
-        let mut ids: Vec<String> = settings.desktop_audio_apps.iter().map(|app| app.id.clone()).collect();
-        match ids.iter().position(|existing| *existing == id) {
-            Some(at) => {
-                ids.remove(at);
-            }
-            None => ids.push(id),
-        }
         let apps: Vec<AudioApp> = ids
             .iter()
             .filter_map(|id| options.iter().find(|option| &option.value == id))
