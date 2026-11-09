@@ -712,6 +712,8 @@ pub struct GpuiMeasure<'a> {
     shaped: u64,
     /// Extension leaves measured before their kind was known.
     pub(crate) unknown_extensions: Vec<u32>,
+    /// #EDE-65: the host view's Embed children and how to make them.
+    embeds: Option<(&'a crate::view::embed::Embeds, &'a crate::view::embed::EmbedSpawn)>,
 }
 
 /// Content size and the first baseline from the CONTENT top.
@@ -730,7 +732,7 @@ impl<'a> GpuiMeasure<'a> {
         live: &'a HashMap<String, String>,
     ) -> Self {
         let identity = fonts.identity();
-        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
+        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, ceil_text: false, calls: 0, shaped: 0, unknown_extensions: Vec::new(), embeds: None }
     }
 
     /// Text widths round up to whole pixels like gpui's text element
@@ -739,6 +741,12 @@ impl<'a> GpuiMeasure<'a> {
     pub(crate) fn ceil_text(mut self, on: bool) -> Self {
         self.ceil_text = on;
         self.identity = if on { self.identity ^ 0x9e37_79b9_7f4a_7c15 } else { self.identity };
+        self
+    }
+
+    /// #EDE-65: measure Embed leaves as their nested surfaces (else 0 × 0).
+    pub(crate) fn embeds(mut self, embeds: &'a crate::view::embed::Embeds, spawn: &'a crate::view::embed::EmbedSpawn) -> Self {
+        self.embeds = Some((embeds, spawn));
         self
     }
 
@@ -1360,6 +1368,15 @@ impl<'a> GpuiMeasure<'a> {
     }
 
     fn answer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32, Option<f32>) {
+        // #EDE-65: an Embed is as wide as its slot and as tall as its
+        // nested surface at that width.
+        if leaf.component == "Embed" && leaf.part.is_none() {
+            self.calls += 1;
+            let Some((embeds, spawn)) = self.embeds else { return (0.0, 0.0, None) };
+            let surface = leaf.props.get("surface").cloned().unwrap_or(Value::Null);
+            let (w, h) = spawn.measure(embeds, leaf.id, &surface, wrap, self.window, self.cx);
+            return (w, h, None);
+        }
         if leaf.component == "Extension" {
             self.calls += 1;
             let (w, h) = self.extension(leaf, wrap).unwrap_or((0.0, 0.0));

@@ -12,6 +12,7 @@
 //! flex/grid layout. Scroll containers translate their descendants by the
 //! core's offsets; open layers paint above the tree as deferred elements.
 
+pub(crate) mod embed;
 mod events;
 mod input;
 mod key_recorder;
@@ -361,6 +362,8 @@ pub struct SurfaceView {
     fields: HashMap<String, Field>,
     /// EXP-1586: the ZoomableImage views by node id.
     zooms: HashMap<String, zoom::Zoom>,
+    /// #EDE-65: the Embeds' nested views by painted id (`view/embed.rs`).
+    embeds: embed::Embeds,
     /// EXP-1604: the Motion leaves by node id (player, clock, last image).
     motion_leaves: motion_leaf::MotionLeaves,
     /// Round 8: the Canvas leaves by node id (player, last image, pointer).
@@ -624,6 +627,7 @@ impl SurfaceView {
             focus_trigger: None,
             fields: HashMap::new(),
             zooms: HashMap::new(),
+            embeds: Rc::default(),
             motion_leaves: Default::default(),
             canvas_leaves: Default::default(),
             motion_background_pause: true,
@@ -1132,11 +1136,15 @@ impl SurfaceView {
         let mut changed: HashSet<u32> = HashSet::new();
         let mut tries = 0;
         let live = self.live_texts(cx);
+        // #EDE-65: the Embeds' children follow the host and report moves.
+        self.sync_embeds(window, cx);
+        let spawn = self.embed_spawn();
+        let embeds = self.embeds.clone();
         let out = loop {
             let (out, unknown) = if let Some(m) = self.measure_override.as_mut() {
                 (self.surface.layout(m.as_mut()), Vec::new())
             } else {
-                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap);
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live).ceil_text(snap).embeds(&embeds, &spawn);
                 let out = self.surface.layout(&mut m);
                 calls += m.calls();
                 (out, std::mem::take(&mut m.unknown_extensions))
@@ -1165,6 +1173,7 @@ impl SurfaceView {
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
         self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
+        self.prune_embeds();
         if self.surface.needs_flush() {
             let (host, surface_id) = (self.host.clone(), self.surface.id.clone());
             cx.defer(move |cx| host.after_layout(&surface_id, cx));
@@ -1611,7 +1620,7 @@ impl SurfaceView {
 
     /// The layout gpui asks for: a pass at `width` (the available width),
     /// answering the surface's size.
-    fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
+    pub(crate) fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
         match width.filter(|w| *w > 0.0 && w.is_finite()) {
             Some(w) => {
                 if !self.width_fixed && (w - self.width).abs() > 0.25 {

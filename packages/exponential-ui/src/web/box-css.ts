@@ -150,11 +150,11 @@ interface NodeChunk {
 
 /** VAPP-152: a node's rules, per node OBJECT (a re-reduced tree shares its
  *  unchanged nodes) and the inputs they depend on. */
-const chunkCache = new WeakMap<UiNode, { scope: string; theme: ResolvedTheme | undefined; fonts: Record<string, FontSpec>; chunk: NodeChunk }>()
+const chunkCache = new WeakMap<UiNode, { scope: string; theme: ResolvedTheme | undefined; fonts: Record<string, FontSpec>; fenced: boolean; chunk: NodeChunk }>()
 
-function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, theme: ResolvedTheme | undefined, fonts: Record<string, FontSpec>): NodeChunk {
+function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, theme: ResolvedTheme | undefined, fonts: Record<string, FontSpec>, fenced = false): NodeChunk {
   const hit = chunkCache.get(node)
-  if (hit && hit.scope === scope && hit.theme === theme && hit.fonts === fonts) return hit.chunk
+  if (hit && hit.scope === scope && hit.theme === theme && hit.fonts === fonts && hit.fenced === fenced) return hit.chunk
   const queries = new Set<string>()
   // The variables are numbered over the WHOLE style, so the authored rules
   // read the same `--xd-<n>` the element carries.
@@ -168,16 +168,16 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
   }
   const cls = nodeClass(node.id)
   const own = withVars(``, style)
-  let css = styleRules(style, own, withVars, scope, cls, theme, fonts, queries)
+  let css = styleRules(style, own, withVars, scope, cls, theme, fonts, queries, fenced)
   const authored = node.recipe?.authored
   if (authored?.length) {
     const picked: Record<string, unknown> = {}
     for (const key of authored) if (key in style) picked[key] = style[key]
-    const author = styleRules(picked, own, withVars, scope, cls, theme, fonts, queries)
+    const author = styleRules(picked, own, withVars, scope, cls, theme, fonts, queries, fenced)
     if (author) css += AUTHOR_SEP + author
   }
   const chunk = { css, queries: [...queries] }
-  chunkCache.set(node, { scope, theme, fonts, chunk })
+  chunkCache.set(node, { scope, theme, fonts, fenced, chunk })
   return chunk
 }
 
@@ -192,9 +192,13 @@ function styleRules(
   cls: string,
   theme: ResolvedTheme | undefined,
   fonts: Record<string, FontSpec>,
-  queries: Set<string>
+  queries: Set<string>,
+  fenced = false
 ): string {
-  const sel = `${scope} .${cls}`
+  // #EDE-65: a tree holding an Embed fences its rules at the nested surface
+  // (every surface root is `.xui-surface`), so a host node never styles a
+  // card's node that shares its id.
+  const sel = fenced ? `${scope} .${cls}:not(${scope} .xui-surface .${cls})` : `${scope} .${cls}`
   const rules: string[] = []
   let containerRule = ``
   const base = declarations(withVars(``, style), fonts, own)
@@ -270,12 +274,13 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
   const chunks = new Map<string, string>()
   const queries = new Set<string>()
   const seen = new Set<string>()
+  const fenced = roots.some((root) => [...walkNodes(root)].some((n) => n.component === `Embed`))
   for (const root of roots) {
     for (const node of walkNodes(root)) {
       const style = node.style
       if (!style || seen.has(node.id)) continue
       seen.add(node.id)
-      const chunk = nodeChunk(node, style, scope, theme, fonts)
+      const chunk = nodeChunk(node, style, scope, theme, fonts, fenced)
       if (chunk.css) chunks.set(node.id, chunk.css)
       for (const q of chunk.queries) queries.add(q)
     }

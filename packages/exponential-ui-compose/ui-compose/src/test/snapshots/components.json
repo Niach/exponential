@@ -12628,6 +12628,21 @@
       }
     ]
   },
+  "Embed\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Embed",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "embed"
+      }
+    ]
+  },
   "EmptyState\/example" : {
     "height" : 216,
     "nodes" : [

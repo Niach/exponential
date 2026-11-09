@@ -4842,6 +4842,22 @@
         "leave"
       ]
     },
+    "Embed": {
+      "kind": "native",
+      "group": "layout",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "surface": {
+          "type": "object",
+          "required": true,
+          "bindable": true
+        }
+      },
+      "events": [
+        "action"
+      ]
+    },
     "Calendar": {
       "kind": "macro",
       "group": "data",

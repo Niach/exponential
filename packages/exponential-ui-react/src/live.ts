@@ -31,7 +31,7 @@ export interface NodeDeps {
 /** The natives that read `ctx.mode` while painting (a recipe size or
  *  colour resolved in JS); every other node's look follows the root's
  *  `data-xui-mode` in CSS. */
-const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`, `VoiceWave`])
+const MODE_READERS = new Set([`Ring`, `Spinner`, `TreeGuides`, `Avatar`, `VoiceWave`, `Embed`])
 
 /** The client functions that read nothing but their arguments. */
 const PURE = new Set(Object.keys(CLIENT_FUNCTIONS).filter((name) => name !== `formatString`))
@@ -82,13 +82,21 @@ function mediaDirection(style: Record<string, unknown> | undefined): boolean {
   return false
 }
 
+/** #EDE-65: an Embed's `surface` is DATA (only a top-level binding reads
+ *  the host): the nested card's own bindings and calls are not the host's. */
+function ownProps(node: UiNode): Record<string, unknown> {
+  if (node.component !== `Embed`) return node.props
+  const { surface, ...rest } = node.props
+  return isBinding(surface) || isCall(surface) ? { ...rest, surface } : rest
+}
+
 export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue): NodeDeps {
   const paths: string[] = []
   // A host-painted component may read any live member itself.
   const hosted = extensionComponent(ctx.extensions, node.component) !== undefined
   const all =
     hosted ||
-    collect(node.props, scope, paths, ctx.functions) ||
+    collect(ownProps(node), scope, paths, ctx.functions) ||
     collect(node.visible, scope, paths, ctx.functions) ||
     collect(node.style, scope, paths, ctx.functions) ||
     collect(node.recipe?.props, scope, paths, ctx.functions) ||
