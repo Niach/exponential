@@ -431,12 +431,12 @@ jobs:
       # cached and its download retries every error.
       - uses: actions/cache@v4
         with:
-          path: ~/.cache/bundletool
+          path: ${{ runner.temp }}/bundletool
           key: bundletool-1.18.1
       - name: Bundle an app for Android
         working-directory: apps/desktop
         run: |
-          jar="$HOME/.cache/bundletool/bundletool-all-1.18.1.jar"
+          jar="$RUNNER_TEMP/bundletool/bundletool-all-1.18.1.jar"
           if [ ! -s "$jar" ]; then
             mkdir -p "$(dirname "$jar")"
             curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$jar.part" https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
