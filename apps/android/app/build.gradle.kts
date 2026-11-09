@@ -189,6 +189,10 @@ android {
         versionCode = 209
         versionName = "0.14.126"
 
+        // #LOGS-2: release CI mints one per build and uploads the R8 mapping
+        // under it (build-android.yml); empty = no mapping to name.
+        buildConfigField("String", "SENTRY_PROGUARD_UUID", "\"${releaseProp("SENTRY_PROGUARD_UUID").orEmpty()}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -331,6 +335,12 @@ dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.okhttp)
+    // #LOGS-2: crash/ANR/trace reporting through our backend (Observability.kt),
+    // native crashes via the NDK module, network spans on the shared OkHttp engine.
+    implementation(libs.sentry.android.core)
+    implementation(libs.sentry.android.ndk)
+    implementation(libs.sentry.android.navigation)
+    implementation(libs.sentry.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.auth)

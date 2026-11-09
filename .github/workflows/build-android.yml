@@ -129,6 +129,12 @@ jobs:
       # ONE production release APK + ONE production Play bundle (EXP-68) —
       # the debug and staging artifacts are gone from releases (a staging
       # build is a local `./gradlew :app:assembleStagingDebug` away when needed).
+      # #LOGS-2: one ProGuard UUID per release build: baked into the app
+      # (BuildConfig.SENTRY_PROGUARD_UUID, sent with every event) and named
+      # on the mapping upload below, so GlitchTip retraces R8 frames.
+      - name: Mint ProGuard UUID
+        run: echo "SENTRY_PROGUARD_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z')" >> "$GITHUB_ENV"
+
       - name: Build release APK + Play bundle
         working-directory: apps/android
         # Signed when the RELEASE_* / ANDROID_KEYSTORE_B64 secrets are present,
@@ -140,6 +146,50 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew :app:assembleProductionRelease :app:bundleProductionRelease --no-daemon
+
+      # #LOGS-2: the R8 mapping + unstripped native libraries to GlitchTip
+      # (through Cloudflare Access). No token = skipped; a failed upload
+      # warns and never fails the release.
+      - name: Upload ProGuard mapping + native symbols to GlitchTip
+        env:
+          SENTRY_URL: https://glitchtip.exponential.at
+          SENTRY_ORG: exponential
+          SENTRY_PROJECT: android
+          SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SENTRY_CLI_VERSION: 2.58.6
+        run: |
+          set -uo pipefail
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "No GLITCHTIP_AUTH_TOKEN secret: skipping the mapping upload."
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) arch=x86_64 ;;
+            aarch64|arm64) arch=aarch64 ;;
+            *) echo "::warning::sentry-cli: unsupported arch $(uname -m)"; exit 0 ;;
+          esac
+          cli="$RUNNER_TEMP/sentry-cli"
+          if ! curl -fsSL -o "$cli" "https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/sentry-cli-Linux-${arch}"; then
+            echo "::warning::sentry-cli download failed: mapping not uploaded"
+            exit 0
+          fi
+          chmod +x "$cli"
+          headers=()
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            headers=(--header "CF-Access-Client-Id:${CF_ACCESS_CLIENT_ID}" --header "CF-Access-Client-Secret:${CF_ACCESS_CLIENT_SECRET}")
+          fi
+          mapping=apps/android/app/build/outputs/mapping/productionRelease/mapping.txt
+          if ! "$cli" "${headers[@]}" upload-proguard --uuid "$SENTRY_PROGUARD_UUID" "$mapping"; then
+            echo "::warning::GlitchTip ProGuard mapping upload failed"
+          fi
+          natives=apps/android/app/build/intermediates/merged_native_libs/productionRelease
+          if [ -d "$natives" ]; then
+            if ! "$cli" "${headers[@]}" debug-files upload --type elf "$natives"; then
+              echo "::warning::GlitchTip native symbol upload failed"
+            fi
+          fi
 
       - name: Collect artifacts
         env:

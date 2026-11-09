@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-android-diagnostics`,
+    date: `2026-11-09`,
+    title: `Android diagnostics, opt-out in Settings`,
+    summary: `Android sends crash, ANR and performance diagnostics only through our own servers, with your user id only; turn it off with Send diagnostics.`,
+    body: `- **Crash and performance diagnostics**: the Android app reports crashes, ANRs and performance through our own servers only, never straight to a third party, with your user id and nothing else, deleted after 30 days.
+- **Send diagnostics**: on by default, off in Settings → Account → Privacy, per device.`,
+  },
+  {
     id: `2026-11-09-desktop-diagnostics`,
     date: `2026-11-09`,
     title: `Send diagnostics, your choice`,
