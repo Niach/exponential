@@ -243,7 +243,8 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
     // The relay stub is what puts a device online: without it the desktop app,
     // the browser and the natives ALL photograph "no desktop online" states.
     // It used to widen the web lane only, which was a fail-safe bug.
-    test: /^apps\/web\/scripts\/screenshot-(desktop|prune-devices)\.ts$/,
+    // #EXP-1732: so are the stored replays it holds (the Chat tabs' journals).
+    test: /^apps\/web\/scripts\/(screenshot-(desktop|prune-devices)|lib\/demo-stored-journals)\.ts$/,
     platforms: [`web`, `web-mobile`, `desktop`],
     why: `the stand-in desktop every steering and launcher view needs online`,
   },

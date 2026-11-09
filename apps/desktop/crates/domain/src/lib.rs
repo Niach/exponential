@@ -197,6 +197,8 @@ pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;
 pub mod session_title;
+// #EXP-1732: THE session screen ×4 (tabs per kind, the gear, the beside rule), fixture-locked ×4.
+pub mod session_screen;
 // EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;
 // #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.

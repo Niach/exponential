@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.21.0 (2026-11-09)
+
 - #EXP-1629: `FfiVisual.background_clip` (`padding-box` = the background paints inside the border; `None` = under it).
 
 ## 0.20.0 (2026-11-08)

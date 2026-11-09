@@ -770,21 +770,6 @@ public struct SessionBanner: Equatable, Sendable {
     }
 }
 
-/// #EXP-1433 (session-chat.json `stripModeCases`): the strip between
-/// Conversation and Results. `chips` = at most one issue and no session (that
-/// issue keeps its chip); `group` = ONE icon tab for every issue and session,
-/// `count` of them, opening THE menu of their rows.
-public struct ChatStripMode: Equatable, Sendable {
-    public enum Mode: String, Sendable { case chips, group }
-    public let mode: Mode
-    public let count: Int
-
-    public init(mode: Mode, count: Int) {
-        self.mode = mode
-        self.count = count
-    }
-}
-
 /// EXP-1334: one row of a folded issue chip's subtree; `depth` is relative
 /// to the chip (its children = 1).
 public struct ChatTabNestedIssue: Equatable, Sendable {
@@ -1452,11 +1437,6 @@ public enum SessionTree {
         ]
         public static let xrefTestId = "chat-xref"
         public static let tabsTestId = "chat-tabs"
-        /// #EXP-1433: the strip's ONE group tab (its accessible name, testId,
-        /// and the open label's max width).
-        public static let stripGroup = "Issues and sessions"
-        public static let groupTestId = "chat-strip-group"
-        public static let stripGroupMaxWidth: Double = 160
         public static let conversationTestId = "chat-conversation"
         public static let composerTestId = "chat-composer"
         /// EXP-1306: the Guide's stack band.
@@ -1995,14 +1975,6 @@ public enum SessionTree {
             parent = all[current]?.parentId
         }
         return nil
-    }
-
-    // MARK: - #EXP-1433: the chat strip
-
-    /// `issues` = every issue of the tree, nested ones included; `sessions` =
-    /// every session under the root.
-    public static func chatStripMode(issues: Int, sessions: Int) -> ChatStripMode {
-        ChatStripMode(mode: issues <= 1 && sessions == 0 ? .chips : .group, count: issues + sessions)
     }
 
     private static func suggestionsRow(

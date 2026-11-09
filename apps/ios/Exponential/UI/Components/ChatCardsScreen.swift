@@ -84,7 +84,7 @@ struct ChatCardsScreen: View {
                     case "comment-call-card": commentCards
                     case "trace": traceSpecimens
                     case "code-block": codeBlockSpecimens
-                    case "chat-strip": ChatStripSpecimens()
+                    case "chat-strip": SessionTabsSpecimens()
                     case "ask-dock": AskDockSpecimens()
                     case "dock-card": DockCardSpecimens()
                     case "record-form-field-states": RecordFormFieldStatesSpecimen()
@@ -381,7 +381,7 @@ private struct PrRowSpecimens: View {
 /// desktop `session_row.rs`, row for row): THE SessionRow under the Running
 /// caption — the APP-5 tree (needs you, a working child, an idle grandchild),
 /// APP-14 working, an ended root; bold = unread, the first row lit. The lead
-/// is the session's run mark (`ChatSessionChipMark`, the card state).
+/// is the session's run mark (`ChatSessionMark`, the card state).
 private struct SessionRowSpecimens: View {
     private static let rows: [(identifier: String?, title: String, depth: Int, state: SessionState, unread: Bool)] = [
         ("APP-5", "Reduce cold start below 800 ms", 0, .needsYou, true),
@@ -403,7 +403,7 @@ private struct SessionRowSpecimens: View {
                     active: index == 0,
                     unread: row.unread
                 ) {
-                    ChatSessionChipMark(state: row.state)
+                    ChatSessionMark(state: row.state)
                 }
             }
         }
@@ -413,76 +413,61 @@ private struct SessionRowSpecimens: View {
     }
 }
 
-/// EXP-1334 / #EXP-1433: the chat header's never-scrolling strip
-/// (`sg_chat-strip`): one issue keeps its chip, a one-session chat's
-/// (NEW-6: no Conversation tab), more = ONE group tab (the count muted; an
-/// item of it open: active, its label), the group's Menu sheet (issues, a
-/// separator, the session tree), and THE chat composer's tool row (the +
-/// alone, S-3) and an agent chat's "+" rows.
-private struct ChatStripSpecimens: View {
-    private static let oneIssue: [ChatTab] = [
-        .add, .conversation,
-        .issue(issueId: "i14", identifier: "APP-14", nested: []),
-    ]
-
-    /// NEW-6 (N-1): a ONE-session chat — no Conversation tab; the
-    /// session's own work is the body (no chip of its own).
-    private static let single: [ChatTab] = [
-        .add,
-        .issue(issueId: "i14", identifier: "APP-14", nested: []),
-    ]
-
+/// #EXP-1732 (session-screen.json; the `chat-strip` entry, its id kept):
+/// THE session screen's header tabs (THE segmented control, each count muted
+/// after its label; an app's six scroll sideways), the Issues tab (THE issue
+/// rows led by the `+`, a sub-issue indented) and the Sessions tab (THE tree
+/// rows) over one tree, then THE chat composer's tool row (the + alone,
+/// S-3), the quick replies and an agent chat's "+" rows.
+private struct SessionTabsSpecimens: View {
     private static let folded: [ChatTab] = [
         .add, .conversation,
         .issue(issueId: "i14", identifier: "APP-14", nested: [
             ChatTabNestedIssue(issueId: "i16", identifier: "APP-16", depth: 1),
         ]),
         .issue(issueId: "i21", identifier: "APP-21", nested: []),
-        .issue(issueId: "i22", identifier: "APP-22", nested: []),
-        .issue(issueId: "i23", identifier: "APP-23", nested: []),
         .session(sessionId: "s1", name: "Chats impl", markState: .needsYou, nested: [
             ChatTabNestedSession(sessionId: "s2", name: "Web lane", markState: .working, depth: 1),
             ChatTabNestedSession(sessionId: "s3", name: "Android lane", markState: .needsYou, depth: 1),
             ChatTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .done, depth: 2),
         ]),
         .session(sessionId: "s5", name: "Docs", markState: .idle, nested: []),
-        .session(sessionId: "s6", name: "Review", markState: .done, nested: []),
     ]
 
-    /// #EXP-1562: waiting-cards.json chipCases[3] (a phone).
-    private static let waiting = WaitingCards.chips([
-        AskDock.Pending(id: "q1", kind: .question, text: "Ship it?", sessionName: nil, createdAt: 0),
-        AskDock.Pending(id: "p1", kind: .plan, text: "", sessionName: nil, createdAt: 1),
-    ], phone: true)
+    private static var items: ChatTreeItems { ChatTreeItems(tabs: folded) }
+
+    private static func screen(_ kind: SessionScreen.Kind, _ tab: SessionScreen.Tab) -> SessionScreen.Screen {
+        SessionScreen.screen(
+            kind: kind, requested: tab, open: nil,
+            counts: SessionScreen.Counts(issues: items.issues.count, sessions: items.sessions.count, results: 4)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            caption("One issue, no session: its chip stays")
-            strip(Self.oneIssue, selection: .conversation)
-            caption("One session (no child yet): no Conversation tab, the session's own work is the body")
-            strip(Self.single, selection: .session("root"))
-            caption("More: ONE group tab, the count muted")
-            strip(Self.folded, selection: .conversation)
-            caption("Cards waiting: ONE button after the Conversation tab")
-            strip(Self.folded, selection: .conversation, waiting: Self.waiting)
-            caption("Its Menu: one row per waiting card")
-            ChatWaitingSheet(chips: Self.waiting.chips) { _ in }
-                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
-            caption("A session open from the group: the tab is active and names it")
-            strip(Self.folded, selection: .session("s2"))
-            caption("An issue open from the group")
-            strip(Self.folded, selection: .issue("i16"))
-            caption("The group's Menu: issues, a separator, the session tree")
-            ChatStripGroupSheet(
-                group: ChatStripGroup(tabs: Self.folded),
+            caption("A chat: Chat · Issues · Sessions · Results, the counts muted")
+            tabs(Self.screen(.session, .chat))
+            caption("An agent: the same tabs, Sessions active")
+            tabs(Self.screen(.agent, .sessions))
+            caption("An app: six tabs scroll sideways")
+            tabs(Self.screen(.app, .preview))
+            caption("Issues: the + leads, a sub-issue indented")
+            ChatIssuesTab(
+                issues: Self.items.issues,
                 issueStatus: { id in
-                    let ids = ChatStripGroup(tabs: Self.folded).issues.map(\.issueId)
+                    let ids = Self.items.issues.map(\.issueId)
                     let key: IssueStatus = (ids.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
                     return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
                 },
-                shown: .session("s2")
-            ) { _ in }
-                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
+                onAdd: {},
+                onOpen: { _ in }
+            )
+            .frame(height: 200)
+            .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+            caption("Sessions: THE tree rows of every session under the root")
+            ChatSessionsTab(sessions: Self.items.sessions) { _ in }
+                .frame(height: 220)
+                .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
             caption("THE composer row: the + alone … the ring beside Send")
             composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
@@ -519,6 +504,11 @@ private struct ChatStripSpecimens: View {
         .accessibilityIdentifier("chat-strip-specimens")
     }
 
+    private func tabs(_ screen: SessionScreen.Screen) -> some View {
+        SessionScreenTabs(tabs: screen.tabs, selection: screen.active) { _ in }
+            .padding(.horizontal, -16)
+    }
+
     /// N-12: THE composer card's one tool row (`SessionComposerFooter`)
     /// beside the Send glyph, in the card's glass.
     private func composerRow() -> some View {
@@ -545,29 +535,6 @@ private struct ChatStripSpecimens: View {
         Text(text)
             .font(.caption)
             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-    }
-
-    private func strip(
-        _ tabs: [ChatTab], selection: ChatPage, waiting: WaitingCards.Chips? = nil
-    ) -> some View {
-        // The demo statuses (the web's and desktop's): in progress, backlog,
-        // by the chip's index among the issue chips.
-        let issueIds = tabs.compactMap { tab -> String? in
-            if case let .issue(issueId, _, _) = tab { return issueId }
-            return nil
-        }
-        return ChatStripTabs(
-            tabs: tabs,
-            selection: selection,
-            issueStatus: { id in
-                let key: IssueStatus = (issueIds.firstIndex(of: id) ?? 0) % 2 == 0 ? .inProgress : .backlog
-                return IssueStatusResolver.builtinFallbackTeam.first { $0.builtinKey == key }
-            },
-            onSelect: { _ in },
-            onAdd: {},
-            waiting: waiting
-        )
-            .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

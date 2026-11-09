@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-one-session-screen`,
+    date: `2026-11-09`,
+    title: `One screen for every chat`,
+    summary: `Chats, agents, the Assistant and app editors share one screen: Chat, Issues, Sessions and Results tabs with counts, settings behind the gear.`,
+    body: `- **One screen everywhere**: a chat, a team agent, the Assistant and an app's editor now open the same screen, with the avatar, the title and one status line on top.
+- **Tabs with counts**: Chat, Issues, Sessions and Results sit under the header with how many each holds; an app adds Preview, Data and Versions. The chip strip and the plan tab are gone: plans and questions stay in the chat.
+- **Side by side**: on a wide screen any other tab opens next to the chat, so you keep talking while you look at an issue, a session or the results.
+- **The gear**: an agent's, the Assistant's and an app's settings open from the gear in the header.`,
+  },
+  {
     id: `2026-11-09-faster-quieter-desktop`,
     date: `2026-11-09`,
     title: `A faster, quieter desktop app`,
