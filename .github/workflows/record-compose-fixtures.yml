@@ -59,6 +59,8 @@ name: record-compose-fixtures
 # the seeded avatars.
 # EXP-1629 (2026-11-09, #2441 after the KeyRecorder merge): re-recorded for
 # the new Kbd look and KbdGroup (`Kbd.png`, `KbdGroup.png`, `components.json`).
+# EXP-1629 (2026-11-09): re-recorded for the Select `row` trigger at the
+# IDE's metrics (40.82 px, 14 px padding, 12.25 type, 14 px chevron).
 on:
   workflow_dispatch: {}
   push:

@@ -11707,6 +11707,18 @@
             },
             {
               "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 40.82,
+                "paddingHorizontal": 14,
+                "gap": 3.5,
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            },
+            {
+              "when": {
                 "state": "hover",
                 "triggerVariant": "row"
               },
@@ -11730,6 +11742,15 @@
               },
               "style": {
                 "fontWeight": "$type.weight.regular"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
@@ -11918,6 +11939,15 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]
@@ -28816,6 +28846,18 @@
             },
             {
               "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "height": 40.82,
+                "paddingHorizontal": 14,
+                "gap": 3.5,
+                "fontSize": 12.25,
+                "lineHeight": 19.82
+              }
+            },
+            {
+              "when": {
                 "state": "hover",
                 "triggerVariant": "row"
               },
@@ -28839,6 +28881,15 @@
               },
               "style": {
                 "fontWeight": "$type.weight.regular"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
@@ -29027,6 +29078,15 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]
