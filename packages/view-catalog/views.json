@@ -2520,7 +2520,10 @@
           "kind": "screen",
           "value": "app:working-hours"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app",
@@ -2601,7 +2604,10 @@
           "kind": "screen",
           "value": "app:working-hours:data"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app-data",
@@ -2646,7 +2652,10 @@
           "kind": "screen",
           "value": "app:working-hours:versions"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
+        }
       },
       "ios": {
         "shot": "sg_app-versions",
@@ -7425,6 +7434,9 @@
         "drive": {
           "kind": "screen",
           "value": "agent:$agent"
+        },
+        "env": {
+          "EXP_DEV_WAIT_FEED": "1"
         }
       },
       "notes": {
