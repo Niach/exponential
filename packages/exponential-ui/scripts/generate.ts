@@ -884,12 +884,10 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   IconPicker: [
     { label: `value · color`, node: { id: `icon`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6` } } },
     { label: `empty`, node: { id: `icon-none`, component: `IconPicker`, props: {} } },
-    { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
   ],
   ColorPicker: [
     { label: `value`, node: { id: `color`, component: `ColorPicker`, props: { value: `#3b82f6` } } },
     { label: `empty`, node: { id: `color-none`, component: `ColorPicker`, props: {} } },
-    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 160 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
   ],
   // #VAPP-285: a repository: folders open and closed, a selected file, an
   // empty folder; then a lazy folder opened (its loading row).
@@ -984,6 +982,14 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-1760: the open grids, in a box tall enough for them (an extra:
+  // the wrapper keeps its own child).
+  IconPicker: [
+    { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
+  ],
+  ColorPicker: [
+    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 160 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
+  ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.

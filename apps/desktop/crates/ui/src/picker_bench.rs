@@ -59,7 +59,7 @@ fn eui_tree(which: Which, open: bool) -> Value {
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start"}, "children": [picker]})
 }
 
-fn eui_surface(which: Which, open: bool, window: &mut Window, cx: &mut gpui::App) -> Entity<SurfaceView> {
+fn eui_surface(tree: Value, window: &mut Window, cx: &mut gpui::App) -> Entity<SurfaceView> {
     let dark = cx.theme().is_dark();
     cx.new(|cx| {
         let options = SurfaceViewOptions {
@@ -71,7 +71,7 @@ fn eui_surface(which: Which, open: bool, window: &mut Window, cx: &mut gpui::App
             ..SurfaceViewOptions::default()
         };
         let mut view = SurfaceView::new(options, window, cx);
-        let tree: NestedNode = serde_json::from_value(eui_tree(which, open)).expect("the bench tree");
+        let tree: NestedNode = serde_json::from_value(tree).expect("the bench tree");
         let outcome = view.set_nested(tree, cx);
         assert!(outcome.issues.is_empty(), "{:?}", outcome.issues.iter().map(|i| &i.message).collect::<Vec<_>>());
         view
@@ -91,7 +91,7 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
     let handle = cx
         .open_window(size(px(WINDOW.0), px(WINDOW.1)), |window: &mut Window, cx| {
             let view: gpui::AnyView = if prefix == "ide" { cx.new(|_| IdeFrame { which }).into() } else {
-                let surface = eui_surface(which, open, window, cx);
+                let surface = eui_surface(eui_tree(which, open), window, cx);
                 eui = Some(surface.clone());
                 cx.new(|_| EuiFrame { surface }).into()
             };
@@ -208,4 +208,48 @@ fn picker_bench_color_closed() {
 #[ignore]
 fn picker_bench_color_open() {
     compare(Which::Color, true);
+}
+
+/// #EXP-1760: the PR's desktop picture: the catalog specimen (a pick, none,
+/// the open grid) painted by the gpui painter under the exponential theme,
+/// `EXP_PICKER_SHOTS/desktop-<specimen>.png`.
+fn shoot_specimen(specimen: &str, root: &str) {
+    let Some(dir) = std::env::var_os("EXP_PICKER_SHOTS") else { return };
+    let tree = crate::exponential_ui_screen::specimen_node(specimen, root).expect("the specimen");
+    let mut cx = headless();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+    });
+    let mut eui = None;
+    let handle = cx
+        .open_window(size(px(720.), px(760.)), |window: &mut Window, cx| {
+            let surface = eui_surface(tree, window, cx);
+            eui = Some(surface.clone());
+            let view = cx.new(|_| EuiFrame { surface });
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let surface = eui.expect("the surface");
+    cx.update(|cx| surface.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx)));
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let shot = cx.capture_screenshot(window).expect("the frame");
+    shot.save(std::path::PathBuf::from(dir).join(format!("desktop-{specimen}.png"))).expect("the PNG");
+    std::mem::forget(cx);
+}
+
+#[test]
+#[ignore]
+fn picker_bench_specimens() {
+    shoot_specimen("exponential-ui-icon-picker", "specimen_icon_picker");
+    shoot_specimen("exponential-ui-color-picker", "specimen_color_picker");
 }

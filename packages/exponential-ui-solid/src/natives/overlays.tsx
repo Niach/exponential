@@ -390,6 +390,12 @@ export function PopoverNative(props: NativeProps): JSX.Element {
       loop: true,
       onMountAutoFocus: (e) => {
         if (untrack(hoverMode)) e.preventDefault()
+        // #EXP-1760: a picker opens with the focus on its panel (Tab walks
+        // the grid), not a focus ring on its first cell.
+        else if (isPickerPopover(props.node.recipe)) {
+          e.preventDefault()
+          contentEl?.focus()
+        }
       },
       onUnmountAutoFocus: (e) => {
         if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode)) anchor()?.focus()

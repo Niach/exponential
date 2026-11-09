@@ -12782,19 +12782,13 @@
                 },
                 "children": [
                   {
-                    "id": "c2_t1",
-                    "component": "Text",
+                    "id": "c2_icon_open",
+                    "component": "IconPicker",
                     "props": {
-                      "text": "A Box lays its children out by style.",
-                      "variant": "body"
-                    }
-                  },
-                  {
-                    "id": "c2_t2",
-                    "component": "Text",
-                    "props": {
-                      "text": "Flex, grid, spacing and colours come from the whitelist.",
-                      "variant": "muted"
+                      "value": "rocket",
+                      "color": "#3b82f6",
+                      "allowNone": true,
+                      "open": true
                     }
                   }
                 ]
@@ -12894,19 +12888,11 @@
                 },
                 "children": [
                   {
-                    "id": "c2_t1",
-                    "component": "Text",
+                    "id": "c2_color_open",
+                    "component": "ColorPicker",
                     "props": {
-                      "text": "A Box lays its children out by style.",
-                      "variant": "body"
-                    }
-                  },
-                  {
-                    "id": "c2_t2",
-                    "component": "Text",
-                    "props": {
-                      "text": "Flex, grid, spacing and colours come from the whitelist.",
-                      "variant": "muted"
+                      "value": "#3b82f6",
+                      "open": true
                     }
                   }
                 ]

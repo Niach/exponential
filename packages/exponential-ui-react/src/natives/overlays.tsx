@@ -357,7 +357,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           data-xui-overlay="Popover"
           data-open-on={hoverMode ? `hover` : undefined}
           dir={ctx.direction}
-          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : undefined}
+          // #EXP-1760: a picker opens with the focus on its panel (Tab walks
+          // the grid), not a focus ring on its first cell (the IDE's look).
+          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
           // VAPP-276: a press on the anchor is its toggle, not an outside
           // press; a press or focus in ANOTHER open overlay (a second panel
           // applet) dismisses nothing (the core's rule); a close that did not

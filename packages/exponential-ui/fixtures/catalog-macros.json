@@ -34842,6 +34842,9 @@
               "size": "sm"
             },
             "children": [],
+            "style": {
+              "alignSelf": "flex-start"
+            },
             "recipe": {
               "macro": "IconPicker",
               "part": "none",
