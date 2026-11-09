@@ -486,6 +486,7 @@ impl MenuLayer {
 
 impl Render for MenuLayer {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MenuLayer").entered();
         let (corner, position) = plan_side(window.viewport_size(), self.anchor, self.wanted);
         let content = v_flex()
             .occlude()

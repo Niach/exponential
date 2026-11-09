@@ -1998,6 +1998,7 @@ impl DeviceSettingsView {
 
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DeviceSettingsView").entered();
         self.fit_window(window, cx);
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());

@@ -489,6 +489,7 @@ impl Focusable for UndockedScreenWindow {
 
 impl Render for UndockedScreenWindow {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "UndockedScreenWindow").entered();
         let title = navigation::screen_title(&self.screen, cx);
         if self.window_title != title {
             self.window_title = title.clone();
@@ -749,6 +750,7 @@ mod tests {
             _window: &mut Window,
             _cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
+            let _span = tracing::trace_span!("render", view = "Stub").entered();
             div()
         }
     }

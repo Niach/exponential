@@ -375,6 +375,19 @@ excluded from the workspace, so the Rust collector still inventories it as the
 third-party `iroh@1.4.1` (same licence election and texts). Every client that
 links the P2P node (desktop, CLI, the browser's wasm) ships it.
 
+### Diagnostics: the Sentry SDK in the desktop app and the CLI (LOGS-2, 2026-11-09)
+
+`apps/desktop/crates/observability` links the `sentry` 0.49 crates
+(Functional Software, Inc., MIT) with `sentry-tracing`, plus their new
+transitive crates (`debugid` Apache-2.0, `hostname`, `os_info` MIT, `uname`
+MIT OR Apache-2.0); every one is on deny.toml's allow-list and in the
+generated desktop notices. No transport feature: the envelopes go through
+the app's own reqwest client to the connected server's `/api/monitoring`
+tunnel, never to a third-party host, so no second HTTP or TLS stack ships.
+The Engine runner never links it (`eengine-runner/tests/dependency_gate.rs`
+forbids `sentry` and `tracing-subscriber`); `eengine` and `eengine-ffi` gain
+only `tracing` (MIT, no default features) for their spans.
+
 ### genUI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance
@@ -580,3 +593,19 @@ Its licence is the MIT/X11 family (permissive, notice-preserving), and the
 links only noble's own system libraries, which come in through the .deb's
 Depends and are never copied into it. xorgproto is used at build time only:
 it is headers, and nothing of it ships.
+
+## Exponential Desktop's diagnostics: the Sentry SDK (LOGS-2, 2026-11-09)
+
+eDE's compositor and session link the Sentry Rust SDK (`sentry`
+0.49 and its `sentry-*` crates, MIT) through `apps/ede/crates/ede-observability`,
+with default features off: no native-tls, no built-in transport, no minidumps.
+What it adds to eDE's graph is permissive and notice-preserving only: MIT or
+Apache-2.0 (`os_info`, `findshlibs`, `hostname`, `uname`, `backtrace`,
+`addr2line`, `gimli`, `object`, `rustc-demangle`, `time`, `nix`), Apache-2.0
+(`debugid`). The HTTP side is the reqwest + rustls-on-ring that eMCP already
+puts in the graph; no aws-lc, no OpenSSL. Nothing ships as a separate binary and
+no service is bundled: the envelopes go to the Exponential server's own tunnel
+(`/api/monitoring`). The eDE packages carry no per-dependency inventory yet
+(`packages/licenses` collects `apps/desktop` only); these crates join whoever
+adds that collector.
+

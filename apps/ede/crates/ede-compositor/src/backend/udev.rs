@@ -363,6 +363,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     // A wake-up each second: the recovery screen (#EDE-16) appears on an
     // idle desktop without waiting for input.
     event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
+    super::watch_main_loop(&event_loop.handle());
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.
@@ -728,6 +729,8 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let Some(surface) = device.surfaces.get_mut(&crtc) else { return };
     let output = surface.output.clone();
     let Some(output_geo) = state.space.output_geometry(&output) else { return };
+    // #LOGS-2: the frame's time, elements through the queued flip.
+    let frame_started = std::time::Instant::now();
 
     let render_node = device.render_node;
     let renderer = if render_node == primary {
@@ -823,6 +826,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                     state.loop_handle.remove(t);
                 }
                 super::frame_done(state, &output);
+                ede_observability::record_frame(&output.name(), frame_started.elapsed());
             }
             Err(e) => {
                 // #EDE-65: smithay counted this frame as shown (the slot's

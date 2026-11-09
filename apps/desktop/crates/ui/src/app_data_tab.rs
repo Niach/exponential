@@ -383,6 +383,7 @@ impl AppDataTab {
 
 impl Render for AppDataTab {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AppDataTab").entered();
         let (package, records, viewer) = app_state(&self.app_id, self.access.clone(), cx);
         let kinds = data_kinds(package.as_ref(), records.iter().map(|r| r.kind.as_str()));
         let body = if kinds.is_empty() {
@@ -1103,6 +1104,7 @@ impl RecordFormView {
 
 impl Render for RecordFormView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RecordFormView").entered();
         let mut rows: Vec<Div> = Vec::new();
         // VAPP-188: an owner's FIRST field = Author (required, no None).
         if let Some(author) = &self.author {

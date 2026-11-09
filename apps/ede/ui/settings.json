@@ -6455,6 +6455,31 @@
                                 }
                               },
                               {
+                                "id": "about_diagnostics",
+                                "component": "Switch",
+                                "props": {
+                                  "label": "Send diagnostics",
+                                  "name": "send",
+                                  "checked": {
+                                    "@path": "/config/diagnostics/send"
+                                  }
+                                },
+                                "on": {
+                                  "change": {
+                                    "functionCall": {
+                                      "@call": "ede_config",
+                                      "args": {
+                                        "diagnostics": {
+                                          "send": {
+                                            "@path": "/config/diagnostics/send"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
                                 "id": "checks_section",
                                 "component": "Section",
                                 "props": {
@@ -7921,6 +7946,9 @@
       "theme": {
         "bridge": true,
         "summary": ""
+      },
+      "diagnostics": {
+        "send": true
       }
     },
     "user": {

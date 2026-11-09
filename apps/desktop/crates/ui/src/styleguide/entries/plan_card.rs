@@ -193,6 +193,7 @@ mod tests {
 
         impl Render for Host {
             fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Host").entered();
                 // With the session-chat entry: the fixture reuses a card id
                 // across cases (one pending, one decided), which must settle.
                 let chat = super::super::find(super::super::session_chat::ID).map(|entry| (entry.render)(window, cx));

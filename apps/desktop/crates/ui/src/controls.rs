@@ -2081,6 +2081,7 @@ mod tests {
 
         impl Render for Feed {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Feed").entered();
                 let feed_menu = self.feed_menu.clone();
                 let tile_menu = self.tile_menu.clone();
                 // Stands in for `.context_menu(…)`: a right-press listener

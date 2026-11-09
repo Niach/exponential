@@ -172,6 +172,7 @@ impl DraftsView {
 
 impl Render for DraftsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DraftsView").entered();
         let team_id = active_team_id(&self.nav, cx);
         let is_ready = Store::try_global(cx).is_some_and(|store| {
             let collections = store.collections();

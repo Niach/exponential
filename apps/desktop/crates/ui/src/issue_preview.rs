@@ -436,6 +436,7 @@ fn card_for_target(target: &PreviewTarget, cx: &mut App) -> Option<AnyElement> {
 
 impl Render for IssuePreviewHost {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssuePreviewHost").entered();
         // The window lost focus while a card was up: it would otherwise hang
         // over a window the user is no longer pointing at.
         if !window.is_window_active() && self.pending.is_some() {

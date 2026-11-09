@@ -435,6 +435,7 @@ impl AgentsPane {
 
 impl Render for AgentsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "AgentsPane").entered();
         let agents_card = self.render_agents_section(window, cx);
 
         // EXP-694: no Save button — every control autosaves; a write that

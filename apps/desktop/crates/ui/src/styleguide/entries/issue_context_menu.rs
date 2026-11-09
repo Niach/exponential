@@ -81,6 +81,7 @@ impl IssueMenuDemo {
 
 impl Render for IssueMenuDemo {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "IssueMenuDemo").entered();
         crate::controls::with_pointer_layer(self.menu.clone())
     }
 }

@@ -867,6 +867,7 @@ impl Render for Shell {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "Shell").entered();
         // §3.9 gotcha: never mount a zero-size surface — guard layout during
         // rapid resize; skip the tree entirely when the viewport is degenerate.
         let viewport = window.viewport_size();
@@ -1693,6 +1694,7 @@ mod tests {
         struct Dock(Rc<Cell<usize>>);
         impl Render for Dock {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Dock").entered();
                 self.0.set(self.0.get() + 1);
                 div().size_full()
             }
@@ -1700,6 +1702,7 @@ mod tests {
         struct Sidebar;
         impl Render for Sidebar {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "Sidebar").entered();
                 div().w(px(40.)).h_full()
             }
         }
@@ -1723,6 +1726,7 @@ mod tests {
         }
         impl Render for StandIn {
             fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                let _span = tracing::trace_span!("render", view = "StandIn").entered();
                 self.root_renders.set(self.root_renders.get() + 1);
                 div()
                     .size_full()

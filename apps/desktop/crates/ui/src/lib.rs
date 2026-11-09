@@ -65,6 +65,7 @@ mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
 mod dev_ready;
+pub mod diagnostics;
 mod description_editor;
 mod emoji;
 mod empty_state_copy;

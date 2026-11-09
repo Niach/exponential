@@ -77,6 +77,7 @@ impl WorkScreenCard {
 
 impl Render for WorkScreenCard {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "WorkScreenCard").entered();
         let Some(doctor) = self.doctor.as_ref() else {
             return div();
         };

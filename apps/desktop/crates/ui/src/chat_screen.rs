@@ -2404,7 +2404,12 @@ impl ChatScreenView {
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
             && teams_step.is_none_or(|step| step.is_some())
-            && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
+            && crate::screens::take_dev_composer_menu(
+                matches!(self.presentation, Presentation::Dialog),
+                bounds,
+                cx.entity_id(),
+                cx,
+            );
         let content_key = runner.content_key() ^ u64::from(options.is_some()) ^ (u64::from(temporary) << 1);
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
@@ -2516,6 +2521,7 @@ impl Focusable for ChatScreenView {
 
 impl Render for ChatScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChatScreenView").entered();
         self.sync_team(window, cx);
         self.ensure_launch(window, cx);
         self.sync_placeholder(window, cx);

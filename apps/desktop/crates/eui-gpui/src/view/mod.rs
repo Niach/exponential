@@ -19,6 +19,7 @@ mod motion_leaf;
 mod canvas_leaf;
 mod paint;
 mod pinned;
+mod scrollbar;
 mod swipe;
 pub(crate) mod state;
 mod zoom;
@@ -207,17 +208,6 @@ pub(crate) struct ResizeDrag {
     pub start: f32,
 }
 
-/// An in-flight scrollbar thumb drag.
-#[derive(Debug, Clone)]
-pub(crate) struct ScrollDrag {
-    pub id: String,
-    pub vertical: bool,
-    pub start_pointer: f32,
-    pub start_offset: f32,
-    /// Content px per pointer px.
-    pub ratio: f32,
-}
-
 /// An in-flight Drawer drag (toward its edge to dismiss).
 #[derive(Debug, Clone)]
 pub(crate) struct SheetDrag {
@@ -384,7 +374,6 @@ pub struct SurfaceView {
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
     drag: Option<Drag>,
-    scroll_drag: Option<ScrollDrag>,
     sheet_drag: Option<SheetDrag>,
     resize_drag: Option<ResizeDrag>,
     tab_drag: Option<TabDrag>,
@@ -418,11 +407,9 @@ pub struct SurfaceView {
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
     toast_hover: HashSet<String>,
-    /// EXP-1555: scroll containers under the pointer, and those scrolled in
-    /// the last [`SCROLLBAR_LINGER`] (the hide timer): their overlay
-    /// scrollbars show; at rest there are none (the web's hidden bars).
-    pub(crate) scroll_hover: HashSet<String>,
-    pub(crate) scroll_recent: HashMap<String, Task<()>>,
+    /// #EXP-1629: each scroll container's offset as the IDE's scrollbar
+    /// reads and drags it (`scrollbar.rs`), by node id.
+    pub(crate) scrollbars: RefCell<HashMap<String, scrollbar::CoreScroll>>,
     announcement: Option<(SharedString, String)>,
     copy_resets: HashMap<String, Task<()>>,
     /// Segmented roving item (`group id` → item index).
@@ -636,7 +623,6 @@ impl SurfaceView {
             unknown_version: None,
             host_scroll: None,
             drag: None,
-            scroll_drag: None,
             sheet_drag: None,
             resize_drag: None,
             tab_drag: None,
@@ -656,8 +642,7 @@ impl SurfaceView {
             motion: Motion::default(),
             toast_timers: HashMap::new(),
             toast_hover: HashSet::new(),
-            scroll_hover: HashSet::new(),
-            scroll_recent: HashMap::new(),
+            scrollbars: RefCell::new(HashMap::new()),
             announcement: None,
             copy_resets: HashMap::new(),
             group_focus: HashMap::new(),
@@ -1086,6 +1071,7 @@ impl SurfaceView {
 
     /// One layout pass: states in, layout, caches refreshed.
     pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _span = tracing::trace_span!("eui.layout").entered();
         self.pass_lifted = self.layers_lifted();
         let visible_h = if self.pass_lifted {
             self.window_size.1
@@ -1721,9 +1707,9 @@ impl SurfaceView {
             .text_size(px(14.0))
             .line_height(px(20.0))
             .text_color(ink);
-        // A drag in flight (slider, scrollbar, sheet, text selection) follows the pointer
+        // A drag in flight (slider, sheet, text selection) follows the pointer
         // anywhere in the window, over layers and outside the surface too.
-        if self.drag.is_some() || self.scroll_drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
+        if self.drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
             let this = self.this.clone();
             root = root.child(
                 gpui::canvas(
@@ -1882,6 +1868,14 @@ impl Element for SurfaceElement {
 
 impl Render for SurfaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("eui.render").entered();
+        // A scrollbar thumb dragged since the last frame moves the core.
+        if self.take_scrollbar_drags() {
+            let late = self.surface.take_events();
+            if !late.is_empty() {
+                self.dispatch(late, None, cx);
+            }
+        }
         SurfaceElement { view: cx.entity() }
     }
 }
