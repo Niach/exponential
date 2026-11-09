@@ -1,6 +1,7 @@
 package at.exponential.ui.compose
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -91,8 +92,9 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true)
 }
 
-/** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker; -1 = none). */
-internal fun selectInitialCursor(options: List<SelectOption>): Int = options.indexOfFirst { !it.disabled }
+/** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */
+internal fun selectInitialCursor(options: List<SelectOption>, chosen: Collection<String>? = null): Int =
+    if (chosen == null) options.indexOfFirst { !it.disabled } else options.indexOfFirst { !it.disabled && chosen.contains(it.value.displayText) }
 
 /** #EXP-1629: the next enabled option from [from] by [step] (clamped at the ends; [from] when none). */
 internal fun selectStep(options: List<SelectOption>, from: Int, step: Int): Int {
@@ -148,7 +150,8 @@ private class SelectPopupPosition(val align: String, val rtl: Boolean, val offse
  * (a row: layout `selectRowPopupWidth`; a field: at least the trigger),
  * painted from the `content` (its shadows, `backgroundClip`) / `search` /
  * `item` / `check` / `empty` / `fade` recipes. It opens at the top with
- * the cursor on the first enabled option and focus in its search field
+ * the cursor on the first enabled option (a `multiple` one's on its first
+ * chosen) and focus in its search field
  * (else the list); the bottom `fade` shows while options sit below; the cursor
  * (the arrows, or the pointer moving over an option) is the item's ONE
  * `hover`, a chosen option is `selected` and shows the check. A pick →
@@ -168,7 +171,7 @@ internal fun SelectPopup(cx: LeafContext) {
     var query by remember(cx.node.id) { mutableStateOf("") }
     val q = query.trim().lowercase()
     val options = remember(owner, q) { selectOptions(owner, q) }
-    var cursor by remember(q) { mutableIntStateOf(selectInitialCursor(options)) }
+    var cursor by remember(q) { mutableIntStateOf(selectInitialCursor(options, if (multiple && q.isEmpty()) chosen else null)) }
 
     val content = cx.part("Select", "content")
     val cs = content.style
@@ -349,6 +352,7 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             .alpha(s.opacity ?: 1f)
             .clip(shape)
             .background(s.background ?: Color.Transparent, shape)
+            .then(if (s.borderWidth > 0f) s.borderColor?.let { Modifier.border(s.borderWidth.dp, it, shape) } ?: Modifier else Modifier)
             .pointerInput(o.value) {
                 awaitPointerEventScope {
                     while (true) {

@@ -471,9 +471,10 @@ impl Builder<'_, '_> {
     }
 
     /// #EXP-1629: a `row` Select's trigger: a Group row of parts (the
-    /// leading `label`, a spacer, the `value` (else `placeholder`) and the
-    /// `chevron`), so its popup can hang off the value. The trigger itself
-    /// carries the text for its accessible value.
+    /// leading `label`, a spacer, and the `button` holding the `value`
+    /// (else `placeholder`) and the `chevron`), so its popup can hang off
+    /// the value. The trigger itself carries the text for its accessible
+    /// value.
     fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool) -> (u32, Option<u32>) {
         let label = str_prop(&owner.props, "label").map(str::to_string);
         let t = self.part(owner, "trigger", "Box", NodeKind::Container, json!({"alignSelf": "stretch", "display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "placeholder": placeholder, "label": label}));
@@ -502,10 +503,13 @@ impl Builder<'_, '_> {
         (t, Some(self.row_value(control, owner, text, placeholder)))
     }
 
-    /// A `row` trigger's `value` (else `placeholder`) and `chevron` under `parent`.
+    /// A `row` trigger's `button` (the IDE picker's ghost value button: the
+    /// one box its hover fills) holding the `value` (else `placeholder`) and
+    /// the `chevron`, under `parent`.
     fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool) -> u32 {
-        let value = self.part_in(parent, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
-        self.part_in(parent, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
+        let button = self.part_in(parent, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
+        let value = self.part_in(button, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
+        self.part_in(button, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
         value
     }
 

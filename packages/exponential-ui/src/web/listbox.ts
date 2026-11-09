@@ -77,6 +77,16 @@ export function firstEnabledIndex(count: number, isDisabled: (index: number) => 
   return -1
 }
 
+/** #EXP-1629: where a Select popup opens its cursor: the first enabled
+ *  option, or with `isChosen` (a `multiple` Select, the IDE's multi
+ *  picker) the first enabled CHOSEN one, -1 when none is (no cursor until
+ *  the arrows reach for the list). */
+export function openingCursorIndex(count: number, isDisabled: (index: number) => boolean = () => false, isChosen?: (index: number) => boolean): number {
+  if (!isChosen) return firstEnabledIndex(count, isDisabled)
+  for (let i = 0; i < count; i++) if (!isDisabled(i) && isChosen(i)) return i
+  return -1
+}
+
 /** #EXP-1629: does `list` have rows below its visible end (the bottom
  *  `fade` shows; SearchList's rule)? */
 export function listMoreBelow(list: HTMLElement | null | undefined): boolean {

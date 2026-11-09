@@ -12,8 +12,10 @@
 // `triggerVariant` is a Group row of parts (the label, a spacer, the
 // `value` capped at `selectRowValueMaxWidth`, the `Select.chevron` glyph)
 // whose popup hangs off the value (web/listbox.ts `selectPopupGeometry`);
-// every popup opens at the top with the cursor on the first enabled option
-// (the search field focused when searchable) and fades its list's bottom
+// the value and the chevron sit in the `button` part (the IDE picker's ghost
+// value button: its hover is theirs too); every popup opens at the top with
+// the cursor on the first enabled option (a `multiple` one's on its first
+// chosen; the search field focused when searchable) and fades its list's bottom
 // while options sit below; an item's `hover` = the cursor, `selected` =
 // chosen. A `description` is a muted hint: under a field trigger, in a
 // row UNDER the label (the `labels` column; the value and chevron then sit
@@ -22,7 +24,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, firstEnabledIndex, listMoreBelow, revealOption, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, listMoreBelow, openingCursorIndex, revealOption, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -158,8 +160,19 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     <TextPart part={part(`label`)} text={props.label} />
   )
   const spacer = row && !described ? <span className="xui-Select-spacer" aria-hidden="true" /> : null
+  // #EXP-1629: the row's value button lends its hover to what it holds.
+  const [buttonHover, setButtonHover] = useState(false)
+  const inButton = row && buttonHover && `hover`
+  const button = (children: React.ReactNode) =>
+    row ? (
+      <span {...(part(`button`) as Record<string, string>)} onPointerEnter={() => setButtonHover(true)} onPointerLeave={() => setButtonHover(false)}>
+        {children}
+      </span>
+    ) : (
+      children
+    )
   const hint: Hint = {
-    end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{children}</div> : children),
+    end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
     field: row ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
     describedBy: joinIds(description && `${id}-d`, f.describedBy),
   }
@@ -169,13 +182,13 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   if (!multiple && !searchable) {
     const geometry = selectPopupGeometry(props, `--radix-select-trigger-width`)
     return (
-      <PlainSelect {...{ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint }} field={f} />
+      <PlainSelect {...{ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, inButton }} field={f} />
     )
   }
 
   return (
     <Combobox
-      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint }}
+      {...{ node, props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint, inButton }}
       localFilter={!optionsBound && !source}
       field={f}
     />
@@ -215,10 +228,11 @@ interface PlainSelectProps {
   setPlainRoot: (el: HTMLDivElement | null) => void
   triggerStates: (o: boolean) => readonly (string | false)[]
   geometry: ReturnType<typeof selectPopupGeometry>
+  inButton: string | false
   field: ReturnType<typeof useField>
 }
 
-function PlainSelect({ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, field: f }: PlainSelectProps) {
+function PlainSelect({ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, inButton, field: f }: PlainSelectProps) {
   const ctx = useSurfaceContext()
   const chosen = options.find((o) => o.value === value)
   const chosenLabel = chosen ? str(chosen.label) : ``
@@ -267,9 +281,9 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
             {spacer}
             {hint.end(
               <>
-                <span ref={valueRef}>{chosen ? <span {...(part(`value`) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
+                <span ref={valueRef}>{chosen ? <span {...(part(`value`, inButton) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part(`placeholder`, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
                 <SelectPrimitive.Icon asChild>
-                  <BuiltinIcon slot={chevronSlot} part={part(`chevron`)} />
+                  <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
                 </SelectPrimitive.Icon>
               </>
             )}
@@ -346,10 +360,11 @@ interface ComboboxProps {
   chevronSlot: string
   source: string
   localFilter: boolean
+  inButton: string | false
   field: ReturnType<typeof useField>
 }
 
-function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint, localFilter, field }: ComboboxProps) {
+function Combobox({ props, rootProps, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, hint, inButton, localFilter, field }: ComboboxProps) {
   const ctx = useSurfaceContext()
   const selected = multiple ? (value as string[]) : value ? [value as string] : []
   const chosen = options.filter((o) => selected.includes(o.value))
@@ -366,7 +381,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
   }
   const nav = useListNavigation({ count: shown.length, isDisabled: (i) => bool(shown[i]?.disabled), labelOf: (i) => str(shown[i]?.label), onPick: pick, typeahead: !searchable })
   useEffect(() => {
-    if (open) nav.setActive(firstEnabledIndex(shown.length, (i) => bool(shown[i]?.disabled)))
+    if (open) nav.setActive(openingCursorIndex(shown.length, (i) => bool(shown[i]?.disabled), multiple ? (i) => selected.includes(shown[i]!.value) : undefined))
     else setQuery(``)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -387,7 +402,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
     if (open) measure()
   }, [open, shown.length])
   const geometry = selectPopupGeometry(props, `--radix-popover-trigger-width`)
-  const shownValue = <span>{chosen.length ? <span {...(part(`value`) as Record<string, string>)}>{chosen.map((o) => str(o.label)).join(`, `)}</span> : <span {...(part(`placeholder`) as Record<string, string>)}>{placeholder}</span>}</span>
+  const shownValue = <span>{chosen.length ? <span {...(part(`value`, inButton) as Record<string, string>)}>{chosen.map((o) => str(o.label)).join(`, `)}</span> : <span {...(part(`placeholder`, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
   return (
     <div {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
       {label}
@@ -415,7 +430,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
           {hint.end(
             <>
               {geometry.anchorValue ? <PopoverPrimitive.Anchor asChild>{shownValue}</PopoverPrimitive.Anchor> : shownValue}
-              <BuiltinIcon slot={chevronSlot} part={part(`chevron`)} />
+              <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
             </>
           )}
         </PopoverPrimitive.Trigger>

@@ -60,7 +60,11 @@ fn a_row_trigger_is_label_spacer_value_and_chevron() {
     assert_eq!(t.props["text"], json!("Sunday"), "the trigger keeps its accessible value");
     let trigger = s.index_of("sel.trigger").unwrap();
     let parts: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(trigger)).map(|n| n.id).collect();
-    assert_eq!(parts, ["sel.label", "sel.spacer", "sel.value", "sel.chevron"]);
+    assert_eq!(parts, ["sel.label", "sel.spacer", "sel.button"]);
+    // The IDE picker's ghost value button holds the value and the chevron.
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.value", "sel.chevron"]);
     assert_eq!(node(&mut s, "sel.label").props["text"], json!("Week starts on"));
     assert_eq!(node(&mut s, "sel.value").props["text"], json!("Sunday"));
     assert_eq!(node(&mut s, "sel.chevron").props["name"], json!("ui-chevron-right"), "Select.chevron");
@@ -98,7 +102,10 @@ fn a_row_description_stacks_under_the_label_and_wraps() {
     assert_eq!(column, ["sel.label", "sel.description"]);
     let control = s.index_of("sel.control").unwrap();
     let end: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(control)).map(|n| n.id).collect();
-    assert_eq!(end, ["sel.value", "sel.chevron"]);
+    assert_eq!(end, ["sel.button"]);
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.value", "sel.chevron"]);
     let (t, label, desc) = (frame(&s, &out, "sel.trigger"), frame(&s, &out, "sel.label"), frame(&s, &out, "sel.description"));
     assert!(desc.y >= label.y + label.h, "the hint sits under the label");
     assert!((t.h - (10.5 * 2.0 + label.h + 1.75 + desc.h)).abs() < 0.01, "the row grows past its minHeight: {}", t.h);

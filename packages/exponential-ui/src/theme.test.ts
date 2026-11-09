@@ -270,6 +270,15 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     expect(child.modes.dark.color.borderStrong).toBe(`#123456`)
   })
 
+  test(`#EXP-1629 ghostHover: gpui-component's ghost hover in exponential, accent elsewhere`, () => {
+    const exp = builtinTheme(`exponential`)
+    expect(exp.modes.dark.color.ghostHover).toBe(`#ffffff0e`)
+    expect(exp.modes.light.color.ghostHover).toBe(`#f5f5f5`)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.ghostHover).toBe(builtinTheme(id).modes[mode].color.accent)
+    expect(builtinTheme(`orange`).modes.dark.color.ghostHover).toBe(`#ffffff0e`)
+  })
+
   test(`the exponential MessageBubble is the IDE's message_bubble`, () => {
     const exp = builtinTheme(`exponential`)
     const bubble = (side: string) => resolveRecipe(exp, { component: `MessageBubble`, part: `bubble`, props: { side } }, `dark`)

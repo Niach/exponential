@@ -412,6 +412,9 @@ class InteractionTest {
     fun selectPopupRules() {
         val opts = listOf("a", "b", "c", "d").mapIndexed { i, v -> at.exponential.ui.compose.SelectOption(JsonValue.Str(v), v.uppercase(), null, i == 0 || i == 2) }
         assertEquals(1, at.exponential.ui.compose.selectInitialCursor(opts))
+        // A `multiple` one: its first enabled CHOSEN option, none while nothing is (the IDE's multi picker).
+        assertEquals(3, at.exponential.ui.compose.selectInitialCursor(opts, listOf("c", "d")))
+        assertEquals(-1, at.exponential.ui.compose.selectInitialCursor(opts, emptyList()))
         assertEquals(3, at.exponential.ui.compose.selectStep(opts, 1, 1))
         assertEquals(3, at.exponential.ui.compose.selectStep(opts, 3, 1))
         assertEquals(1, at.exponential.ui.compose.selectStep(opts, 3, -1))
