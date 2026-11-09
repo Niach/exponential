@@ -56,11 +56,13 @@ vi.mock(`@/lib/collections`, () => ({
   deviceCollection: { values: () => [] },
   userCollection: { values: () => [] },
 }))
+vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `u1` } } }) }))
 vi.mock(`@/components/chat/chat-markdown`, () => ({
   renderChatText: (text: string) => <p>{text}</p>,
 }))
 
 const { AgentSessionView } = await import(`./agent-session`)
+const { TooltipProvider } = await import(`@exp/ui`)
 
 const session = {
   id: `s1`,
@@ -444,6 +446,104 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     // After the call, before the next narration.
     const narration = screen.getByText(`Implementing.`)
     expect(cards[0]!.compareDocumentPosition(narration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// #EXP-1732: the Chat tab IS the root's session view; what the retired
+// Conversation body drew off the synced messages lives here now.
+describe(`AgentSessionView as the Chat tab (#EXP-1732)`, () => {
+  const base = {
+    sessionId: `s1`,
+    teamId: `t1`,
+    authorSessionId: null,
+    answeredAt: null,
+    createdAt: new Date().toISOString(),
+  }
+  const suggestions = (items: Record<string, unknown>[]) => ({
+    ...base,
+    id: `m-sugg`,
+    authorKind: `agent`,
+    authorId: null,
+    body: ``,
+    consumedAt: new Date().toISOString(),
+    card: { kind: `suggestions`, items },
+  })
+
+  it(`the viewer's queued message sits inline with its X (EXP-1317); a consumed one is the feed's`, () => {
+    messages = [
+      { ...base, id: `m-q`, authorKind: `user`, authorId: `u1`, body: `Also bump the CLI`, consumedAt: null, card: null },
+      { ...base, id: `m-done`, authorKind: `user`, authorId: `u1`, body: `Done already`, consumedAt: new Date().toISOString(), card: null },
+    ]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    render(
+      <TooltipProvider>
+        <AgentSessionView session={session} composer={<div data-testid="composer" />} />
+      </TooltipProvider>
+    )
+    const extras = screen.getByTestId(`session-chat-extras`)
+    expect(extras.textContent).toContain(`Also bump the CLI`)
+    expect(extras.textContent).not.toContain(`Done already`)
+    expect(within(extras).getByTestId(`chat-unqueue`)).toBeTruthy()
+  })
+
+  it(`open suggestions are THE Dock's card with the actions; settled ones stay inline`, () => {
+    const actions = { start: vi.fn(), startAll: vi.fn(), here: vi.fn(), file: vi.fn(), dismiss: vi.fn() }
+    messages = [suggestions([{ id: `a`, title: `Split the store`, text: `` }, { id: `b`, title: `Cache it`, text: `` }])]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    const { unmount } = render(
+      <AgentSessionView session={session} composer={<div />} suggestions={actions as never} />
+    )
+    expect(screen.getByTestId(`dock-card`)).toBeTruthy()
+    expect(screen.queryByTestId(`session-chat-extras`)?.textContent ?? ``).not.toContain(`Split the store`)
+    unmount()
+    // Read-only (no actions): nothing docks, the card reads inline.
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    render(<AgentSessionView session={session} composer={<div />} />)
+    expect(screen.getByTestId(`session-chat-extras`).textContent).toContain(`Split the store`)
+  })
+
+  it(`an empty feed (connecting) still shows the first queued message and a settled card, under the placeholder`, () => {
+    messages = [
+      { ...base, id: `m-first`, authorKind: `user`, authorId: `u1`, body: `Fix the login`, consumedAt: null, card: null },
+      suggestions([{ id: `a`, title: `Split the store`, text: `` }]),
+    ]
+    snapshot = snap({ phase: { kind: `connecting` }, feed: [] })
+    render(
+      <TooltipProvider>
+        <AgentSessionView session={session} composer={<div />} />
+      </TooltipProvider>
+    )
+    const placeholder = screen.getByTestId(`transcript-placeholder`)
+    const extras = screen.getByTestId(`session-placeholder-extras`)
+    expect(extras.textContent).toContain(`Fix the login`)
+    expect(extras.textContent).toContain(`Split the store`)
+    expect(placeholder.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Same column: one scroller holds both.
+    expect(placeholder.parentElement).toBe(extras.parentElement)
+  })
+
+  it(`no extras = nothing under the placeholder`, () => {
+    snapshot = snap({ phase: { kind: `connecting` }, feed: [] })
+    render(<AgentSessionView session={session} composer={<div />} />)
+    expect(screen.getByTestId(`transcript-placeholder`)).toBeTruthy()
+    expect(screen.queryByTestId(`session-placeholder-extras`)).toBeNull()
+  })
+
+  it(`a tool-posted card carries its message id for the ?card= deep link`, () => {
+    messages = [
+      {
+        ...base,
+        id: `m-plan`,
+        authorKind: `agent`,
+        authorId: null,
+        body: ``,
+        consumedAt: null,
+        card: { kind: `plan`, plan: `1. Lift the partition`, questions: [] },
+      },
+    ]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `On it.` }] })
+    render(<AgentSessionView session={session} composer={<div />} />)
+    expect(screen.getByTestId(`session-tool-card`).getAttribute(`data-card-id`)).toBe(`m-plan`)
   })
 })
 

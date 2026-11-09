@@ -10,7 +10,6 @@ import {
   guidePullRequest,
   listAgents,
   chatMode,
-  chatStripMode,
   partitionChats,
   cardSurface,
   questionOption,
@@ -25,7 +24,6 @@ import {
   treeOffline,
   chatsListUnread,
   treeState,
-  type ChatStripMode,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -79,12 +77,6 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of chat.guidePullRequestCases) {
     test(`guide pull request: ${entry.name}`, () => {
       expect(guidePullRequest(entry.pullRequests)?.id ?? null).toBe(entry.expected)
-    })
-  }
-  for (const entry of chat.stripModeCases) {
-    test(`strip (#EXP-1433): ${entry.name}`, () => {
-      // The REAL mode type: a shape drift in the fixture fails typecheck.
-      expect(chatStripMode(entry.input)).toEqual(entry.expected as ChatStripMode)
     })
   }
   for (const entry of chat.repliesCases) {

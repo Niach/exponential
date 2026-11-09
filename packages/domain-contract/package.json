@@ -38,6 +38,7 @@
     "./work-screen": "./src/work-screen.ts",
     "./feedback-mark": "./src/feedback-mark.ts",
     "./session-tree": "./src/session-tree.ts",
+    "./session-screen": "./src/session-screen.ts",
     "./session-title": "./src/session-title.ts",
     "./transcript-grouping": "./src/transcript-grouping.ts",
     "./session-kind": "./src/session-kind.ts",

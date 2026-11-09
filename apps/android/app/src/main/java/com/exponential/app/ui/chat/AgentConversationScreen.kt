@@ -41,6 +41,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
@@ -83,7 +84,9 @@ import kotlinx.coroutines.flow.flowOn
  * screen's agent channel ([onOpenConversation] swaps it in); until then
  * this is the same screen empty (the agent's coloured icon + name, the
  * composer `Message <name>`), whose first send creates the conversation
- * with `sessions.send({agentId, text})`.
+ * with `sessions.send({agentId, text})`. #EXP-1732: it wears THE session
+ * screen's header band (the tabs, THE gear) from the first frame; before the
+ * conversation exists its Issues / Sessions / Results are empty.
  */
 @HiltViewModel
 class AgentConversationViewModel @Inject constructor(
@@ -305,6 +308,8 @@ fun AgentConversationScreen(
     onBack: () -> Unit,
     /** The conversation exists (synced, or my first send created it): open it in place. */
     onOpenConversation: (sessionId: String) -> Unit,
+    /** #EXP-1732: THE gear pushes the agent's (the Assistant's) settings. */
+    onOpenAgentSettings: ((agentId: String) -> Unit)? = null,
     viewModel: AgentConversationViewModel = hiltViewModel(),
 ) {
     val agent by viewModel.agent.collectAsStateWithLifecycle()
@@ -346,17 +351,32 @@ fun AgentConversationScreen(
     // EXP-1686 (chats.json `agentChat.emptyPlaceholder`): this page = no
     // conversation yet; session-chat.json copy.placeholder once one exists.
     val placeholder = if (row == null) SessionTree.ChatCopy.PLACEHOLDER else Chats.AgentChat.emptyPlaceholder(name)
+    // #EXP-1732 (session-screen.json): THE screen of an agent (the Assistant)
+    // with nothing under it yet: no counts, the Chat tab by default.
+    var requestedTab by rememberSaveable { mutableStateOf<String?>(null) }
+    val screen = SessionScreen.screen(
+        kind = SessionScreen.kind(agentId = viewModel.agentId, appId = null, assistant = row?.isAssistant == true),
+        wide = false,
+        requested = requestedTab,
+        open = null,
+        counts = SessionScreen.Counts(),
+    )
+    val trigger = remember(row?.triggers) {
+        com.exponential.app.domain.parseAgentTriggers(row?.triggers)
+            .firstOrNull { it.enabled }
+            ?.let { com.exponential.app.domain.AgentSettings.triggerSummary(it) }
+    }
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         Scaffold(
             containerColor = Color.Transparent,
             modifier = Modifier.testTag("agent-channel-page"),
             topBar = {
                 // Session 58cb32df: THE chat header (back · the agent's disc ·
-                // its name over `Agent`); no menu before the conversation
-                // exists, the telephone already (NEW-69).
+                // its name over its trigger); no menu before the conversation
+                // exists, the telephone and THE gear already (NEW-69, #EXP-1732).
                 ChatHeader(
                     title = if (row == null) "" else name,
-                    subtitle = if (row == null) null else SessionTree.agentChatSubtitle(null),
+                    subtitle = if (row == null) null else SessionScreen.subtitle(SessionScreen.status(emptyList()), null, trigger),
                     lead = {
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier
@@ -380,10 +400,48 @@ fun AgentConversationScreen(
                         val callIcon = if (row.isAssistant) null else row.icon
                         { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name, agentIcon = callIcon, agentColor = row.color) }
                     },
+                    gear = if (row != null && screen.gear && onOpenAgentSettings != null) {
+                        { onOpenAgentSettings?.invoke(viewModel.agentId) }
+                    } else {
+                        null
+                    },
+                    tabs = if (row != null) {
+                        { SessionScreenTabs(tabs = screen.tabs, active = screen.active, onSelect = { requestedTab = it.wire }) }
+                    } else {
+                        null
+                    },
                 )
             },
         ) { padding ->
             val bottomInset = padding.calculateBottomPadding()
+            val listPadding = PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = bottomInset + 16.dp)
+            if (row != null && screen.active != SessionScreen.Tab.Chat) {
+                // Nothing under the agent yet: the tabs' bodies are empty.
+                when (screen.active) {
+                    SessionScreen.Tab.Issues -> SessionIssuesBody(
+                        issues = emptyList(),
+                        issueStatus = { null },
+                        issueTitle = { null },
+                        onOpen = {},
+                        onAdd = null,
+                        contentPadding = listPadding,
+                    )
+                    SessionScreen.Tab.Results -> ChatResultsPage(
+                        rootId = "",
+                        sessions = emptyList(),
+                        messages = emptyList(),
+                        onReply = { _, _ -> },
+                        pullRequests = emptyList(),
+                        teamPullRequests = emptyList(),
+                        pullRequestIssues = emptyList(),
+                        issues = emptyList(),
+                        padding = padding,
+                        onOpenChat = {},
+                    )
+                    else -> SessionSessionsBody(sessions = emptyList(), onOpen = {}, contentPadding = listPadding)
+                }
+                return@Scaffold
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()

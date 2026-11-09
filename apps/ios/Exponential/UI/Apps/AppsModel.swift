@@ -324,10 +324,16 @@ final class AppEditorModel {
     var header: Apps.EditorHeader {
         Apps.editorHeader(
             root: root.map { (status: $0.status, busy: $0.busy, needsInput: $0.needsInput) },
-            device: deviceId.map { id in
-                (name: deviceMenu.value ?? id, online: deviceOnline)
-            }
+            device: headerDeviceInput
         )
+    }
+
+    /// #EXP-1732: the header's DEVICE part (the session screen's app
+    /// subtitle = the tree's word · this, in `header`'s tone).
+    var headerDevice: String { Apps.editorHeaderDevice(headerDeviceInput) }
+
+    private var headerDeviceInput: (name: String, online: Bool)? {
+        deviceId.map { id in (name: deviceMenu.value ?? id, online: deviceOnline) }
     }
 
     /// #EXP-1729 (composer-menu.json `account`, an app editor's composer):

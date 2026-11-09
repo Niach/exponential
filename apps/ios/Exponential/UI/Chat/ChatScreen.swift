@@ -3,60 +3,48 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// EXP-1295: the phone's ONE screen for a root session (fixture
-/// `session-chat.json`) — a CHAT, or a team AGENT's conversation. S-3
-/// CHAT MODE (chats.json, `SessionTree.chatMode`): ONE path; an
-/// agent conversation (a root with `agentId`) is `bubbles` — its
-/// Conversation is always THE transcript (#EXP-1736: every chat a group
-/// chat, `MessageBubble` under its sender's avatar, the viewer's own right),
-/// never the root's raw work page — and a chat is `transcript`. Everything else (header + strip, composer with the "+"
-/// incl. Model, selection, the Dock, the jump button) is the same.
+/// #EXP-1732 (session-screen.json): THE SESSION SCREEN on a phone — ONE
+/// screen for every kind (`SessionScreen.kind`): a chat (a root session), a
+/// team agent's or the Assistant's conversation and (VAPP-110, `editor`) an
+/// app's editor session. Phones are NARROW: the layout is `chat`, `tab` (the
+/// tab's body replaces the chat) or `item` (an opened issue, session, plan
+/// or settings as a page pushed over the tab, its `‹` back = the pushed
+/// page's).
 ///
-/// * NEW-6 (N-1): a chat with ONE session (the root alone) IS that
-///   session: its page (raw work + composer; S-3: no header Stop) is the
-///   main thing and the strip has no Conversation tab; a second
-///   session brings the Conversation tab back.
-/// * Header = the title (plain, never renamed — EXP-1316; a lock when
-///   private; an agent's icon in its color before its name) and, for a
-///   chat, THE strip — Conversation · one chip per linked issue · "+" ·
-///   the session chips — as the pager (`FacePager`). Nothing else:
-///   no caption, no device, no Show work. #EXP-1662: a chat holding a plan
-///   adds the plan chip + page right after Conversation (`PlanPageBody`).
-/// * Conversation = `ChatConversationView` over `buildSessionChat`, with
-///   THE session composer box under it (`ChatComposer` →
-///   `SessionComposerCard`), sending
-///   `sessions.send({sessionId: root})`.
-/// * An issue tab = the issue page EMBEDDED (EXP-1316): no own header, no
-///   Chats row, no Start; the bottom bar keeps properties + Comment.
-/// * S-3 (session-chat.json): the Guide tab is gone. The chat PR
-///   (`guidePullRequest`) keeps (#EXP-1710) the merge train's STATUS pill
-///   in the header's action slot, left of ONE `…` (EXP-1307: THE Menu's
-///   sheet, `mergeMenuEntries` — Checks, Merge now, Hold | Resume
-///   auto-merge, Close PR (EXP-1338) behind the close-pr.json confirm).
+/// * HEADER (THE chat header, `ChatHeader`): back · the lead disc (an
+///   agent's disc, the Assistant's brand mark, an app's glyph + version
+///   pill) · the title over ONE subtitle line (`SessionScreen.subtitle`:
+///   status · device · an agent's first enabled trigger), then the trailing
+///   slot: the chat PR's merge status pill (#EXP-1710), an agent's
+///   telephone, THE gear (agents, the Assistant, apps) and the `…`.
+/// * Under it on the same band THE segmented control (`SessionScreenTabs`):
+///   Chat · Issues · Sessions · Results (an app: Chat · Preview · Data ·
+///   Versions · Sessions · Results), each count muted after its label.
+/// * Chat = the ROOT's own session view (`AgentSessionView`, embedded):
+///   its raw-work feed (#EXP-1736's transcript with the agent's traces), its
+///   cards inline, THE Dock and THE composer posting to the root — the same
+///   view a Sessions row pushes for a child. A plan opens the plan page as
+///   an opened item.
+/// * Issues = the tree's issue rows led by the `+` (THE Menu's sheet: Link
+///   an issue → `sessions.linkIssues` · New issue filing into this root); a
+///   row opens the issue page EMBEDDED (EXP-1316), a long press adds Unlink
+///   (`sessions.unlinkIssue`). Sessions = THE tree rows; a row opens that
+///   session's raw work + composer. Results = `ChatResultsPage`.
+/// * The chat PR (`guidePullRequest`) keeps the merge train's STATUS pill
+///   in the header, left of ONE `…` (EXP-1307: THE Menu's sheet,
+///   `mergeMenuEntries` — Checks, Merge now, Hold | Resume auto-merge, Close
+///   PR (EXP-1338) behind the close-pr.json confirm).
 ///
-/// The "+" (left of Conversation, EXP-1334) opens THE Menu's sheet: Link an
-/// issue (THE search list → `sessions.linkIssues`) · New issue (the New
-/// issue page filing into this root); an issue chip's long press adds
-/// Unlink (`sessions.unlinkIssue`). The strip never scrolls (#EXP-1433):
-/// past one issue (or any session) ONE group tab opens
-/// `ChatStripGroupSheet`.
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
-/// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
-/// & co. (its ⋯ = THE Menu's sheet, `SuggestionOptionsSheet`); N-12: while
-/// any item is open the card rides THE Dock and opens as its sheet (S-3: a
-/// waiting plan or question never does; it stays inline); the
-/// live root's relay state draws THE bottom strip (Tasks + status lines,
-/// the session view's own) above the composer; opening the screen stamps
-/// the viewer's read of the root (`sessions.markRead`).
+/// Opening the screen stamps the viewer's read of the root
+/// (`sessions.markRead`).
 struct ChatScreen: View {
     let rootId: String
     let initialPage: ChatPage
-    /// VAPP-110: an app EDITOR hosting this channel as its Chat tab — its
-    /// title replaces the header's, its band (the segmented control) the
-    /// strip, and a non-nil `pane` (Preview, Versions) covers the
-    /// Conversation, which stays mounted under it (its draft and scroll
-    /// survive a tab switch).
+    /// VAPP-110 / #EXP-1732: an app EDITOR's session — its title leads the
+    /// header, its tab binding drives the tabs, its bodies fill Preview,
+    /// Data and Versions and its settings page is the gear's item.
     var editor: ChatEditorSlot?
 
     @Environment(AppDependencies.self) private var deps
@@ -66,60 +54,37 @@ struct ChatScreen: View {
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
     @Environment(\.chatLanding) private var chatLanding
-    @State private var page: ChatPage
-    /// #EXP-1662: the plan a way in named (`.plan(id)`), while the tab shows
-    /// it; nil = `PlanPage.planTabTarget`.
-    @State private var planPick: String?
-    /// #FEED-191 (plan-page.json `kept`): the plan the tab last showed during
-    /// THIS visit of the chat (its target, or a plan whose row was pressed);
-    /// it lives as long as the screen does, so leaving the chat clears it and
-    /// a tab switch inside it keeps it.
+    /// The active tab (an app editor's lives in the editor: `editor.tab`).
+    @State private var ownTab: SessionScreen.Tab
+    /// The item opened over the tab (layout `item`: a pushed page).
+    @State private var opened: ChatOpenedItem?
+    /// #FEED-191 (plan-page.json `kept`): the plan the plan page last showed
+    /// during THIS visit of the chat (its target, or a plan whose row was
+    /// pressed); it lives as long as the screen does.
     @State private var planKept: String?
-    /// A requested issue tab that has not synced into the strip yet (a
-    /// just-filed issue): the page shows the Conversation and switches the
-    /// moment the tab arrives; a tab tap drops the request.
+    /// A requested issue / session / plan that has not synced into the tree
+    /// yet (a just-filed issue): the screen shows its tab and opens the item
+    /// the moment it arrives; a tab tap drops the request.
     @State private var pendingPage: ChatPage?
     @State private var model: ChatScreenModel?
-    /// The issue page models of the issue tabs VISITED so far (EXP-1288):
-    /// only the SHOWN page's model observes (`observingIssueId`).
+    /// The issue page models of the issues OPENED so far (EXP-1288): only
+    /// the open item's model observes (`observingIssueId`).
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
     @State private var observingIssueId: String?
-    /// THE Menu's sheet: the "+" (issueId nil), an issue tab's long press or
-    /// the Guide's `…` (EXP-1307).
-    @State private var menuTarget: ChatStripMenuTarget?
+    /// THE Menu's sheet: the Issues tab's "+" (issueId nil) or a row's long
+    /// press.
+    @State private var menuTarget: ChatIssueMenuTarget?
     /// The sheet's pick, run once the sheet has dismissed.
-    @State private var pendingMenuAction: (action: ChatStripMenuSheet.Action, issueId: String?)?
+    @State private var pendingMenuAction: (action: ChatIssueMenuSheet.Action, issueId: String?)?
     @State private var linkSheetOpen = false
-    /// #EXP-1433: the strip group's Menu sheet, and its pick, run once the
-    /// sheet has dismissed.
-    @State private var groupOpen = false
-    @State private var pendingGroupPick: ChatStripGroupSheet.Pick?
     /// #FEED-191 (needs-you.json): the card a way in named, focused once the
     /// chat has loaded.
     @State private var pendingCard: String?
-    /// #EXP-1562: the waiting button's Menu sheet, its pick (run once the
-    /// sheet has dismissed), the scroll it asks for and the lit card.
-    @State private var waitingOpen = false
-    @State private var pendingWaitingPick: String?
+    /// #EXP-1562: the scroll a waiting card asks for (the root's session
+    /// view scrolls to it and lights it).
     @State private var waitingFocus: WaitingFocus?
-    @State private var highlightId: String?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
-    /// N-12: THE Dock's open sheet (a card id).
-    @State private var dockOpenId: String?
-    /// The Conversation follows its newest row (EXP-1316 1n).
-    @State private var atBottom = true
-    /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
-    @State private var pinOnInset = false
-    /// The floating composer's measured height = the conversation's bottom
-    /// inset; a pinned conversation re-pins whenever it changes.
-    @State private var composerHeight: CGFloat = 0
-    /// The composer's top edge and the newest row's bottom anchor (global):
-    /// what the scroll view's inset leaves under the open composer while the
-    /// keyboard is up is measured and padded out (`insetCorrection`).
-    @State private var composerTop: CGFloat = 0
-    @State private var anchorBottom: CGFloat = 0
-    @State private var insetCorrection: CGFloat = 0
     // The chat PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
     /// EXP-1307: the chat PR awaiting the Close PR confirm.
@@ -128,33 +93,9 @@ struct ChatScreen: View {
     @State private var mergeNowTarget: MergeNowTarget?
     /// #EXP-1710: the status pill's tap opens the menu sheet ON its Checks.
     @State private var chatMenuChecks = false
-    // EXP-1323: suggested tasks
-    /// In-flight suggestion actions (`ChatSuggestionActions.key`).
-    @State private var suggestionPending: Set<String> = []
-    /// EXP-1323: the live tail's claim on the root's socket owner
-    /// (`attachSteerModel`, paired with `steerSessions.detach`).
-    @State private var liveModel: AgentSessionModel?
-    @State private var liveClaimId: String?
-    /// #EXP-1545: the claims on the tree's Live children's socket owners
-    /// (their per-session relay slots: THE Queue for the chat's ONE tasks
-    /// card), keyed by session id; released once a child ends or the screen
-    /// goes.
-    @State private var childModels: [String: AgentSessionModel] = [:]
-    /// #EXP-1623: when each child claim was taken: a child whose Queue is
-    /// still unread `childProbeDeadline` later reads closed for the probe,
-    /// so an unreachable host never pins it; the tick re-asks the probe then.
-    @State private var childAttachedAt: [String: Date] = [:]
-    @State private var childProbeTick = 0
-    /// #EXP-1623: claims are taken only while the screen is on screen; a
-    /// covered screen still observes its inputs.
-    @State private var onScreen = false
-    private static let childProbeDeadline = TimeInterval(Dock.probeDeadlineMs) / 1000
-    /// EXP-1343: the shown session page's model (its embedded view's claim);
-    /// nil off a session page.
-    @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
     /// EXP-1347: the innermost outlet for issue pills inside this chat.
     @State private var issueOutlet = ChatIssueOutlet()
-    /// #EXP-1662: a plan's ways in inside this chat land on its tab.
+    /// #EXP-1662: a plan's ways in inside this chat open its plan page.
     @State private var planOutlet = ChatPlanOutlet()
     /// EXP-1373 (chats.json MENUS): the header `…` = the chat's menu sheet
     /// (S-3: Delete, the Guide's Close PR; an agent chat's Compact · New
@@ -164,142 +105,127 @@ struct ChatScreen: View {
     @State private var pendingChatPick: ChatMenuSheet.Entry?
     @State private var deleteTarget: String?
     @State private var isOwner = false
-    @State private var agentSettingsOpen = false
     @Environment(\.dismiss) private var dismiss
 
     init(rootId: String, initialPage: ChatPage = .conversation, editor: ChatEditorSlot? = nil) {
         self.rootId = rootId
         self.initialPage = initialPage
         self.editor = editor
-        // An issue or session tab may not be in the strip yet: hold it
-        // (`pendingPage`).
-        if case let .plan(messageId) = initialPage {
-            _page = State(initialValue: .conversation)
-            _pendingPage = State(initialValue: .plan(nil))
-            _planPick = State(initialValue: messageId)
-        } else if case let .card(messageId) = initialPage {
-            _page = State(initialValue: .conversation)
+        switch initialPage {
+        case .results:
+            _ownTab = State(initialValue: .results)
+        case let .card(messageId):
+            _ownTab = State(initialValue: .chat)
             _pendingCard = State(initialValue: messageId)
-        } else if initialPage != .conversation, initialPage != .results {
-            _page = State(initialValue: .conversation)
+        case .issue:
+            // An item may not be in the tree yet: hold it (`pendingPage`).
+            _ownTab = State(initialValue: .issues)
             _pendingPage = State(initialValue: initialPage)
-        } else {
-            _page = State(initialValue: initialPage)
+        case .session:
+            _ownTab = State(initialValue: .sessions)
+            _pendingPage = State(initialValue: initialPage)
+        case .plan:
+            _ownTab = State(initialValue: .chat)
+            _pendingPage = State(initialValue: initialPage)
+        case .conversation:
+            _ownTab = State(initialValue: .chat)
         }
     }
 
     private var rows: ChatRows? { model?.rows }
 
-    /// #EXP-1662 (plan-page.json): the plan the tab shows: the one a way in
-    /// named, else `planTabTarget` over the chat's plan cards; nil = no tab.
-    /// An app editor's chat has no strip to hold it.
-    private func shownPlan(_ view: SessionChatView) -> ChatPlanRow? {
-        guard editor == nil else { return nil }
-        let plans = view.rows.compactMap { row -> ChatPlanRow? in
+    /// The active tab: the editor's (an app) or the screen's own.
+    private var tab: SessionScreen.Tab { editor?.tab.wrappedValue ?? ownTab }
+
+    private func setTab(_ next: SessionScreen.Tab) {
+        if let editor { editor.tab.wrappedValue = next } else { ownTab = next }
+    }
+
+    // MARK: - The screen (session-screen.json)
+
+    private func kind(_ rows: ChatRows) -> SessionScreen.Kind {
+        SessionScreen.kind(agentId: rows.root.agentId, appId: rows.root.appId, assistant: rows.agent?.isAssistant == true)
+    }
+
+    /// #EXP-1732: the tree's issues and sessions (the RAW tree, never the
+    /// view's visible chips; an agent's chat has none).
+    private func items(_ view: SessionChatView) -> ChatTreeItems {
+        guard let rows else { return ChatTreeItems(tabs: view.tabs) }
+        return ChatTreeItems(rows: rows, now: Date())
+    }
+
+    /// THE screen value: the tabs with their counts, the active tab, the
+    /// gear and the layout (phones are never wide).
+    private func screen(_ rows: ChatRows, _ view: SessionChatView) -> SessionScreen.Screen {
+        let tree = items(view)
+        return SessionScreen.screen(
+            kind: kind(rows),
+            requested: tab,
+            open: opened?.open,
+            counts: SessionScreen.Counts(
+                issues: tree.issues.count,
+                sessions: tree.sessions.count,
+                results: ChatResultsPage.results(rootId: rows.root.id, rows: rows, now: Date()).count
+            )
+        )
+    }
+
+    /// The plans of the Conversation, in order.
+    private func plans(_ view: SessionChatView) -> [ChatPlanRow] {
+        view.rows.compactMap { row -> ChatPlanRow? in
             if case let .plan(card) = row { return card }
             return nil
         }
-        if let planPick, let picked = plans.first(where: { $0.id == planPick }) { return picked }
-        let target = PlanPage.planTabTarget(plans.map { (id: $0.id, decision: $0.decision) }, kept: planKept)
-        return plans.first { $0.id == target }
     }
 
-    /// #FEED-191: the shown plan's id (`kept` follows it whenever it is set).
+    /// #EXP-1662 (plan-page.json): the plan an opened plan item shows: the
+    /// one it names, else `planTabTarget` over the chat's plan cards.
+    private func plan(_ messageId: String?, _ view: SessionChatView) -> ChatPlanRow? {
+        let cards = plans(view)
+        if let messageId { return cards.first { $0.id == messageId } }
+        let target = PlanPage.planTabTarget(cards.map { (id: $0.id, decision: $0.decision) }, kept: planKept)
+        return cards.first { $0.id == target }
+    }
+
+    /// #FEED-191: the open plan's id (`kept` follows it whenever it is set).
     private var shownPlanId: String? {
-        guard let view = model?.view else { return nil }
-        return shownPlan(view)?.id
+        guard case let .plan(messageId) = opened, let view = model?.view else { return nil }
+        return plan(messageId, view)?.id
     }
 
-    /// chats.json AGENT CHAT: an agent's chat's pages: the Conversation, and
-    /// the plan tab while it holds a plan.
-    private func agentChatPages(_ view: SessionChatView) -> [ChatPage] {
-        Chats.agentChatTabs(holdsPlan: shownPlan(view) != nil).contains("plan") ? [.conversation, .plan(nil)] : [.conversation]
+    /// EVERY item the screen opens in place: each issue of the tree, each
+    /// session under the root, each plan of the Conversation (a landing or a
+    /// pill may name one).
+    private var reachable: Set<String> {
+        guard let view = model?.view else { return [] }
+        let tree = items(view)
+        return Set(tree.issues.map { "i:\($0.issueId)" } + tree.sessions.map { "s:\($0.sessionId)" }
+            + plans(view).map { "p:\($0.id)" })
     }
 
-    /// EVERY page the strip reaches (the Conversation, the plan, each issue of
-    /// the tree, each session under the root, Results): what a pill, a landing
-    /// or a pick may open in place. An app editor's chat has the
-    /// Conversation alone (its band replaces the strip); an agent's chat that
-    /// and the plan it holds (chats.json AGENT CHAT). NEW-46: on a
-    /// `transcript` chat with ONE session the Conversation tab IS that
-    /// session's page (one page, not two); `bubbles` keeps the Conversation.
-    private func reachable(_ rows: ChatRows, _ view: SessionChatView) -> [ChatPage] {
-        guard editor == nil else { return [.conversation] }
-        if rows.isAgent { return agentChatPages(view) }
-        let main = rows.chatMode == .transcript ? view.mainSessionId : nil
-        let plan: [ChatPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
-        return plan + view.tabs.flatMap { tab -> [ChatPage] in
-            switch tab {
-            case .conversation: [main.map { .session($0) } ?? .conversation]
-            case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
-            case let .session(sessionId, _, _, nested):
-                [.session(sessionId)] + nested.map { .session($0.sessionId) }
-            case .add: []
-            }
-        } + [.results]
-    }
-
-    /// EXP-1343 / #EXP-1433: the pager's pages = Conversation · (#EXP-1662:
-    /// the plan) · (chips: the one issue | group: the item opened from the group, only while it is
-    /// the shown page) · Results; `+` and the group tab are never pages.
-    private func pages(_ rows: ChatRows, _ view: SessionChatView) -> [ChatPage] {
-        guard editor == nil else { return [.conversation] }
-        if rows.isAgent { return agentChatPages(view) }
-        let conversation = resolved(.conversation)
-        let group = ChatStripGroup(tabs: view.tabs)
-        let middle: [ChatPage] = if let single = group.single {
-            [.issue(single.issueId)]
-        } else if page != conversation, group.holds(page) {
-            [page]
-        } else {
-            []
+    private func reaches(_ item: ChatOpenedItem) -> Bool {
+        switch item {
+        case let .issue(id): reachable.contains("i:\(id)")
+        case let .session(id): reachable.contains("s:\(id)")
+        case let .plan(id): id.map { reachable.contains("p:\($0)") } ?? true
+        case .settings: true
         }
-        let plan: [ChatPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
-        return [conversation] + plan + middle + [.results]
-    }
-
-    private var currentPages: [ChatPage] {
-        guard let rows, let view = model?.view else { return [.conversation] }
-        return pages(rows, view)
-    }
-
-    private var reachablePages: [ChatPage] {
-        guard let rows, let view = model?.view else { return [.conversation] }
-        return reachable(rows, view)
-    }
-
-    /// The page a chat lands on: its Conversation, or (NEW-6 N-1) the ONE
-    /// session's page of a single-session chat.
-    private var defaultPage: ChatPage { resolved(.conversation) }
-
-    /// NEW-46: the page a tab names: on a single-session `transcript`
-    /// chat the Conversation tab's page is that session's.
-    private func resolved(_ page: ChatPage) -> ChatPage {
-        guard page == .conversation, editor == nil, let rows, rows.chatMode == .transcript,
-              let main = model?.view?.mainSessionId else { return page }
-        return .session(main)
     }
 
     var body: some View {
         ZStack {
             AppBackground()
             if let model, let rows = model.rows, let view = model.view {
+                let shown = screen(rows, view)
                 ZStack {
-                    FacePager(
-                        pages: pages(rows, view),
-                        // chats.json AGENT CHAT: only a page of its tabs, whatever a route named.
-                        selection: Binding(
-                            get: { rows.isAgent && !agentChatPages(view).contains(page) ? ChatPage.conversation : page },
-                            set: { switchPage($0) }
-                        )
-                    ) { page in
-                        pageView(page, rows: rows, view: view)
-                    }
-                    .opacity(editor?.pane == nil ? 1 : 0)
-                    .allowsHitTesting(editor?.pane == nil)
-                    .accessibilityHidden(editor?.pane != nil)
-                    if let pane = editor?.pane {
-                        pane
+                    // The Chat stays mounted under every other tab (its draft
+                    // and scroll survive a tab switch).
+                    chatPage(rows: rows)
+                        .opacity(shown.active == .chat ? 1 : 0)
+                        .allowsHitTesting(shown.active == .chat)
+                        .accessibilityHidden(shown.active != .chat)
+                    if shown.active != .chat {
+                        tabBody(shown.active, rows: rows, view: view)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -307,41 +233,35 @@ struct ChatScreen: View {
                 .environment(\.chatPlanOutlet, planOutlet)
                 .environment(\.waitingFocus, waitingFocus)
                 // EXP-1316 (detail-chrome.json): THE detail chrome band on
-                // every tab — #EXP-1688: THE chat header over the strip,
+                // every tab — #EXP-1688: THE chat header over THE tabs,
                 // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
-                    if let editor {
-                        // #EXP-1729: an app editor's header IS THE chat header.
-                        editorChatHeader(editor)
-                        editor.band
-                    } else {
-                        chatHeader(rows: rows, view: view)
-                        header(rows: rows, view: view)
+                    chatHeader(rows: rows, view: view, gear: shown.gear)
+                    SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
+                        selectTab(next)
                     }
                 }
             } else if model?.missing == true {
-                bareBand(
-                    EmptyState(.chatNotFound)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityIdentifier("chat-not-found")
-                )
+                EmptyState(.chatNotFound)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("chat-not-found")
+                    .workHeaderBand { ChatHeader() }
             } else {
                 // EXP-1275 (D8): a first load is skeleton rows.
-                bareBand(
-                    SkeletonRows()
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                )
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .workHeaderBand { ChatHeader() }
             }
         }
-        // #EXP-1688: a chat draws THE chat header itself (#EXP-1729: an app
-        // editor's too).
+        // #EXP-1688: THE session screen draws THE chat header itself, for
+        // every kind (an app editor's too).
         .toolbar(.hidden, for: .navigationBar)
-        .navigationBarTitleDisplayMode(.inline)
-        // The header band draws the bar's material — the nav bar's own
-        // background and divider stand down (EXP-1150).
-        .toolbarBackground(.hidden, for: .navigationBar)
+        // #EXP-1732: an opened item = a page pushed over the tab.
+        .navigationDestination(item: $opened) { item in
+            openedPage(item)
+        }
         // Each presentation on its OWN node (EXP-240).
         .background {
             Color.clear
@@ -361,9 +281,8 @@ struct ChatScreen: View {
         .background {
             Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
-                    ChatStripMenuSheet(
-                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier },
-                        guideEntries: target.guide ? prMenuEntries.filter { $0 != .checks } : nil
+                    ChatIssueMenuSheet(
+                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier }
                     ) { action in
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
@@ -374,13 +293,6 @@ struct ChatScreen: View {
             chatActions.delete(rootId: id) { deleted in
                 // chats.json: after a delete the chat's screen closes.
                 if deleted { dismiss() }
-            }
-        }
-        .navigationDestination(isPresented: $agentSettingsOpen) {
-            if let rows, let agentId = rows.root.agentId {
-                AgentSettingsPage(teamId: rows.root.teamId, agentId: agentId, isOwner: isOwner)
-                    .environment(\.accountId, accountId)
-                    .bareBackButton()
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }
@@ -410,25 +322,6 @@ struct ChatScreen: View {
                     )
                 }
         }
-        .sheet(isPresented: $groupOpen, onDismiss: runPendingGroupPick) {
-            if let view = model?.view {
-                ChatStripGroupSheet(
-                    group: ChatStripGroup(tabs: view.tabs),
-                    issue: { rows?.issue(id: $0) },
-                    issueStatus: { rows?.issueStatus(id: $0) },
-                    shown: page
-                ) { pick in
-                    pendingGroupPick = pick
-                    groupOpen = false
-                }
-            }
-        }
-        .sheet(isPresented: $waitingOpen, onDismiss: runPendingWaitingPick) {
-            ChatWaitingSheet(chips: waitingChips.chips) { id in
-                pendingWaitingPick = id
-                waitingOpen = false
-            }
-        }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
                 ChatLinkIssueSheet(
@@ -445,22 +338,22 @@ struct ChatScreen: View {
         .accessibilityIdentifier("chat-screen")
         .onAppear(perform: appear)
         .onDisappear(perform: disappear)
-        // A held tab that arrived is shown; a page that vanished (an
-        // unlinked issue) lands on the Conversation.
-        .onChange(of: reachablePages) { _, pages in
-            if let pending = pendingPage, pages.contains(pending) {
-                pendingPage = nil
-                selectPage(pending)
-            } else if !pages.contains(page) {
-                page = defaultPage
+        // A held item that arrived opens; an open item that vanished (an
+        // unlinked issue) closes.
+        .onChange(of: reachable) { _, _ in
+            if let pending = pendingPage {
+                land(on: pending)
+            } else if let opened, !reaches(opened) {
+                self.opened = nil
             }
             syncIssueModels()
         }
+        .onChange(of: opened) { _, _ in syncIssueModels() }
         // The navigator popped back to THIS page for a filed issue: land on
         // the tab it names.
         .onChange(of: chatLoaded, initial: true) { _, _ in focusPendingCard() }
-        // #FEED-191: `kept` = the tab's plan whenever there is one, so a plan
-        // decided during this visit keeps its chip until the person leaves.
+        // #FEED-191: `kept` = the open plan whenever there is one, so a plan
+        // decided during this visit stays reachable until the person leaves.
         .onChange(of: shownPlanId, initial: true) { _, id in
             if let id { planKept = id }
         }
@@ -470,16 +363,6 @@ struct ChatScreen: View {
         }
         // EXP-1154: a new chat PR starts with no merge in flight.
         .onChange(of: rows?.guidePullRequest?.id) { _, _ in mergeState = WorkMergeState() }
-        // EXP-1323: the live tail follows the root while it is not ended.
-        .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
-        // #EXP-1545/#EXP-1623: the ONE Live child's relay slots follow the
-        // tree and what is known of each child's Queue (its own scope: the
-        // probe reads the attached child's slots).
-        .background {
-            BodySlice {
-                Color.clear.onChange(of: childProbeInput, initial: true) { _, _ in syncChildModels() }
-            }
-        }
         // A newer agent message read here is read: re-stamp the root.
         .onChange(of: newestAgentMessageAt) { _, newest in
             if newest != nil { markRead() }
@@ -488,27 +371,35 @@ struct ChatScreen: View {
 
     // MARK: - Header
 
-    /// #EXP-1688: back · the lead disc · title over the subtitle · the
-    /// trailing actions in web's order: the chat PR's Merge pill, then
-    /// (NEW-69, voice-call.json) an agent chat's telephone, then ONE `…`
-    /// (EXP-1307/1316: Close PR in THE Menu's sheet).
-    private func chatHeader(rows: ChatRows, view: SessionChatView) -> some View {
+    /// #EXP-1688 / #EXP-1732: back · the lead disc · title over the
+    /// subtitle · the trailing actions in web's order: the chat PR's Merge
+    /// pill, (NEW-69, voice-call.json) an agent chat's telephone, THE gear,
+    /// then ONE `…` (EXP-1307/1316: Close PR in THE Menu's sheet; an app's =
+    /// the editor's Export · Delete).
+    private func chatHeader(rows: ChatRows, view: SessionChatView, gear: Bool) -> some View {
         ChatHeader {
-            ChatHeaderTitle(
-                title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
-                subtitle: ChatHeaderTitle.subtitle(rows: rows),
-                subtitleTone: ChatHeaderTitle.tone(rows: rows),
-                isPrivate: view.isPrivate,
-                agentIcon: rows.isAgent ? rows.agentIcon : nil,
-                agentColor: rows.isAgent ? rows.agentColor : nil,
-                assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
-                cli: rows.root.cli,
-                prStates: rows.pullRequests.map(\.state),
-                mark: SessionTree.chatRowMarkState(
-                    needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
-                    busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+            if let editor {
+                // #EXP-1729: the editor's title block carries its own
+                // subtitle (apps.json `editorHeader`: why nothing starts).
+                editor.title(ChatHeaderTitle.status(rows: rows))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ChatHeaderTitle(
+                    title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
+                    subtitle: ChatHeaderTitle.subtitle(rows: rows),
+                    subtitleTone: ChatHeaderTitle.tone(rows: rows),
+                    isPrivate: view.isPrivate,
+                    agentIcon: rows.isAgent ? rows.agentIcon : nil,
+                    agentColor: rows.isAgent ? rows.agentColor : nil,
+                    assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
+                    cli: rows.root.cli,
+                    prStates: rows.pullRequests.map(\.state),
+                    mark: SessionTree.chatRowMarkState(
+                        needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
+                        busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                    )
                 )
-            )
+            }
         } trailing: {
             headerMergePill
             if rows.root.isAgent, rows.root.appId == nil, let agentId = rows.root.agentId {
@@ -519,7 +410,12 @@ struct ChatScreen: View {
                 )
                 .buttonStyle(.plain)
             }
-            if !chatMenuEntries.isEmpty {
+            if gear {
+                SessionScreenGear { openItem(.settings) }
+            }
+            if let trailing = editor?.trailing {
+                trailing
+            } else if !chatMenuEntries.isEmpty {
                 ChatHeaderGhostButton(
                     icon: AppIcons.uiMore, label: "More", identifier: SessionTree.ChatCopy.guideMenuTestId
                 ) {
@@ -529,121 +425,31 @@ struct ChatScreen: View {
         }
     }
 
-    /// #EXP-1729 (apps.json `editorHeader`): an app editor's chat header:
-    /// back · the app's title block · its `…`.
-    private func editorChatHeader(_ editor: ChatEditorSlot) -> some View {
-        ChatHeader {
-            editor.title
-        } trailing: {
-            if let trailing = editor.trailing { trailing }
-        }
-    }
-
-    /// #EXP-1688: no chat yet (first load, not found): the header's back alone,
-    /// the bar being hidden (#EXP-1729: an app editor's title and `…` too).
-    @ViewBuilder
-    private func bareBand<Content: View>(_ content: Content) -> some View {
-        if let editor {
-            content.workHeaderBand { editorChatHeader(editor) }
-        } else {
-            content.workHeaderBand { ChatHeader() }
-        }
-    }
-
-    /// The band under the chat header: THE strip (the pager) on a chat; an
-    /// agent's chat has none but while it holds a plan (chats.json AGENT CHAT):
-    /// Conversation and the plan tab.
-    @ViewBuilder
-    private func header(rows: ChatRows, view: SessionChatView) -> some View {
-        if !rows.isAgent || agentChatPages(view).count > 1 {
-            chatStrip(rows: rows, view: view)
-        }
-    }
-
-    private func chatStrip(rows: ChatRows, view: SessionChatView) -> some View {
-        ChatStripTabs(
-            tabs: view.tabs,
-            // NEW-46: the ONE session's page reads as the Conversation tab.
-            selection: view.mainSessionId.map { page == .session($0) } == true ? .conversation : page,
-            issue: { rows.issue(id: $0) },
-            issueStatus: { rows.issueStatus(id: $0) },
-            isFresh: { model?.isFresh(issueId: $0) ?? false },
-            onSelect: { next in
-                pendingPage = nil
-                // #EXP-1662: the chip = the tab's own plan, never an older pick.
-                if case .plan = next { planPick = nil }
-                selectPage(next)
-            },
-            onIssueMenu: { issueId in openMenu(issueId: issueId) },
-            onAdd: canEdit && !rows.isAgent ? { openMenu(issueId: nil) } : nil,
-            onOpenGroup: {
-                UIApplication.endEditing()
-                groupOpen = true
-            },
-            showsResults: !rows.isAgent,
-            waiting: rows.isAgent ? nil : waitingChips,
-            onOpenWaiting: {
-                UIApplication.endEditing()
-                waitingOpen = true
-            },
-            planWaiting: shownPlan(view).map { $0.decision == nil },
-            planGlyph: PlanPage.planTabGlyph(shownPlan(view)?.decision)
-        )
-    }
-
-    /// #EXP-1562 (waiting-cards.json CHIPS): the Conversation's WAITING
-    /// cards (`chatPendingAsks`); a phone = ONE button. #EXP-1662: a plan's
-    /// chip is the plan tab; these are the questions.
-    private var waitingChips: WaitingCards.Chips {
-        let rows = model?.view?.rows ?? []
-        return WaitingCards.chips(AskDock.chatPendingAsks(rows, sessionName: { _ in nil }).filter { $0.kind != .plan }, phone: true)
-    }
-
-    /// #EXP-1562: a waiting row's pick shows the Conversation (if another
-    /// page is up), scrolls that card to centre and lights it.
-    private func runPendingWaitingPick() {
-        guard let id = pendingWaitingPick else { return }
-        pendingWaitingPick = nil
-        pendingPage = nil
-        if page != defaultPage { selectPage(.conversation) }
-        waitingFocus = WaitingFocus(id: id, at: Date())
-    }
-
     private var chatLoaded: Bool { model?.view != nil }
 
-    /// #FEED-191 (needs-you.json): a Needs you row's `card`: the Conversation,
-    /// scrolled to the card, once the chat is there (the waiting pick's).
+    /// #FEED-191 (needs-you.json): a Needs you row's `card`: the Chat,
+    /// scrolled to the card, once the chat is there.
     private func focusPendingCard() {
         guard let id = pendingCard, model?.view != nil else { return }
         pendingCard = nil
         pendingPage = nil
-        if page != defaultPage { selectPage(.conversation) }
+        opened = nil
+        setTab(.chat)
         waitingFocus = WaitingFocus(id: id, at: Date())
     }
 
-    /// #EXP-1433: the group sheet's pick opens that issue / session IN
-    /// PLACE (its page).
-    private func runPendingGroupPick() {
-        guard let pick = pendingGroupPick else { return }
-        pendingGroupPick = nil
-        pendingPage = nil
-        switch pick {
-        case let .issue(issueId): selectPage(.issue(issueId))
-        case let .session(sessionId): openSession(sessionId)
-        }
-    }
-
-    /// EXP-1343: a session of this chat's strip shows as its page; one
-    /// the strip does not hold (another root's) pushes its own screen.
-    /// #EXP-1464: a child of this chat opens in place; any other session
-    /// by inbox-route.json `sessionTarget` (`AppRoute.openingSession`).
+    /// EXP-1343 / #EXP-1732: a session under this root opens in place (the
+    /// Sessions tab, its page pushed over it); any other session by
+    /// inbox-route.json `sessionTarget` (`AppRoute.openingSession`).
     private func openSession(_ sessionId: String) {
-        if reachablePages.contains(.session(sessionId)) {
-            selectPage(.session(sessionId))
+        if reaches(.session(sessionId)) {
+            pendingPage = nil
+            setTab(.sessions)
+            openItem(.session(sessionId))
         } else {
             let route = AppRoute.openingSession(sessionId, accountId: accountId, deps: deps)
             if case let .chat(_, chatId, _) = route, chatId == (rows?.root.id ?? rootId) {
-                // This very chat (a page the strip does not hold).
+                // This very chat (a session the tree does not hold).
                 pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
             } else {
                 pushRoute(route)
@@ -652,25 +458,21 @@ struct ChatScreen: View {
     }
 
     /// EXP-1347: an issue pill inside this chat whose issue is one of its
-    /// tabs selects that tab; false = not ours (the caller pushes).
+    /// tree's opens it in place; false = not ours (the caller pushes).
     private func openIssueTab(_ issueId: String) -> Bool {
-        guard reachablePages.contains(.issue(issueId)) else { return false }
+        guard reaches(.issue(issueId)) else { return false }
         pendingPage = nil
-        selectPage(.issue(issueId))
+        setTab(.issues)
+        openItem(.issue(issueId))
         return true
     }
 
-    /// #EXP-1662: a plan of this chat shows in its tab; false = not ours
+    /// #EXP-1662: a plan of this chat opens its plan page; false = not ours
     /// (the caller pushes that plan's chat).
     private func openPlanTab(_ messageId: String) -> Bool {
-        guard editor == nil, let view = model?.view,
-              view.rows.contains(where: { row in
-                  if case let .plan(card) = row { return card.id == messageId }
-                  return false
-              })
-        else { return false }
+        guard reaches(.plan(messageId)), model?.view != nil else { return false }
         pendingPage = nil
-        selectPage(.plan(messageId))
+        openItem(.plan(messageId))
         return true
     }
 
@@ -684,29 +486,26 @@ struct ChatScreen: View {
         return teamState.teams.contains { $0.id == rows.root.teamId }
     }
 
-    // MARK: - Pages
+    // MARK: - Tabs and opened items
 
+    /// A non-chat tab's body (layout `tab`: it replaces the chat).
     @ViewBuilder
-    private func pageView(_ page: ChatPage, rows: ChatRows, view: SessionChatView) -> some View {
-        switch page {
-        case .conversation:
-            conversationPage(rows: rows, view: view)
-        case let .issue(issueId):
-            issuePage(issueId)
-        case let .session(sessionId):
-            sessionPage(sessionId, rows: rows)
-        case .plan:
-            if let plan = shownPlan(view) {
-                PlanPageBody(
-                    card: plan,
-                    pictureSizes: TreeMessageCard.parse(
-                        rows.messages.first { $0.id == plan.id }?.card
-                    )?.pictures ?? [],
-                    canAnswer: canEdit,
-                    busy: answeringId == plan.id,
-                    onSubmit: submitAnswer
-                )
-                .id(plan.id)
+    private func tabBody(_ tab: SessionScreen.Tab, rows: ChatRows, view: SessionChatView) -> some View {
+        switch tab {
+        case .chat:
+            EmptyView()
+        case .issues:
+            ChatIssuesTab(
+                issues: items(view).issues,
+                issue: { rows.issue(id: $0) },
+                issueStatus: { rows.issueStatus(id: $0) },
+                onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
+                onOpen: { issueId in openItem(.issue(issueId)) },
+                onMenu: canEdit ? { issueId in openMenu(issueId: issueId) } : nil
+            )
+        case .sessions:
+            ChatSessionsTab(sessions: items(view).sessions) { sessionId in
+                openItem(.session(sessionId))
             }
         case .results:
             ChatResultsPage(
@@ -715,302 +514,86 @@ struct ChatScreen: View {
                 canEdit: canEdit,
                 mergeState: $mergeState
             )
-        case .card:
-            EmptyView()
-        }
-    }
-
-    /// EXP-1316 (1n): the Conversation scrolls like the session feed — it
-    /// opens on the newest row, stays pinned while rows land unless the
-    /// reader scrolled up, and THE jump-to-bottom button re-pins (the
-    /// session view's `FollowPinTracker`).
-    private func conversationPage(rows: ChatRows, view: SessionChatView) -> some View {
-        GeometryReader { geo in
-            ScrollViewReader { scroller in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ChatConversationView(
-                            rows: rows,
-                            view: view,
-                            onOpenSession: { sessionId in openSession(sessionId) },
-                            onOpenSender: { sessionId in pushRoute(rows.sessionRoute(sessionId, accountId: accountId)) },
-                            onSubmit: submitAnswer,
-                            onUnqueue: unqueue,
-                            viewerId: deps.auth.userId,
-                            answeringId: answeringId,
-                            canAnswer: canEdit,
-                            highlightId: highlightId,
-                            suggestions: suggestionActions,
-                            // EXP-1323/1324: THE Queue + the status line off
-                            // the live root, as the Conversation's last row.
-                            liveTail: liveModel.map { live in
-                                ChatLiveTail(
-                                    model: live,
-                                    agent: view.liveSessionId.flatMap { rows.session(id: $0)?.cli }
-                                )
-                            },
-                            onReply: { text in reply(text, sessionId: view.composer.sessionId) },
-                            onLoadEarlier: { anchor in
-                                // The widened window lays out first; then the
-                                // row the reader saw on top stays on top.
-                                DispatchQueue.main.async { scroller.scrollTo(anchor, anchor: .top) }
-                            }
-                        )
-                        .padding(.vertical, 12)
-                        .transcriptColumn()
-                        Color.clear
-                            .frame(height: insetCorrection)
-                        Color.clear
-                            .frame(height: 1)
-                            .id(Self.bottomId)
-                            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
-                                anchorBottom = bottom
-                            }
-                    }
-                    // #EXP-1380: the content-frame preference only feeds the
-                    // pre-iOS-18 pin path; on 18+ the scroll geometry does,
-                    // and the lazy rows are never measured as a whole.
-                    .modifier(LegacyFeedOverflow(viewport: geo.size.height, space: Self.coordSpace))
-                }
-                .coordinateSpace(name: Self.coordSpace)
-                .scrollDismissesKeyboard(.interactively)
-                .modifier(FollowPinTracker(
-                    atBottom: $atBottom,
-                    // chats.json FOLLOW ×4: `transcript.followSlack`.
-                    slack: CGFloat(Chats.Transcript.followSlack),
-                    repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                ))
-                // #EXP-1562: a waiting pick scrolls here and lights the card.
-                .modifier(WaitingFocusScroll(
-                    focus: waitingFocus, proxy: scroller, highlight: $highlightId, onScroll: { atBottom = false }
-                ))
-                .onAppear {
-                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                    // Lazy rows can still be sizing on the first pass.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(50))
-                        if atBottom { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                    }
-                }
-                .onChange(of: view.rows.count) { _, _ in
-                    guard atBottom else { return }
-                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                }
-                // EXP-1316: the composer expanding and the keyboard rising
-                // shrink the viewport from below — a reader on the newest row
-                // stays on it (Android parity), re-pinned once the inset lands.
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    guard pinOnInset || atBottom else { return }
-                    pinOnInset = false
-                    atBottom = true
-                    repin(scroller)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
-                    insetCorrection = 0
-                    guard atBottom else { return }
-                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-                }
-                // #EXP-1383 (owner 2026-10-24: "exactly as in sessions"):
-                // the run view's jump button, placed the run view's way
-                // (AgentSessionView.feedBody): an overlay on the SCROLL VIEW
-                // inside the Dock's safe-area inset (spacing 0), centred 12pt
-                // above the Dock's top edge, only while scrolled away from
-                // the newest row of a non-empty transcript.
-                .overlay(alignment: .bottom) {
-                    ZStack {
-                        if !atBottom, !view.rows.isEmpty {
-                            JumpToBottomButton {
-                                atBottom = true
-                                withAnimation(motion.standard) {
-                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                                }
-                            }
-                            .jumpToBottomTransition(motion)
-                            .padding(.bottom, JumpToBottomButton.bottomGap)
-                            .accessibilityIdentifier(Chats.TestIds.jumpToBottom)
-                        }
-                    }
-                    .animation(motion.standard, value: atBottom)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    // N-12: THE Dock over the Conversation's bottom edge: the
-                    // suggested tasks, the live root's Queue, queued
-                    // messages and banners, then THE composer (always).
-                    // #EXP-1623: THE Dock is its own observation scope. Built
-                    // inline, every live model's slots it reads (the root's
-                    // and the Live child's) were tracked by this screen's
-                    // body, so their frames re-rendered the whole chat.
-                    BodySlice {
-                        let dockRows = conversationDockRows(rows: rows, view: view)
-                        DockView(
-                            rows: dockRows,
-                            openId: $dockOpenId,
-                            renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
-                            renderAction: { row in
-                                row.id == "banner:closed"
-                                    ? liveModel.map(SessionDock.reconnect)
-                                    : SessionDock.agentHintAction(row) { text in reply(text, sessionId: rows.root.id) }
-                            }
-                        ) {
-                            // EXP-1211: the agent's quick replies, directly above
-                            // the composer.
-                            SessionComposerReplies(sessionId: view.composer.sessionId)
-                            ChatComposer(
-                                sessionId: view.composer.sessionId,
-                                root: rows.root,
-                                placeholder: rows.composerPlaceholder(view),
-                                busySessionIds: rows.sessions
-                                    .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                                    .map(\.id),
-                                agentRow: rows.agent,
-                                editorDevice: editor?.device,
-                                editorMove: editor?.appMove,
-                                editorPicks: editor?.picks,
-                                onExpand: {
-                                    // Remember the pin BEFORE the inset moves it.
-                                    pinOnInset = atBottom
-                                }
-                            )
-                        }
-                        .floatingBarEdge(!dockRows.isEmpty)
-                    }
-                    // EXP-1316 (Android 247c806b33): the floating composer's
-                    // MEASURED height (capsule or open card, + its edge) is
-                    // the conversation's bottom inset; a pinned conversation
-                    // re-pins whenever it changes — expansion, keyboard,
-                    // late layout — so the newest row never hides under it.
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-                        composerTop = frame.minY
-                        guard frame.height != composerHeight else { return }
-                        if frame.height < composerHeight { insetCorrection = 0 }
-                        composerHeight = frame.height
-                        guard pinOnInset || atBottom else { return }
-                        atBottom = true
-                        repin(scroller)
-                    }
-                }
+        case .preview, .data, .versions:
+            if let pane = editor?.pane(tab) {
+                pane
             }
         }
     }
 
-    private static let coordSpace = "chat-conversation-scroll"
-
-    /// N-12: the Conversation's DockCards: the suggested tasks with an open
-    /// item, then the live root's own (`SessionDock`). S-3 (dock.json): a
-    /// waiting plan or question is never a DockCard; it stays
-    /// inline in the transcript, answerable.
-    private func conversationDockRows(rows: ChatRows, view: SessionChatView) -> [Dock.Row] {
-        guard canEdit else { return [] }
-        let live = liveModel.map { SessionDock.sources($0, session: rows.root, tasks: false) } ?? []
-        // #EXP-1545: the ONE tasks card, the root's else a Live child's.
-        let tasks = chatQueue(rows: rows, view: view).map { pick -> Dock.Source in
-            .tasks(pick.model.taskQueue(now: Date()).map(Dock.QueueSummary.init), sessionName: pick.sessionName)
+    /// An opened item's page (layout `item`, pushed over the tab): an issue
+    /// EMBEDDED (EXP-1316), a session's raw work + composer, a plan page, or
+    /// the gear's settings (an agent's / the Assistant's page, an app's).
+    @ViewBuilder
+    private func openedPage(_ item: ChatOpenedItem) -> some View {
+        switch item {
+        case let .issue(issueId):
+            SessionScreenItemPage(title: rows?.issue(id: issueId)?.identifier ?? "") {
+                issuePage(issueId)
+            }
+            .environment(\.chatIssueOutlet, issueOutlet)
+            .environment(\.chatPlanOutlet, planOutlet)
+        case let .session(sessionId):
+            SessionScreenItemPage(title: rows.flatMap { $0.session(id: sessionId) }.map(sessionName) ?? "") {
+                if let rows { sessionPage(sessionId, rows: rows) }
+            }
+            .environment(\.chatIssueOutlet, issueOutlet)
+            .environment(\.chatPlanOutlet, planOutlet)
+        case let .plan(messageId):
+            SessionScreenItemPage(title: PlanPage.Copy.title) {
+                if let rows, let view = model?.view, let plan = plan(messageId, view) {
+                    PlanPageBody(
+                        card: plan,
+                        pictureSizes: TreeMessageCard.parse(
+                            rows.messages.first { $0.id == plan.id }?.card
+                        )?.pictures ?? [],
+                        canAnswer: canEdit,
+                        busy: answeringId == plan.id,
+                        onSubmit: submitAnswer
+                    )
+                    .id(plan.id)
+                }
+            }
+        case .settings:
+            if let editor {
+                editor.settings
+                    .environment(\.detailColumnRoot, false)
+            } else if let rows, let agentId = rows.root.agentId {
+                AgentSettingsPage(teamId: rows.root.teamId, agentId: agentId, isOwner: isOwner)
+                    .environment(\.accountId, accountId)
+                    .environment(\.detailColumnRoot, false)
+                    .bareBackButton()
+            }
         }
-        // #EXP-1383: the agent chat's "Instructions changed" banner.
-        let hint = SessionDock.agentHint(root: rows.root, agent: rows.agent).map { [$0] } ?? []
-        return Dock.rows(Dock.suggestionSources(view.rows) + live + (tasks.map { [$0] } ?? []) + hint)
     }
 
-    /// #EXP-1545 (dock.json CHAT QUEUE): whose Queue the chat's Dock
-    /// shows (`Dock.chatDockQueue`) over the root's and every Live child's
-    /// relay slots (LOCAL FIRST: the store seeds a fresh model with the
-    /// last-known ones); its model draws the card and its sheet's Trace.
-    private func chatQueue(
-        rows: ChatRows, view: SessionChatView
-    ) -> (model: AgentSessionModel, sessionName: String?)? {
-        let names = Dictionary(
-            ChatStripGroup(tabs: view.tabs).sessions.map { ($0.sessionId, $0.name) },
-            uniquingKeysWith: { first, _ in first }
+    /// A tree row's name for the pushed session page's header.
+    private func sessionName(_ session: SessionEntity) -> String {
+        model?.view.flatMap { view in items(view).sessions.first { $0.sessionId == session.id }?.name }
+            ?? session.title ?? SessionTitle.Copy.untitled
+    }
+
+    /// #EXP-1732 (the owner's correction): THE Chat tab = the ROOT's own
+    /// session view, every kind — its raw-work feed (#EXP-1736's transcript
+    /// with the agent's traces), its cards inline, THE Dock and THE composer
+    /// posting to the root (an app editor's: the "+" Device row too). The
+    /// same view a Sessions row pushes for a child.
+    private func chatPage(rows: ChatRows) -> some View {
+        AgentSessionView(
+            accountId: accountId,
+            session: rows.root,
+            embedded: true,
+            editorDevice: editor?.device,
+            editorMove: editor?.appMove,
+            editorPicks: editor?.picks
         )
-        let now = Date()
-        var models: [String: AgentSessionModel] = childModels
-        if let liveModel, let liveClaimId { models[liveClaimId] = liveModel }
-        let candidates = models.compactMap { id, model -> Dock.ChatQueueCandidate? in
-            guard let session = rows.session(id: id) else { return nil }
-            return Dock.ChatQueueCandidate(
-                sessionId: id,
-                name: names[id] ?? session.title ?? "",
-                root: session.parentId == nil,
-                ended: session.status == DomainContract.sessionStatusEnded || model.isOver,
-                activeAt: SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt),
-                open: !(model.taskQueue(now: now)?.todo.items.isEmpty ?? true)
-            )
-        }
-        guard let pick = Dock.chatDockQueue(candidates), let model = models[pick.sessionId] else { return nil }
-        return (model, pick.sessionName)
+        .id(rows.root.id)
     }
-
-    /// A card's sheet: the suggested tasks' sheet, the root's Queue and
-    /// queued messages their lists.
-    private func conversationDockSheet(
-        _ row: Dock.Row, rows: ChatRows, view: SessionChatView, close: @escaping () -> Void
-    ) -> AnyView? {
-        if case let .suggestions(id, _, _, startAll, items)? = view.rows.first(where: { $0.id == row.id }) {
-            return AnyView(ChatSuggestionsSheet(
-                row: row,
-                rowId: id,
-                startAll: startAll,
-                items: items,
-                actions: suggestionActions,
-                onOpenSession: { sessionId in
-                    close()
-                    openSession(sessionId)
-                },
-                onOpenIssue: { [deps, accountId, issueOutlet] issueId in
-                    close()
-                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
-                },
-                onClose: close
-            ))
-        }
-        // #EXP-1545: the tasks card opens ITS session's Trace.
-        if row.kind == .tasks, let pick = chatQueue(rows: rows, view: view) {
-            return SessionDock.sheet(row, model: pick.model, close: close)
-        }
-        return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
-    }
-
-    /// EXP-1316: pin the newest row above the floating composer — now, after
-    /// the next layout pass (the safe-area inset lands one pass late) and
-    /// once the card's open animation and the keyboard have settled.
-    private func repin(_ scroller: ScrollViewProxy) {
-        scroller.scrollTo(Self.bottomId, anchor: .bottom)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard atBottom else { return }
-            scroller.scrollTo(Self.bottomId, anchor: .bottom)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
-            guard atBottom else { return }
-            scroller.scrollTo(Self.bottomId, anchor: .bottom)
-            // Settled: with the keyboard up the scroll view's inset falls
-            // short of the composer by the bottom safe area it swallowed
-            // (34pt on a home-indicator phone). The anchor always lands on
-            // the scroll view's own bottom, so the shortfall is measured
-            // against it once and padded out above the anchor; a later pass
-            // measures the same gap and changes nothing.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                let shortfall = anchorBottom - composerTop - insetCorrection
-                guard atBottom, composerTop > 0, shortfall > 0.5, shortfall < 200 else { return }
-                insetCorrection += shortfall
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                }
-            }
-        }
-    }
-    private static let bottomId = "chat-conversation-bottom"
 
     @ViewBuilder
     private func issuePage(_ issueId: String) -> some View {
-        if let vm = issueVMs[issueId], let issue = vm.issue {
-            IssueFaceView(
-                vm: vm,
-                issue: issue,
-                barTrailing: .hidden,
-                onStartCoding: {},
-                hostChatId: rootId,
-                embedded: true
-            )
+        if let vm = issueVMs[issueId] {
+            ChatIssueItem(vm: vm, hostChatId: rootId)
         } else {
             SkeletonRows()
                 .padding(.horizontal, 16)
@@ -1019,25 +602,17 @@ struct ChatScreen: View {
         }
     }
 
-    /// EXP-1343: a session page = that session's raw work + its composer
-    /// (the session view's body, no header of its own) under the chat's
-    /// ONE header. Only the SHOWN page holds a live model: a neighbour
-    /// renders cheap skeleton rows, and a page left unmounts its view (the
-    /// claim goes with it).
+    /// EXP-1343: a session item = that session's raw work + its composer
+    /// (the session view's body, no header of its own) under the pushed
+    /// page's header. Only the OPEN item holds a live model; a page left
+    /// unmounts its view (the claim goes with it).
     @ViewBuilder
     private func sessionPage(_ sessionId: String, rows: ChatRows) -> some View {
-        if page == .session(sessionId), let session = rows.session(id: sessionId) {
+        if opened == .session(sessionId), let session = rows.session(id: sessionId) {
             AgentSessionView(
                 accountId: accountId,
                 session: session,
-                embedded: true,
-                onModel: { id, model in
-                    if let model {
-                        sessionPageModel = (id, model)
-                    } else if sessionPageModel?.id == id {
-                        sessionPageModel = nil
-                    }
-                }
+                embedded: true
             )
             .id(sessionId)
         } else {
@@ -1103,10 +678,10 @@ struct ChatScreen: View {
         answeringId = card.messageId
         let api = deps.sessionsApi
         let accountId = accountId
-        // plan-page.json (#FEED-191): a decision taken ON the Plan tab returns
-        // to the Conversation, where the agent works on; one from there stays.
+        // plan-page.json (#FEED-191): a decision taken ON the plan page returns
+        // to the Chat, where the agent works on; one from there stays.
         var returnsToConversation = false
-        if case .plan = page, card.decision != nil { returnsToConversation = true }
+        if case .plan = opened, card.decision != nil { returnsToConversation = true }
         Task {
             do {
                 if card.dismissed {
@@ -1117,7 +692,7 @@ struct ChatScreen: View {
                         fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
                     )
                 }
-                if returnsToConversation, case .plan = page { selectPage(.conversation) }
+                if returnsToConversation, case .plan = opened { opened = nil }
             } catch {
                 toaster.error(
                     card.dismissed
@@ -1130,218 +705,6 @@ struct ChatScreen: View {
             }
             answeringId = nil
         }
-    }
-
-    /// EXP-1317: revoke the viewer's own queued message (`sessions.unqueue`);
-    /// the Electric echo drops the row, a refusal toasts.
-    private func unqueue(_ messageId: String) {
-        let api = deps.sessionsApi
-        let accountId = accountId
-        Task {
-            do {
-                try await api.unqueue(accountId: accountId, messageId: messageId)
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "remove", thing: "the message"),
-                    description: error.userFacingMessage
-                )
-            }
-        }
-    }
-
-    // MARK: - Suggested tasks (EXP-1323)
-
-    private var suggestionActions: ChatSuggestionActions {
-        ChatSuggestionActions(
-            onStart: { rowId, itemId in startSuggestion(rowId, itemId, where: .child) },
-            onStartAll: { rowId in
-                runSuggestion(ChatSuggestionActions.key(rowId), verb: "start", thing: "the tasks") { api, accountId in
-                    try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
-                }
-            },
-            onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
-            devices: { [teamId = rows?.root.teamId] in await loadSuggestionDevices(teamId: teamId) },
-            pending: suggestionPending
-        )
-    }
-
-    private func startSuggestion(
-        _ rowId: String, _ itemId: String, where target: SuggestionStartWhere,
-        deviceId: String? = nil, model: String? = nil
-    ) {
-        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "start", thing: "the task") { api, accountId in
-            try await api.startSuggestion(
-                accountId: accountId, messageId: rowId, itemId: itemId, where: target,
-                deviceId: deviceId, model: model
-            )
-        }
-    }
-
-    private func dismissSuggestion(_ rowId: String, _ itemId: String) {
-        runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
-            try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
-        }
-    }
-
-    /// One suggestion call: its key waits while it is out (the Electric echo
-    /// moves the item), a refusal toasts `Couldn't <verb> <thing>`.
-    private func runSuggestion(
-        _ key: String, verb: String, thing: String,
-        _ call: @escaping @Sendable (SessionsApi, String) async throws -> Void
-    ) {
-        guard !suggestionPending.contains(key) else { return }
-        suggestionPending.insert(key)
-        let api = deps.sessionsApi
-        let accountId = accountId
-        Task {
-            do {
-                try await call(api, accountId)
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: verb, thing: thing),
-                    description: error.userFacingMessage
-                )
-            }
-            suggestionPending.remove(key)
-        }
-    }
-
-    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
-    private func runSuggestionMenu(_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) {
-        switch action {
-        case .here:
-            startSuggestion(rowId, itemId, where: .here)
-        case let .startOn(deviceId):
-            startSuggestion(rowId, itemId, where: .child, deviceId: deviceId)
-        case let .startWith(model):
-            startSuggestion(rowId, itemId, where: .child, model: model)
-        case .file:
-            runSuggestion(ChatSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
-                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
-            }
-        case .dismiss:
-            dismissSuggestion(rowId, itemId)
-        }
-    }
-
-    /// Start on…'s rows: the machines a start can reach right now with an
-    /// agent to run (the composer's pool).
-    private func loadSuggestionDevices(teamId: String?) async -> [SuggestionOptionsSheet.Device] {
-        let devices = await DeviceQueries.onlineStartTargets(
-            db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
-        )
-        return devices.filter(\.hasRunnableAgent).map {
-            SuggestionOptionsSheet.Device(
-                id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
-            )
-        }
-    }
-
-    // MARK: - Live tail + read marks (EXP-1323)
-
-    /// Claim the live root's socket owner while it is not ended; release it
-    /// once it ends or the screen goes.
-    private func syncLiveTail() {
-        let wanted = model?.view?.liveSessionId
-        guard wanted != liveClaimId else { return }
-        releaseLiveTail()
-        guard let wanted, let root = rows?.session(id: wanted) else { return }
-        liveClaimId = wanted
-        liveModel = deps.attachSteerModel(accountId: accountId, session: root)
-    }
-
-    /// #EXP-1545: the tree's not-ended children (any depth).
-    private var liveChildren: [SessionEntity] {
-        (rows?.sessions ?? [])
-            .filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded }
-            .sorted { $0.id < $1.id }
-    }
-
-    /// #EXP-1623: each Live child as the probe sees it: when it was last
-    /// active and what is known of its Queue without opening its stream.
-    private var childProbes: [Dock.ChatQueueProbe] {
-        liveChildren.map { session in
-            let activeAt = SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt)
-            return Dock.ChatQueueProbe(
-                sessionId: session.id, activeAt: activeAt,
-                state: childQueueState(session.id, activeAt: activeAt)
-            )
-        }
-    }
-
-    private struct ChildProbeInput: Equatable {
-        let rootOpen: Bool
-        let probes: [Dock.ChatQueueProbe]
-        let tick: Int
-    }
-
-    private var childProbeInput: ChildProbeInput {
-        ChildProbeInput(rootOpen: liveModel.map(Self.queueOpen) ?? false, probes: childProbes, tick: childProbeTick)
-    }
-
-    private func childQueueState(_ id: String, activeAt: Double?) -> Dock.ChildQueueState {
-        let store = deps.steerSessions
-        let model = childModels[id] ?? store.peek(accountId: accountId, sessionId: id)
-        if let model, Self.queueOpen(model) { return .open }
-        if store.queueReadClosed(accountId: accountId, sessionId: id, activeAt: activeAt) { return .closed }
-        if let model {
-            // No device feeds it (`starting`): nothing to read there yet, so
-            // the next child in line is; it is read again once it turns.
-            if model.phase == .starting { return .closed }
-            if case .closed = model.phase { return .closed }
-            if model.replayed || model.isOver { return .closed }
-            if let at = childAttachedAt[id], Date().timeIntervalSince(at) >= Self.childProbeDeadline {
-                return .closed
-            }
-            return .unknown
-        }
-        return .unknown
-    }
-
-    private static func queueOpen(_ model: AgentSessionModel) -> Bool {
-        !(model.taskQueue(now: Date())?.todo.items.isEmpty ?? true)
-    }
-
-    /// #EXP-1623 (was #EXP-1545's one claim per Live child: a stream and a
-    /// full join replay for every child on open): ONE claim, on the child
-    /// `Dock.chatQueueProbe` names; a child read closed is released and
-    /// remembered as closed until it is active again.
-    private func syncChildModels() {
-        guard onScreen else { return }
-        let input = childProbeInput
-        let probes = input.probes
-        let wanted = Dock.chatQueueProbe(rootOpen: input.rootOpen, children: probes)
-        for probe in probes where probe.state == .closed {
-            deps.steerSessions.noteQueueClosed(accountId: accountId, sessionId: probe.sessionId, activeAt: probe.activeAt)
-        }
-        for id in childModels.keys where id != wanted {
-            childModels[id] = nil
-            childAttachedAt[id] = nil
-            deps.steerSessions.detach(accountId: accountId, sessionId: id)
-        }
-        if let wanted, childModels[wanted] == nil, let session = rows?.session(id: wanted) {
-            childModels[wanted] = deps.attachSteerModel(accountId: accountId, session: session)
-            childAttachedAt[wanted] = Date()
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(Self.childProbeDeadline))
-                childProbeTick &+= 1
-            }
-        }
-    }
-
-    private func releaseChildModels() {
-        for id in childModels.keys {
-            deps.steerSessions.detach(accountId: accountId, sessionId: id)
-        }
-        childModels = [:]
-        childAttachedAt = [:]
-    }
-
-    private func releaseLiveTail() {
-        guard let claimed = liveClaimId else { return }
-        liveClaimId = nil
-        liveModel = nil
-        deps.steerSessions.detach(accountId: accountId, sessionId: claimed)
     }
 
     /// The tree's newest agent-authored message (the unread rule's input).
@@ -1421,7 +784,7 @@ struct ChatScreen: View {
             case .compact, .newConversation:
                 if let text = Chats.agentMenuSends[entry] { reply(text, sessionId: rows.root.id) }
             case .settings:
-                agentSettingsOpen = true
+                openItem(.settings)
             }
         case .checks:
             // The sheet pushes its own Checks page.
@@ -1466,7 +829,7 @@ struct ChatScreen: View {
     private func openMenu(issueId: String?) {
         guard canEdit else { return }
         UIApplication.endEditing()
-        menuTarget = ChatStripMenuTarget(issueId: issueId)
+        menuTarget = ChatIssueMenuTarget(issueId: issueId)
     }
 
     /// #EXP-1710: the Guide header's `…` entries (merge-train.json `menu`,
@@ -1482,11 +845,6 @@ struct ChatScreen: View {
         )
     }
 
-    private func openGuideMenu() {
-        UIApplication.endEditing()
-        menuTarget = ChatStripMenuTarget(issueId: nil, guide: true)
-    }
-
     private func runPendingMenuAction() {
         guard let pending = pendingMenuAction else { return }
         pendingMenuAction = nil
@@ -1495,11 +853,6 @@ struct ChatScreen: View {
         case .newIssue: newIssue()
         case .unlink:
             if let issueId = pending.issueId { unlink(issueId) }
-        case .mergeNow: askMergeNow()
-        case .hold: holdGuide(true)
-        case .resume: holdGuide(false)
-        case .closePr:
-            closePrTarget = rows?.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
         }
     }
 
@@ -1537,7 +890,7 @@ struct ChatScreen: View {
     }
 
     private func unlink(_ issueId: String) {
-        if page == .issue(issueId) { selectPage(defaultPage) }
+        if opened == .issue(issueId) { opened = nil }
         let api = deps.sessionsApi
         let accountId = accountId
         let rootId = rootId
@@ -1585,9 +938,6 @@ struct ChatScreen: View {
         }
         model?.start()
         syncIssueModels()
-        syncLiveTail()
-        onScreen = true
-        syncChildModels()
         markRead()
     }
 
@@ -1595,16 +945,11 @@ struct ChatScreen: View {
         UIApplication.endEditing()
         model?.stop()
         stopIssueModel()
-        releaseLiveTail()
-        onScreen = false
-        releaseChildModels()
     }
 
-    /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,
-    /// created the first time its page is reached and kept (stopped) once
-    /// the page is left. An unlinked issue's model is dropped. EXP-1343: the
-    /// shown page's NEIGHBOURS get their (idle) model built too, so a swipe
-    /// lands on the page, not a skeleton flash.
+    /// EXP-1288: ONE issue model observes at a time — the open issue
+    /// item's, created the first time it is opened and kept (stopped) once
+    /// it closes. An unlinked issue's model is dropped.
     private func syncIssueModels() {
         guard let rows else { return }
         let ids = Set(rows.issues.map(\.id))
@@ -1612,17 +957,7 @@ struct ChatScreen: View {
             if observingIssueId == id { stopIssueModel() }
             issueVMs[id] = nil
         }
-        let pages = currentPages
-        if let at = pages.firstIndex(of: page) {
-            for neighbour in [at - 1, at + 1] where pages.indices.contains(neighbour) {
-                if case let .issue(id) = pages[neighbour], ids.contains(id), issueVMs[id] == nil {
-                    let vm = makeIssueModel(id)
-                    vm.preload()
-                    issueVMs[id] = vm
-                }
-            }
-        }
-        guard case let .issue(id) = page, ids.contains(id) else {
+        guard case let .issue(id) = opened, ids.contains(id) else {
             stopIssueModel()
             return
         }
@@ -1660,77 +995,114 @@ struct ChatScreen: View {
         )
     }
 
-    /// Show `target` now, or hold it until it reaches the strip.
+    /// A way in (`ChatPage`): its tab now, its item now or once it reaches
+    /// the tree (`pendingPage`).
     private func land(on request: ChatPage) {
-        if case let .card(messageId) = request {
-            menuTarget = nil
+        menuTarget = nil
+        switch request {
+        case let .card(messageId):
             pendingCard = messageId
             focusPendingCard()
+        case .conversation:
+            pendingPage = nil
+            opened = nil
+            setTab(.chat)
+        case .results:
+            pendingPage = nil
+            opened = nil
+            setTab(.results)
+        case let .issue(id):
+            setTab(.issues)
+            hold(request, item: .issue(id))
+        case let .session(id):
+            setTab(.sessions)
+            hold(request, item: .session(id))
+        case let .plan(messageId):
+            setTab(.chat)
+            hold(request, item: .plan(messageId))
+        }
+    }
+
+    /// Open `item` if the tree holds it, else hold the request.
+    private func hold(_ request: ChatPage, item: ChatOpenedItem) {
+        guard model?.view != nil, reaches(item) else {
+            pendingPage = request
             return
         }
-        var target = resolved(request)
-        if case let .plan(messageId) = target {
-            planPick = messageId
-            target = .plan(nil)
-        }
-        menuTarget = nil
-        if reachablePages.contains(target) {
-            pendingPage = nil
-            selectPage(target)
-        } else {
-            pendingPage = target
-            selectPage(defaultPage)
-        }
+        pendingPage = nil
+        openItem(item)
     }
 
-    private func selectPage(_ next: ChatPage) {
-        withAnimation(motion.standard) { switchPage(next) }
-    }
-
-    private func switchPage(_ request: ChatPage) {
-        var next = resolved(request)
-        if case let .plan(messageId) = next {
-            if let messageId { planPick = messageId }
-            next = .plan(nil)
-        } else if case .plan = page, next != page {
-            planPick = nil
-        }
-        guard next != page else { return }
+    /// A tab tap: the tab, nothing opened over it, a held request dropped.
+    private func selectTab(_ next: SessionScreen.Tab) {
+        pendingPage = nil
         UIApplication.endEditing()
-        page = next
-        syncIssueModels()
+        withAnimation(motion.standard) {
+            opened = nil
+            setTab(next)
+        }
+    }
+
+    /// Open an item over the active tab (a pushed page on a phone). An
+    /// issue's model exists before the page is pushed (the page observes it).
+    private func openItem(_ item: ChatOpenedItem) {
+        UIApplication.endEditing()
+        if case let .issue(id) = item, issueVMs[id] == nil {
+            issueVMs[id] = makeIssueModel(id)
+        }
+        opened = item
     }
 }
 
-/// What the strip's menu sheet is open for — an issue tab (`issueId`), the
-/// "+" (nil) or the Guide's `…` (`guide`, EXP-1307).
-/// #EXP-1380: the pre-iOS-18 `FollowPinTracker` input (the content's
-/// overflow below the viewport); iOS 18+ reads the scroll geometry and
-/// skips the GeometryReader entirely.
-private struct LegacyFeedOverflow: ViewModifier {
-    let viewport: CGFloat
-    let space: String
+/// EXP-1316: an opened issue = the issue page EMBEDDED (no own header, no
+/// Chats row, no Start; the bottom bar keeps properties + Comment), its own
+/// observation scope over the issue's model.
+private struct ChatIssueItem: View {
+    let vm: IssueDetailViewModel
+    let hostChatId: String
 
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content
-        } else {
-            content.background(
-                GeometryReader { frame in
-                    Color.clear.preference(
-                        key: FeedBottomOverflowKey.self,
-                        value: frame.frame(in: .named(space)).maxY - viewport
-                    )
-                }
+    var body: some View {
+        if let issue = vm.issue {
+            IssueFaceView(
+                vm: vm,
+                issue: issue,
+                barTrailing: .hidden,
+                onStartCoding: {},
+                hostChatId: hostChatId,
+                embedded: true
             )
+        } else {
+            SkeletonRows()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 }
 
-struct ChatStripMenuTarget: Identifiable {
+/// #EXP-1732 (session-screen.json `open`): the item opened over a tab.
+enum ChatOpenedItem: Hashable {
+    case issue(String)
+    case session(String)
+    /// nil = `PlanPage.planTabTarget`.
+    case plan(String?)
+    case settings
+
+    var open: SessionScreen.Open {
+        switch self {
+        case .issue: .issue
+        case .session: .session
+        case .plan: .plan
+        case .settings: .settings
+        }
+    }
+}
+
+/// What THE Menu's issue sheet is open for — an issue row (`issueId`) or
+/// the Issues tab's "+" (nil).
+struct ChatIssueMenuTarget: Identifiable {
     let issueId: String?
-    var guide = false
-    var id: String { guide ? "guide" : issueId ?? "add" }
+    var id: String { issueId ?? "add" }
 }
 
 /// EXP-1295: a Conversation's draft for THE session composer box
@@ -1760,15 +1132,14 @@ final class ChatComposerDraft: SessionComposerDraft {
     /// #EXP-1715: the Assistant's Teams pick every send carries
     /// (`scopeTeamIds`); nil = not the viewer's Assistant root (never sent).
     var scope: TeamsScope?
-    /// #FEED-204: an ended editor root's next send, to another device.
-    var appMove: AppMove?
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
     @ObservationIgnored private let attachmentsApi: AttachmentsApi
 
-    /// `sessions.send({appId, deviceId})` revives the root on that device;
-    /// #EXP-1729: with the editor composer's Account and Model picks.
+    /// #FEED-204: an ended editor root's next send, to another device:
+    /// `sessions.send({appId, deviceId})` revives the root on that device
+    /// (`AgentSessionModel.sendAppMove`, the editor slot's `appMove`).
     struct AppMove: Equatable {
         let appId: String
         let deviceId: String
@@ -1818,15 +1189,7 @@ final class ChatComposerDraft: SessionComposerDraft {
         let text = text.isEmpty ? nil : text
         let attachmentIds = attachmentIds?.isEmpty == false ? attachmentIds : nil
         do {
-            if let appMove {
-                _ = try await sessionsApi.send(
-                    accountId: accountId,
-                    .app(
-                        appId: appMove.appId, deviceId: appMove.deviceId, text: text, attachmentIds: attachmentIds,
-                        cli: appMove.cli, account: appMove.account, model: appMove.model
-                    )
-                )
-            } else if let agentId {
+            if let agentId {
                 _ = try await sessionsApi.send(
                     accountId: accountId,
                     .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, scope: scope)
@@ -1875,12 +1238,6 @@ struct ChatComposer: View {
     /// `agentId`'s before the first send): the viewer's own Assistant gets
     /// the Teams pick.
     var agentRow: AgentDefinitionEntity?
-    /// #FEED-204: an app editor's "+" Device row, and an ended root's next
-    /// send to another device.
-    var editorDevice: SessionComposerFooter.DeviceMenu?
-    var editorMove: ChatComposerDraft.AppMove?
-    /// #EXP-1729: an app editor's Account and Model rows.
-    var editorPicks: ChatEditorPicks?
     /// The capsule was tapped open (the host keeps its feed pinned).
     var onExpand: () -> Void = {}
 
@@ -2041,9 +1398,7 @@ struct ChatComposer: View {
             }
             draft?.teamId = draftTeamId
             draft?.scope = teamsPick?.scope
-            draft?.appMove = editorMove
         }
-        .onChange(of: editorMove) { _, move in draft?.appMove = move }
         .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
         .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
         .task(id: lookupTeamId) {
@@ -2097,19 +1452,12 @@ struct ChatComposer: View {
         let row = root ?? steerModel?.session
         let ended = row == nil || row?.status == DomainContract.sessionStatusEnded
         let percent = steerModel?.sessionUsage?.percent
-        // #EXP-1729: an ended editor root's Account and Model = the launch
-        // picks riding its next send.
-        let launchPicks = ended ? editorPicks : nil
         return SessionComposerFooter.Controls(
-            modelValue: launchPicks?.model ?? steerModel?.composerModelValue(row: root) ?? root?.model,
-            agent: launchPicks?.agent ?? agent,
+            modelValue: steerModel?.composerModelValue(row: root) ?? root?.model,
+            agent: agent,
             // EXP-877: a model switch is a PLAIN MESSAGE into the root — never
             // into an ENDED one.
             onPickModel: { alias in
-                if let launchPicks {
-                    launchPicks.onPickModel(alias)
-                    return
-                }
                 guard let draft, !ended else { return }
                 Task { await draft.sendMessage("/model \(alias)", attachmentIds: nil) }
             },
@@ -2133,24 +1481,10 @@ struct ChatComposer: View {
             },
             // #EXP-1535: the "+" Account page = the usage wall's session
             // account switch on the root (its live model's rules).
-            account: launchPicks?.account ?? steerModel?.composerAccountMenu ?? editorPicks?.liveAccount,
+            account: steerModel?.composerAccountMenu,
             // #EXP-1715: the viewer's Assistant chat's Teams pick.
-            teams: teamsPick,
-            device: deviceMenu,
-            editor: editorPicks != nil
+            teams: teamsPick
         )
-    }
-
-    /// #EXP-1738: a pick on a live editor root also moves it, the session
-    /// pin's request on the root's model (`moveError` = its toast above).
-    private var deviceMenu: SessionComposerFooter.DeviceMenu? {
-        editorDevice.map { menu in
-            SessionComposerFooter.DeviceMenu(devices: menu.devices, current: menu.current) { picked in
-                menu.onPick(picked)
-                guard let root, root.status != DomainContract.sessionStatusEnded else { return }
-                Task { await steerModel?.moveDevice(to: picked) }
-            }
-        }
     }
 
     /// ONE claim on the root's model (`attachSteerModel` / `detach` pair).
@@ -2293,6 +1627,216 @@ struct ChatComposer: View {
                 toaster.error(Chats.Copy.StopTurn.failed, description: error.userFacingMessage)
             }
         }
+    }
+}
+
+// MARK: - #EXP-1732 an agent's route into THE session screen
+
+/// NEW-2/NEW-3: a team agent's page = the CALLER's conversation with it
+/// (web `t/$teamSlug/agents/$agentId`) as THE session screen (kind `agent` /
+/// `assistant`). The route names the agent DEFINITION (`agents` row); the
+/// conversation is the root with that `agent_id` whose `user_id` is me.
+/// Before the first message there is no root yet: THE screen's chrome (the
+/// agent's header with the telephone and the gear, THE tabs) over an empty
+/// Chat whose composer's first send is `sessions.send({agentId, text,
+/// attachmentIds})`; the screen switches to the conversation the moment its
+/// row syncs.
+struct AgentChatRoute: View {
+    let agentId: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var model = AgentChannelModel()
+
+    var body: some View {
+        Group {
+            if let conversationId = model.conversationId {
+                ChatScreen(rootId: conversationId)
+                    .id(conversationId)
+            } else if let agent = model.agent {
+                AgentChatEmpty(agent: agent)
+            } else if model.missing {
+                ZStack {
+                    AppBackground()
+                    EmptyState(.chatNotFound)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityIdentifier("agent-channel-not-found")
+                        .workHeaderBand { ChatHeader() }
+                }
+            } else {
+                ZStack {
+                    AppBackground()
+                    // EXP-1275 (D8): a first load is skeleton rows.
+                    SkeletonRows()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .workHeaderBand { ChatHeader() }
+                }
+            }
+        }
+        // #EXP-1688: THE chat header replaces the bar, loading or not.
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            model.bind(accountId: accountId, agentId: agentId, userId: deps.auth.userId, db: deps.db)
+        }
+        .onDisappear { model.stop() }
+    }
+}
+
+/// The agent's definition row and the caller's conversation with it, live
+/// off GRDB. A definition that never arrives turns `missing` after a grace
+/// period (web `SYNC_GRACE_MS`).
+@MainActor
+@Observable
+final class AgentChannelModel {
+    private(set) var agent: AgentDefinitionEntity?
+    private(set) var conversationId: String?
+    private(set) var missing = false
+
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var graceTask: Task<Void, Never>?
+
+    nonisolated init() {}
+
+    func bind(accountId: String, agentId: String, userId: String?, db: DatabaseManager) {
+        stop()
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db -> (AgentDefinitionEntity?, String?) in
+            let agent = try AgentDefinitionEntity.fetchOne(db, key: agentId)
+            let conversation = try SessionEntity
+                .filter(Column("agent_id") == agentId)
+                .filter(Column("user_id") == (userId ?? ""))
+                .filter(Column("parent_id") == nil)
+                .order(Column("created_at"), Column("id"))
+                .fetchOne(db)
+            return (agent, conversation?.id)
+        }
+        task = Task { [weak self] in
+            do {
+                for try await (agent, conversationId) in observation.values(in: pool) {
+                    guard let self else { return }
+                    self.agent = agent
+                    self.conversationId = conversationId
+                    if agent != nil || conversationId != nil { self.missing = false }
+                }
+            } catch {}
+        }
+        graceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let self, self.agent == nil, self.conversationId == nil else { return }
+            self.missing = true
+        }
+    }
+
+    func stop() {
+        task?.cancel()
+        task = nil
+        graceTask?.cancel()
+        graceTask = nil
+    }
+}
+
+/// The conversation before its first message: THE session screen's chrome
+/// (the agent's disc — #EXP-1448: the Assistant's = the brand mark — over
+/// the subtitle; NEW-69 the telephone, THE gear; no `…` before the first
+/// message), THE tabs (nothing counted yet), an empty Chat and THE chat
+/// composer (`Message <name>`) whose first send opens the conversation.
+private struct AgentChatEmpty: View {
+    let agent: AgentDefinitionEntity
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var tab: SessionScreen.Tab = .chat
+    @State private var settingsOpen = false
+    @State private var isOwner = false
+
+    private var screen: SessionScreen.Screen {
+        SessionScreen.screen(
+            kind: SessionScreen.kind(agentId: agent.id, appId: nil, assistant: agent.isAssistant),
+            requested: tab, open: nil, counts: SessionScreen.Counts()
+        )
+    }
+
+    private var subtitle: String {
+        SessionScreen.subtitle(
+            status: SessionScreen.status([]),
+            device: nil,
+            trigger: AgentTrigger.parseList(agent.triggers).first(where: \.enabled).map { AgentSettings.triggerSummary($0) }
+        )
+    }
+
+    var body: some View {
+        let shown = screen
+        ZStack {
+            AppBackground()
+            if shown.active == .results {
+                EmptyState(title: ResultsTab.Tab.Copy.empty, icon: AppIcons.chatResults, size: .list)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { UIApplication.endEditing() }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if shown.active == .chat {
+                ChatComposer(
+                    sessionId: "",
+                    placeholder: "Message \(agent.name)",
+                    agentId: agent.id,
+                    teamId: agent.teamId,
+                    agentRow: agent
+                )
+            }
+        }
+        .workHeaderBand {
+            ChatHeader {
+                ChatHeaderTitle(
+                    title: agent.name,
+                    subtitle: subtitle,
+                    agentIcon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                    agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
+                    assistant: agent.isAssistant
+                )
+            } trailing: {
+                AgentCallButton(
+                    agentId: agent.id, agentName: agent.name,
+                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+                )
+                .buttonStyle(.plain)
+                if shown.gear {
+                    SessionScreenGear {
+                        UIApplication.endEditing()
+                        settingsOpen = true
+                    }
+                }
+            }
+            SessionScreenTabs(tabs: shown.tabs, selection: shown.active) { next in
+                UIApplication.endEditing()
+                tab = next
+            }
+        }
+        .navigationDestination(isPresented: $settingsOpen) {
+            AgentSettingsPage(teamId: agent.teamId, agentId: agent.id, isOwner: isOwner)
+                .environment(\.accountId, accountId)
+                .environment(\.detailColumnRoot, false)
+                .bareBackButton()
+        }
+        .task(id: agent.teamId) { await resolveOwner() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-channel-page")
+    }
+
+    private func resolveOwner() async {
+        guard let userId = deps.auth.userId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let teamId = agent.teamId
+        isOwner = (try? await pool.read { db in
+            try TeamMemberEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                .fetchOne(db)?.role == "owner"
+        }) ?? false
     }
 }
 

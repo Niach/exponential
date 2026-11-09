@@ -1,6 +1,17 @@
 package com.exponential.app.ui.apps
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.key
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.PullRequestIssueEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.domain.SessionScreen
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -119,7 +130,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.chat.ChatAgent
 import com.exponential.app.ui.chat.ChatAnswer
-import com.exponential.app.ui.chat.ChatDock
 import com.exponential.app.ui.chat.ChatConversation
 import com.exponential.app.ui.chat.ChatPlanDecision
 import com.exponential.app.ui.chat.ChatRowMeta
@@ -131,8 +141,6 @@ import com.exponential.app.ui.chat.ChatHeaderButton
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.Chats
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.picker.AccountPicker
@@ -142,33 +150,27 @@ import com.exponential.app.ui.session.SessionComposerAccount
 import com.exponential.app.ui.session.SessionComposerModel
 import dev.chrisbanes.haze.rememberHazeState
 
-// VAPP-110 / VAPP-177 (fixtures/apps.json THE EDITOR + PHONES, web
-// `components/apps/app-editor.tsx`): THE EDITOR on a phone = the header
-// (glyph + name + the version pill + the trailing `…` menu: Versions with its
-// count, Settings, Export once there is a version, Delete app for the creator
-// or an owner) with the Chat | Preview | Data segmented control under it
-// (VAPP-178: Data = the app's records, `AppDataTab`), and ONE
-// pane. Chat = the member's EDITOR SESSION (the agent channel's rows + THE
-// composer; none yet = the empty chat whose first send opens it); Preview =
-// `Apps.shownVersion`'s package's first template through the app host (eApps
-// V1, #VAPP-210: the head while my editor session is live or nothing is
-// published, else the published one). Versions and Settings open THE SAME
-// bodies as the wide tabs, as sheets titled by the item: a Versions row's
-// Preview closes the sheet onto the Preview tab with the viewing banner
-// (Publish, Restore = a new head, Current). Publish is the `…` menu's FIRST
-// item while `Apps.canPublish` and I may write the app. Leaving the editor ENDS the live
-// editor session; the next send continues it. VAPP-176: a DRAFT (no version
-// yet) opens on Chat with the starters and the composer focused; leaving an
-// empty draft discards it. The route keys the app by ID, so a draft's slug
-// following its new name changes nothing here.
-
-private enum class EditorTab(val id: String) { Chat(Apps.EditorTabs.CHAT), Preview(Apps.EditorTabs.PREVIEW), Data(Apps.EditorTabs.DATA) }
-
-private fun tabLabel(tab: EditorTab) = when (tab) {
-    EditorTab.Chat -> Apps.Copy.TAB_CHAT
-    EditorTab.Preview -> Apps.Copy.TAB_PREVIEW
-    EditorTab.Data -> Apps.Copy.TAB_DATA
-}
+// VAPP-110 / VAPP-177 / #EXP-1732 (fixtures/session-screen.json + apps.json
+// THE EDITOR, web `components/apps/app-editor.tsx`): THE EDITOR on a phone =
+// THE session screen of kind `app`: the header band (the app's glyph disc,
+// the name over `status · device`, the version pill, THE gear = the app's
+// settings as a pushed item, the `…` sheet: Publish while `Apps.canPublish`
+// and I may write the app, Export once there is a version, Delete app for the
+// creator or an owner) over THE segmented tabs Chat · Preview · Data ·
+// Versions · Sessions · Results, and ONE pane. Chat = the member's EDITOR
+// SESSION (THE transcript + THE composer; none yet = the empty chat whose
+// first send opens it); Preview = `Apps.shownVersion`'s package's first
+// template through the app host (eApps V1, #VAPP-210: the head while my
+// editor session is live or nothing is published, else the published one);
+// Data = the app's records (VAPP-178, `AppDataTab`); Versions = the version
+// list (a row's Preview lands on the Preview tab with the viewing banner:
+// Publish, Restore = a new head, Current); Sessions = THE tree rows of the
+// editor session's tree (a row pushes that session); Results = the tree's
+// results. Leaving the editor ENDS the live editor session; the next send
+// continues it. VAPP-176: a DRAFT (no version yet) opens on Chat with the
+// starters and the composer focused; leaving an empty draft discards it. The
+// route keys the app by ID, so a draft's slug following its new name changes
+// nothing here. The retired `?tab=settings` opens the gear's settings.
 
 @Composable
 fun AppEditorScreen(
@@ -197,8 +199,9 @@ fun AppEditorScreen(
     val publishing by viewModel.publishing.collectAsStateWithLifecycle()
     val myAccess by viewModel.myAccess.collectAsStateWithLifecycle()
     val screenRequest by viewModel.screen.collectAsStateWithLifecycle()
-    // #EXP-1729: the header's `status · device` subtitle.
+    // #EXP-1729 / #EXP-1732: the header's device part and its tone.
     val header by viewModel.header.collectAsStateWithLifecycle()
+    val headerDevice by viewModel.headerDeviceLabel.collectAsStateWithLifecycle()
     // eApps R3: Publish needs write access to the app (null = write until known).
     val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
@@ -211,8 +214,6 @@ fun AppEditorScreen(
         if (Apps.rollbackWarns(app?.publishedVersion ?: 0, number, rows)) rollbackTarget = number
         else viewModel.publish(number)
     }
-    // VAPP-177: the `…` menu's sheet (`versions` / `settings`), null = none.
-    var sheet by rememberSaveable { mutableStateOf(viewModel.initialTab.sheet) }
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val toaster = LocalToaster.current
     LaunchedEffect(toastLine) {
@@ -228,177 +229,274 @@ fun AppEditorScreen(
         onDispose { if (activity?.isChangingConfigurations != true) viewModel.leave() }
     }
 
-    var tab by rememberSaveable {
-        mutableStateOf(EditorTab.entries.firstOrNull { it.id == viewModel.initialTab.tab } ?: EditorTab.Chat)
+    // #EXP-1732 (session-screen.json): the requested tab (the route's `tab`,
+    // its retired `versions` / `settings` sheets included) and the opened item.
+    var requestedTab by rememberSaveable {
+        mutableStateOf<String?>(viewModel.initialTab.sheet ?: viewModel.initialTab.tab)
+    }
+    var openKind by rememberSaveable { mutableStateOf<String?>(null) }
+    var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    val closeItem: () -> Unit = {
+        openKind = null
+        openId = null
+        // The retired `?tab=settings` opened it: closing must not reopen it.
+        if (requestedTab == SessionScreen.Open.Settings.wire) requestedTab = null
     }
     val entry = app
     val canManage = entry != null && (isOwner || (me != null && entry.createdBy == me))
     val editing = root?.isEnded == false
+    val rootId = root?.id
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            modifier = Modifier.testTag(Apps.TestIds.EDITOR),
-            topBar = {
-                // #EXP-1729 (apps.json `editorHeader`, PHONES): THE chat
-                // header: back · the lead disc carrying the app's glyph · the
-                // name over its `status · device` subtitle in its tone · `…`
-                // (the editor menu, Publish first). The version pill leaves
-                // the phone header; the tabs ride under it.
-                ChatHeader(
-                    title = entry?.name.orEmpty(),
-                    subtitle = if (entry != null) header.subtitle else null,
-                    subtitleColor = when (header.tone) {
-                        Apps.EditorHeaderTone.Attention -> NeedsInputAmber
-                        Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface
-                        Apps.EditorHeaderTone.Muted -> null
+        AppEditorChat(rootId) { chat ->
+            val tree = rememberAppEditorTree(chat)
+            // Sessions = EVERY session under the root, off the raw tree.
+            val items = remember(tree.sessions, rootId) {
+                if (rootId == null) {
+                    com.exponential.app.ui.chat.SessionScreenItems.Empty
+                } else {
+                    com.exponential.app.ui.chat.sessionScreenTreeItems(rootId, tree.sessions.map(SessionTree::session), emptyList())
+                }
+            }
+            val resultsCount = remember(tree.sessions, tree.messages, rootId) {
+                if (rootId == null) 0 else com.exponential.app.ui.chat.chatResultsCount(rootId, tree.sessions, tree.messages)
+            }
+            val screen = SessionScreen.screen(
+                kind = SessionScreen.Kind.App,
+                wide = false,
+                requested = requestedTab,
+                open = openKind,
+                counts = SessionScreen.Counts(sessions = items.sessions.size, results = resultsCount),
+            )
+            if (screen.layout == SessionScreen.Layout.Item && entry != null) {
+                // THE pushed page: `‹` + the item's name; system Back pops it.
+                BackHandler(onBack = closeItem)
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    modifier = Modifier.testTag(Apps.TestIds.EDITOR),
+                    topBar = {
+                        com.exponential.app.ui.chat.ChatHeader(
+                            title = when (screen.open) {
+                                SessionScreen.Open.Settings -> SessionScreen.Copy.SETTINGS
+                                SessionScreen.Open.Session -> openId?.let { items.session(it)?.name }.orEmpty()
+                                else -> ""
+                            },
+                            subtitle = null,
+                            lead = {},
+                            onBack = closeItem,
+                        )
                     },
-                    lead = {
-                        Box(
-                            modifier = Modifier
-                                .size(Chats.Shell.ChatHeader.DISC.dp)
-                                .clip(CircleShape)
-                                .background(DesignTokens.Palette.Muted),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (entry != null) AppGlyph(entry.icon, entry.color, size = Chats.Shell.ChatHeader.DISC_GLYPH.dp)
+                ) { padding ->
+                    when (screen.open) {
+                        SessionScreen.Open.Settings -> Box(Modifier.padding(padding).fillMaxSize()) {
+                            AppSettingsBody(
+                                app = entry,
+                                viewModel = viewModel,
+                                records = records.size,
+                                canManage = canManage,
+                                canGrant = isOwner,
+                                onExport = { exportOpen = true },
+                                onDelete = { deleteOpen = true },
+                            )
                         }
-                    },
-                    onBack = onBack,
-                    // VAPP-235: pending offline record writes (the outbox),
-                    // then VAPP-177's trailing `…` (`editorTabs.menu`): the
-                    // editor's bottom sheet, never the chat header's dropdown.
-                    action = {
-                        // The slot draws its own leading gap.
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(Chats.Shell.ChatHeader.GAP.dp),
-                            modifier = Modifier.padding(start = Chats.Shell.ChatHeader.GAP.dp),
-                        ) {
-                            AppOutboxPendingGlyph(viewModel.appId)
+                        SessionScreen.Open.Session -> openId?.let { id ->
+                            key(id) {
+                                com.exponential.app.ui.components.PageViewModelStore {
+                                    com.exponential.app.ui.session.SessionPage(
+                                        sessionId = id,
+                                        padding = padding,
+                                        onOpenIssue = {},
+                                        onOpenOrigin = { origin, _ -> onOpenSession(origin) },
+                                    )
+                                }
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+                return@AppEditorChat
+            }
+            Scaffold(
+                containerColor = Color.Transparent,
+                modifier = Modifier.testTag(Apps.TestIds.EDITOR),
+                topBar = {
+                    com.exponential.app.ui.chat.ChatHeader(
+                        title = entry?.name.orEmpty(),
+                        // #EXP-1732 (session-screen.json STATUS WORD): THE
+                        // tree's word (never dropped) · apps.json
+                        // `editorHeader`'s device part, in its tone.
+                        subtitle = if (entry != null) {
+                            SessionScreen.subtitle(
+                                com.exponential.app.ui.chat.chatStateWord(rootId.orEmpty(), tree.sessions),
+                                headerDevice,
+                                null,
+                            )
+                        } else null,
+                        subtitleColor = when (header.tone) {
+                            Apps.EditorHeaderTone.Attention -> NeedsInputAmber
+                            Apps.EditorHeaderTone.Active -> MaterialTheme.colorScheme.onSurface
+                            Apps.EditorHeaderTone.Muted -> null
+                        },
+                        lead = {
                             if (entry != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(com.exponential.app.domain.Chats.Shell.ChatHeader.DISC.dp)
+                                        .clip(CircleShape)
+                                        .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    AppGlyph(entry.icon, entry.color, size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC_GLYPH.dp)
+                                }
+                            }
+                        },
+                        onBack = onBack,
+                        // The version pill (+ VAPP-235's pending offline
+                        // writes) right after the name (#EXP-1732, web/iOS/desktop).
+                        titleTrailing = if (entry != null) {
+                            {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.testTag("app-editor-title"),
+                                ) {
+                                    AppVersionPill(entry)
+                                    AppOutboxPendingGlyph(viewModel.appId)
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        gear = if (entry != null) {
+                            { openKind = SessionScreen.Open.Settings.wire }
+                        } else {
+                            null
+                        },
+                        // apps.json `editorTabs.menu` less Versions + Settings
+                        // (a tab and the gear now).
+                        more = if (entry != null) {
+                            {
                                 AppEditorMenu(
                                     title = entry.name,
                                     canPublish = canWrite && Apps.canPublish(entry.versions),
                                     onPublish = { viewModel.publish(entry.headVersion) },
-                                    versionCount = versions.size,
                                     canExport = entry.headVersion > 0,
                                     canDelete = canManage,
-                                    onVersions = { sheet = Apps.EditorTabs.VERSIONS },
-                                    onSettings = { sheet = Apps.EditorTabs.SETTINGS },
                                     onExport = { exportOpen = true },
                                     onDelete = { deleteOpen = true },
                                 )
                             }
-                        }
-                    },
-                    tabs = {
-                        GlassSegmentedControl(
-                            options = EditorTab.entries,
-                            selected = tab,
-                            label = ::tabLabel,
-                            onSelect = { tab = it },
-                            testTag = { "app-editor-tab-${it.id}" },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .testTag(Apps.TestIds.TABS),
-                        )
-                    },
-                )
-            },
-        ) { padding ->
-            if (entry == null) {
-                Box(Modifier.padding(padding).fillMaxSize()) {
-                    SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
-                }
-                return@Scaffold
-            }
-            when (tab) {
-                EditorTab.Chat -> AppChatPane(
-                    app = entry,
-                    rootId = root?.id,
-                    padding = padding,
-                    viewModel = viewModel,
-                    onOpenSession = onOpenSession,
-                    onOpenApp = onOpenApp,
-                )
-                EditorTab.Preview -> {
-                    val shown = Apps.shownVersion(entry.versions, editing, viewing?.number)
-                    AppPreviewPane(
-                        appIcon = entry.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.navApps,
-                        packageJson = when (shown) {
-                            0 -> null
-                            entry.headVersion -> entry.headPackageJson
-                            entry.publishedVersion -> entry.packageJson
-                            else -> viewing?.packageJson
+                        } else {
+                            null
                         },
-                        viewing = viewing?.number,
-                        // A grant is about the version it was made on (`grantVersion`):
-                        // any other previews asking for everything.
-                        grants = shown == Apps.grantVersion(entry.versions),
-                        canPublish = canWrite && viewing?.number != entry.publishedVersion,
-                        canRestore = canWrite && viewing?.number != entry.headVersion,
-                        publishing = publishing,
-                        onPublish = { viewing?.number?.let(requestPublish) },
-                        restoring = restoring,
-                        onRestore = viewModel::restore,
-                        onHead = viewModel::clearViewing,
-                        onOpenTeamSettings = onOpenTeamSettings,
-                        appId = viewModel.appId,
-                        teamId = entry.teamId,
-                        me = me,
-                        readOnly = access == "read",
-                        // eApps R8 (apps.json `migrationCases`): a draft preview reads migrated copies.
-                        migrateFrom = if (entry.publishedVersion > 0 && shown != entry.publishedVersion) entry.packageJson?.let { runCatching { JsonValue.parse(it)["version"]?.string }.getOrNull() } else null,
-                        screen = screenRequest,
-                        onScreen = viewModel::requestScreen,
+                        tabs = {
+                            com.exponential.app.ui.chat.SessionScreenTabs(
+                                tabs = screen.tabs,
+                                active = screen.active,
+                                onSelect = { tab ->
+                                    requestedTab = tab.wire
+                                    openKind = null
+                                    openId = null
+                                },
+                            )
+                        },
+                    )
+                },
+            ) { padding ->
+                if (entry == null) {
+                    Box(Modifier.padding(padding).fillMaxSize()) {
+                        SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
+                    }
+                    return@Scaffold
+                }
+                val listPadding = PaddingValues(top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 16.dp)
+                when (screen.active) {
+                    SessionScreen.Tab.Chat -> AppChatPane(
+                        app = entry,
+                        rootId = rootId,
+                        chat = chat,
+                        padding = padding,
+                        viewModel = viewModel,
+                        onOpenSession = onOpenSession,
+                        onOpenApp = onOpenApp,
+                    )
+                    SessionScreen.Tab.Preview -> {
+                        val shown = Apps.shownVersion(entry.versions, editing, viewing?.number)
+                        AppPreviewPane(
+                            appIcon = entry.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.navApps,
+                            packageJson = when (shown) {
+                                0 -> null
+                                entry.headVersion -> entry.headPackageJson
+                                entry.publishedVersion -> entry.packageJson
+                                else -> viewing?.packageJson
+                            },
+                            viewing = viewing?.number,
+                            // A grant is about the version it was made on (`grantVersion`):
+                            // any other previews asking for everything.
+                            grants = shown == Apps.grantVersion(entry.versions),
+                            canPublish = canWrite && viewing?.number != entry.publishedVersion,
+                            canRestore = canWrite && viewing?.number != entry.headVersion,
+                            publishing = publishing,
+                            onPublish = { viewing?.number?.let(requestPublish) },
+                            restoring = restoring,
+                            onRestore = viewModel::restore,
+                            onHead = viewModel::clearViewing,
+                            onOpenTeamSettings = onOpenTeamSettings,
+                            appId = viewModel.appId,
+                            teamId = entry.teamId,
+                            me = me,
+                            readOnly = access == "read",
+                            // eApps R8 (apps.json `migrationCases`): a draft preview reads migrated copies.
+                            migrateFrom = if (entry.publishedVersion > 0 && shown != entry.publishedVersion) entry.packageJson?.let { runCatching { JsonValue.parse(it)["version"]?.string }.getOrNull() } else null,
+                            screen = screenRequest,
+                            onScreen = viewModel::requestScreen,
+                            modifier = Modifier.padding(padding),
+                        )
+                    }
+                    SessionScreen.Tab.Data -> AppDataTab(
+                        app = entry,
+                        records = records,
+                        viewModel = viewModel,
                         modifier = Modifier.padding(padding),
                     )
+                    SessionScreen.Tab.Versions -> AppVersionsList(
+                        versions = versions,
+                        pointers = entry.versions,
+                        users = users,
+                        canWrite = canWrite,
+                        publishing = publishing,
+                        onPreview = { number ->
+                            viewModel.pick(number)
+                            requestedTab = SessionScreen.Tab.Preview.wire
+                        },
+                        onPublish = requestPublish,
+                        modifier = Modifier
+                            .padding(padding)
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    SessionScreen.Tab.Sessions -> com.exponential.app.ui.chat.SessionSessionsBody(
+                        sessions = items.sessions,
+                        onOpen = { id ->
+                            openKind = SessionScreen.Open.Session.wire
+                            openId = id
+                        },
+                        contentPadding = listPadding,
+                    )
+                    SessionScreen.Tab.Results -> com.exponential.app.ui.chat.ChatResultsPage(
+                        rootId = rootId.orEmpty(),
+                        sessions = tree.sessions,
+                        messages = tree.messages,
+                        onReply = { sessionId, text -> chat?.sendTo(sessionId, text) },
+                        pullRequests = tree.pullRequests,
+                        teamPullRequests = tree.teamPullRequests,
+                        pullRequestIssues = tree.pullRequestIssues,
+                        issues = tree.issues,
+                        padding = padding,
+                        onOpenChat = {},
+                    )
+                    else -> Unit
                 }
-                EditorTab.Data -> AppDataTab(
-                    app = entry,
-                    records = records,
-                    viewModel = viewModel,
-                    modifier = Modifier.padding(padding),
-                )
-            }
-        }
-    }
-    if (entry != null) {
-        when (sheet) {
-            Apps.EditorTabs.VERSIONS -> GlassSheet(title = Apps.Copy.MENU_VERSIONS, onDismiss = { sheet = null }) {
-                AppVersionsList(
-                    versions = versions,
-                    pointers = entry.versions,
-                    users = users,
-                    canWrite = canWrite,
-                    publishing = publishing,
-                    onPreview = { number ->
-                        viewModel.pick(number)
-                        sheet = null
-                        tab = EditorTab.Preview
-                    },
-                    onPublish = requestPublish,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            Apps.EditorTabs.SETTINGS -> GlassSheet(title = Apps.Copy.MENU_SETTINGS, onDismiss = { sheet = null }) {
-                AppSettingsBody(
-                    app = entry,
-                    viewModel = viewModel,
-                    records = records.size,
-                    canManage = canManage,
-                    canGrant = isOwner,
-                    onExport = {
-                        // One sheet at a time: Export replaces Settings.
-                        sheet = null
-                        exportOpen = true
-                    },
-                    onDelete = { deleteOpen = true },
-                )
             }
         }
     }
@@ -441,7 +539,7 @@ fun AppEditorScreen(
                     onClick = {
                         viewModel.delete {
                             deleteOpen = false
-                            sheet = null
+                            closeItem()
                             onBack()
                         }
                     },
@@ -452,29 +550,65 @@ fun AppEditorScreen(
     }
 }
 
-/** VAPP-177: the phone header's `…` (`editorTabs.menu`, THE Menu's bottom
- *  sheet titled by the app): eApps V1 Publish
- *  first (`Apps.canPublish` + write access), Versions (the count as trailing
- *  meta), Settings, Export (a version exists), Delete app (destructive; the
- *  creator or an owner). */
+/**
+ * #EXP-1732: the editor session's ONE [ChatViewModel] (its args = the root's
+ * id, [SessionArgsStore]), shared by the Chat, Sessions and Results tabs and
+ * the counts; every other view model stays on the editor's own entry. Null
+ * while there is no editor session yet.
+ */
+@Composable
+private fun AppEditorChat(rootId: String?, content: @Composable (ChatViewModel?) -> Unit) {
+    if (rootId == null) {
+        content(null)
+        return
+    }
+    val parent = checkNotNull(LocalViewModelStoreOwner.current) { "AppEditorChat needs a ViewModelStoreOwner" }
+    SessionArgsStore(rootId) {
+        val chat = hiltViewModel<ChatViewModel>(key = "app-chat:$rootId")
+        CompositionLocalProvider(LocalViewModelStoreOwner provides parent) { content(chat) }
+    }
+}
+
+/** The editor tree's synced rows (empty while there is no editor session). */
+private class AppEditorTree(
+    val view: SessionTree.ChatView?,
+    val sessions: List<SessionEntity>,
+    val messages: List<SessionTree.Message>,
+    val pullRequests: List<PullRequestEntity>,
+    val teamPullRequests: List<PullRequestEntity>,
+    val pullRequestIssues: List<PullRequestIssueEntity>,
+    val issues: List<IssueEntity>,
+)
+
+@Composable
+private fun rememberAppEditorTree(chat: ChatViewModel?): AppEditorTree {
+    val view by (chat?.view ?: remember { MutableStateFlow<SessionTree.ChatView?>(null) }).collectAsStateWithLifecycle()
+    val sessions by (chat?.tree ?: remember { MutableStateFlow(emptyList<SessionEntity>()) }).collectAsStateWithLifecycle()
+    val messages by (chat?.messages ?: remember { MutableStateFlow(emptyList<SessionTree.Message>()) }).collectAsStateWithLifecycle()
+    val pullRequests by (chat?.pullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
+    val teamPullRequests by (chat?.teamPullRequests ?: remember { MutableStateFlow(emptyList<PullRequestEntity>()) }).collectAsStateWithLifecycle()
+    val pullRequestIssues by (chat?.pullRequestIssues ?: remember { MutableStateFlow(emptyList<PullRequestIssueEntity>()) }).collectAsStateWithLifecycle()
+    val issues by (chat?.syncedIssues ?: remember { MutableStateFlow(emptyList<IssueEntity>()) }).collectAsStateWithLifecycle()
+    return AppEditorTree(view, sessions, messages, pullRequests, teamPullRequests, pullRequestIssues, issues)
+}
+
+/** VAPP-177 / #EXP-1732: the header's `…` (`editorTabs.menu` less Versions
+ *  and Settings, THE Menu's bottom sheet titled by the app): eApps V1 Publish
+ *  first (`Apps.canPublish` + write access), Export (a version exists),
+ *  Delete app (destructive; the creator or an owner). */
 @Composable
 private fun AppEditorMenu(
     title: String,
     canPublish: Boolean,
     onPublish: () -> Unit,
-    versionCount: Int,
     canExport: Boolean,
     canDelete: Boolean,
-    onVersions: () -> Unit,
-    onSettings: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        // #EXP-1729: THE chat header's ghost `…`, opening the editor's own
-        // bottom sheet (THE Menu on phones, as iOS and web-mobile).
-        ChatHeaderButton(
+        com.exponential.app.ui.chat.ChatHeaderButton(
             ExpIcons.uiMore,
             contentDescription = "App actions",
             onClick = { open = true },
@@ -496,29 +630,6 @@ private fun AppEditorMenu(
                             onPublish()
                         },
                         testTag = Apps.TestIds.PUBLISH,
-                    ),
-                )
-                add(
-                    ChatMenuItem(
-                        label = Apps.Copy.MENU_VERSIONS,
-                        icon = ExpIcons.uiHistory,
-                        onClick = {
-                            open = false
-                            onVersions()
-                        },
-                        testTag = "app-editor-menu-versions",
-                        meta = versionCount.toString(),
-                    ),
-                )
-                add(
-                    ChatMenuItem(
-                        label = Apps.Copy.MENU_SETTINGS,
-                        icon = ExpIcons.navSettings,
-                        onClick = {
-                            open = false
-                            onSettings()
-                        },
-                        testTag = "app-editor-menu-settings",
                     ),
                 )
                 if (canExport) add(
@@ -875,27 +986,26 @@ private fun AppVersionsList(
     }
 }
 
-/** The chat pane: the editor session's conversation (once it exists), else
- *  the empty chat whose composer's first send opens it. */
+/** The chat pane: the editor session's own session view (once it exists),
+ *  else the empty chat whose composer's first send opens it. */
 @Composable
 private fun AppChatPane(
     app: AppListEntry,
     rootId: String?,
+    /** The editor session's chat ([AppEditorChat]); null = none yet. */
+    chat: ChatViewModel?,
     padding: PaddingValues,
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
     onOpenApp: (String) -> Unit = {},
 ) {
-    if (rootId != null) {
-        SessionArgsStore(rootId) {
-            AppEditorConversation(
-                app = app,
-                rootId = rootId,
-                padding = padding,
-                viewModel = viewModel,
-                onOpenSession = onOpenSession,
-            )
-        }
+    if (rootId != null && chat != null) {
+        AppEditorConversation(
+            rootId = rootId,
+            padding = padding,
+            viewModel = viewModel,
+            onOpenSession = onOpenSession,
+        )
         return
     }
     val sending by viewModel.sending.collectAsStateWithLifecycle()
@@ -1138,27 +1248,23 @@ private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit, onFromTempl
     )
 }
 
-/** The editor session's conversation: the agent channel's rows (the app's
- *  glyph + name on the agent's messages) over THE session composer. */
+/**
+ * #EXP-1732: the editor session's Chat tab = the ROOT's own session view
+ * ([com.exponential.app.ui.session.SessionPage]: its raw work + traces, its
+ * cards, THE Dock and THE composer, its Device › row = the editor's pick-and-
+ * move, #FEED-204 / #EXP-1738). The root's view model is shared by key with
+ * the page.
+ */
 @Composable
 private fun AppEditorConversation(
-    app: AppListEntry,
     rootId: String,
     padding: PaddingValues,
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
 ) {
-    val chat = hiltViewModel<ChatViewModel>(key = "app-chat:$rootId")
-    val view by chat.view.collectAsStateWithLifecycle()
-    val messages by chat.messages.collectAsStateWithLifecycle()
-    val users by chat.users.collectAsStateWithLifecycle()
-    val me by chat.currentUserId.collectAsStateWithLifecycle()
-    val failure by chat.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = chat::clearFailure)
     val rootSession = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$rootId",
     ) { factory -> factory.create(rootId) }
-    LaunchedEffect(rootSession) { rootSession.ensureConnected() }
     // #FEED-204: an ended root's next send may go to another device.
     val editorDevice by viewModel.editorDevice.collectAsStateWithLifecycle()
     LaunchedEffect(rootSession, editorDevice.appMove) { rootSession.appMove = editorDevice.appMove }
@@ -1177,106 +1283,20 @@ private fun AppEditorConversation(
             null
         }
     }
-
-    val messagesById = remember(messages) { messages.associateBy { it.id } }
-    val meta: (SessionTree.SessionChatRow.MessageRow) -> ChatRowMeta? = { row ->
-        val user = row.authorId?.let { users[it] }
-        ChatRowMeta(
-            authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
-            time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
-            user = user,
+    Box(Modifier.fillMaxSize().testTag(Apps.TestIds.CHAT)) {
+        com.exponential.app.ui.session.SessionPage(
+            sessionId = rootId,
+            padding = padding,
+            onOpenIssue = {},
+            onOpenOrigin = { id, _ -> onOpenSession(id) },
+            // #EXP-1738: a pick on a live root also moves it (the session
+            // pin's request; a refusal = its toast).
+            deviceMenu = editorDevice.composerDevice { picked ->
+                viewModel.pickDevice(picked)
+                if (viewModel.editing) rootSession.moveToDevice(picked)
+            },
+            accountMenu = if (ended) runner.composerAccount(viewModel::pickAccount) else null,
+            modelMenu = if (ended) SessionComposerModel(runner.model, viewModel::pickModel) else null,
         )
-    }
-    val agent = ChatAgent(name = app.name, icon = app.icon, color = app.color)
-    val v = view
-    if (v == null) {
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
-        }
-        return
-    }
-    val onAnswer: ChatAnswer = { id, answer, settled ->
-        chat.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
-    }
-    val onDecidePlan: ChatPlanDecision = { id, d, settled ->
-        chat.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
-    }
-    val openSession by rememberUpdatedState(onOpenSession)
-    var composerExpanded by rememberSaveable { mutableStateOf(false) }
-    var bandHeightPx by remember { mutableIntStateOf(0) }
-    val topInset = padding.calculateTopPadding()
-    val bottomInset = padding.calculateBottomPadding()
-    val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
-            .imePadding()
-            .testTag(Apps.TestIds.CHAT),
-    ) {
-        if (v.rows.isEmpty()) {
-            EmptyState(
-                title = Apps.Copy.CHAT_EMPTY,
-                icon = ExpIcons.navApps,
-                size = EmptyStateSize.List,
-                modifier = Modifier.padding(padding).padding(horizontal = 24.dp).align(Alignment.Center),
-            )
-        }
-        ChatConversation(
-            rows = v.rows,
-            rootId = v.rootId,
-            meta = meta,
-            onOpenCard = { card -> openSession(card.sessionId) },
-            onAnswer = onAnswer,
-            onDecidePlan = onDecidePlan,
-            canUnqueue = { row -> row.authorId != null && row.authorId == me },
-            onUnqueue = chat::unqueue,
-            agent = agent,
-            modifier = Modifier.fillMaxSize().detailHazeSource(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topInset + 16.dp, bottom = bandClearance + 12.dp),
-            jumpBottomInset = bandClearance,
-            onOpenSession = { id -> openSession(id) },
-            // S-3: a report / another session's line links that session.
-            origin = v.origin,
-            onOpenXref = { id -> openSession(id) },
-            // #EXP-1736: the editor's bubbles: the app's name + mark ([agent]).
-            chat = com.exponential.app.domain.TranscriptGrouping.Chat(v.rootId, app.name, null, null),
-            viewerId = me,
-        )
-        FloatingBarEdge(
-            bottomInset = bottomInset,
-            visible = !composerExpanded,
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottomInset),
-        ) {
-            Box(Modifier.fillMaxWidth().onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height }) {
-                SessionComposer(
-                    viewModel = rootSession,
-                    expanded = composerExpanded,
-                    onExpandedChange = { composerExpanded = it },
-                    placeholder = if (Apps.isDraft(app.headVersion)) Apps.Copy.DRAFT_PLACEHOLDER else Apps.Copy.COMPOSER_PLACEHOLDER,
-                    capsuleTestTag = "app-composer-capsule",
-                    showQueue = false,
-                    // #EXP-1738: a pick on a live root also moves it (the
-                    // session pin's request; a refusal = its toast).
-                    deviceMenu = editorDevice.composerDevice { picked ->
-                        viewModel.pickDevice(picked)
-                        if (viewModel.editing) rootSession.moveToDevice(picked)
-                    },
-                    accountMenu = if (ended) runner.composerAccount(viewModel::pickAccount) else null,
-                    modelMenu = if (ended) SessionComposerModel(runner.model, viewModel::pickModel) else null,
-                    modifier = Modifier.testTag(Apps.TestIds.COMPOSER),
-                    // N-12: THE Dock: the tree's waiting cards, then the
-                    // root's Queue and banners, over the composer.
-                    dock = { sessionDock ->
-                        ChatDock(
-                            rows = v.rows,
-                            sources = sessionDock.sources,
-                            sessionSheet = sessionDock.sheet,
-                            action = sessionDock.action,
-                        )
-                    },
-                )
-            }
-        }
     }
 }

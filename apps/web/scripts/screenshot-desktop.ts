@@ -59,11 +59,13 @@ import {
   demoBackgroundTasks,
 } from "./lib/demo-live-sessions"
 import { reclockDemoRows } from "./lib/demo-reclock"
+import { demoStoredJournals } from "./lib/demo-stored-journals"
 import { startEnetFeedStub } from "./lib/enet-feed-stub"
 import { worktreeTmpPath } from "./lib/worktree-tmp"
 import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_AGENT_COMMENT_ID,
+  DEMO_AGENT_CONVERSATION_ID,
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_DEVICE_VERSION,
@@ -477,6 +479,57 @@ async function restampDemoGuide(now: number): Promise<void> {
   }
 }
 
+/** One scripted entry as its wire events. EXP-785: a `tool` row needs its
+ *  ACP `id` and contract `toolKind` and settles through a `tool_update`
+ *  folded in by that id; EXP-916: an edit's patch is a `tool_update` field,
+ *  never on the `tool` row itself (the engine mapper's wire shape), and so
+ *  are an Exponential call's `preview` (EXP-846), a script's log (EXP-1279),
+ *  a command's `output` and a failed settle (EXP-1324). */
+function entryEvents(
+  raw: Record<string, unknown>,
+  stamp: number,
+  nextToolId: () => string
+): Record<string, unknown>[] {
+  if (raw.kind !== `tool`) return [{ ...raw, at: stamp }]
+  const id = typeof raw.id === `string` ? raw.id : nextToolId()
+  const toolKind =
+    typeof raw.toolKind === `string` ? raw.toolKind : (TOOL_KIND_BY_NAME[String(raw.name)] ?? `other`)
+  const { diff, preview, script, output, failed, ...call } = raw as typeof raw & {
+    diff?: string
+    preview?: unknown
+    script?: unknown
+    output?: string
+    failed?: boolean
+  }
+  return [
+    { ...call, id, toolKind, at: stamp },
+    {
+      kind: `tool_update`,
+      id,
+      status: failed === true ? `failed` : `completed`,
+      ...(diff ? { diff } : {}),
+      ...(output ? { output } : {}),
+      ...(preview ? { preview } : {}),
+      ...(script ? { script } : {}),
+    },
+  ]
+}
+
+/** #EXP-1732: a stored replay's recorded journal (lib/demo-stored-journals.ts)
+ *  as `activity {event, seq}` frames; an unscripted session = empty. */
+function storedFrames(sessionId: string, now: number): Record<string, unknown>[] {
+  const entries = demoStoredJournals(now)[sessionId] ?? []
+  let seq = 0
+  let toolIndex = 0
+  return entries.flatMap(({ at, ...entry }) =>
+    entryEvents(entry, at, () => `stored-tool-${++toolIndex}`).map((event) => ({
+      t: `activity`,
+      event,
+      seq: seq++,
+    }))
+  )
+}
+
 /** The scripted feed as `activity {event, seq}` frames, stamped on a timeline
  *  ending now: what the eNet stub records and replays (VAPP-168). */
 function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[] {
@@ -526,40 +579,9 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
       entry.agentComment === true && agentComment
         ? { ...rest, detail: agentComment.detail, preview: agentComment.preview }
         : rest
-    if (raw.kind !== `tool`) {
-      send({ t: `activity`, event: { ...raw, at: stamp }, seq: seq++ })
-      continue
+    for (const event of entryEvents(raw, stamp, () => `stub-tool-${++toolIndex}`)) {
+      send({ t: `activity`, event, seq: seq++ })
     }
-    const id = typeof raw.id === `string` ? raw.id : `stub-tool-${++toolIndex}`
-    const toolKind =
-      typeof raw.toolKind === `string`
-        ? raw.toolKind
-        : (TOOL_KIND_BY_NAME[String(raw.name)] ?? `other`)
-    // EXP-916: an edit's patch is a `tool_update` field, never on the `tool`
-    // row itself — the same wire shape the engine's mapper produces. So are
-    // an Exponential call's `preview` (EXP-846) and a script's log (EXP-1279).
-    // EXP-1324: so are a command's `output` and a failed settle.
-    const { diff, preview, script, output, failed, ...call } = raw as typeof raw & {
-      diff?: string
-      preview?: unknown
-      script?: unknown
-      output?: string
-      failed?: boolean
-    }
-    send({ t: `activity`, event: { ...call, id, toolKind, at: stamp }, seq: seq++ })
-    send({
-      t: `activity`,
-      event: {
-        kind: `tool_update`,
-        id,
-        status: failed === true ? `failed` : `completed`,
-        ...(diff ? { diff } : {}),
-        ...(output ? { output } : {}),
-        ...(preview ? { preview } : {}),
-        ...(script ? { script } : {}),
-      },
-      seq: seq++,
-    })
   }
   if (writing) {
     send({
@@ -832,6 +854,14 @@ async function main() {
   // other children, the app editor's) is held as a stored replay, so a viewer
   // of one gets the device's answer instead of `no_such_session` and a redial
   // loop whose phase each capture caught differently.
+  // #EXP-1732: the Triage conversation's Chat tab reads its journal off this
+  // machine (an older seed left it on the offline build server).
+  await db
+    .update(sessions)
+    .set({ deviceId: DEMO_DEVICE_ID })
+    .where(and(eq(sessions.id, DEMO_AGENT_CONVERSATION_ID), eq(sessions.userId, userId)))
+    .catch((err) => console.error(`[triage device]`, err))
+  const storedAt = Date.now()
   const held = await db
     .select({ id: sessions.id, status: sessions.status })
     .from(sessions)
@@ -845,7 +875,12 @@ async function main() {
       journal: frames.slice(0, closing),
       live: [...frames.slice(closing), ...turnTicks(frames.length)],
       liveEveryMs: LIVE_EVERY_MS,
-      stored: held.map((row) => ({ sessionId: row.id, journal: [], ended: row.status === `ended` })),
+      // #EXP-1732: the Chat tabs' roots replay a recorded journal.
+      stored: held.map((row) => ({
+        sessionId: row.id,
+        journal: storedFrames(row.id, storedAt),
+        ended: row.status === `ended`,
+      })),
     },
   })
 
