@@ -3769,22 +3769,22 @@
         "file": "shots/exponential-ui-message-bubble/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 24992,
-        "sha256": "76b58f246650450a2e75a1696797e6b1cd2fad1617c2ab7beec333ee880cbb8b"
+        "bytes": 24246,
+        "sha256": "02baf5d04e656004256f07ba676a1b4d31b4f2d79ff72bb8f34b2a130454b658"
       },
       "desktop": {
         "file": "shots/exponential-ui-message-bubble/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 36532,
-        "sha256": "71203e80787ff01a447a11972df7f864482ac0073d0e5e35626036eaa87eb3c6"
+        "height": 1125,
+        "bytes": 44426,
+        "sha256": "fe8eca718f2c524e0e6cb911560ecb4a279b8465ed38ce6dda5cc2fa1c08e0dd"
       },
       "ios": {
         "file": "shots/exponential-ui-message-bubble/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 26094,
-        "sha256": "6aaf39b9024da1e45ec25fa58cff8e125bf91b2dcec3c263d3c455e9b147db74"
+        "bytes": 24956,
+        "sha256": "2f1834c086210f637ce0b739b29b27bf6952fb3660790c1c966104d727e685e0"
       },
       "web": {
         "file": "shots/exponential-ui-message-bubble/web.webp",
