@@ -6,6 +6,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# #EDE-65 lane O: `chat_document` shapes the shared chat model's rows (serde only, no gpui).
+uicore-model = { path = "../uicore-model" }
 # VAPP-261: the Engine owns O1's outbox now; `app_records` re-exports it.
 eengine = { path = "../eengine" }
 serde.workspace = true
