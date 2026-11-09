@@ -1,14 +1,18 @@
+import { avatarHueKey } from "@exponential_app/eui/web/primitives"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { BoardGlyph } from "./board-glyph"
 import { cn, getInitials } from "./cn"
+
+export { avatarHueKey }
 
 // EXP-887 — the ONE user mark. The Avatar + AvatarImage + AvatarFallback +
 // getInitials composition was hand-rolled at every site that draws a person;
 // this is that composition, once.
 //
 // Name-less accounts (Apple sign-in) fall back to the EMAIL for initials
-// instead of a bare "?", and the fallback carries the user id so it paints
-// that person's hashed hue (EXP-698 r4, `avatar-color.ts`).
+// instead of a bare "?", and the fallback paints that person's hashed hue
+// (EXP-698 r4, `avatar-color.ts`). #EXP-1754 (fixtures/avatar.json `keys`):
+// the hue KEY is the id, else the name, else the email; nothing = muted grey.
 
 /** Side in px → the root's size class and the fallback's type scale. The
  *  table is explicit because Tailwind cannot see a computed `size-<n>`. */
@@ -41,8 +45,13 @@ export function UserAvatar({
   agent = null,
   size = 24,
   className,
+  hueKey,
 }: {
   user: UserAvatarUser | null | undefined
+  /** #EXP-1754: an explicit hue key for a row whose `name` is shown COPY
+   *  (an anonymous reporter, a former member): `null` = no key, the muted
+   *  disc. Omitted = `avatarHueKey(user.id, user.name, user.email)`. */
+  hueKey?: string | null
   /** #EXP-1383 (agent-settings.json `actor` / `assignee`): an AGENT reads
    *  as THE AGENT MARK at the avatar's size: its glyph in its colour on the
    *  muted disc (the Chats lead disc), never initials. */
@@ -52,6 +61,7 @@ export function UserAvatar({
 }) {
   const label = user?.name || user?.email
   const scale = USER_AVATAR_SIZES[size]
+  const key = hueKey === undefined ? avatarHueKey(user?.id, user?.name, user?.email) : hueKey
   if (agent) {
     return (
       <span
@@ -71,7 +81,7 @@ export function UserAvatar({
       {/* The person's name is spelled out beside the mark nearly everywhere,
           so the photo carries the name only when there IS one to carry. */}
       {user?.image && <AvatarImage src={user.image} alt={label ?? ``} />}
-      <AvatarFallback className={scale.fallback} userId={user?.id}>
+      <AvatarFallback className={scale.fallback} userId={key}>
         {label ? getInitials(label) : `?`}
       </AvatarFallback>
     </Avatar>

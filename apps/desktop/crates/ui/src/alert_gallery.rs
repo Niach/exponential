@@ -76,9 +76,8 @@ fn openers() -> Vec<(String, Opener)> {
 #[ignore]
 fn alert_gallery() {
     let dir = std::env::var("EXP_ALERT_SHOTS").expect("EXP_ALERT_SHOTS = the output folder");
-    let platform = gpui_platform::current_platform(true);
-    let mut cx = HeadlessAppContext::with_platform(
-        platform.text_system(),
+        let mut cx = HeadlessAppContext::with_platform(
+        crate::test_text_system(),
         Arc::new(gpui_component_assets::Assets),
         gpui_platform::current_headless_renderer,
     );

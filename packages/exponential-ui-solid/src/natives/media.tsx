@@ -9,7 +9,7 @@ import { For, Show, createComputed, createRenderEffect, createEffect, createMemo
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import type { UiNode } from "@exponential_app/eui"
 import { mediaClock } from "@exponential_app/eui/web"
-import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarInitials } from "@exponential_app/eui/web/primitives"
+import { AVATAR_PALETTE, avatarFallbackColors, avatarHueIndex, avatarHueKey, avatarInitials } from "@exponential_app/eui/web/primitives"
 import { useSurfaceContext } from "../context"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
 import { createMediaSource, createMediaSrc } from "../media"
@@ -181,11 +181,13 @@ export function AudioPlayerNative(props: NativeProps): JSX.Element {
   )
 }
 
-/** #EXP-1629 (fixtures/avatar.json): a seed (a user id) picks
- *  `AVATAR_PALETTE[fnv1a32(seed) % 8]`, the hue at 20% behind initials in
- *  it, the app's own avatar; no seed = the recipe's muted fallback. */
-export function avatarTint(seed: string): { backgroundColor: string; color: string } | undefined {
-  return seed ? avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(seed)]!) : undefined
+/** #EXP-1629 (fixtures/avatar.json): the hue key (#EXP-1754: the seed, a
+ *  user id, else the trimmed name, which may be an email) picks
+ *  `AVATAR_PALETTE[fnv1a32(key) % 8]`, the hue at 20% behind initials in
+ *  it, the app's own avatar; no key = the recipe's muted fallback. */
+export function avatarTint(seed: string, name?: string): { backgroundColor: string; color: string } | undefined {
+  const key = avatarHueKey(seed, name)
+  return key === undefined ? undefined : avatarFallbackColors(AVATAR_PALETTE[avatarHueIndex(key)]!)
 }
 
 export function AvatarNative(props: NativeProps): JSX.Element {
@@ -195,7 +197,7 @@ export function AvatarNative(props: NativeProps): JSX.Element {
   const src = () => str(props.props.src)
   const url = createMediaSrc(() => ctx.host, src)
   const tint = () => {
-    const colors = avatarTint(str(props.props.seed))
+    const colors = avatarTint(str(props.props.seed), name())
     return colors ? css(colors) : undefined
   }
   // AvatarPrimitive.Image is only mounted with a src.

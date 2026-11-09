@@ -31,6 +31,29 @@ final class AvatarColorTests: XCTestCase {
         XCTAssertEqual(avatarHueIndex(nil), avatarHueIndex(""))
     }
 
+    /// #EXP-1754: packages/exponential-ui/fixtures/avatar.json `keys`: the key
+    /// is the id, else the name, else the email (trimmed; blank = absent),
+    /// nil = grey; the key's hue is the pinned slot.
+    func testReplaysTheFixtureKeys() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/exponential-ui/fixtures/avatar.json")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        let root = try XCTUnwrap(json as? [String: Any])
+        let keys = try XCTUnwrap(root["keys"] as? [[String: Any]])
+        XCTAssertFalse(keys.isEmpty)
+        for c in keys {
+            let name = "\(c["case"] ?? "")"
+            let key = avatarHueKey(id: c["id"] as? String, name: c["name"] as? String, email: c["email"] as? String)
+            XCTAssertEqual(key, c["key"] as? String, name)
+            XCTAssertEqual(key.map(avatarHueIndex), c["hue"] as? Int, name)
+        }
+    }
+
     func testStaysInsideThePalette() {
         for i in 0..<500 {
             let index = avatarHueIndex("user-\(i)")

@@ -794,6 +794,7 @@ fun IssueFace(
                     // SLOP-4: a reporter's comment names the submission's
                     // reporter; members moderate (delete) those comments.
                     reporterName = widgetSubmission?.reporterName,
+                    reporterEmail = widgetSubmission?.reporterEmail,
                     canModerate = permissions.isMember,
                     focusCommentId = focusCommentId,
                 )

@@ -56,6 +56,7 @@ import com.exponential.app.ui.components.LargeCommentAttachments
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.AgentAvatar
 import com.exponential.app.ui.components.UserAvatar
+import com.exponential.app.ui.components.avatarHueKey
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.ui.components.commentAuthorName
 import com.exponential.app.ui.components.commentCaption
@@ -123,6 +124,8 @@ internal fun RegularCommentRow(
     onRemoveEditAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
     reporterName: String? = null,
+    /** #EXP-1754: the submission's `reporterEmail` (the hue key without a name). */
+    reporterEmail: String? = null,
     canModerate: Boolean = false,
     /** #EXP-1383: the synced agents an agent author resolves to. */
     agents: List<AgentSettings.AgentRowLike> = emptyList(),
@@ -163,8 +166,10 @@ internal fun RegularCommentRow(
                     size = 26.dp,
                     // The author row may not have synced (or may have left the
                     // team); the comment still carries the id web/iOS hash, so the
-                    // hue stays the same person's everywhere.
-                    userId = comment.authorId,
+                    // hue stays the same person's everywhere. #EXP-1754: a
+                    // reporter keys on their real name, else email (anonymous =
+                    // grey), never the shown copy.
+                    userId = commentHueKey(comment, reporterName, reporterEmail),
                 )
             }
             Box(
@@ -227,7 +232,7 @@ internal fun RegularCommentRow(
                                 user = replyAuthor,
                                 nameOrEmail = replyAuthorName,
                                 size = 20.dp,
-                                userId = reply.authorId,
+                                userId = commentHueKey(reply, reporterName, reporterEmail),
                                 modifier = Modifier.padding(top = 2.dp),
                             )
                         }
@@ -484,3 +489,13 @@ private fun CommentCardContent(
         }
     }
 }
+
+/**
+ * #EXP-1754 (fixtures/avatar.json `keys`): a comment avatar's hue key. A
+ * reporter's comment keys on the submission's real name, else email (an
+ * anonymous reporter has none = grey); a member's, synced or former, on the
+ * author id. Never the display copy ("Anonymous visitor", "Former member").
+ */
+private fun commentHueKey(comment: CommentEntity, reporterName: String?, reporterEmail: String?): String? =
+    if (comment.isFromReporter) avatarHueKey(null, reporterName, reporterEmail)
+    else avatarHueKey(comment.authorId)

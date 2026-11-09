@@ -338,6 +338,7 @@ struct IssueFaceView: View {
                     issue: issue,
                     singleMemberTeam: vm.singleMemberTeam,
                     reporterName: vm.widgetSubmission?.reporterName,
+                    reporterEmail: vm.widgetSubmission?.reporterEmail,
                     editEditor: $commentEditEditor,
                     replyTarget: $commentReplyTarget,
                     focusCommentId: focusCommentId,

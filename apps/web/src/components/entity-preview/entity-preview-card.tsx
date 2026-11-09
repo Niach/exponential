@@ -8,6 +8,7 @@ import {
 import type { IconConcept } from "@exp/icons"
 import {
   AgentBrandMark,
+  avatarHueKey,
   AgentWorkingMark,
   BoardGlyph,
   EntityPreviewCard,
@@ -246,6 +247,9 @@ function CommentCard({ comment }: { comment: Comment }) {
         <UserAvatar
           size={16}
           user={{ id: authorId, name, image: author?.image }}
+          // #EXP-1754: the author's id, else name, else email; the shown
+          // fallback copy is never a key (a reporter's comment = grey).
+          hueKey={avatarHueKey(authorId, author?.name, author?.email) ?? null}
         />
       }
       eyebrow={when ? `${byline} · ${when}` : byline}

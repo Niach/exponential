@@ -451,6 +451,20 @@
         "keys": "⌘K"
       }
     },
+    "KbdGroup": {
+      "props": {
+        "keys": {
+          "description": "Keys in order (`⌘`, `K`)."
+        }
+      },
+      "description": "Key chord: one Kbd cap per key.",
+      "example": {
+        "keys": [
+          "⌘",
+          "K"
+        ]
+      }
+    },
     "Label": {
       "props": {
         "text": {
@@ -629,7 +643,7 @@
           "description": "Diameter class."
         },
         "seed": {
-          "description": "A user id: the palette hue; none = muted."
+          "description": "A user id; else the name picks the hue."
         }
       },
       "description": "Round user picture; falls back to initials on a stable hue.",
