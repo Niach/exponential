@@ -2912,6 +2912,13 @@
         "height": 1800,
         "bytes": 13778,
         "sha256": "3e87d9a8fbe278ceb40910b39351ffed2bbcba634754757957803064015667db"
+      },
+      "web": {
+        "file": "shots/exponential-ui-color-picker/web.webp",
+        "width": 1800,
+        "height": 1266,
+        "bytes": 11598,
+        "sha256": "7c7b778161b49f1366169008a204b50000b79c9fd87dbae5173592f4bb7fff6d"
       }
     },
     "exponential-ui-composer": {
@@ -3457,6 +3464,13 @@
         "height": 1800,
         "bytes": 29704,
         "sha256": "a576906b32ea0916e04ed87b31a2782e030911b092598473f787d14344338b98"
+      },
+      "web": {
+        "file": "shots/exponential-ui-icon-picker/web.webp",
+        "width": 1800,
+        "height": 1266,
+        "bytes": 22590,
+        "sha256": "df9c1f2c426e91c2248f5f77ae40c0f082da1fab82bc80379fdb149b730cfd8e"
       }
     },
     "exponential-ui-image": {
