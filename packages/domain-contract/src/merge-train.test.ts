@@ -21,6 +21,7 @@ import {
   stuckText,
   trainRun,
   trainRef,
+  trainChecksMode,
   trainVerdict,
   type PrMergeState,
   type TeamMergeMode,
@@ -47,6 +48,9 @@ describe(`merge-train fixture`, () => {
   })
   it.each(fixture.pipeline.verdicts)(`pipeline verdict: $name`, ({ outcome, checks, required, expected }) => {
     expect(trainVerdict({ outcome: outcome as never, checks: checks as never, required })).toEqual(expected as never)
+  })
+  it.each(fixture.pipeline.checksModes)(`pipeline checks: $name`, ({ input, expected }) => {
+    expect(trainChecksMode(input as never)).toBe(expected as never)
   })
   it(`pipeline: the ref and the example outcome replay`, () => {
     expect(trainRef(`t42`)).toBe(`exp-train/t42`)
