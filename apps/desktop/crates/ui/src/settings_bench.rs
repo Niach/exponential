@@ -12,6 +12,9 @@ use api::notifications::EmailPrefs;
 use crate::coding_flow::CodingHub;
 use crate::settings::about::AboutPane;
 use crate::settings::sessions::SessionsPane;
+use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
+use crate::settings::widget::WidgetPane;
+use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::sign_in_methods::{SignInMethodsSection, SignInShot};
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
@@ -302,4 +305,95 @@ fn settings_sign_in_failed() {
 #[ignore]
 fn settings_sign_in_loading() {
     sign_in("sign-in-loading", SignInShot { loading: true, ..sign_in_shot(None) });
+}
+
+fn api_keys_rows() -> Vec<api::users::PersonalKeyMeta> {
+    serde_json::from_value(serde_json::json!([
+        {"id": "k1", "name": "Device: studio-mac", "start": "expu_d1", "createdAt": "2026-07-01", "lastRequest": "2026-07-03"},
+        {"id": "k2", "name": "Device: build-box", "start": "expu_d2", "createdAt": "2026-06-12"},
+        {"id": "k3", "name": "CI deploys", "start": "expu_ab", "createdAt": "2026-05-20", "lastRequest": "2026-07-02"},
+        {"id": "k4", "name": "MCP client", "start": "expu_cd", "createdAt": "2026-06-30", "scope": {"teams": [{"id": "t", "name": "Acme"}], "boards": []}},
+    ]))
+    .expect("api key rows")
+}
+
+fn api_keys(name: &str, load: impl FnOnce() -> KeysLoad + 'static, minted: bool) {
+    shoot_pane(name, ApiKeysPane::for_shots, move |pane, cx| {
+        let minted = minted.then(|| serde_json::from_value(serde_json::json!({"key": "expu_ab12cd34ef56gh78ij90kl12mn34op56qr78st90", "id": "k5"})).expect("a minted key"));
+        pane.show(load(), minted, cx)
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_api_keys_rows() {
+    api_keys("api-keys-rows", || KeysLoad::Ready(api_keys_rows(), Some("k1".into())), false);
+}
+
+#[test]
+#[ignore]
+fn settings_api_keys_minted() {
+    api_keys("api-keys-minted", || KeysLoad::Ready(api_keys_rows(), Some("k1".into())), true);
+}
+
+#[test]
+#[ignore]
+fn settings_api_keys_empty() {
+    api_keys("api-keys-empty", || KeysLoad::Ready(Vec::new(), None), false);
+}
+
+#[test]
+#[ignore]
+fn settings_api_keys_failed() {
+    api_keys("api-keys-failed", || KeysLoad::Failed, false);
+}
+
+fn widget_rows() -> Vec<api::widgets::WidgetConfigSummary> {
+    serde_json::from_value(serde_json::json!([
+        {"id": "w1", "name": "Docs site", "enabled": true, "submissionCount": 12, "boardName": "Feedback", "allowedDomains": ["docs.example.com", "example.com"], "publicKey": "pk_1"},
+        {"id": "w2", "name": "", "enabled": false, "submissionCount": 1, "allowedDomains": []},
+    ]))
+    .expect("widget rows")
+}
+
+#[test]
+#[ignore]
+fn settings_widget_rows() {
+    shoot_pane("widget-rows", WidgetPane::for_shots, |pane, cx| pane.show(Some(widget_rows()), cx));
+}
+
+#[test]
+#[ignore]
+fn settings_widget_empty() {
+    shoot_pane("widget-empty", WidgetPane::for_shots, |pane, cx| pane.show(Some(Vec::new()), cx));
+}
+
+#[test]
+#[ignore]
+fn settings_widget_failed() {
+    shoot_pane("widget-failed", WidgetPane::for_shots, |pane, cx| pane.show(None, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_all_boards_put_away() {
+    shoot_pane("all-boards-put-away", AllBoardsPane::for_shots, |pane, cx| {
+        let archived = serde_json::from_value(serde_json::json!([
+            {"id": "b1", "name": "Old roadmap", "color": "#3b82f6", "icon": "rocket", "archivedAt": "2026-06-30"},
+            {"id": "b2", "name": "Experiments", "icon": "flask-conical"},
+        ]))
+        .expect("archived boards");
+        let trash = serde_json::from_value(serde_json::json!([
+            {"id": "b3", "name": "Scratch", "color": "#ef4444", "icon": "code", "purgeAt": "2020-01-01T00:00:00Z"},
+            {"id": "b4", "name": "Duplicates"},
+        ]))
+        .expect("trashed boards");
+        pane.show(archived, trash, cx)
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_all_boards_empty() {
+    shoot_pane("all-boards-empty", AllBoardsPane::for_shots, |pane, cx| pane.show(Vec::new(), Vec::new(), cx));
 }

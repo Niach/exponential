@@ -231,12 +231,24 @@ impl Ink {
     /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label at 85%,
     /// then a spacer and the trailing control.
     pub(super) fn band(&self, id: &str, label: &str, trailing: Option<Value>) -> Value {
+        self.band_with(id, None, label, None, trailing)
+    }
+
+    /// [`Ink::band`] with a leading glyph and `glass_section_band_loading`'s
+    /// reload spinner (shown where `loading`), BEFORE the trailing control.
+    pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: &str, loading: Option<Value>, trailing: Option<Value>) -> Value {
         let mut text = faded(self.text(&format!("{id}_label"), json!(label), SM, &self.foreground), 0.85);
         text["props"]["lines"] = json!(1);
         text["style"]["fontWeight"] = json!(500);
         text["style"]["minWidth"] = json!(0);
         text["style"]["flexShrink"] = json!(1);
-        let mut children = vec![text, json!({"id": format!("{id}_spacer"), "component": "Box", "style": {"flexGrow": 1}})];
+        let mut children: Vec<Value> = leading.into_iter().collect();
+        children.push(text);
+        children.push(json!({"id": format!("{id}_spacer"), "component": "Box", "style": {"flexGrow": 1}}));
+        if let Some(loading) = loading {
+            let size = eui_gpui::controls::INLINE_SPINNER_PX;
+            children.push(json!({"id": format!("{id}_spinner"), "component": "Spinner", "visible": loading, "style": {"width": size, "height": size, "color": self.muted, "flexShrink": 0}}));
+        }
         children.extend(trailing);
         json!({"id": id, "component": "Box",
             "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": self.r(0.375), "paddingHorizontal": self.r(0.75), "paddingVertical": self.r(0.375), "marginBottom": self.r(0.25), "borderRadius": self.radius_md, "backgroundColor": self.fill_section},
