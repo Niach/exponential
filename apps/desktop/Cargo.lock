@@ -2618,6 +2618,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "uicore-model",
  "unicode-normalization",
 ]
 
