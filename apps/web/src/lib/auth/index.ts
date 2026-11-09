@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { withAccountTokenVault } from "@/lib/emcp/account-vault"
 import { openAccountToken } from "@/lib/emcp/vault"
+import { isAllowedDeviceClient } from "@/lib/auth/device-clients"
 import {
   bearer,
   customSession,
@@ -696,6 +697,10 @@ export const auth = betterAuth({
       expiresIn: `10m`,
       interval: `5s`,
       verificationUri: `/auth/device`,
+      // GHSA-q84f-53jg-9ppm: only allow-listed clients (the desktop app +
+      // CLI daemon) may start or poll a device request; anything else gets
+      // the plugin's `invalid_client`. See lib/auth/device-clients.ts.
+      validateClient: isAllowedDeviceClient,
       // The plugin's option schema (zod 4) rejects an ABSENT `schema` key —
       // `z.custom(() => true)` without `.optional()`. An empty object is a
       // no-op for its mergeSchema and satisfies the parse.
