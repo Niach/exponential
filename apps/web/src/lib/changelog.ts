@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-faster-quieter-desktop`,
+    date: `2026-11-09`,
+    title: `A faster, quieter desktop app`,
+    summary: `The desktop app uses about a quarter of the CPU it did while idle, Home and the first issue open two to three times faster, and crashes and lag report themselves.`,
+    body: `- **Quieter when idle**: animations share one timer, repaint only what moves and stop in an unfocused window, so the desktop app uses about a quarter of the CPU it did while idle.
+- **Faster to open**: Home's first frame and the first issue you open draw two to three times faster.
+- **Diagnostics**: the desktop app and the \`exponential\` CLI report crashes and lag, so problems get fixed faster.
+- **Local desktops**: an agent's answer keeps its paragraph breaks, and its turn ends when it is done.
+- **Devices**: the + menu's device list follows your devices live.`,
+  },
+  {
     id: `2026-11-09-ede-chat-images`,
     date: `2026-11-09`,
     title: `Images in Exponential Desktop's chat`,
