@@ -2,16 +2,21 @@ import * as React from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient, fetchSessionOnce } from "@/lib/auth/client"
+import { trpc } from "@/lib/trpc-client"
 import { Button, FEEDBACK_WORDS, FieldError, Input, Label, AuthFormShell } from "@exp/ui"
 import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
 import { deviceErrorMessage, normalizeUserCode } from "@/lib/auth/device-code"
+import { DEVICE_SETUP_COPY } from "@/lib/device-setup-copy"
 
 // RFC 8628 device verification page (EXP-403): the `exponential` CLI prints
 // `Visit <instance>/auth/device and enter XXXX-XXXX`. Claiming happens via
 // GET /api/auth/device?user_code=… (which binds the code to THIS signed-in
 // session — approve/deny reject unclaimed codes), then the user explicitly
-// approves or denies. Login-guarded: an anonymous visit bounces through
+// approves or denies. Before Approve the page names the asking client and
+// what it gets, both read server-side off the claimed `device_codes` row
+// (`devices.pendingLogin`, GHSA-q84f-53jg-9ppm), never from the URL.
+// Login-guarded: an anonymous visit bounces through
 // /auth/login with a redirect back here, user_code intact.
 export const Route = createFileRoute(`/auth/device`)({
   head: () => ({ meta: [{ title: pageTitle(`Connect a device`) }] }),
@@ -57,6 +62,8 @@ export function DeviceVerificationView({
   const [step, setStep] = useState<Step>(`enter`)
   const [code, setCode] = useState(() => normalizeUserCode(initialCode ?? ``))
   const [busy, setBusy] = useState(false)
+  // The allow-listed client's name, from the server lookup.
+  const [clientName, setClientName] = useState(``)
   const [deciding, setDeciding] = useState<`approve` | `deny` | null>(null)
   // The typed code was refused: inline under the field. A failed
   // approve/deny (no field left) is a toast.
@@ -67,21 +74,48 @@ export function DeviceVerificationView({
     if (!code || busy) return
     setBusy(true)
     setError(``)
+    try {
+      await claimCode()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const claimCode = async () => {
     // GET /api/auth/device claims the pending code for this session — the
     // approve/deny endpoints refuse codes no session has claimed.
     const result = await authClient.device({
       query: { user_code: code },
     })
-    setBusy(false)
     if (result.error) {
       setError(deviceErrorMessage(result.error))
       return
     }
     const status = result.data?.status
     if (status === `approved` || status === `denied`) {
-      setError(`That code has already been used. Run the login command again.`)
+      setError(DEVICE_SETUP_COPY.codeUsed)
       return
     }
+    // Who is asking: the claimed row's client, checked server-side. A
+    // client outside the allow-list cannot be approved here.
+    // The claim just answered `pending`, so NOT_FOUND here means another
+    // account's session claimed the code first.
+    const request = await trpc.devices.pendingLogin
+      .query({ userCode: code })
+      .catch((err: unknown) =>
+        (err as { data?: { code?: string } })?.data?.code === `NOT_FOUND`
+          ? (`other` as const)
+          : null
+      )
+    if (!request || request === `other`) {
+      setError(request ? DEVICE_SETUP_COPY.codeOtherAccount : DEVICE_SETUP_COPY.failed)
+      return
+    }
+    if (!request.clientName) {
+      setError(DEVICE_SETUP_COPY.codeInvalid)
+      return
+    }
+    setClientName(request.clientName)
     setStep(`confirm`)
   }
 
@@ -129,13 +163,16 @@ export function DeviceVerificationView({
   if (step === `confirm`) {
     return (
       <div className="space-y-4">
+        <p className="text-sm">
+          <span className="font-medium">{clientName}</span> is asking to sign
+          in to your account.
+        </p>
         <div className="rounded-md border bg-muted/30 p-3 text-center font-mono text-lg tracking-widest">
           {code}
         </div>
         <p className="text-sm text-muted-foreground">
-          A device showing this code is asking to sign in to your account. It
-          will get the same access as you have here. Only approve if the code
-          matches what your terminal shows.
+          Approving gives it a full session as you, with the same access you
+          have here. Only approve if the code matches what your terminal shows.
         </p>
         <div className="flex gap-2">
           <Button

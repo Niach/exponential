@@ -273,7 +273,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config \
-            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
+            fontconfig fonts-noto-color-emoji
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
@@ -304,6 +305,9 @@ jobs:
         working-directory: apps/desktop
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
+          # #EDE-65: text_clusters' colour-emoji tests guard vendor/gpui-pre-wgpu;
+          # here they fail instead of skipping without Noto Color Emoji.
+          EUI_REQUIRE_COLOUR_EMOJI: "1"
         run: cargo test --locked -p eui-gpui
       - uses: ./.github/actions/setup-bun
       - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)

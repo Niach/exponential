@@ -978,6 +978,8 @@ impl SurfaceView {
             ("Motion", _) => self.motion_element(n, cx),
             // Round 8: the shapes' raster + native text (view/canvas_leaf.rs).
             ("Canvas", _) => self.canvas_element(n, cx),
+            // #EDE-65: the nested surface in place (view/embed.rs).
+            ("Embed", _) => self.embed_element(n, window, cx)?,
             ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
