@@ -377,7 +377,14 @@
     ],
     "inputVariant": [
       "field",
-      "row"
+      "row",
+      "bare",
+      "code"
+    ],
+    "textareaVariant": [
+      "field",
+      "row",
+      "code"
     ]
   },
   "defs": {
@@ -4731,7 +4738,7 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = a Group row: label, value."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
         },
         "disabled": {
           "type": "boolean",
@@ -4805,6 +4812,12 @@
           "type": "string",
           "bindable": true,
           "description": "Text; bind it to a data path."
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "textareaVariant",
+          "default": "field",
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
         },
         "disabled": {
           "type": "boolean",
