@@ -1083,7 +1083,9 @@ struct AgentSessionView: View {
                     preview: preview, output: output, live: id == liveToolRowId,
                     script: script, settledAt: settledAt
                 )
-            case let .userMessage(_, text, _):
+            case let .userMessage(_, text, _, at):
+                // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
+                let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // NEW-2: the contract catalog alone (agent commands hidden).
@@ -1101,13 +1103,13 @@ struct AgentSessionView: View {
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble (its name ` ›`).
-                    senderBubble(input.body, layout: layout, streaming: false)
+                    senderBubble(input.body, layout: layout, streaming: false, time: time)
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
                     // origin's bubble (the session that started this one).
-                    senderBubble(text, layout: layout, streaming: false)
+                    senderBubble(text, layout: layout, streaming: false, time: time)
                 } else {
-                    UserMessageBubble(text: text, context: markdownContext)
+                    UserMessageBubble(text: text, context: markdownContext, caption: time)
                 }
             case let .question(question):
                 questionCard(question)
@@ -1140,13 +1142,18 @@ struct AgentSessionView: View {
     /// #EXP-1736: anyone-but-the-viewer's bubble in the feed: the group's
     /// first one names its sender; a cross-session sender's press pushes
     /// that session.
-    private func senderBubble(_ text: String, layout: TranscriptGrouping.RowLayout?, streaming: Bool) -> some View {
+    private func senderBubble(
+        _ text: String,
+        layout: TranscriptGrouping.RowLayout?,
+        streaming: Bool,
+        time: String? = nil
+    ) -> some View {
         let author = layout?.name == true ? layout?.sender?.displayName : nil
         let link = layout?.sender?.link
         return MessageBubble(
             side: .other,
             author: author,
-            time: nil,
+            time: time,
             onPress: link.map { sessionId -> () -> Void in { openSender(sessionId) } }
         ) {
             AgentMarkdownText(text: text, context: markdownContext, streaming: streaming, hugsWidth: true)
@@ -1195,7 +1202,7 @@ struct AgentSessionView: View {
                 switch feedItem {
                 case .narration:
                     item = TranscriptGrouping.Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
-                case let .userMessage(_, text, _):
+                case let .userMessage(_, text, _, _):
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
                     }
@@ -4130,7 +4137,7 @@ struct SubagentItemRow: View {
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)
-        case let .userMessage(_, text, _):
+        case let .userMessage(_, text, _, _):
             UserMessageBubble(text: text, context: context)
         default:
             EmptyView()

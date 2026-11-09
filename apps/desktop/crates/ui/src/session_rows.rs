@@ -478,6 +478,7 @@ mod tests {
             FeedKind::UserMessage {
                 text: "do it".to_string(),
                 subagent_id: None,
+                at: None,
             },
         )
     }

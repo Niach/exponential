@@ -125,7 +125,7 @@ final class AgentActivityDecoderTests: XCTestCase {
         else { return XCTFail("not a diff") }
         XCTAssertNil(empty)
 
-        guard case let .userMessage(text, subagentId) = try XCTUnwrap(
+        guard case let .userMessage(text, subagentId, _) = try XCTUnwrap(
             try decode(#"{"kind":"user_message","text":"go on","subagentId":"a1"}"#)
         ) else { return XCTFail("not a user_message") }
         XCTAssertEqual(text, "go on")
