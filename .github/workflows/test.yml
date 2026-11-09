@@ -7,7 +7,7 @@ name: test
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
-# compile + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
+# debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them. Everything heavy (the rest of the eUI suite: unit suites,
@@ -325,11 +325,16 @@ jobs:
           EXP_RUN_SCOPE_EXPECT_WRAP: '1'
         run: cargo test --locked -p eagent --lib run_scope
 
-  # #EXP-1544: the Android app compiles and its JVM unit tests pass when the
-  # PR touches what it builds or reads. Android otherwise built only in
+  # #EXP-1544: the Android app assembles (assembleProductionDebug: Kotlin,
+  # resource + manifest merge, dex) and its JVM unit tests pass when the PR
+  # touches what it builds or reads. Android otherwise built only in
   # build-android.yml and release-suite.yml, so three releases in a row broke
-  # on a merged PR (a test vs a fixture, a race, master not compiling). Lint,
-  # the licence report and the emulator stay in release-suite.yml.
+  # on a merged PR (a test vs a fixture, a race, master not compiling).
+  # ENET_SKIP_NATIVE=1: no cargo-ndk cross-compile of the eNet/Engine .so
+  # (~14 min in build-android.yml); the JVM tests load the host builds below.
+  # R8 (minifyProductionReleaseWithR8) is not here: ~1.6 min on top of the
+  # release compile + resources, over the gate's budget. Lint, the licence
+  # report, the emulator and the release build stay in release-suite.yml.
   android:
     needs: [pick, changes]
     if: needs.changes.outputs.android == 'true'
@@ -371,9 +376,11 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-      - name: Compile + unit tests
+      - name: Assemble + unit tests
         working-directory: apps/android
-        run: ./gradlew :app:compileProductionDebugKotlin :app:testProductionDebugUnitTest --no-daemon
+        env:
+          ENET_SKIP_NATIVE: '1'
+        run: ./gradlew :app:assembleProductionDebug :app:testProductionDebugUnitTest --no-daemon
 
   # #VAPP-267: the Android runner template (apps/runner/android) compiles and
   # its JVM unit tests pass: the bundle reading, deep links and the glue
