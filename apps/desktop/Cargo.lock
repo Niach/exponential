@@ -2757,6 +2757,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ede-observability"
+version = "0.2.11"
+dependencies = [
+ "reqwest 0.13.5",
+ "rustls",
+ "sentry",
+ "serde_json",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ede-protocol"
 version = "0.14.143"
 dependencies = [
@@ -2769,6 +2782,7 @@ dependencies = [
 name = "ede-services"
 version = "0.2.11"
 dependencies = [
+ "ede-observability",
  "ede-protocol",
  "emcp",
  "libc",
@@ -3396,7 +3410,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "cosmic-text",
  "indexmap 2.14.0",
@@ -3411,7 +3425,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -3546,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "exponential-ui-ffi"
-version = "0.19.1"
+version = "0.20.0"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -3645,6 +3659,18 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "findshlibs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40b9e59cd0f7e0806cca4be089683ecb6434e602038df21fe6bf6711b2f07f64"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "finl_unicode"
@@ -9994,6 +10020,7 @@ dependencies = [
  "sentry-backtrace",
  "sentry-contexts",
  "sentry-core",
+ "sentry-debug-images",
  "sentry-log",
  "sentry-panic",
  "sentry-tracing",
@@ -10035,6 +10062,16 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "sentry-debug-images"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74835055f6a57b78c0e13f941b460e39edc1899b05fe31dd47cd02367f70888f"
+dependencies = [
+ "findshlibs",
+ "sentry-core",
 ]
 
 [[package]]

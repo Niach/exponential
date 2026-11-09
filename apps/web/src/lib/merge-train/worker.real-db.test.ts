@@ -74,6 +74,8 @@ class FakeForge {
   squashed: number[] = []
   missingPipeline = false
   refuseFastForward = false
+  /** Every commit a branch ever pointed at (#FEED-212: `branchContains`). */
+  history = new Set<string>([`base0`])
   /** Decides each run: which PR numbers conflict, and whether CI is red. */
   judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
@@ -139,8 +141,10 @@ class FakeForge {
         if (this.refuseFastForward) return { ok: false, reason: `refused`, message: `ruleset` }
         if (this.branch.get(branch) !== from) return { ok: false, reason: `moved`, current: this.branch.get(branch) ?? null }
         this.branch.set(branch, to)
+        this.history.add(to)
         return { ok: true }
       },
+      branchContains: async (_repo, branch, sha) => this.branch.get(branch) === sha || this.history.has(sha),
       closeAsLanded: async (_repo, { number, sha }) => {
         this.closed.push({ number, sha })
         const pr = this.prs.get(number)
@@ -148,6 +152,8 @@ class FakeForge {
       },
       squashMerge: async (_repo, { number }) => {
         this.squashed.push(number)
+        this.branch.set(`main`, `sq-${number}`)
+        this.history.add(`sq-${number}`)
         return { ok: true, sha: `sq-${number}` }
       },
     }

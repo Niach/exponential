@@ -11,6 +11,10 @@ publish = false
 ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
 # The MCP face: eMCP's loopback server (grants, callers) and audit rules.
 emcp = { path = "../../../desktop/crates/emcp" }
+# #LOGS-2: only the `exponential-services serve` binary initialises it;
+# ede-shell links this crate as a library and never does (the IDE has its
+# own crates/observability).
+ede-observability = { path = "../ede-observability" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 serde.workspace = true
 serde_json = "1"

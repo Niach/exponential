@@ -14,7 +14,8 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, spinner::Spinner, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use crate::feedback::Spinner;
 use steer::script_card::{ScriptCard, SCRIPT_CARD_SEPARATOR};
 use theme::tokens::transcript;
 

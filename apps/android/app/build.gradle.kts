@@ -82,9 +82,15 @@ val buildEnetFfi = tasks.register<Exec>("buildEnetFfi") {
     inputs.files(File(enetFfiCrate, "build-android.sh"), File(enetFfiCrate, "Cargo.toml"), File(desktop, "crates/enet-core/Cargo.toml"), File(desktop, "Cargo.lock"))
     outputs.dir(File(enetFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        // CI never ships an app without its eNet node.
-        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
-        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+        // CI never ships an app without its eNet node. An explicit
+        // ENET_SKIP_NATIVE=1 skips first (gate's `android` job: the JVM tests
+        // load the host build); CI without it still throws.
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") {
+            false
+        } else {
+            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the eNet .so")
+            cargoNdk != null
+        }
     }
     environment("SKIP_BINDINGS", "1")
     environment("PATH", listOfNotNull(cargoNdk?.parent, System.getenv("PATH")).joinToString(File.pathSeparator))
@@ -105,8 +111,13 @@ val buildEngineFfi = tasks.register<Exec>("buildEngineFfi") {
     inputs.files(File(engineFfiCrate, "build-android.sh"), File(engineFfiCrate, "Cargo.toml"), File(desktop, "crates/eengine/Cargo.toml"), File(desktop, "Cargo.lock"))
     outputs.dir(File(engineFfiCrate, "out/jniLibs"))
     onlyIf("cargo-ndk is installed and ENET_SKIP_NATIVE is unset") {
-        if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
-        System.getenv("ENET_SKIP_NATIVE") != "1" && cargoNdk != null
+        // ENET_SKIP_NATIVE=1 skips first (see buildEnetFfi).
+        if (System.getenv("ENET_SKIP_NATIVE") == "1") {
+            false
+        } else {
+            if (cargoNdk == null && System.getenv("CI") == "true") throw GradleException("cargo-ndk not found: CI must build the Engine .so")
+            cargoNdk != null
+        }
     }
     environment("SKIP_BINDINGS", "1")
     environment("EENGINE_FFI_FEATURES", "")

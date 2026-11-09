@@ -75,7 +75,7 @@ describe(`round 1: the prompt teaches responsive authoring`, () => {
     expect(full).toContain(`Common props (no description below): name (form key)`)
     expect(full).toMatch(/\n  name\*: string\n/)
     expect(full).toContain(`  language: plain|json|`)
-    expect(full).toContain(` — The syntax colouring.`)
+    expect(full).toContain(` — Syntax colouring.`)
   })
 })
 
