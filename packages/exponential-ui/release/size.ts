@@ -316,7 +316,9 @@ function report(section: Section, entries: Record<string, Measure>, budget: Reco
     const b = budget[key]
     const p = previous?.[key]
     const delta = p ? ` (${m.bytes >= p.bytes ? `+` : ``}${((m.bytes - p.bytes) / 1024).toFixed(1)} KB vs the record)` : ``
-    console.log(`  ${key.padEnd(44)} ${kb(m.bytes)}${m.gzip !== undefined ? `  gzip ${kb(m.gzip)}` : ``}${b ? `  budget ${kb(b.bytes)}${b.gzip !== undefined ? ` / ${kb(b.gzip)}` : ``}` : `  (no budget)`}${delta}`)
+    // What a PR may still add before it has to raise this budget.
+    const room = b ? `  headroom ${b.bytes - m.bytes} B${b.gzip !== undefined && m.gzip !== undefined ? ` / ${b.gzip - m.gzip} gz` : ``}` : ``
+    console.log(`  ${key.padEnd(44)} ${kb(m.bytes)}${m.gzip !== undefined ? `  gzip ${kb(m.gzip)}` : ``}${b ? `  budget ${kb(b.bytes)}${b.gzip !== undefined ? ` / ${kb(b.gzip)}` : ``}` : `  (no budget)`}${room}${delta}`)
     for (const [part, n] of Object.entries(m.parts ?? {}).slice(0, 12)) console.log(`      ${part.padEnd(40)} ${kb(n)}`)
   }
 }
