@@ -153,12 +153,6 @@ struct ChatHeaderTitle: View {
         }
     }
 
-    /// The TREE's live sessions (web's `statusWord` rows): never a session
-    /// a card merely names (an agent's started chat is not its tree).
-    private static func live(_ rows: ChatRows) -> [SessionEntity] {
-        rows.sessions.filter { $0.rootId == rows.root.id && $0.status != DomainContract.sessionStatusEnded }
-    }
-
     /// #EXP-1732 STATUS WORD (session-screen.json `statusCases`): THE
     /// tree's lowercase word (`SessionScreen.status`, never dropped) over
     /// every session of the tree, the root included.
@@ -184,10 +178,14 @@ struct ChatHeaderTitle: View {
         return SessionScreen.subtitle(status: status(rows: rows), device: rows.rootDevice?.label, trigger: trigger)
     }
 
+    /// session-screen.json TONE ×4: the tree word's tone (needs input =
+    /// amber, working or queued = the foreground, else muted).
     static func tone(rows: ChatRows) -> Tone {
-        let live = live(rows)
-        if live.contains(where: \.needsInput) { return .needsYou }
-        return live.contains(where: \.busy) ? .working : .muted
+        switch status(rows: rows) {
+        case SessionScreen.Copy.Status.needsInput: return .needsYou
+        case SessionScreen.Copy.Status.working, SessionScreen.Copy.Status.queued: return .working
+        default: return .muted
+        }
     }
 }
 
