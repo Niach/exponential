@@ -102,7 +102,8 @@ jobs:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
         run: bun run --filter @exponential_app/eui-react test:conformance
       - name: Size gate (npm entries, VAPP-106)
-        if: ${{ !inputs.conformance_only }}
+        # Also on the PR gate: a catalog PR carries its own measured delta,
+        # so the release suite never meets growth nobody budgeted.
         run: bun packages/exponential-ui/release/size.ts npm --check
       - name: Guides (React, agent, define, theme) from a fresh project
         if: ${{ !inputs.conformance_only }}
