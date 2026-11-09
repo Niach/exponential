@@ -5633,6 +5633,13 @@
       }
     },
     "issue-reporter-comments": {
+      "android": {
+        "file": "shots/issue-reporter-comments/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 42770,
+        "sha256": "16e3067c5a1747ed1a9534553ec2006d2cb1f4ae21dafc87054a7deb01d13d10"
+      },
       "desktop": {
         "file": "shots/issue-reporter-comments/desktop.webp",
         "width": 1800,
