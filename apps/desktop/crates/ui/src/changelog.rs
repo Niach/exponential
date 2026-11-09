@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-08-swipe-app-screens",
+    date: "2026-11-08",
+    title: "Swipe between an app's screens",
+    summary: "On a phone, swipe sideways to move between an app's screens; the tab bar follows.",
+    body: r#"- **Swipe between app screens**: on a phone, an app with screens in its bottom tab bar pages between them with a sideways swipe, like the inbox and chat tabs; the tab bar follows.
+- **Sideways content stays yours**: a swipe that starts on a table, chart, carousel or slider scrolls that, not the screen."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_236: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-desktop-diagnostics",
     date: "2026-11-09",
     title: "Send diagnostics, your choice",

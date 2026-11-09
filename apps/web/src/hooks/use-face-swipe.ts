@@ -245,7 +245,10 @@ interface Gesture {
 export function useFaceSwipe<T>(
   faces: readonly T[],
   face: T,
-  onFace: (face: T) => void
+  onFace: (face: T) => void,
+  /** #FEED-201: a touch this claims keeps its gesture (an app screen's eUI
+   *  content that pans or drags sideways: eUI `swipeBlocked`). */
+  blocked?: (target: EventTarget | null, root: HTMLElement) => boolean
 ): FaceSwipeHandlers {
   const root = useRef<HTMLElement | null>(null)
   const gesture = useRef<Gesture | null>(null)
@@ -316,7 +319,9 @@ export function useFaceSwipe<T>(
       gesture.current = {
         x: touch.clientX,
         y: touch.clientY,
-        claim: touchClaim(event.target, event.currentTarget),
+        claim: blocked?.(event.target, event.currentTarget)
+          ? { field: true, scroller: null }
+          : touchClaim(event.target, event.currentTarget),
         body: body && !reducedMotion() ? body : null,
         axis: null,
         prev: { x: touch.clientX, t: now },
