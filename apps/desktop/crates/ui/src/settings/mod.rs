@@ -770,7 +770,7 @@ impl SettingsView {
         let agent_detail =
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
-        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
+        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));

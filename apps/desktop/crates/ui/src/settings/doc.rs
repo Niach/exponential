@@ -169,6 +169,27 @@ pub(super) fn skeleton(id: &str, visible: Value) -> Value {
     json!({"id": id, "component": "Skeleton", "visible": visible, "props": {"rows": crate::feedback::SKELETON_ROWS, "rowHeight": super::SETTINGS_ROW_H}})
 }
 
+impl Ink {
+    /// `settings_skeleton` (`feedback::skeleton_rows`) in the IDE's own
+    /// geometry: [`crate::feedback::SKELETON_ROWS`] borderless rows of the
+    /// settings row height (`px_3`, `gap_2`), each a 12 px dot, a 72 px bar
+    /// and the row's tail bar (8 px, radius 4), every block a pulsing
+    /// `Skeleton` in `fill` (`feedback::skeleton_fill`: muted at 18%).
+    pub(super) fn skeleton_rows(&self, id: &str, fill: &str, visible: Value) -> Value {
+        const TAILS: [f32; 3] = [200., 150., 240.];
+        let block = |id: String, width: f32, height: f32, radius: f32| json!({"id": id, "component": "Skeleton", "props": {"width": width.to_string(), "height": height.to_string()},
+            "style": {"width": width, "height": height, "flexShrink": 0, "borderRadius": radius, "backgroundColor": fill}});
+        let rows: Vec<Value> = (0..crate::feedback::SKELETON_ROWS)
+            .map(|ix| {
+                let row = format!("{id}_{ix}");
+                json!({"id": row, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "height": super::SETTINGS_ROW_H, "flexShrink": 0, "gap": self.r(0.5), "paddingHorizontal": self.r(0.75)},
+                    "children": [block(format!("{row}_dot"), 12., 12., 6.), block(format!("{row}_lead"), 72., 8., 4.), block(format!("{row}_tail"), TAILS[ix % TAILS.len()], 8., 4.)]})
+            })
+            .collect();
+        json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": rows})
+    }
+}
+
 /// `controls::empty_state_list`: a 20px muted glyph over the `text_sm`
 /// title, `gap_1p5`, `px_3` / `py_6`, the column `text_center` (each run
 /// centres inside its box, which gpui rounds up to a whole pixel).

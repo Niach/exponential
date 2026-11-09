@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::prompts::{PromptsPane, PromptsShot};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -577,4 +578,48 @@ fn settings_voice_apps() {
 #[ignore]
 fn settings_voice_apps_open() {
     voice_clicked("voice-apps-open", voice_apps_settings(), &[]);
+}
+
+fn prompts_rows() -> Vec<api::prompts::Prompt> {
+    serde_json::from_value(serde_json::json!([
+        {"id": "p1", "name": "Release train", "icon": "rocket"},
+        {"id": "p2", "name": "Triage the inbox and file every bug against its board with a reproduction", "icon": "bug"},
+        {"id": "p3", "name": "Weekly digest"},
+        {"id": "p4", "name": "Unknown glyph", "icon": "not-an-icon"},
+    ]))
+    .expect("prompt rows")
+}
+
+fn prompts(name: &str, shot: PromptsShot) {
+    shoot_pane(name, PromptsPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_owner() {
+    prompts("prompts-owner", PromptsShot { team: Some("t".into()), owner: true, prompts: prompts_rows(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_member() {
+    prompts("prompts-member", PromptsShot { team: Some("t".into()), owner: false, prompts: prompts_rows(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_empty() {
+    prompts("prompts-empty", PromptsShot { team: Some("t".into()), owner: true, prompts: Vec::new(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_loading() {
+    prompts("prompts-loading", PromptsShot { team: Some("t".into()), owner: false, prompts: Vec::new(), ready: false });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_no_team() {
+    prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
 }
