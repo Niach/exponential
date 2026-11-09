@@ -177,6 +177,7 @@ fun IssuePropertyChips(
                             user = assignee,
                             nameOrEmail = assigneeName,
                             size = GlassPillDefaults.AvatarSize,
+                            userId = subject.assigneeId,
                         )
                     }
                 } else {

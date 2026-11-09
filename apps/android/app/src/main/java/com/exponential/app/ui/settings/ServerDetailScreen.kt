@@ -561,7 +561,7 @@ fun ServerDetailScreen(
                     val name = account.userName?.takeIf { it.isNotBlank() }
                         ?: user?.name?.takeIf { it.isNotBlank() }
                         ?: account.userEmail.orEmpty()
-                    UserAvatar(user = user, nameOrEmail = name, size = 48.dp)
+                    UserAvatar(user = user, nameOrEmail = name, size = 48.dp, userId = account.userId)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             name,
