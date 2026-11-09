@@ -207,6 +207,25 @@ describe(`compose`, () => {
     expect(r.read(`gen/enum.txt`)).toBe(`a\nb\nm\ny\nz\n`)
   })
 
+  it(`a regenerate that keeps the base's blob for a path the unit changed bounces it (#FEED-212)`, () => {
+    // The lockfiles rule claimed both workspaces' locks but regenerated only
+    // one: the other came out as master's, the unit's change silently gone.
+    const LOCKS: TrainRepoConfig = {
+      generated: [{ name: `lockfiles`, paths: [`desktop/Cargo.lock`, `ede/Cargo.lock`], strategy: `regenerate`, command: `cp desktop/want desktop/Cargo.lock` }],
+    }
+    const r = repo({ "desktop/want": `d0\n`, "desktop/Cargo.lock": `d0\n`, "ede/Cargo.lock": `e0\n` }, LOCKS)
+    const moved = r.branch({ "ede/Cargo.lock": `e-master\n` })
+    const unit = r.branch({ "ede/Cargo.lock": `e-unit\n` })
+    const { outcome } = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `test`, units: [{ prs: [pr(1, unit)] }] })
+    expect(outcome.units[0]).toMatchObject({ outcome: `conflict`, files: [`ede/Cargo.lock`] })
+    expect(outcome.head).not.toBe(moved)
+    expect(r.read(`ede/Cargo.lock`)).toBe(`e-master\n`)
+    // a regenerate that does rewrite it (here: to the unit's side) still composes
+    const fixed: TrainRepoConfig = { generated: [{ ...LOCKS.generated[0]!, command: `git checkout ${unit} -- ede/Cargo.lock` }] }
+    const ok = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `test`, units: [{ prs: [pr(1, unit)] }], config: fixed })
+    expect(ok.outcome.units[0]).toMatchObject({ outcome: `composed`, resolved: [`lockfiles`] })
+  })
+
   it(`any other conflict drops that whole unit, naming only the unmatched files, and the next unit still rides`, () => {
     const r = repo({ "src/x.ts": `1\n`, "gen/enum.txt": `0\n`, "y.ts": `y\n` }, POLICY)
     const a = r.branch({ "src/x.ts": `2\n`, "gen/enum.txt": `2\n` })

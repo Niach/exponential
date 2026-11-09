@@ -81,10 +81,11 @@
       "name": "lockfiles",
       "paths": [
         "bun.lock",
-        "**/Cargo.lock"
+        "apps/desktop/Cargo.lock",
+        "apps/ede/Cargo.lock"
       ],
       "strategy": "regenerate",
-      "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml"
+      "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml && cargo update --workspace --manifest-path apps/ede/Cargo.toml"
     },
     {
       "name": "shots index",

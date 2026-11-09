@@ -231,6 +231,19 @@ function squash(
       .map((p) => git.show(`:0`, p) ?? ``)
     if (!sameContents(v.dropped, fresh)) throw new UnitConflict(v.paths)
   }
+  // 4. A regenerate must keep the unit's change (#FEED-212): a claimed path
+  //    the unit changed that came out as the tip's blob, while the head's
+  //    differs from the tip's, was silently dropped by a command that never
+  //    regenerated it.
+  const dropped = verdict.steps
+    .filter((s) => s.strategy === `regenerate`)
+    .flatMap((s) => s.paths)
+    .filter((p) => {
+      if (!theirChanges.includes(p)) return false
+      const tipBlob = blobAt(git, tip, p)
+      return blobAt(git, ``, p) === tipBlob && blobAt(git, head, p) !== tipBlob
+    })
+  if (dropped.length > 0) throw new UnitConflict(dropped)
   const left = git.lines(`diff`, `--name-only`, `--diff-filter=U`)
   if (left.length > 0) throw new UnitConflict(left)
   return { resolved: verdict.steps.map((s) => s.name), drifted: lockDrift(git, head, config, ourChanges, theirChanges) }
@@ -244,10 +257,7 @@ function lockDrift(git: Git, head: string, config: TrainRepoConfig, ourChanges: 
   const policy = config.lockfiles
   if (!policy) return []
   const isLock = (p: string) => policy.paths.some((g) => globMatch(g, p))
-  const blob = (rev: string, p: string) => {
-    const r = git.run(`rev-parse`, `--verify`, `--quiet`, `${rev}:${p}`)
-    return r.ok ? r.out.trim() : null
-  }
+  const blob = (rev: string, p: string) => blobAt(git, rev, p)
   const drifted = theirChanges.filter((p) => isLock(p) && blob(``, p) !== blob(head, p))
   const dirOf = (p: string) => (p.includes(`/`) ? p.slice(0, p.lastIndexOf(`/`)) : ``)
   for (const pair of policy.manifests ?? []) {
@@ -259,6 +269,12 @@ function lockDrift(git: Git, head: string, config: TrainRepoConfig, ourChanges: 
     }
   }
   return drifted
+}
+
+/** A path's blob id at `rev` (`` = the index); null = absent. */
+function blobAt(git: Git, rev: string, path: string): string | null {
+  const r = git.run(`rev-parse`, `--verify`, `--quiet`, `${rev}:${path}`)
+  return r.ok ? r.out.trim() : null
 }
 
 function remove(git: Git, path: string): void {
