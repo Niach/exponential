@@ -19,6 +19,7 @@ use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
+use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -60,6 +61,17 @@ fn shoot_pane<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &
 /// scrollbar's fade runs on the real clock, so a frame can only be taken
 /// after it, never pinned inside it).
 fn shoot_pane_settled<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static, settle: Option<std::time::Duration>) {
+    shoot_pane_clicked(name, build, show, settle, &[]);
+}
+
+/// [`shoot_pane_settled`] after left clicks at `clicks` (window points),
+/// each followed by frames and a short settle (a popup's fade).
+fn shoot_pane_clicked<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static, settle: Option<std::time::Duration>, clicks: &[(f32, f32)]) {
+    shoot_pane_acted(name, build, show, settle, clicks, |_: &mut P, _: &mut Window, _: &mut gpui::Context<P>| {});
+}
+
+/// [`shoot_pane_clicked`], then `act` on the pane (a press by node id).
+fn shoot_pane_acted<P: Render + 'static>(name: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, show: impl FnOnce(&mut P, &mut gpui::Context<P>) + 'static, settle: Option<std::time::Duration>, clicks: &[(f32, f32)], act: impl FnOnce(&mut P, &mut Window, &mut gpui::Context<P>) + 'static) {
     let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
     let mut cx = headless();
     cx.update(|cx| {
@@ -84,6 +96,42 @@ fn shoot_pane_settled<P: Render + 'static>(name: &str, build: impl FnOnce(&mut W
     let frame = frame.expect("the frame");
     cx.update(|cx| frame.update(cx, |pane, cx| show(pane, cx)));
     for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    for &(x, y) in clicks {
+        let position = gpui::point(px(x), px(y));
+        cx.update_window(window, |_, window, cx| {
+            let moved = gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() };
+            window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
+            let down = gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false };
+            window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+        })
+        .expect("a press");
+        draw(window, &mut cx);
+        cx.run_until_parked();
+        cx.update_window(window, |_, window, cx| {
+            let up = gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 };
+            window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+        })
+        .expect("a release");
+        for _ in 0..6 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
+    }
+    cx.update_window(window, |_, window, cx| frame.update(cx, |pane, cx| act(pane, window, cx))).expect("the act");
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    for _ in 0..3 {
         draw(window, &mut cx);
         cx.run_until_parked();
     }
@@ -431,4 +479,102 @@ fn settings_account_linking() {
         ..sign_in_shot(Some(many_ways_in()))
     };
     account("account-linking", AccountShot { send_diagnostics: true, ..account_shot() }, sign_in);
+}
+
+fn voice_settings(ptt: &str) -> etalk::voice::VoiceSettings {
+    etalk::voice::VoiceSettings {
+        voice_device_id: Some("d-mint".into()),
+        agent_id: Some("a1".into()),
+        ptt_shortcut: ptt.into(),
+        language: "en".into(),
+        ..Default::default()
+    }
+}
+
+fn voice(name: &str, settings: etalk::voice::VoiceSettings, capture: Option<etalk::voice::CaptureState>) {
+    shoot_pane(name, VoicePrefsPane::for_shots, move |pane, cx| pane.show(VoiceShot { settings, capture }, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_voice_unbound() {
+    voice("voice-unbound", voice_settings(""), None);
+}
+
+#[test]
+#[ignore]
+fn settings_voice_bound() {
+    let settings = etalk::voice::VoiceSettings {
+        wake_word: true,
+        wake_phrase: "Hey Studio".into(),
+        voice_file: "~/voices/me.wav".into(),
+        ..voice_settings("ctrl+shift+space")
+    };
+    voice("voice-bound", settings, None);
+}
+
+#[test]
+#[ignore]
+fn settings_voice_recording_pending() {
+    use etalk::voice::{capture_start, capture_step, CaptureEvent};
+    let capture = [CaptureEvent::Down("ctrl".into()), CaptureEvent::Down("shift".into())].iter().fold(capture_start("ctrl+space"), |c, e| capture_step(&c, e));
+    voice("voice-recording-pending", voice_settings("ctrl+space"), Some(capture));
+}
+
+#[test]
+#[ignore]
+fn settings_voice_error() {
+    let capture = etalk::voice::CaptureState {
+        status: etalk::voice::CaptureStatus::Recording,
+        value: "ctrl+space".into(),
+        held: Vec::new(),
+        error: Some(etalk::voice::VOICE.ptt_copy.shortcut_needs_modifier.clone()),
+    };
+    voice("voice-error", voice_settings("ctrl+space"), Some(capture));
+}
+
+/// #NEW-57: Desktop audio picks apps on a per-app device: the Apps row.
+fn voice_apps_settings() -> etalk::voice::VoiceSettings {
+    etalk::voice::VoiceSettings {
+        desktop_audio: etalk::meeting::DesktopAudio::Include,
+        desktop_audio_apps: vec![etalk::meeting::AudioApp { id: "us.zoom.xos".into(), name: "Zoom".into() }],
+        ..voice_settings("ctrl+space")
+    }
+}
+
+fn voice_clicked(name: &str, settings: etalk::voice::VoiceSettings, clicks: &'static [(f32, f32)]) {
+    crate::meeting_mode::SHOT_AUDIO.with(|shot| {
+        *shot.borrow_mut() = Some((
+            etalk::meeting::DesktopAudioCapability::PerApp,
+            vec![
+                etalk::meeting::AudioApp { id: "us.zoom.xos".into(), name: "Zoom".into() },
+                etalk::meeting::AudioApp { id: "com.tinyspeck.slackmacgap".into(), name: "Slack".into() },
+            ],
+        ))
+    });
+    let points: Vec<(f32, f32)> = std::env::var("EXP_VOICE_CLICKS").ok().map(|v| v.split(';').filter_map(|p| p.split_once(',')).filter_map(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?))).collect()).unwrap_or_else(|| clicks.to_vec());
+    // The eUI pane presses node ids (a headless click doesn't reach its popups);
+    // the pointer still moves to the first point, as a click would leave it.
+    let presses: Vec<String> = std::env::var("EXP_VOICE_PRESS").ok().map(|v| v.split(';').map(str::to_string).collect()).unwrap_or_default();
+    let points = if presses.is_empty() { points } else { Vec::new() };
+    let hover = std::env::var("EXP_VOICE_HOVER").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?))));
+    shoot_pane_acted(name, VoicePrefsPane::for_shots, move |pane, cx| pane.show(VoiceShot { settings, capture: None }, cx), None, &points, move |pane, window, cx| {
+        if let Some((x, y)) = hover {
+            let moved = gpui::MouseMoveEvent { position: gpui::point(px(x), px(y)), pressed_button: None, modifiers: Default::default() };
+            window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
+        }
+        pane.press_for_shots(&presses, window, cx)
+    });
+}
+
+#[test]
+#[ignore]
+fn settings_voice_apps() {
+    voice_clicked("voice-apps", voice_apps_settings(), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_voice_apps_open() {
+    voice_clicked("voice-apps-open", voice_apps_settings(), &[]);
 }

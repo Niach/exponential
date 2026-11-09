@@ -344,7 +344,11 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);
         let outcome = view.set_nested(tree, cx);
-        debug_assert!(outcome.issues.is_empty(), "{surface_id}: {:?}", outcome.issues);
+        // The documents write the IDE's chrome as literal colours ([`Ink`]):
+        // the core reports each one (a node style wants `$color.<name>`) and
+        // paints it; anything else is a real mistake.
+        let issues: Vec<_> = outcome.issues.iter().filter(|issue| !issue.message.ends_with("expected $color.<name>")).collect();
+        debug_assert!(issues.is_empty(), "{surface_id}: {issues:?}");
         view
     });
     binding.update(cx, |binding, cx| binding.attach(&view, cx));

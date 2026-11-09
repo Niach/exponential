@@ -782,7 +782,7 @@ impl SettingsView {
         let sessions = cx.new(|cx| SessionsPane::new(window, cx));
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
-        let voice = cx.new(VoicePrefsPane::new);
+        let voice = cx.new(|cx| VoicePrefsPane::new(window, cx));
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|cx| AboutPane::new(window, cx));
 
