@@ -1,6 +1,6 @@
 # Motion: the spec
 
-> Generated from docs/spec/motion.md (genUI 0.20.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from docs/spec/motion.md (genUI 0.21.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 > Status: **shipped** (EXP-1584: M0 #1622, M1 #1623, M2 #1624, M3 #1638, M4 #1648; genUI 0.4.0). Design approved 2026-11-01 (Danny; the comment on #EXP-1584).
 > Code: `apps/desktop/crates/eui-motion` (the engine), `eui-motion-wasm`, `exponential-ui-ffi` (`MotionPlayer`), the `Motion` painters in every genUI renderer.

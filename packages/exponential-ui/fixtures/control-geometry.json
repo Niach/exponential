@@ -2066,9 +2066,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 44,
-              "paddingHorizontal": 16,
-              "gap": 12,
+              "height": 40.82,
+              "paddingHorizontal": 14,
+              "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0
             }
@@ -4888,9 +4888,9 @@
               "triggerVariant": "row"
             },
             "geometry": {
-              "height": 44,
-              "paddingHorizontal": 16,
-              "gap": 12,
+              "height": 40.82,
+              "paddingHorizontal": 14,
+              "gap": 7,
               "borderWidth": 0,
               "borderRadius": 0
             }

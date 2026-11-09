@@ -506,7 +506,7 @@ fn hash_value(v: &Value, h: &mut impl Hasher) {
 /// under it: the resolved `backgroundColor` (the recipe's, the list's
 /// ground) becomes `backgroundGradient`, which every painter draws.
 pub(crate) fn fade_to_gradient(n: &LNode, out: &mut Map<String, Value>) {
-    if n.part.as_deref() != Some("fade") || !matches!(n.owner_component.as_deref(), Some("SearchList" | "Menu")) {
+    if n.part.as_deref() != Some("fade") || !matches!(n.owner_component.as_deref(), Some("SearchList" | "Menu" | "Select")) {
         return;
     }
     let Some(color) = out.get("backgroundColor").and_then(Value::as_str).filter(|c| c.starts_with('#') && (c.len() == 7 || c.len() == 9)).map(|c| c[..7].to_string()) else { return };

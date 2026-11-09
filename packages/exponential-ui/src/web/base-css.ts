@@ -12,6 +12,7 @@
 // never needs to (recipes carry only visuals, sizes and spacing).
 
 import { QR_SCANNER } from "./round5"
+import { LAYOUT_CONSTANTS } from "../layout"
 import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
@@ -250,7 +251,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-trigger>span,.xui-DatePicker-trigger>span,.xui-DateRangePicker-trigger>span,.xui-TimePicker-trigger>span{overflow:clip;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
 .xui-Select-trigger>svg,.xui-DatePicker-trigger>svg,.xui-DateRangePicker-trigger>svg,.xui-TimePicker-trigger>svg{width:16px;height:16px;flex-shrink:0;opacity:.6}
 .xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-label{flex:0 0 auto}
-.xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label){text-align:end}
+.xui-Select-trigger[data-r-trigger-variant="row"]>.xui-Select-spacer{flex:1 1 0;min-width:0}
+.xui-Select-trigger[data-r-trigger-variant="row"]>span:not(.xui-Select-label):not(.xui-Select-spacer){flex:0 1 auto;max-width:${LAYOUT_CONSTANTS.selectRowValueMaxWidth}px}
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
@@ -344,7 +346,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-SearchList-search>input,.xui-Menu-search>input{flex:1 1 auto;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;color:inherit;font:inherit}
 .xui-SearchList-count,.xui-Menu-count{flex-shrink:0;font-variant-numeric:tabular-nums}
 .xui-Progress-value,.xui-Meter-value{font-variant-numeric:tabular-nums}
-.xui-SearchList-body,.xui-Menu-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
+.xui-SearchList-body,.xui-Menu-body,.xui-Select-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
 .xui-SearchList-list,.xui-Menu-list{display:flex;flex-direction:column;flex-shrink:1;min-height:0;overflow-y:auto}
 .xui-SearchList-item{display:flex;flex-direction:row;align-items:center;flex-shrink:0;cursor:pointer;user-select:none;white-space:nowrap}
 .xui-SearchList-item[aria-disabled="true"]{pointer-events:none}
@@ -352,7 +354,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-SearchList-icon>svg,.xui-SearchList-check>svg{width:100%;height:100%}
 .xui-SearchList-identifier{flex-shrink:0}
 .xui-SearchList-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.xui-SearchList-fade,.xui-Menu-fade{position:absolute;left:0;right:0;bottom:0;height:${SEARCH_LIST_FADE}px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--xui-color-popover)) !important}
+.xui-SearchList-fade,.xui-Menu-fade,.xui-Select-fade{position:absolute;left:0;right:0;bottom:0;height:${SEARCH_LIST_FADE}px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--xui-color-popover)) !important}
 .xui-menu-search{display:flex;flex-direction:column;min-width:240px}
 .xui-menu-search .xui-Menu-item{flex-shrink:0}
 [data-xui-c="Markdown"].xui-el{display:block;min-width:0;overflow-wrap:anywhere}
@@ -509,7 +511,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
-.xui-Select-searchbox>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
+.xui-Select-searchbox>svg{width:16px;height:16px;flex-shrink:0;color:var(--xui-color-mutedForeground)}
 .xui-Select-listbox>.xui-Select-item{flex-shrink:0}
 .xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}

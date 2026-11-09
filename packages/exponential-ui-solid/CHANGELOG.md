@@ -6,11 +6,15 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R): the slots sit in the controls row (leading at the start, trailing before send); a paste with image files fires `attach` {files} and calls `host.onUpload`, a paste with other files only is prevented. `composer-slots.test.tsx` replays `composerSlots` + `composerPaste`.
+
+## 0.21.0 (2026-11-09)
+
+- Select `triggerVariant: row` (#EXP-1629), React's: the `label`, spacer, `value` and `chevron` parts, the popup hung off the value (start, 262 px, fitted into the window), `align` + `popupWidth`, every opening at the top with the cursor on the first enabled option (no longer scrolled to the chosen one), the list's bottom `fade`, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.
+- Recipes (#EXP-1629): `backgroundClip: padding-box`, `$shadow.popover` and an Avatar picture's `image` fill under its ring, through the shared theme CSS.
 - `primitives/kbd` `Kbd`: the `accent` fill (the catalog's `Kbd` recipe; was `muted`), through the shared `KBD_CLASSES`.
 - Input `variant: "row"` (#EXP-1629): a Group row (label inside, the value end-aligned at 70%); the exponential theme's row is the IDE's (14 px rem). Parity case for the row (typing, Enter).
 - Embed (#EDE-65): a nested genUI surface painted in place, sandboxed: its own data model, its own surface id (`embedSurfaceId`, so inner ids never meet the host's), the host's theme, mode, strings, locale and presentation hooks only (`embedHost`); every inner event fires the Embed's `action` with `{name, context}`, an inner host function is denied, a bad `surface` paints the `embedInvalid` error Alert, a deep change of the surface remounts the card.
 - Composer `menuKeys` (#EDE-65), React's: Up, Down, Enter, Tab and Escape without a modifier fire `key` {key} while it is on; an IME composition's keys stay the IME's.
-- Select `triggerVariant: row` (#EXP-1629), React's: the label inside the trigger, the `value` and `chevron` parts, `align` + `popupWidth`, the list scrolled to the chosen option, item `hover` = the cursor, `selected` = chosen only. Parity cases for the row and the open popup.
 - KeyRecorder field capture (#EXP-1629): a press while idle starts recording and focuses the field; while recording every key (Tab, Escape included) and mouse buttons 3-5 go to `key` with the canonical name and held flags, blur stops it, and a press does nothing.
 
 ## 0.20.0 (2026-11-08)
@@ -45,13 +49,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## 0.16.3 (2026-11-06)
 
-- DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props, parity-gated against React (VAPP-282).
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). Solid paints the row in the same DOM order.
 - `host.popupHost` (VAPP-281), as React.
 - Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): the popper's `align`; an `anchor`ed overlay is placed against that node, which gets the trigger's aria + toggle; Escape returns focus to it.
-- `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`), as React: the blocks render keyed by object, so a streamed text keeps its finished blocks' DOM.
-- Markdown host hooks (`catalog/host.json` `markdown`): a `textLinks` chip paints the Chip look inline, `imageSize` / `onImagePress` size and press block images, `attachment` paints a one-link paragraph as the Video / AudioPlayer native or the FileUpload file row. `hostPlugin(host)` forwards the policy's hooks.
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).
 
 ## 0.16.2 (2026-11-06)

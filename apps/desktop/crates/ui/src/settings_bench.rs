@@ -11,11 +11,12 @@ use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
 use crate::settings::about::AboutPane;
+use crate::settings::account::{AccountPane, AccountShot};
 use crate::settings::sessions::SessionsPane;
 use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
 use crate::settings::widget::WidgetPane;
 use crate::settings::all_boards::AllBoardsPane;
-use crate::settings::sign_in_methods::{SignInMethodsSection, SignInShot};
+use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::shell_bench::headless;
@@ -265,47 +266,8 @@ fn one_way_in() -> api::users::SignInMethods {
     }
 }
 
-fn sign_in(name: &str, shot: SignInShot) {
-    shoot_pane(name, |window, cx| SignInMethodsSection::new(crate::navigation::nav_for_window(window, cx), window, cx), move |pane, cx| pane.show(shot, cx));
-}
-
 fn sign_in_shot(methods: Option<api::users::SignInMethods>) -> SignInShot {
     SignInShot { methods, pending_link: None, copy_url: None, manage_url: Some("https://app.exponential.at/t/acme/settings/account".into()), loading: false }
-}
-
-#[test]
-#[ignore]
-fn settings_sign_in_many() {
-    sign_in("sign-in-many", sign_in_shot(Some(many_ways_in())));
-}
-
-#[test]
-#[ignore]
-fn settings_sign_in_last_way_in() {
-    sign_in("sign-in-last-way-in", SignInShot { manage_url: None, ..sign_in_shot(Some(one_way_in())) });
-}
-
-#[test]
-#[ignore]
-fn settings_sign_in_linking() {
-    let shot = SignInShot {
-        pending_link: Some("apple".into()),
-        copy_url: Some("https://app.exponential.at/api/auth/link/start?ticket=t-123&provider=apple&challenge=abc".into()),
-        ..sign_in_shot(Some(many_ways_in()))
-    };
-    sign_in("sign-in-linking", shot);
-}
-
-#[test]
-#[ignore]
-fn settings_sign_in_failed() {
-    sign_in("sign-in-failed", sign_in_shot(None));
-}
-
-#[test]
-#[ignore]
-fn settings_sign_in_loading() {
-    sign_in("sign-in-loading", SignInShot { loading: true, ..sign_in_shot(None) });
 }
 
 fn api_keys_rows() -> Vec<api::users::PersonalKeyMeta> {
@@ -397,4 +359,76 @@ fn settings_all_boards_put_away() {
 #[ignore]
 fn settings_all_boards_empty() {
     shoot_pane("all-boards-empty", AllBoardsPane::for_shots, |pane, cx| pane.show(Vec::new(), Vec::new(), cx));
+}
+
+/// A 96 px picture (a two-colour gradient), PNG-encoded.
+fn picture() -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(96, 96, |x, y| image::Rgba([(x * 255 / 95) as u8, 96, (y * 255 / 95) as u8, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).expect("the PNG");
+    bytes.into_inner()
+}
+
+fn account_shot() -> AccountShot {
+    AccountShot {
+        user_id: "user-dana".into(),
+        name: Some("Dana Scully".into()),
+        email: "dana@example.com".into(),
+        picture: None,
+        timezone: Some(Some("Europe/Vienna".into())),
+        timezone_open: false,
+        send_diagnostics: false,
+        manage_url: Some("https://app.exponential.at/t/acme/settings/account".into()),
+    }
+}
+
+fn account(name: &str, shot: AccountShot, sign_in: SignInShot) {
+    // Settled, as the earlier pictures of this pane were taken.
+    let diagnostics = shot.send_diagnostics;
+    shoot_pane_settled(name, move |window, cx| AccountPane::for_shots(diagnostics, window, cx), move |pane, cx| pane.show(shot, sign_in, cx), Some(std::time::Duration::from_millis(1200)));
+}
+
+#[test]
+#[ignore]
+fn settings_account_initials() {
+    account("account-initials", account_shot(), sign_in_shot(Some(many_ways_in())));
+}
+
+#[test]
+#[ignore]
+fn settings_account_picture() {
+    let shot = AccountShot { picture: Some(("https://bench.invalid/avatar.png".into(), picture())), send_diagnostics: true, ..account_shot() };
+    account("account-picture", shot, sign_in_shot(Some(one_way_in())));
+}
+
+#[test]
+#[ignore]
+fn settings_account_email_only() {
+    let shot = AccountShot { name: None, timezone: Some(None), ..account_shot() };
+    account("account-email-only", shot, sign_in_shot(None));
+}
+
+#[test]
+#[ignore]
+fn settings_account_loading() {
+    let shot = AccountShot { timezone: None, manage_url: None, ..account_shot() };
+    account("account-loading", shot, SignInShot { loading: true, ..sign_in_shot(None) });
+}
+
+#[test]
+#[ignore]
+fn settings_account_timezone_open() {
+    let shot = AccountShot { timezone_open: true, ..account_shot() };
+    account("account-timezone-open", shot, sign_in_shot(Some(many_ways_in())));
+}
+
+#[test]
+#[ignore]
+fn settings_account_linking() {
+    let sign_in = SignInShot {
+        pending_link: Some("apple".into()),
+        copy_url: Some("https://app.exponential.at/api/auth/link/start?ticket=t-123&provider=apple&challenge=abc".into()),
+        ..sign_in_shot(Some(many_ways_in()))
+    };
+    account("account-linking", AccountShot { send_diagnostics: true, ..account_shot() }, sign_in);
 }

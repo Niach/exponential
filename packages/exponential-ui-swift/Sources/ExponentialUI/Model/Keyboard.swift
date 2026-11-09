@@ -498,14 +498,12 @@ extension SurfaceModel {
         moveSelectCursor(owner, to: next, reveal: true)
     }
 
-    /// A Select popup opened: the cursor on the FIRST chosen option, else
-    /// the first enabled one, scrolled into the list's view.
+    /// A Select popup opened: a fresh pick (the IDE's picker), the cursor
+    /// on the FIRST enabled option; the core opens the list at its top.
     func selectOpened(_ owner: String) {
-        let items = selectItems(owner)
-        let chosen = items.first { node($0)?.selected ?? false }
-        let target = chosen ?? items.first { !isDisabled($0) }
+        let target = selectItems(owner).first { !isDisabled($0) }
         selectCursor[owner] = nil
-        moveSelectCursor(owner, to: target, reveal: true)
+        moveSelectCursor(owner, to: target)
     }
 
     /// A Select popup closed: its cursor goes.

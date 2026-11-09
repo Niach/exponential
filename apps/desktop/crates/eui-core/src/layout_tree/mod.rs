@@ -158,6 +158,12 @@ pub struct LayerSpec {
     /// The layer's body that scrolls when the content is taller than the
     /// viewport (Dialog/Drawer `body`, a popup list).
     pub scroll_body: Option<u32>,
+    /// #EXP-1629: the gap to the anchor when not the overlay default (a
+    /// `row` Select's popup hangs right off its value: `selectRowPopupOffset`).
+    pub offset: Option<f32>,
+    /// #EXP-1629: how close to the view's edges it may go when not the
+    /// overlay default (`selectRowPopupMargin`).
+    pub margin: Option<f32>,
     /// The side is LOGICAL (a submenu opens at the inline end): right in
     /// LTR, left in RTL.
     pub mirror: bool,
@@ -328,6 +334,9 @@ pub struct LocalState {
     /// valid while the data model's version holds: a scroll step over a
     /// 100,000-item list never re-keys it.
     pub key_cache: HashMap<String, (u64, std::sync::Arc<Vec<String>>)>,
+    /// #EXP-1629: the open Selects whose list has options below its
+    /// visible end (the last pass's; its bottom `fade` shows).
+    pub select_fade: std::collections::HashSet<String>,
 }
 
 pub struct BuildContext<'a> {
@@ -1228,7 +1237,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
-        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, mirror: false });
+        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, mirror: false });
     }
 }
 
