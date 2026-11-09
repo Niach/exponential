@@ -8,7 +8,12 @@ const mocks = vi.hoisted(() => {
     approve: vi.fn(),
     deny: vi.fn(),
   })
-  return { device, fetchSessionOnce: vi.fn(), toastError: vi.fn() }
+  return {
+    device,
+    fetchSessionOnce: vi.fn(),
+    toastError: vi.fn(),
+    pendingLogin: vi.fn(),
+  }
 })
 
 vi.mock(`sonner`, async (importOriginal) => ({
@@ -19,6 +24,12 @@ vi.mock(`sonner`, async (importOriginal) => ({
 vi.mock(`@/lib/auth/client`, () => ({
   authClient: { device: mocks.device },
   fetchSessionOnce: mocks.fetchSessionOnce,
+}))
+
+// GHSA-q84f-53jg-9ppm: the asking client comes from the server's
+// `device_codes` lookup, never the URL.
+vi.mock(`@/lib/trpc-client`, () => ({
+  trpc: { devices: { pendingLogin: { query: mocks.pendingLogin } } },
 }))
 
 import { DeviceVerificationView, normalizeUserCode } from "@/routes/auth/device"
@@ -32,6 +43,8 @@ beforeEach(() => {
   mocks.device.mockReset()
   mocks.device.approve.mockReset()
   mocks.device.deny.mockReset()
+  mocks.pendingLogin.mockReset()
+  mocks.pendingLogin.mockResolvedValue({ clientName: `Exponential desktop or CLI` })
 })
 
 describe(`normalizeUserCode`, () => {
@@ -166,5 +179,45 @@ describe(`DeviceVerificationView approve failure`, () => {
     expect(mocks.toastError.mock.calls[0][0]).toBe(`Couldn't approve the device`)
     expect(screen.queryByText(`Device connected.`)).toBeNull()
     expect(screen.getByRole(`button`, { name: `Approve` })).toBeTruthy()
+  })
+})
+
+describe(`DeviceVerificationView names the asking client (GHSA-q84f-53jg-9ppm)`, () => {
+  it(`shows the server-checked client, what it gets and the code before Approve`, async () => {
+    mocks.device.mockReturnValue(resolved({ user_code: `ABCD1234`, status: `pending` }))
+    mocks.pendingLogin.mockResolvedValue({ clientName: `Server Named Client` })
+
+    render(<DeviceVerificationView initialCode="ABCD1234" />)
+    fireEvent.click(screen.getByRole(`button`, { name: `Continue` }))
+
+    await screen.findByRole(`button`, { name: `Approve` })
+    expect(mocks.pendingLogin).toHaveBeenCalledWith({ userCode: `ABCD-1234` })
+    expect(screen.getByText(`Server Named Client`)).toBeTruthy()
+    expect(screen.getByText(/full session as you/)).toBeTruthy()
+    expect(screen.getByText(`ABCD-1234`)).toBeTruthy()
+  })
+
+  it(`refuses a code whose client is outside the allow-list`, async () => {
+    mocks.device.mockReturnValue(resolved({ user_code: `ABCD1234`, status: `pending` }))
+    mocks.pendingLogin.mockResolvedValue({ clientName: null })
+
+    render(<DeviceVerificationView initialCode="ABCD1234" />)
+    fireEvent.click(screen.getByRole(`button`, { name: `Continue` }))
+
+    expect(
+      await screen.findByText(`That code isn't valid. Check for typos, or run the login command again.`)
+    ).toBeTruthy()
+    expect(screen.queryByRole(`button`, { name: `Approve` })).toBeNull()
+  })
+
+  it(`a code another account claimed never reaches Approve`, async () => {
+    mocks.device.mockReturnValue(resolved({ user_code: `ABCD1234`, status: `pending` }))
+    mocks.pendingLogin.mockRejectedValue({ data: { code: `NOT_FOUND` } })
+
+    render(<DeviceVerificationView initialCode="ABCD1234" />)
+    fireEvent.click(screen.getByRole(`button`, { name: `Continue` }))
+
+    expect(await screen.findByText(`This code was requested from a different account.`)).toBeTruthy()
+    expect(screen.queryByRole(`button`, { name: `Approve` })).toBeNull()
   })
 })
