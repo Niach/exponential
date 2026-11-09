@@ -10,7 +10,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lock.sh"
 
 [ $# -ge 4 ] && [ "$3" = "--" ] || { echo "usage: $0 <ios|android|heavy> <owner> -- <command...>" >&2; exit 2; }
-dir=$(lane_lock_dir "$1") || exit 2
+lane=$1
+dir=$(lane_lock_dir "$lane") || exit 2
 owner=$2
 shift 3
 
@@ -22,5 +23,22 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 # This shell lives for the whole run: a waiter takes over only once it is gone.
 LANE_LOCK_PID=$$
-take_lock "$dir" "$owner" || exit $?
+lock_owner_ok "$owner" || exit 2
+slots=$(lane_slots "$lane")
+if [ "$slots" -le 1 ]; then
+  take_lock "$dir" "$owner" || exit $?
+else
+  # Any free slot of the lane (lane_slots); `dir` names the one we hold, so
+  # the EXIT trap releases exactly that one.
+  while :; do
+    k=1
+    while [ "$k" -le "$slots" ]; do
+      dir=$(lane_slot_dir "$lane" "$k")
+      try_take_lock "$dir" "$owner" && break 2
+      k=$((k + 1))
+    done
+    echo "lane.sh: all $slots $lane slots busy, waiting" >&2
+    sleep "$LANE_LOCK_POLL_SECONDS"
+  done
+fi
 "$@"

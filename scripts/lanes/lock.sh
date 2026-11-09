@@ -10,7 +10,8 @@
 #   scripts/lanes/lane.sh <lane> <owner> -- <command...>   # the whole cycle
 #
 # Lane locks (lane_lock_dir): ios = the simulator, android = the emulator,
-# heavy = one heavy build or perf run at a time.
+# heavy = one heavy build or perf run at a time, or N at once on a machine
+# whose exp-lane-slots file says `heavy=N` (lane.sh takes any free slot).
 #
 # The pid is LANE_LOCK_PID (lane.sh sets its own, alive for the whole run).
 # A waiter on the SAME host takes over a lock whose pid is gone (a session
@@ -43,6 +44,15 @@ lock_owner() {
 take_lock() {
   [ -n "${1:-}" ] && [ -n "${2:-}" ] || { echo "take_lock: usage: take_lock <dir> <owner>" >&2; return 2; }
   lock_owner_ok "$2" || return 2
+  while ! try_take_lock "$1" "$2"; do
+    echo "take_lock: $1 busy ($(lock_owner "$1")), waiting" >&2
+    sleep "$LANE_LOCK_POLL_SECONDS"
+  done
+}
+
+# ONE attempt at <dir> (no wait): 0 = it is ours now. Reclaims a dead
+# holder's lock and a stale ownerless dir exactly as take_lock always did.
+try_take_lock() {
   while ! { mkdir "$1" 2>/dev/null && (set -C; echo "$2 $(date +%s) ${LANE_LOCK_PID:--} $(lane_lock_host)" > "$1/owner") 2>/dev/null; }; do
     if lock_holder_dead "$1"; then
       lock_take_over "$1" && continue
@@ -55,9 +65,22 @@ take_lock() {
         rmdir "$1" 2>/dev/null && continue
       fi
     fi
-    echo "take_lock: $1 busy ($(lock_owner "$1")), waiting" >&2
-    sleep "$LANE_LOCK_POLL_SECONDS"
+    return 1
   done
+}
+
+# How many holders <lane> admits on THIS machine: the host-local file
+# `${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots` (lines `heavy=2`), else 1.
+# Slot 1 is the lane's classic dir (lane_lock_dir); slot k appends `-k`'s
+# number in place of the trailing 1 (exp-perf-heavy-2, …).
+lane_slots() {
+  n=$(sed -n "s/^$1=\([0-9][0-9]*\)[[:space:]]*$/\1/p" "${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots" 2>/dev/null | tail -n 1)
+  case "$n" in '' | 0) echo 1 ;; *) echo "$n" ;; esac
+}
+
+lane_slot_dir() {
+  base=$(lane_lock_dir "$1") || return 2
+  echo "${base%-1}-$2"
 }
 
 lane_lock_host() {
