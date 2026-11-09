@@ -33935,6 +33935,404 @@
       }
     },
     {
+      "name": "KeyRecorder/example",
+      "input": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ]
+        }
+      },
+      "expected": {
+        "id": "key-recorder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "key-recorder.field",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "key-recorder.field.value",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "key-recorder.field.value.key.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.0.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ctrl",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "key-recorder.field.value.key.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.1.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Space",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "value",
+                  "props": {
+                    "recording": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "recipe": {
+              "macro": "KeyRecorder",
+              "part": "field",
+              "props": {
+                "recording": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Push to talk",
+              "pressed": false
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "KeyRecorder",
+          "part": "root",
+          "props": {
+            "recording": false
+          }
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/recording=true",
+      "input": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "recording": true
+        }
+      },
+      "expected": {
+        "id": "key-recorder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "key-recorder.field",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "key-recorder.field.placeholder",
+                "component": "Text",
+                "props": {
+                  "text": "$string.keyRecorderPlaceholder",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "placeholder",
+                  "props": {
+                    "recording": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "recipe": {
+              "macro": "KeyRecorder",
+              "part": "field",
+              "props": {
+                "recording": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Push to talk",
+              "pressed": true
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "KeyRecorder",
+          "part": "root",
+          "props": {
+            "recording": true
+          }
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/recording=false",
+      "input": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "recording": false
+        }
+      },
+      "expected": {
+        "id": "key-recorder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "key-recorder.field",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "key-recorder.field.value",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "key-recorder.field.value.key.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.0.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ctrl",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "key-recorder.field.value.key.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.1.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Space",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "value",
+                  "props": {
+                    "recording": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "recipe": {
+              "macro": "KeyRecorder",
+              "part": "field",
+              "props": {
+                "recording": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Push to talk",
+              "pressed": false
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "KeyRecorder",
+          "part": "root",
+          "props": {
+            "recording": false
+          }
+        }
+      }
+    },
+    {
       "name": "Row/example",
       "input": {
         "id": "row",
@@ -66438,6 +66836,384 @@
         },
         "accessibility": {
           "role": "group"
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/bound:recording",
+      "input": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "recording": {
+            "@path": "/recording"
+          }
+        }
+      },
+      "expected": {
+        "id": "key-recorder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "key-recorder.field",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "key-recorder.field.value",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "key-recorder.field.value.key.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.0.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ctrl",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "key-recorder.field.value.key.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.1.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Space",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "visible": {
+                  "@call": "not",
+                  "args": {
+                    "value": {
+                      "@path": "/recording"
+                    }
+                  }
+                },
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "value",
+                  "props": {
+                    "recording": {
+                      "@path": "/recording"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "key-recorder.field.placeholder",
+                "component": "Text",
+                "props": {
+                  "text": "$string.keyRecorderPlaceholder",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "visible": {
+                  "@path": "/recording"
+                },
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "placeholder",
+                  "props": {
+                    "recording": {
+                      "@path": "/recording"
+                    }
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "recipe": {
+              "macro": "KeyRecorder",
+              "part": "field",
+              "props": {
+                "recording": {
+                  "@path": "/recording"
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "@call": "set",
+                  "args": {
+                    "path": "/recording",
+                    "value": true
+                  }
+                }
+              },
+              "blur": {
+                "functionCall": {
+                  "@call": "set",
+                  "args": {
+                    "path": "/recording",
+                    "value": false
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Push to talk",
+              "pressed": {
+                "@path": "/recording"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "KeyRecorder",
+          "part": "root",
+          "props": {
+            "recording": {
+              "@path": "/recording"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "KeyRecorder/bound:pending",
+      "input": {
+        "id": "key-recorder",
+        "component": "KeyRecorder",
+        "props": {
+          "label": "Push to talk",
+          "value": [
+            "Ctrl",
+            "Space"
+          ],
+          "pending": {
+            "@path": "/pending"
+          }
+        }
+      },
+      "expected": {
+        "id": "key-recorder",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "key-recorder.field",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "key-recorder.field.value",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "key-recorder.field.value.key.0",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.0.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ctrl",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  },
+                  {
+                    "id": "key-recorder.field.value.key.1",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "key-recorder.field.value.key.1.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Space",
+                          "variant": "code",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "Kbd",
+                          "part": "label",
+                          "props": {}
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "height": "$control.badge",
+                      "paddingHorizontal": "$spacing.xs",
+                      "borderRadius": "$radius.sm",
+                      "alignSelf": "flex-start"
+                    },
+                    "recipe": {
+                      "macro": "Kbd",
+                      "part": "root",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs"
+                },
+                "recipe": {
+                  "macro": "KeyRecorder",
+                  "part": "value",
+                  "props": {
+                    "recording": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline"
+            },
+            "recipe": {
+              "macro": "KeyRecorder",
+              "part": "field",
+              "props": {
+                "recording": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Push to talk",
+              "pressed": false
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "alignItems": "flex-start",
+          "gap": "$spacing.xs"
+        },
+        "recipe": {
+          "macro": "KeyRecorder",
+          "part": "root",
+          "props": {
+            "recording": false
+          }
         }
       }
     },

@@ -3630,6 +3630,24 @@
       ]
     },
     {
+      "name": "KeyRecorder",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "field",
+        "none",
+        "value",
+        "key",
+        "placeholder",
+        "held",
+        "ellipsis",
+        "error"
+      ],
+      "props": [
+        "recording"
+      ]
+    },
+    {
       "name": "DatePicker",
       "kind": "native",
       "parts": [

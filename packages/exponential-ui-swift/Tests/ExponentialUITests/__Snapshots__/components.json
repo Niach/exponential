@@ -14661,6 +14661,209 @@
       }
     ]
   },
+  "KeyRecorder\/example" : {
+    "height" : 29,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          29
+        ],
+        "id" : "key-recorder"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          112,
+          29
+        ],
+        "id" : "key-recorder.field",
+        "radius" : 5.25
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          8,
+          4.5,
+          96,
+          20
+        ],
+        "id" : "key-recorder.field.value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          8,
+          4.5,
+          42,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.0",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          4,
+          32,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.0.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          54,
+          4.5,
+          50,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.1",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          59,
+          4,
+          40,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.1.label"
+      }
+    ]
+  },
+  "KeyRecorder\/recording=false" : {
+    "height" : 29,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          29
+        ],
+        "id" : "key-recorder"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          112,
+          29
+        ],
+        "id" : "key-recorder.field",
+        "radius" : 5.25
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          8,
+          4.5,
+          96,
+          20
+        ],
+        "id" : "key-recorder.field.value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          8,
+          4.5,
+          42,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.0",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          4,
+          32,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.0.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          54,
+          4.5,
+          50,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.1",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          59,
+          4,
+          40,
+          20
+        ],
+        "id" : "key-recorder.field.value.key.1.label"
+      }
+    ]
+  },
+  "KeyRecorder\/recording=true" : {
+    "height" : 29,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          29
+        ],
+        "id" : "key-recorder"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          248,
+          29
+        ],
+        "id" : "key-recorder.field",
+        "radius" : 5.25
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          4.5,
+          232,
+          20
+        ],
+        "id" : "key-recorder.field.placeholder"
+      }
+    ]
+  },
   "Label\/example" : {
     "height" : 20,
     "nodes" : [
