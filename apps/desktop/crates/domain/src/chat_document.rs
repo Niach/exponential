@@ -191,12 +191,79 @@ pub fn commit_emoji(draft: &str) -> Option<String> {
     Some(format!("{}{}", &draft[..token.start], emoji.unicode))
 }
 
+/// What a key the composer hands the open menu does (genUI's Composer
+/// `menuKeys` → `key` {key}), the IDE's composer menus (`move_slash`,
+/// `move_completion`, `on_slash_*`): the arrows move the highlight over the
+/// menu's `len` rows, wrapping; Enter and Tab pick the highlighted row (the
+/// same path as its press); Escape shuts the menu for the draft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuKey {
+    Highlight(usize),
+    Pick(usize),
+    Dismiss,
+    Ignore,
+}
+
+pub fn menu_key(key: &str, selected: usize, len: usize) -> MenuKey {
+    if len == 0 {
+        return MenuKey::Ignore;
+    }
+    let selected = selected.min(len - 1);
+    match key {
+        "ArrowUp" => MenuKey::Highlight((selected + len - 1) % len),
+        "ArrowDown" => MenuKey::Highlight((selected + 1) % len),
+        "Enter" | "Tab" => MenuKey::Pick(selected),
+        "Escape" => MenuKey::Dismiss,
+        _ => MenuKey::Ignore,
+    }
+}
+
+/// Marks the highlighted row of a `/chatMenu` (`selected`, the Row's active
+/// state) and returns its index. A rebuilt menu keeps the IDE's rules: the
+/// `/` menu its row, clamped to the new rows (`keep`, `refresh_slash`); the
+/// typeahead starts over at its first (`refresh_completion`).
+pub fn highlight(menu: &mut serde_json::Value, previous: usize, keep: bool) -> usize {
+    let Some(rows) = menu.get_mut("rows").and_then(serde_json::Value::as_array_mut) else { return 0 };
+    let selected = if keep { previous.min(rows.len().saturating_sub(1)) } else { 0 };
+    for (index, row) in rows.iter_mut().enumerate() {
+        row["selected"] = serde_json::Value::Bool(index == selected);
+    }
+    selected
+}
+
 /// A prompt without a curated icon (the IDE's generic prompt glyph).
 const PROMPT_ICON: &str = "action-default";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_arrows_wrap_the_highlight_and_enter_tab_pick_escape_dismisses() {
+        assert_eq!(menu_key("ArrowDown", 0, 3), MenuKey::Highlight(1));
+        assert_eq!(menu_key("ArrowDown", 2, 3), MenuKey::Highlight(0), "down wraps to the first");
+        assert_eq!(menu_key("ArrowUp", 0, 3), MenuKey::Highlight(2), "up wraps to the last");
+        assert_eq!(menu_key("Enter", 1, 3), MenuKey::Pick(1));
+        assert_eq!(menu_key("Tab", 1, 3), MenuKey::Pick(1));
+        assert_eq!(menu_key("Enter", 7, 3), MenuKey::Pick(2), "a stale highlight clamps");
+        assert_eq!(menu_key("Escape", 1, 3), MenuKey::Dismiss);
+        assert_eq!(menu_key("Enter", 0, 0), MenuKey::Ignore, "no rows, no menu");
+        assert_eq!(menu_key("Home", 0, 3), MenuKey::Ignore);
+    }
+
+    #[test]
+    fn the_slash_menu_keeps_its_highlight_the_typeahead_starts_over() {
+        let mut menu = slash_menu("/", Some("claude"), &[]);
+        assert_eq!(highlight(&mut menu, 2, true), 2);
+        assert_eq!((menu["rows"][2]["selected"].as_bool(), menu["rows"][0]["selected"].as_bool()), (Some(true), Some(false)));
+        let mut narrowed = slash_menu("/co", Some("claude"), &[]);
+        let len = narrowed["rows"].as_array().unwrap().len();
+        assert_eq!(highlight(&mut narrowed, 99, true), len - 1, "clamped to the new rows");
+        let mut emoji = mention_menu("nice :ta", &[], &[]).unwrap();
+        assert_eq!(highlight(&mut emoji, 3, false), 0);
+        assert_eq!(emoji["rows"][0]["selected"], true);
+        assert_eq!(highlight(&mut serde_json::json!({"open": false, "rows": []}), 3, true), 0);
+    }
 
     #[test]
     fn colon_lists_emoji_and_a_closed_shortcode_commits() {
