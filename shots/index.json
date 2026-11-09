@@ -3518,6 +3518,13 @@
       }
     },
     "exponential-ui-key-recorder": {
+      "android": {
+        "file": "shots/exponential-ui-key-recorder/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 18992,
+        "sha256": "d3e5ae74665b5be296c4c4f965f64219df391da73ebe7eb458f16ef7a7d12b4f"
+      },
       "desktop": {
         "file": "shots/exponential-ui-key-recorder/desktop.webp",
         "width": 1800,
