@@ -1893,6 +1893,17 @@ final class StyleguideScreenshots: XCTestCase {
         )
         // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
+        // #EXP-1759: Back pops the item while its feed still sits pinned to
+        // the bottom (nothing scrolled yet); the row opens it again.
+        let itemTitle = anyElement(app, identified: "session-item-title")
+        goBack(app)
+        XCTAssertTrue(
+            itemTitle.waitForNonExistence(timeout: Wait.nav),
+            "Back did not pop the session item while its feed was pinned to the bottom (#EXP-1759)"
+        )
+        expect(sessionRow, within: Wait.sync, "Back from the session item left no Sessions tab row")
+        sessionRow.tap()
+        expect(itemTitle, within: Wait.sync, "The Sessions tab row did not open the session again")
         // ── sg_script-card · sg_work-card (EXP-1654): the SAME relay feed
         // web and desktop photograph, dragged up from its tail to the
         // code-mode call's Script card, then the `cold-start-review`
@@ -1925,17 +1936,10 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // Back twice (#EXP-1732: the pushed session item → the chat → the
         // Chats list) on the back button (`goBack`: by name, never the `…`).
-        // #EXP-1757: while the item's feed sits pinned to its bottom its
-        // Back does nothing (#EXP-1759); one scroll unpins it, as a reader's
-        // would. Then back until the Chats list's tab bar is up.
-        if anyElement(app, identified: "session-item-title").exists {
-            app.swipeDown(velocity: .slow)
-            settle(1)
-        }
-        for _ in 0..<3 where !(chatsTab.exists && chatsTab.isHittable) {
-            goBack(app)
-            settle(1)
-        }
+        goBack(app)
+        settle(1)
+        goBack(app)
+        settle(1)
         expect(chatsTab, within: Wait.nav, "Did not get back to the Chats list")
     }
 

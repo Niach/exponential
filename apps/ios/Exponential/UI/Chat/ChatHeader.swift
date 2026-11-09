@@ -52,7 +52,10 @@ struct ChatHeaderGhostGlyph: View {
         AppIcon(icon, size: CGFloat(Measures.glyph), weight: .medium)
             .foregroundStyle(.white.opacity(opacity))
             .frame(width: CGFloat(Measures.button), height: CGFloat(Measures.button))
-            .contentShape(Circle())
+            // #EXP-1759: the WHOLE square takes the tap. A circle dropped its
+            // corners, where a tap (and XCUITest's hit point, whenever the
+            // feed under the header shadows the centre) did nothing.
+            .contentShape(Rectangle())
     }
 }
 
