@@ -8,7 +8,9 @@ import kotlin.math.max
 // (the gpui painter's `paint::markdown`, the SwiftUI painter's `Markdown` and
 // the React renderer's block model): paragraphs, ATX headings, bullet /
 // ordered / task lists (nested by marker indent), quotes, fenced code,
-// rules, pipe tables, block images (a paragraph that is one `![alt](src)`);
+// rules, pipe tables, block images (a paragraph that is one `![alt](src)`,
+// and #FEED-208 an image directly in a top-level paragraph's text, which
+// splits the paragraph around it);
 // inline bold, italic, strike, code, links (CommonMark destinations:
 // balanced parentheses, no whitespace). No dependency: the parser is ours so the
 // measurer and the painter share ONE block model, and the layout rule below
@@ -526,7 +528,13 @@ object Markdown {
         return s.substring(from, end) to (end + delim.length - at)
     }
 
-    private fun parseInline(s: String, f: Flags, link: String?, out: MutableList<MarkdownInline>, linkDepth: Int) {
+    /**
+     * [onImage] (#FEED-208): set only on a top-level paragraph's own run (never
+     * passed into emphasis or a link label), it takes each image directly in
+     * the text as (alt, src) instead of its alt text, so the paragraph splits
+     * around it ([splitImages]).
+     */
+    private fun parseInline(s: String, f: Flags, link: String?, out: MutableList<MarkdownInline>, linkDepth: Int, onImage: ((String, String) -> Unit)? = null) {
         val scan = Scan(s)
         var plainStart = 0
         var i = 0
@@ -549,7 +557,8 @@ object Markdown {
                 val m = linkAt(scan, i + 1, image = true)
                 if (m != null) {
                     push(out, s.substring(plainStart, i), f, link)
-                    push(out, m.label, f, link)
+                    // #FEED-208: directly in a top-level paragraph's text it splits the paragraph; anywhere else it paints its alt text.
+                    if (onImage != null) onImage(decodeEntities(m.label), m.href) else push(out, m.label, f, link)
                     handled = m.consumed + 1
                 }
             } else if (c == '[' && linkDepth < MAX_LINK_DEPTH) {
@@ -600,6 +609,39 @@ object Markdown {
         val out = ArrayList<MarkdownInline>()
         parseInline(s, Flags(), null, out, 0)
         return out
+    }
+
+    /**
+     * #FEED-208 (`fixtures/markdown-render.json` `image_split_*`): a top-level
+     * paragraph with images directly in its text = the text before each image
+     * (a paragraph), the image (a block image), the text after it. ASCII
+     * spaces, tabs and line breaks at a split edge trim; an empty side drops.
+     */
+    private fun splitImages(s: String): List<MarkdownBlock> {
+        val blocks = ArrayList<MarkdownBlock>()
+        val run = ArrayList<MarkdownInline>()
+        fun plain(i: MarkdownInline) = !i.bold && !i.italic && !i.code && !i.strike && i.link == null && i.chip == null
+        val edge = charArrayOf(' ', '\t', '\n')
+        fun paragraph() {
+            while (run.isNotEmpty() && plain(run.first())) {
+                val t = run.first().text.trimStart(*edge)
+                if (t.isNotEmpty()) { run[0] = run.first().copy(text = t); break }
+                run.removeAt(0)
+            }
+            while (run.isNotEmpty() && plain(run.last())) {
+                val t = run.last().text.trimEnd(*edge)
+                if (t.isNotEmpty()) { run[run.size - 1] = run.last().copy(text = t); break }
+                run.removeAt(run.size - 1)
+            }
+            if (run.isNotEmpty()) blocks.add(MarkdownBlock(MarkdownBlockKind.Paragraph, run.toList()))
+            run.clear()
+        }
+        parseInline(s, Flags(), null, run, 0, onImage = { alt, src ->
+            paragraph()
+            blocks.add(MarkdownBlock(MarkdownBlockKind.Image(src, alt), listOf(MarkdownInline(text = alt))))
+        })
+        paragraph()
+        return blocks
     }
 
     private fun isAsciiPunct(c: Char): Boolean = c in '!'..'/' || c in ':'..'@' || c in '['..'`' || c in '{'..'~'
@@ -860,7 +902,7 @@ object Markdown {
                 if (image != null) {
                     blocks.add(MarkdownBlock(MarkdownBlockKind.Image(image.second, image.first), listOf(MarkdownInline(text = image.first))))
                 } else {
-                    blocks.add(MarkdownBlock(MarkdownBlockKind.Paragraph, parseInline(joined)))
+                    blocks.addAll(splitImages(joined))
                 }
                 para.clear()
             }

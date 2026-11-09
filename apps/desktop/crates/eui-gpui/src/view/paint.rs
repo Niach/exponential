@@ -227,7 +227,7 @@ impl SurfaceView {
         // Round 2 §2: a keyframe animation composes OUTSIDE the node's own
         // transform; opacity multiplies; a leaf scales about its centre; a
         // rotation turns an Icon's glyph (gpui rotates no other box).
-        let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window) };
+        let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window, cx) };
         if let Some(a) = &anim {
             style.opacity = Some(style.opacity.unwrap_or(1.0) * a.opacity as f32);
             style.transform.tx += a.translate_x as f32;
@@ -437,7 +437,7 @@ impl SurfaceView {
     /// The keyframe frame of an animated node now (`None` = not animated);
     /// asks for the next frame while it moves (reduced motion: the rest
     /// frame, never moving).
-    fn animation_frame(&self, index: u32, style: &PaintStyle, window: &mut Window) -> Option<eui_core::animation::AnimationFrame> {
+    fn animation_frame(&self, index: u32, style: &PaintStyle, window: &mut Window, cx: &mut Context<Self>) -> Option<eui_core::animation::AnimationFrame> {
         let a = style.animation.as_ref()?;
         let reduced = a.reduced || self.surface.settings().reduced_motion;
         let now = self.now();
@@ -447,7 +447,15 @@ impl SurfaceView {
         let frame = eui_core::animation::frame_with_timing(&a.name, &a.timing, elapsed, reduced)?;
         let total = a.timing.duration_ms * a.timing.iterations.count();
         if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
-            window.request_animation_frame();
+            // #LOGS-3: a LOOP (a spinner's `spin`, a `pulse`) lives as long
+            // as what it marks: on the shared stepped grid, not every frame.
+            // A finite run (an entrance) keeps every frame.
+            if total.is_infinite() {
+                let _span = tracing::trace_span!("anim.step", id = "eui.loop").entered();
+                crate::controls::repaint_on_next_step(&self.loop_armed_until, crate::controls::SMOOTH_STEP, window, cx);
+            } else {
+                window.request_animation_frame();
+            }
         }
         Some(frame)
     }
@@ -1019,6 +1027,7 @@ impl SurfaceView {
         let id = self.cache.ids.get(index as usize)?.clone();
         let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        let _span = tracing::trace_span!("anim.step", id = "eui.shimmer").entered();
         crate::controls::repaint_on_next_step(&self.shimmer_armed_until, crate::controls::SMOOTH_STEP, window, cx);
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == eui_core::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
     }

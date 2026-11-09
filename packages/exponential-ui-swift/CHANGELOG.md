@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - KeyRecorder (#EXP-1629): the macro paints through the Box / Text / Kbd paths; while its `field` records, a capture view takes the first responder and swallows every key (Tab, Escape, shortcuts; repeats send nothing): `record {type: down|up|modifiers|mouse, key?, button?, ctrl, alt, shift, meta}` with the canonical key name (`KeyRecorderKeys`: iOS `UIKey.keyCode` HID usages, macOS key codes), a modifier alone = `modifiers`, mouse buttons 3-5 (macOS `otherMouseDown`, iPadOS `UIEvent.buttonMask`); losing the focus (another responder, the window resigning key, a click or press elsewhere) = `blur`. `SurfaceModel.keyRecorderPress` / `keyRecorderRecord` / `keyRecorderBlur`, `KeyRecorderInput`. Replays `interactions-round1.json` `keyRecorder`.
+- Markdown: an image directly in a top-level paragraph's text splits the paragraph into the text before it, a block image and the text after it (edges trimmed, an empty side dropped); in a heading, list item, cell, quote or inside a span it stays its alt text (#FEED-208, `fixtures/markdown-render.json` `image_split_*`).
 
 ## 0.20.0 (2026-11-08)
 

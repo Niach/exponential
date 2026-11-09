@@ -1556,7 +1556,7 @@ pub(crate) fn card_answering(cx: &App) -> AnyElement {
         .mt_2()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(gpui_component::spinner::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
+        .child(crate::feedback::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
         .child(SharedString::from(domain::plan_card::copy().answering.clone()))
         .into_any_element()
 }
@@ -2236,7 +2236,7 @@ fn suggestion_item_row(
             // Started, the child's row not synced yet.
             None => line()
                 .text_color(muted)
-                .child(gpui_component::spinner::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
+                .child(crate::feedback::Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
                 .child(div().min_w_0().truncate().child(SharedString::from(item.title.clone())))
                 .into_any_element(),
         },
