@@ -1,7 +1,6 @@
 package at.exponential.ui.compose
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -36,10 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -72,6 +71,7 @@ import at.exponential.ui.model.selectPick
 import at.exponential.ui.model.selectValue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -91,11 +91,8 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true)
 }
 
-/** #EXP-1629: where the cursor starts: the first chosen option, else the first enabled one (-1 = none). */
-internal fun selectInitialCursor(options: List<SelectOption>, chosen: List<String>): Int {
-    val first = options.indexOfFirst { chosen.contains(it.value.displayText) }
-    return if (first >= 0) first else options.indexOfFirst { !it.disabled }
-}
+/** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker; -1 = none). */
+internal fun selectInitialCursor(options: List<SelectOption>): Int = options.indexOfFirst { !it.disabled }
 
 /** #EXP-1629: the next enabled option from [from] by [step] (clamped at the ends; [from] when none). */
 internal fun selectStep(options: List<SelectOption>, from: Int, step: Int): Int {
@@ -107,18 +104,29 @@ internal fun selectStep(options: List<SelectOption>, from: Int, step: Int): Int 
     return from
 }
 
-/** #EXP-1629: the popup's alignment (`align`, else `end` for a row, `start` for a field). */
-internal fun selectPopupAlign(owner: Props, row: Boolean): String = owner.str("align").ifEmpty { if (row) "end" else "start" }
+/** #EXP-1629: the popup's alignment (`align`, else `start`: a row's under its value). */
+internal fun selectPopupAlign(owner: Props): String = owner.str("align").ifEmpty { "start" }
+
+/** #EXP-1629: the popup's gap to its anchor and margin to the window's edges (dp): a row's hangs off its value. */
+internal fun selectPopupSpacing(row: Boolean): Pair<Float, Float> =
+    if (row) CatalogConstants.SELECT_ROW_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN else POPUP_OFFSET to POPUP_MARGIN
+
+/** #EXP-1629: does the list have options below its visible end (the IDE picker's `has_more_below`)? */
+internal fun selectMoreBelow(offset: Int, max: Int): Boolean = max > 0 && offset < max - 1
 
 /** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
 internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
     owner.num("popupWidth")?.toFloat()?.takeIf { it > 0f } ?: if (row) CatalogConstants.SELECT_ROW_POPUP_WIDTH else null
 
-/** Under the anchor (above when it does not fit), aligned along it by `start | center | end` (logical), inside the window. */
-private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int) : PopupPositionProvider {
+/**
+ * Under the anchor (above when it does not fit), aligned along it by
+ * `start | center | end` (logical), inside the window. [bleed] = the
+ * transparent room around the box its shadow paints into (px).
+ */
+private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int, val bleed: Int) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
-        val w = popupContentSize.width
-        val h = popupContentSize.height
+        val w = popupContentSize.width - 2 * bleed
+        val h = popupContentSize.height - 2 * bleed
         val leading = (align == "start") != rtl
         val x = when (align) {
             "center" -> anchorBounds.left + (anchorBounds.width - w) / 2
@@ -127,17 +135,21 @@ private class SelectPopupPosition(val align: String, val rtl: Boolean, val offse
         val below = anchorBounds.bottom + offset
         val above = anchorBounds.top - offset - h
         val y = if (below + h <= windowSize.height - margin || above < margin) below else above
-        return IntOffset(x.coerceIn(margin, max(margin, windowSize.width - w - margin)), y)
+        return IntOffset(x.coerceIn(margin, max(margin, windowSize.width - w - margin)) - bleed, y - bleed)
     }
 }
 
 /**
  * #EXP-1629: a Select's popup under native overlays, our own (the IDE
  * picker, never the M3 menu): expanded while `model.popup` names this
- * trigger, anchored under it by `align`, `popupWidth` wide (a row: layout
- * `selectRowPopupWidth`; a field: at least the trigger), painted from the
- * `content` / `search` / `item` / `check` / `empty` recipes. It opens
- * scrolled to the first chosen option with the cursor on it; the cursor
+ * trigger, anchored under the composable it sits in (a field: the trigger;
+ * a row: its VALUE part, `selectRowPopupOffset` under it, the window's
+ * `selectRowPopupMargin` around it) by `align` (start), `popupWidth` wide
+ * (a row: layout `selectRowPopupWidth`; a field: at least the trigger),
+ * painted from the `content` (its shadows, `backgroundClip`) / `search` /
+ * `item` / `check` / `empty` / `fade` recipes. It opens at the top with
+ * the cursor on the first enabled option and focus in its search field
+ * (else the list); the bottom `fade` shows while options sit below; the cursor
  * (the arrows, or the pointer moving over an option) is the item's ONE
  * `hover`, a chosen option is `selected` and shows the check. A pick →
  * `selectPick` (a single pick closes it).
@@ -156,7 +168,7 @@ internal fun SelectPopup(cx: LeafContext) {
     var query by remember(cx.node.id) { mutableStateOf("") }
     val q = query.trim().lowercase()
     val options = remember(owner, q) { selectOptions(owner, q) }
-    var cursor by remember(q) { mutableIntStateOf(selectInitialCursor(options, chosen)) }
+    var cursor by remember(q) { mutableIntStateOf(selectInitialCursor(options)) }
 
     val content = cx.part("Select", "content")
     val cs = content.style
@@ -171,6 +183,7 @@ internal fun SelectPopup(cx: LeafContext) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
+    val searchFocus = remember { FocusRequester() }
 
     val close = {
         query = ""
@@ -196,25 +209,29 @@ internal fun SelectPopup(cx: LeafContext) {
         }
     }
     LaunchedEffect(q) { reveal(cursor) }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    LaunchedEffect(Unit) { runCatching { (if (searchable) searchFocus else focus).requestFocus() } }
 
-    val position = remember(row, owner, cx.rtl, density) {
-        SelectPopupPosition(selectPopupAlign(owner, row), cx.rtl, with(density) { POPUP_OFFSET.dp.roundToPx() }, with(density) { POPUP_MARGIN.dp.roundToPx() })
+    // The shadow paints into transparent room around the box.
+    val bleed = cs.shadows.maxOfOrNull { abs(it.x) + abs(it.y) + it.blur + it.spread }?.coerceAtLeast(0f) ?: 0f
+    val position = remember(row, owner, cx.rtl, density, bleed) {
+        val (offset, margin) = selectPopupSpacing(row)
+        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() })
     }
+    val fill = cs.copy(background = cs.background ?: cx.themeColor("popover"))
+    val fadeInk = cx.part("Select", "fade").style.background ?: fill.background
     Popup(popupPositionProvider = position, onDismissRequest = close, properties = PopupProperties(focusable = true)) {
         Column(
             Modifier
+                .padding(bleed.dp)
                 .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = cx.size.width.dp))
                 .heightIn(max = maxH.dp)
-                .then(if (cs.shadows.isNotEmpty()) Modifier.shadow((cs.shadows.maxOf { it.blur } / 2f).coerceIn(0f, 16f).dp, shape) else Modifier)
-                .background(cs.background ?: cx.themeColor("popover") ?: Color.Transparent, shape)
-                .then(if (cs.borderWidth > 0f && cs.borderColor != null) Modifier.border(cs.borderWidth.dp, cs.borderColor, shape) else Modifier)
+                .paintedSurface(fill)
                 .clip(shape)
                 .padding(pad.dp)
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     val next = when (e.key) {
-                        Key.DirectionDown -> if (cursor < 0) selectInitialCursor(options, emptyList()) else selectStep(options, cursor, 1)
+                        Key.DirectionDown -> if (cursor < 0) selectInitialCursor(options) else selectStep(options, cursor, 1)
                         Key.DirectionUp -> selectStep(options, cursor, -1)
                         Key.MoveHome -> selectStep(options, -1, 1)
                         Key.MoveEnd -> selectStep(options, options.size, -1).takeIf { it < options.size } ?: cursor
@@ -235,10 +252,22 @@ internal fun SelectPopup(cx: LeafContext) {
                 .focusRequester(focus)
                 .focusable(),
         ) {
-            if (searchable) SelectSearch(cx, query, popupInk, muted) { query = it }
-            Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(scroll)) {
-                for ((i, o) in options.withIndex()) {
-                    SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupInk, onHover = { cursor = i }, onPick = { pick(o) })
+            if (searchable) SelectSearch(cx, query, popupInk, muted, searchFocus) { query = it }
+            Box(Modifier.weight(1f, fill = false).fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().verticalScroll(scroll)) {
+                    for ((i, o) in options.withIndex()) {
+                        SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupInk, onHover = { cursor = i }, onPick = { pick(o) })
+                    }
+                }
+                // The bottom fade while more options sit below (SearchList's).
+                if (fadeInk != null && selectMoreBelow(scroll.value, scroll.maxValue)) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(CatalogConstants.SEARCH_LIST_FADE.dp)
+                            .background(Brush.verticalGradient(listOf(fadeInk.copy(alpha = 0f), fadeInk.copy(alpha = 1f)))),
+                    )
                 }
             }
             if (options.isEmpty()) {
@@ -257,7 +286,7 @@ internal fun SelectPopup(cx: LeafContext) {
 
 /** The `search` part: the glyph and the filter field, its recipe height, a hairline under it. */
 @Composable
-private fun SelectSearch(cx: LeafContext, query: String, popupInk: Color, muted: Color, onQuery: (String) -> Unit) {
+private fun SelectSearch(cx: LeafContext, query: String, popupInk: Color, muted: Color, focus: FocusRequester, onQuery: (String) -> Unit) {
     val search = cx.part("Select", "search")
     val s = search.style
     val ink = search.color ?: popupInk
@@ -275,9 +304,10 @@ private fun SelectSearch(cx: LeafContext, query: String, popupInk: Color, muted:
                 }
             }
             .padding(horizontal = (search.px("paddingHorizontal") ?: s.paddingHorizontal).dp),
-        horizontalArrangement = Arrangement.spacedBy(cx.spacing("sm").dp),
+        horizontalArrangement = Arrangement.spacedBy((search.px("gap") ?: cx.spacing("sm")).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // The placeholder's ink at full opacity (the IDE's search rows).
         IconOrGlyph(builtinIcon("Select.search", "search"), Glyph.Search, 16f, cx, muted)
         BasicTextField(
             value = query,
@@ -285,7 +315,7 @@ private fun SelectSearch(cx: LeafContext, query: String, popupInk: Color, muted:
             singleLine = true,
             textStyle = ts,
             cursorBrush = SolidColor(ink),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).focusRequester(focus),
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) BasicText(cx.string("search"), style = ts.copy(color = muted), maxLines = 1)

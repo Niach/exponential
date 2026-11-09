@@ -829,18 +829,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let gap = max(leaf.control.gap, spacing("sm"))
             return MeasuredContent(line(text, ts) + gap + 16, ts.lineHeight, Self.baseline(ts))
         }
-        // #EXP-1629: the glyph is the `chevron` part; a `row` adds its
-        // `label` before the value, the recipe `gap` apart.
+        // #EXP-1629: the glyph is the `chevron` part (a `row` trigger is a
+        // container of parts, measured as its nodes).
         let glyph = SelectTrigger.glyphSize(part("Select", "chevron", leaf.props))
-        guard SelectTrigger.isRow(leaf.props) else {
-            let gap = max(leaf.control.gap, spacing("sm"))
-            return MeasuredContent(line(text, ts) + gap + glyph, ts.lineHeight, Self.baseline(ts))
-        }
-        let gap = leaf.control.gap
-        let labelStyle = SelectTrigger.labelStyle(ts, part("Select", "label", leaf.props))
-        let label = SelectTrigger.label(leaf.props)
-        let labelW = label.isEmpty ? 0 : line(label, labelStyle) + gap
-        return MeasuredContent(labelW + line(text, ts) + gap + glyph, max(ts.lineHeight, label.isEmpty ? 0 : labelStyle.lineHeight), Self.baseline(ts))
+        let gap = max(leaf.control.gap, spacing("sm"))
+        return MeasuredContent(line(text, ts) + gap + glyph, ts.lineHeight, Self.baseline(ts))
     }
 
     /// The web's `<audio controls>` bar height (Chromium).
@@ -901,41 +894,12 @@ final class MeasureMemo: @unchecked Sendable {
     }
 }
 
-/// #EXP-1629: the Select trigger's variants, shared by the measurer and
-/// `PickerTriggerLeaf`. A `row` trigger is a Group row: [label] gap
-/// [value | placeholder, end-aligned, truncating] gap [chevron].
+/// #EXP-1629: the Select trigger's glyph, shared by the measurer and
+/// `PickerTriggerLeaf` (a `row` trigger is the core's container of parts).
 enum SelectTrigger {
-    /// `triggerVariant: row` on the trigger (the core copies the owner's
-    /// props), else on its owner.
-    static func isRow(_ props: Props, owner: Props = [:]) -> Bool {
-        (props["triggerVariant"]?.string ?? owner["triggerVariant"]?.string) == "row"
-    }
-
-    /// The row's leading text: the trigger's `label`, else its owner's.
-    static func label(_ props: Props, owner: Props = [:]) -> String {
-        props.str("label").isEmpty ? owner.str("label") : props.str("label")
-    }
-
     /// A glyph part's side (`width`, else `height`; 16 when the recipe is silent).
     static func glyphSize(_ look: PartStyle) -> CGFloat {
         look.width ?? look.height ?? 16
-    }
-
-    /// The label in the trigger's text style with the `label` part's face.
-    static func labelStyle(_ ts: TextStyle, _ look: PartStyle) -> TextStyle {
-        var s = ts
-        if let w = look.style.fontWeight { s.fontWeight = w }
-        if let f = look.style.fontSize { s.fontSize = f }
-        if let l = look.style.lineHeight { s.lineHeight = l }
-        return s
-    }
-
-    /// The label's and the value's widths inside `width`: the label keeps
-    /// its line, the value takes what is left (it truncates).
-    static func rowWidths(label: String, labelStyle: TextStyle, value: String, valueStyle: TextStyle, gap: CGFloat, glyph: CGFloat, width: CGFloat) -> (label: CGFloat, value: CGFloat) {
-        let l = min(TextShaper.maxContent(labelStyle.shown(label), labelStyle), max(0, width - glyph - gap))
-        let v = min(TextShaper.maxContent(valueStyle.shown(value), valueStyle), max(0, width - l - glyph - gap * 2))
-        return (l, v)
     }
 }
 

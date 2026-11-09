@@ -87,6 +87,8 @@ data class PaintStyle(
     val animation: AnimationSpec? = null,
     /** Round 2: `position: sticky` (the offsets come with the pass). */
     val sticky: Boolean = false,
+    /** #EXP-1629: a recipe's `backgroundClip: padding-box` (the fill paints inside the border). */
+    val clipToPadding: Boolean = false,
 ) {
     /** From the facade's resolved visual. */
     constructor(v: FfiVisual) : this(
@@ -130,6 +132,7 @@ data class PaintStyle(
         backdropBlur = v.backdropBlur,
         animation = parseAnimation(v.animationJson),
         sticky = v.sticky,
+        clipToPadding = v.backgroundClip == "padding-box",
     )
 
     /** The widths `[top, right, bottom, left]` the border paints with. */

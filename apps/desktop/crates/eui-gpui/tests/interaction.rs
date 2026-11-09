@@ -183,7 +183,7 @@ fn a_menu_opens_from_the_keyboard_moves_and_selects(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_select_opens_on_its_selection_and_chooses_with_enter(cx: &mut TestAppContext) {
+fn a_select_opens_on_its_first_option_and_chooses_with_enter(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "board", "component": "Select", "props": {"label": "Board", "name": "board", "options": [{"label": "Backlog", "value": "backlog"}, {"label": "Sprint", "value": "sprint"}, {"label": "Done", "value": "done"}], "value": "sprint"}}
     ]});
@@ -191,7 +191,9 @@ fn a_select_opens_on_its_selection_and_chooses_with_enter(cx: &mut TestAppContex
     assert_eq!(tab(&view, cx).as_deref(), Some("board.trigger"));
     assert!(key(&view, cx, "enter"));
     draw(cx);
-    assert_eq!(focused(&view, cx).as_deref(), Some("board.item.1"), "the selected option takes focus");
+    // #EXP-1629: a fresh pick (the IDE's picker): the cursor on the FIRST option.
+    assert_eq!(focused(&view, cx).as_deref(), Some("board.item.0"), "the first option takes focus, not the chosen one");
+    assert!(key(&view, cx, "down"));
     assert!(key(&view, cx, "down"));
     assert!(key(&view, cx, "enter"));
     draw(cx);
