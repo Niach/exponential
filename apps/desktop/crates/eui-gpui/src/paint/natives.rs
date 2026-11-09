@@ -451,12 +451,16 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
 
 /// The rotating loader glyph.
 pub fn spinner_glyph(id: impl Into<gpui::ElementId>, size: f32, color: Hsla) -> AnyElement {
-    Icon::new(gpui_component::IconName::LoaderCircle)
-        .size(px(size))
-        .text_color(color)
-        // EXP-1325: a loader may spin for a long while — stepped.
-        .with_stepped_animation(id, Animation::new(Duration::from_millis(800)).repeat(), SMOOTH_STEP, |icon, delta| icon.transform(Transformation::rotate(gpui::percentage(delta))))
-        .into_any_element()
+    // EXP-1325: a loader may spin for a long while — stepped; #LOGS-4: a
+    // glyph, so inside a host's cached region only the glyph repaints.
+    crate::controls::stepped_glyph(id, gpui::size(px(size), px(size)), Animation::new(Duration::from_millis(800)).repeat(), SMOOTH_STEP, move |delta, _, _| {
+        Icon::new(gpui_component::IconName::LoaderCircle)
+            .size(px(size))
+            .text_color(color)
+            .transform(Transformation::rotate(gpui::percentage(delta)))
+            .into_any_element()
+    })
+    .into_any_element()
 }
 
 /// Button / Toggle content: spinner or icon, then the label (mirrored in RTL).

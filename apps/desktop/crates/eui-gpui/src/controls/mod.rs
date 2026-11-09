@@ -21,6 +21,7 @@
 //! danger, popover, list hover) keep coming from `cx.theme()`.
 
 mod animation;
+mod glyph_layer;
 mod buttons;
 mod choice_tiles;
 mod dock;
@@ -36,6 +37,7 @@ mod sizing;
 mod voice_wave;
 mod zoomable_image;
 
+pub use glyph_layer::{animation_paused, glyph_scope, stepped_glyph, GlyphLayer, GlyphPaint, GlyphRegion, GlyphScope, SteppedGlyph};
 pub use animation::{
     repaint_on_next_step, until_next_step, until_shared_tick, SteppedAnimationElement, SteppedAnimationExt, PULSE_STEP, SMOOTH_STEP,
 };

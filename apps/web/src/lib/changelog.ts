@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-09-ede-chat-images`,
+    date: `2026-11-09`,
+    title: `Images in Exponential Desktop's chat`,
+    summary: `Exponential Desktop 0.2.12: attach images in the agent chat like in the desktop app, a Local desktop's messages carry their attachments, and crashes and hangs report themselves.`,
+    body: `- **Images in the chat**: Exponential Desktop's agent chat takes image attachments, like the desktop app's, and a Local desktop's messages carry their attachments to the agent.
+- **Diagnostics**: Exponential Desktop and its background services report crashes, hangs and slow frames, so problems get fixed faster.
+- **Under the hood**: a newer window compositor and UI toolkit.`,
+  },
+  {
     id: `2026-11-09-swipe-app-screens`,
     date: `2026-11-09`,
     title: `Swipe between an app's screens`,
