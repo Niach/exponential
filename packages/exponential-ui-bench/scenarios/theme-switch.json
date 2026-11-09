@@ -3219,6 +3219,29 @@
               }
             ]
           }
+        },
+        {
+          "id": "window",
+          "component": "Window",
+          "props": {
+            "title": "exponential.at"
+          },
+          "style": {
+            "height": 140
+          },
+          "children": [
+            {
+              "id": "window_body",
+              "component": "Text",
+              "props": {
+                "text": "One child fills the body.",
+                "variant": "muted"
+              },
+              "style": {
+                "padding": "$spacing.lg"
+              }
+            }
+          ]
         }
       ]
     }

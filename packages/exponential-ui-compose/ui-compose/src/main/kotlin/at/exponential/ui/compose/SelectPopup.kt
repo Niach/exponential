@@ -1,0 +1,341 @@
+package at.exponential.ui.compose
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import at.exponential.ui.catalog.CatalogConstants
+import at.exponential.ui.json.JsonValue
+import at.exponential.ui.json.Props
+import at.exponential.ui.json.flag
+import at.exponential.ui.json.list
+import at.exponential.ui.json.num
+import at.exponential.ui.json.str
+import at.exponential.ui.model.selectPick
+import at.exponential.ui.model.selectValue
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+/** The core's anchored-overlay offset (eui-core `overlay::OVERLAY_OFFSET`) and viewport margin. */
+private const val POPUP_OFFSET = 4f
+private const val POPUP_MARGIN = 8f
+
+/** One shown Select option. */
+internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean)
+
+/** A Select's OBJECT options whose label contains [query] (lowercase; empty = all). */
+internal fun selectOptions(owner: Props, query: String): List<SelectOption> = owner.list("options").mapNotNull { o ->
+    if (o !is JsonValue.Obj) return@mapNotNull null
+    val v = o["value"] ?: JsonValue.Null
+    val text = o["label"]?.displayText ?: v.displayText
+    if (query.isNotEmpty() && !text.lowercase().contains(query)) return@mapNotNull null
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true)
+}
+
+/** #EXP-1629: where the cursor starts: the first chosen option, else the first enabled one (-1 = none). */
+internal fun selectInitialCursor(options: List<SelectOption>, chosen: List<String>): Int {
+    val first = options.indexOfFirst { chosen.contains(it.value.displayText) }
+    return if (first >= 0) first else options.indexOfFirst { !it.disabled }
+}
+
+/** #EXP-1629: the next enabled option from [from] by [step] (clamped at the ends; [from] when none). */
+internal fun selectStep(options: List<SelectOption>, from: Int, step: Int): Int {
+    var i = from + step
+    while (i in options.indices) {
+        if (!options[i].disabled) return i
+        i += step
+    }
+    return from
+}
+
+/** #EXP-1629: the popup's alignment (`align`, else `end` for a row, `start` for a field). */
+internal fun selectPopupAlign(owner: Props, row: Boolean): String = owner.str("align").ifEmpty { if (row) "end" else "start" }
+
+/** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
+internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
+    owner.num("popupWidth")?.toFloat()?.takeIf { it > 0f } ?: if (row) CatalogConstants.SELECT_ROW_POPUP_WIDTH else null
+
+/** Under the anchor (above when it does not fit), aligned along it by `start | center | end` (logical), inside the window. */
+private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val w = popupContentSize.width
+        val h = popupContentSize.height
+        val leading = (align == "start") != rtl
+        val x = when (align) {
+            "center" -> anchorBounds.left + (anchorBounds.width - w) / 2
+            else -> if (leading) anchorBounds.left else anchorBounds.right - w
+        }
+        val below = anchorBounds.bottom + offset
+        val above = anchorBounds.top - offset - h
+        val y = if (below + h <= windowSize.height - margin || above < margin) below else above
+        return IntOffset(x.coerceIn(margin, max(margin, windowSize.width - w - margin)), y)
+    }
+}
+
+/**
+ * #EXP-1629: a Select's popup under native overlays, our own (the IDE
+ * picker, never the M3 menu): expanded while `model.popup` names this
+ * trigger, anchored under it by `align`, `popupWidth` wide (a row: layout
+ * `selectRowPopupWidth`; a field: at least the trigger), painted from the
+ * `content` / `search` / `item` / `check` / `empty` recipes. It opens
+ * scrolled to the first chosen option with the cursor on it; the cursor
+ * (the arrows, or the pointer moving over an option) is the item's ONE
+ * `hover`, a chosen option is `selected` and shows the check. A pick →
+ * `selectPick` (a single pick closes it).
+ */
+@Composable
+internal fun SelectPopup(cx: LeafContext) {
+    @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
+    val model = cx.model
+    if (model.popup != cx.node.id) return
+    val index = cx.index
+    val owner = cx.ownerProps
+    val chosen = selectValues(model.selectValue(index))
+    val multiple = owner.flag("multiple")
+    val searchable = owner.flag("searchable")
+    val row = selectRowVariant(cx.props, owner)
+    var query by remember(cx.node.id) { mutableStateOf("") }
+    val q = query.trim().lowercase()
+    val options = remember(owner, q) { selectOptions(owner, q) }
+    var cursor by remember(q) { mutableIntStateOf(selectInitialCursor(options, chosen)) }
+
+    val content = cx.part("Select", "content")
+    val cs = content.style
+    val popupInk = cs.color ?: cx.themeColor("popoverForeground") ?: cx.ink
+    val muted = cx.themeColor("mutedForeground") ?: popupInk.copy(alpha = 0.6f)
+    val pad = content.px("padding") ?: cs.padding?.firstOrNull() ?: cx.spacing("xs")
+    val shape = RoundedCornerShape(cs.radius.dp)
+    val itemH = cx.part("Select", "item").height ?: cx.control("buttonSm", 32f)
+    val maxH = content.px("maxHeight") ?: 320f
+    val width = selectPopupWidth(owner, row)
+    val density = LocalDensity.current
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val focus = remember { FocusRequester() }
+
+    val close = {
+        query = ""
+        if (model.popup == cx.node.id) model.popup = null
+    }
+    val pick = { o: SelectOption ->
+        model.selectPick(index, o.value)
+        if (!multiple) close()
+    }
+    // Keeps option [i] in the list's view (nearest edge).
+    fun reveal(i: Int) {
+        if (i < 0) return
+        scope.launch {
+            val view = snapshotFlow { scroll.viewportSize }.first { it > 0 }
+            val top = with(density) { (i * itemH).dp.toPx() }
+            val bottom = with(density) { ((i + 1) * itemH).dp.toPx() }
+            val y = when {
+                top < scroll.value -> top
+                bottom > scroll.value + view -> bottom - view
+                else -> return@launch
+            }
+            scroll.scrollTo(y.roundToInt())
+        }
+    }
+    LaunchedEffect(q) { reveal(cursor) }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    val position = remember(row, owner, cx.rtl, density) {
+        SelectPopupPosition(selectPopupAlign(owner, row), cx.rtl, with(density) { POPUP_OFFSET.dp.roundToPx() }, with(density) { POPUP_MARGIN.dp.roundToPx() })
+    }
+    Popup(popupPositionProvider = position, onDismissRequest = close, properties = PopupProperties(focusable = true)) {
+        Column(
+            Modifier
+                .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = cx.size.width.dp))
+                .heightIn(max = maxH.dp)
+                .then(if (cs.shadows.isNotEmpty()) Modifier.shadow((cs.shadows.maxOf { it.blur } / 2f).coerceIn(0f, 16f).dp, shape) else Modifier)
+                .background(cs.background ?: cx.themeColor("popover") ?: Color.Transparent, shape)
+                .then(if (cs.borderWidth > 0f && cs.borderColor != null) Modifier.border(cs.borderWidth.dp, cs.borderColor, shape) else Modifier)
+                .clip(shape)
+                .padding(pad.dp)
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    val next = when (e.key) {
+                        Key.DirectionDown -> if (cursor < 0) selectInitialCursor(options, emptyList()) else selectStep(options, cursor, 1)
+                        Key.DirectionUp -> selectStep(options, cursor, -1)
+                        Key.MoveHome -> selectStep(options, -1, 1)
+                        Key.MoveEnd -> selectStep(options, options.size, -1).takeIf { it < options.size } ?: cursor
+                        Key.Enter, Key.NumPadEnter -> {
+                            options.getOrNull(cursor)?.takeIf { !it.disabled }?.let(pick)
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.Escape -> {
+                            close()
+                            return@onPreviewKeyEvent true
+                        }
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    cursor = next
+                    reveal(next)
+                    true
+                }
+                .focusRequester(focus)
+                .focusable(),
+        ) {
+            if (searchable) SelectSearch(cx, query, popupInk, muted) { query = it }
+            Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(scroll)) {
+                for ((i, o) in options.withIndex()) {
+                    SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupInk, onHover = { cursor = i }, onPick = { pick(o) })
+                }
+            }
+            if (options.isEmpty()) {
+                val empty = cx.part("Select", "empty")
+                BasicText(
+                    owner["emptyText"]?.displayText ?: cx.string("noResults"),
+                    Modifier.fillMaxWidth().padding((empty.px("padding") ?: cx.spacing("sm")).dp),
+                    style = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = empty.style.fontSize ?: cx.textStyle.fontSize), color = empty.color ?: muted),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** The `search` part: the glyph and the filter field, its recipe height, a hairline under it. */
+@Composable
+private fun SelectSearch(cx: LeafContext, query: String, popupInk: Color, muted: Color, onQuery: (String) -> Unit) {
+    val search = cx.part("Select", "search")
+    val s = search.style
+    val ink = search.color ?: popupInk
+    val ts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = s.fontSize ?: cx.textStyle.fontSize), color = ink)
+    val line = s.borderColor ?: cx.themeColor("border")
+    val hairline = s.borderWidths?.getOrNull(2) ?: search.px("borderBottomWidth") ?: 0f
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height((search.height ?: cx.control("buttonSm", 32f)).dp)
+            .drawBehind {
+                if (hairline > 0f && line != null) {
+                    val w = hairline.dp.toPx()
+                    drawLine(line, Offset(0f, size.height - w / 2f), Offset(size.width, size.height - w / 2f), w)
+                }
+            }
+            .padding(horizontal = (search.px("paddingHorizontal") ?: s.paddingHorizontal).dp),
+        horizontalArrangement = Arrangement.spacedBy(cx.spacing("sm").dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconOrGlyph(builtinIcon("Select.search", "search"), Glyph.Search, 16f, cx, muted)
+        BasicTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            textStyle = ts,
+            cursorBrush = SolidColor(ink),
+            modifier = Modifier.weight(1f),
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) BasicText(cx.string("search"), style = ts.copy(color = muted), maxLines = 1)
+                    inner()
+                }
+            },
+        )
+    }
+}
+
+/** One option: the `item` recipe under its states (`hover` = the cursor, `selected` = chosen), icon, label, the check slot. */
+@Composable
+private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, height: Float, popupInk: Color, onHover: () -> Unit, onPick: () -> Unit) {
+    val states = buildList {
+        if (cursor) add("hover")
+        if (chosen) add("selected")
+        if (o.disabled) add("disabled")
+    }
+    val item = cx.part("Select", "item", states)
+    val hover by rememberUpdatedState(onHover)
+    val s = item.style
+    val ink = item.color ?: popupInk
+    val check = cx.part("Select", "check", states)
+    val checkSize = check.width ?: 16f
+    val ts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = s.fontSize ?: cx.textStyle.fontSize, lineHeight = s.lineHeight ?: cx.textStyle.lineHeight), color = ink)
+    val shape = RoundedCornerShape(s.radius.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(height.dp)
+            .alpha(s.opacity ?: 1f)
+            .clip(shape)
+            .background(s.background ?: Color.Transparent, shape)
+            .pointerInput(o.value) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val e = awaitPointerEvent(PointerEventPass.Initial)
+                        if (e.type == PointerEventType.Enter || e.type == PointerEventType.Move) hover()
+                    }
+                }
+            }
+            .selectable(selected = chosen, interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !o.disabled, role = Role.DropdownList, onClick = onPick)
+            .padding(horizontal = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp),
+        horizontalArrangement = Arrangement.spacedBy((s.gap.takeIf { it > 0f } ?: cx.spacing("sm")).dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        o.icon?.let { IconView(it, 16f, ink, cx.model, rtl = cx.rtl) }
+        BasicText(o.text, Modifier.weight(1f), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.size(checkSize.dp)) {
+            if (chosen) IconOrGlyph(builtinIcon("Select.check", "ui-check"), Glyph.Check, checkSize, cx, check.color ?: ink)
+        }
+    }
+}

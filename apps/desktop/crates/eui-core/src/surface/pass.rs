@@ -246,7 +246,36 @@ impl Surface {
         // EXP-1676: only a FINISHED pass (real heights, never a round's
         // guesses) fixes an open Dialog's held bottom; a closed one drops it.
         self.dialog_holds = std::mem::take(&mut self.dialog_holds_next);
+        self.reveal_select_choices(&frames);
         self.output(frames, placed, bounded_h, state.rounds, state.upcalls, layout_ns)
+    }
+
+    /// #EXP-1629: a Select that just opened scrolls its list so the FIRST
+    /// chosen option is in view (nearest edge, from the top); once per
+    /// opening, the user's scroll is theirs afterwards.
+    fn reveal_select_choices(&mut self, frames: &[Frame]) {
+        let mut open = HashSet::new();
+        for spec in self.layers.iter().filter(|l| l.kind == "Select") {
+            open.insert(spec.owner.clone());
+            if self.select_revealed.contains(&spec.owner) {
+                continue;
+            }
+            let Some(list) = spec.scroll_body else { continue };
+            let chosen = self.nodes[list as usize].children.iter().copied().find(|&c| {
+                let n = &self.nodes[c as usize];
+                self.live.get(c as usize).copied().unwrap_or(false) && n.part.as_deref() == Some("item") && n.part_query.as_ref().is_some_and(|q| q.states.iter().any(|s| s == "selected"))
+            });
+            let (Some(view), Some(item)) = (frames.get(list as usize).copied(), chosen.and_then(|c| frames.get(c as usize).copied())) else { continue };
+            let bottom = item.y - view.y + item.h;
+            let y = (bottom - view.h).max(0.0);
+            let key = self.scroll_key(list);
+            if y > 0.5 {
+                self.local.scroll.insert(key, (0.0, y));
+            } else {
+                self.local.scroll.remove(&key);
+            }
+        }
+        self.select_revealed = open;
     }
 
     /// Prepare the tree, then run the batched passes. At most 3 upcall
