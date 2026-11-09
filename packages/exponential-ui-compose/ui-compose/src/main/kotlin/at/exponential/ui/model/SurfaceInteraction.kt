@@ -383,6 +383,9 @@ fun SurfaceModel.press(index: Int) {
     // other pickers) the core opens the owner's popup layer.
     if (n.isPickerTrigger && nativePicker(n)) {
         popup = if (popup == n.id) null else n.id
+        // #EXP-1629: the platform menu opens outside the core's layers; a
+        // Select's `open` still fires through it.
+        if (popup == n.id && (owner.component == "Select" || n.ownerComponent == "Select")) fire(index, "open")
         return
     }
     val target = n.triggerFor

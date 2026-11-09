@@ -88,6 +88,8 @@ name: record-compose-fixtures
 # multi picker: chosen rows wash + stroke, no check) and the specimen's Apps row.
 # EXP-1629 (2026-11-09): again after merging #2505 (the value button inside
 # the description row's control column).
+# EXP-1629 (2026-11-09): re-recorded for Select option `trailing` + `open`
+# (the specimen's Branch row; `InteractionTest.selectTrailingAndOpen`).
 on:
   workflow_dispatch: {}
   push:

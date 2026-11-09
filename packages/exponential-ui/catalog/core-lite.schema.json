@@ -8196,7 +8196,8 @@
             "children": "none",
             "events": [
               "change",
-              "search"
+              "search",
+              "open"
             ]
           }
         }
@@ -17747,6 +17748,10 @@
           "type": "string",
           "description": "Second line."
         },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
+        },
         "image": {
           "type": "string",
           "format": "uri-reference",
@@ -21701,6 +21706,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "search": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "open": {
           "$ref": "#/$defs/EuiAction"
         }
       },

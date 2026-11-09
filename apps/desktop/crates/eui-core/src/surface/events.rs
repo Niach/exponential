@@ -138,6 +138,7 @@ impl Surface {
     /// Menu, Select, the pickers, Toast).
     pub fn set_open(&mut self, id: &str, open: bool) -> Vec<OutEvent> {
         self.ensure_reduced();
+        let opening = open && !self.is_open_now(id);
         self.local.open.insert(id.to_string(), open);
         if !open {
             self.local.submenu.remove(id);
@@ -155,6 +156,11 @@ impl Surface {
         }
         out.extend(written);
         out.extend(self.fire(id, "change", Some(json!({"open": open}))));
+        // #EXP-1629: a Select's `open` fires as its popup opens (the IDE
+        // picker's lazy fetch hangs off it).
+        if opening && self.node_by_id(id).is_some_and(|n| n.component == "Select") {
+            out.extend(self.fire(id, "open", None));
+        }
         out.push(OutEvent::Relayout);
         out
     }
@@ -505,6 +511,9 @@ impl Surface {
                 out.extend(self.set_open(&owner_id, open));
             }
             ("Select", Some("item"), "press") => out.extend(self.select_option(&n, &owner_id)),
+            // #EXP-1629: a host's PLATFORM picker (Compose's native menu)
+            // opened outside the core's layers: its `open` fires all the same.
+            ("Select", _, "open") => out.extend(self.fire(&owner_id, "open", None)),
             // EXP-1259: the Tabs close glyph and the + button.
             ("Tabs", Some("close"), "press") => {
                 let value = n.props.get("value").cloned().unwrap_or(Value::Null);
