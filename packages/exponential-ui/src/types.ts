@@ -208,6 +208,10 @@ export interface MacroDef {
    *  `root`, and its root part keeps the author's id whatever it is named.
    *  The conditions also see `{childCount}` (the author's children). */
   alternatives?: readonly { $if: unknown; root: MacroTemplate }[]
+  /** #EXP-1760: parts of the ROOT native the macro styles too (an
+   *  IconPicker's Popover `content`): `<Macro>/<part>` layers over
+   *  `<Native>/<part>` on every renderer. */
+  rootParts?: readonly string[]
 }
 
 /** An extension catalog: its own id, extending the core, with components and

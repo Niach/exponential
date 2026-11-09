@@ -3875,7 +3875,9 @@
         "cell",
         "glyph",
         "trigger",
-        "placeholder"
+        "pick",
+        "placeholder",
+        "content"
       ],
       "props": [
         "allowNone",
@@ -3892,7 +3894,8 @@
         "swatch",
         "fill",
         "trigger",
-        "dot"
+        "dot",
+        "content"
       ],
       "props": [
         "selected"

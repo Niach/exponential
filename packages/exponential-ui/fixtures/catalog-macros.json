@@ -34755,15 +34755,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -34771,7 +34771,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -34779,8 +34779,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -35096,15 +35096,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -35112,7 +35112,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": true
                   }
@@ -35120,8 +35120,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -35420,15 +35420,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -35436,7 +35436,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -35444,8 +35444,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -35745,15 +35745,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -35761,7 +35761,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -35769,8 +35769,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -36070,15 +36070,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -36086,7 +36086,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -36094,8 +36094,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -36356,8 +36356,7 @@
             "id": "color_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
@@ -36380,8 +36379,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -36641,8 +36640,7 @@
             "id": "color_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
@@ -36665,8 +36663,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -36926,8 +36924,7 @@
             "id": "color_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
@@ -36950,8 +36947,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -70650,17 +70647,17 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
                   "name": {
                     "@path": "/value"
-                  }
+                  },
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -70678,7 +70675,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -70688,7 +70685,8 @@
                 "id": "icon_picker.trigger.placeholder",
                 "component": "Icon",
                 "props": {
-                  "name": "ui-icon-placeholder"
+                  "name": "ui-icon-placeholder",
+                  "size": "sm"
                 },
                 "children": [],
                 "visible": {
@@ -70716,8 +70714,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -71046,15 +71044,15 @@
             "id": "icon_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
-                "id": "icon_picker.trigger.glyph",
+                "id": "icon_picker.trigger.pick",
                 "component": "Icon",
                 "props": {
-                  "name": "rocket"
+                  "name": "rocket",
+                  "size": "sm"
                 },
                 "children": [],
                 "style": {
@@ -71062,7 +71060,7 @@
                 },
                 "recipe": {
                   "macro": "IconPicker",
-                  "part": "glyph",
+                  "part": "pick",
                   "props": {
                     "allowNone": false
                   }
@@ -71070,8 +71068,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -71442,8 +71440,7 @@
             "id": "color_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
@@ -71468,8 +71465,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
@@ -71744,8 +71741,7 @@
             "id": "color_picker.trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "children": [
               {
@@ -71768,8 +71764,8 @@
               }
             ],
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0

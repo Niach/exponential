@@ -54717,7 +54717,297 @@
                 }
               }
             },
+            "pick": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "allowNone": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "selected": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "empty": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
             "placeholder": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "allowNone": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "selected": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "empty": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "content": {
               "type": "array",
               "items": {
                 "type": "object",
@@ -55304,6 +55594,93 @@
               }
             },
             "dot": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "hover",
+                              "pressed",
+                              "focus",
+                              "disabled",
+                              "checked",
+                              "open",
+                              "selected",
+                              "invalid",
+                              "dragover",
+                              "warning",
+                              "info"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "hover",
+                                "pressed",
+                                "focus",
+                                "disabled",
+                                "checked",
+                                "open",
+                                "selected",
+                                "invalid",
+                                "dragover",
+                                "warning",
+                                "info"
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "selected": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "style": {
+                    "$ref": "#/$defs/recipeStyle"
+                  }
+                }
+              }
+            },
+            "content": {
               "type": "array",
               "items": {
                 "type": "object",

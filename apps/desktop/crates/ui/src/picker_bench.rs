@@ -51,15 +51,15 @@ impl Render for EuiFrame {
     }
 }
 
-fn eui_tree(which: Which) -> Value {
+fn eui_tree(which: Which, open: bool) -> Value {
     let picker = match which {
-        Which::Icon => json!({"id": "ip", "component": "IconPicker", "props": {"value": "rocket", "color": "#3b82f6"}}),
-        Which::Color => json!({"id": "cp", "component": "ColorPicker", "props": {"value": "#3b82f6"}}),
+        Which::Icon => json!({"id": "ip", "component": "IconPicker", "props": {"value": "rocket", "color": "#3b82f6", "open": open}}),
+        Which::Color => json!({"id": "cp", "component": "ColorPicker", "props": {"value": "#3b82f6", "open": open}}),
     };
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start"}, "children": [picker]})
 }
 
-fn eui_surface(which: Which, window: &mut Window, cx: &mut gpui::App) -> Entity<SurfaceView> {
+fn eui_surface(which: Which, open: bool, window: &mut Window, cx: &mut gpui::App) -> Entity<SurfaceView> {
     let dark = cx.theme().is_dark();
     cx.new(|cx| {
         let options = SurfaceViewOptions {
@@ -71,7 +71,7 @@ fn eui_surface(which: Which, window: &mut Window, cx: &mut gpui::App) -> Entity<
             ..SurfaceViewOptions::default()
         };
         let mut view = SurfaceView::new(options, window, cx);
-        let tree: NestedNode = serde_json::from_value(eui_tree(which)).expect("the bench tree");
+        let tree: NestedNode = serde_json::from_value(eui_tree(which, open)).expect("the bench tree");
         let outcome = view.set_nested(tree, cx);
         assert!(outcome.issues.is_empty(), "{:?}", outcome.issues.iter().map(|i| &i.message).collect::<Vec<_>>());
         view
@@ -87,10 +87,12 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
         let store = sync::Store::open(cx, None, None);
         cx.set_global(store);
     });
+    let mut eui = None;
     let handle = cx
         .open_window(size(px(WINDOW.0), px(WINDOW.1)), |window: &mut Window, cx| {
             let view: gpui::AnyView = if prefix == "ide" { cx.new(|_| IdeFrame { which }).into() } else {
-                let surface = eui_surface(which, window, cx);
+                let surface = eui_surface(which, open, window, cx);
+                eui = Some(surface.clone());
                 cx.new(|_| EuiFrame { surface }).into()
             };
             cx.new(|cx| gpui_component::Root::new(view, window, cx))
@@ -101,7 +103,18 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
         draw(window, &mut cx);
         cx.run_until_parked();
     }
-    if open {
+    if let (true, Some(surface)) = (false, eui.as_ref()) {
+        // A headless click never reaches an eUI popup (settings_bench's
+        // rule): press the trigger node, as the pointer would.
+        let trigger = if which == Which::Icon { "ip.trigger" } else { "cp.trigger" };
+        cx.update_window(window, |_, window, cx| {
+            surface.update(cx, |view, cx| {
+                let index = view.index_of(trigger).expect("the trigger");
+                view.press(index, window, cx);
+            })
+        })
+        .expect("a press");
+    } else if open && eui.is_none() {
         // The 32 px trigger's centre.
         let position = gpui::point(px(ORIGIN + 16.), px(ORIGIN + 16.));
         cx.update_window(window, |_, window, cx| {
@@ -125,6 +138,15 @@ fn shoot(dir: &std::path::Path, prefix: &str, which: Which, open: bool) -> image
     for _ in 0..6 {
         draw(window, &mut cx);
         cx.run_until_parked();
+    }
+    // The headless clock stands still: run an open eUI popup's enter fade
+    // out by hand (settings_bench's Voice pane does the same).
+    if let Some(surface) = eui.as_ref() {
+        cx.update(|cx| surface.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx)));
+        for _ in 0..3 {
+            draw(window, &mut cx);
+            cx.run_until_parked();
+        }
     }
     std::thread::sleep(std::time::Duration::from_millis(600));
     for _ in 0..3 {

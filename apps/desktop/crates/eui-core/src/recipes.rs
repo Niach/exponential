@@ -70,6 +70,9 @@ pub fn macro_parts(def: &MacroDef) -> PartSpec {
     for alternative in &def.alternatives {
         walk_template(&alternative.root, &mut parts, &mut props);
     }
+    for part in &def.root_parts {
+        push_unique(&mut parts, part);
+    }
     PartSpec { parts, props }
 }
 

@@ -3032,6 +3032,9 @@
       "recipeProps": [
         "allowNone"
       ],
+      "rootParts": [
+        "content"
+      ],
       "root": {
         "part": "root",
         "component": "Popover",
@@ -3045,8 +3048,7 @@
             "part": "trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "$a11y": {
               "label": {
@@ -3070,19 +3072,20 @@
               }
             },
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0
             },
             "children": [
               {
-                "part": "glyph",
+                "part": "pick",
                 "component": "Icon",
                 "$if": "props.value",
                 "props": {
-                  "name": "{props.value}"
+                  "name": "{props.value}",
+                  "size": "sm"
                 },
                 "style": {
                   "color": "{props.color}"
@@ -3095,7 +3098,8 @@
                   "$not": "props.value"
                 },
                 "props": {
-                  "name": "ui-icon-placeholder"
+                  "name": "ui-icon-placeholder",
+                  "size": "sm"
                 }
               }
             ]
@@ -3391,6 +3395,9 @@
     },
     "ColorPicker": {
       "recipeProps": [],
+      "rootParts": [
+        "content"
+      ],
       "root": {
         "part": "root",
         "component": "Popover",
@@ -3404,8 +3411,7 @@
             "part": "trigger",
             "component": "Button",
             "props": {
-              "variant": "outline",
-              "size": "sm"
+              "variant": "outline"
             },
             "$a11y": {
               "label": {
@@ -3424,8 +3430,8 @@
               }
             },
             "style": {
-              "width": "$control.buttonSm",
-              "height": "$control.buttonSm",
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
               "paddingHorizontal": 0,
               "paddingVertical": 0,
               "flexShrink": 0

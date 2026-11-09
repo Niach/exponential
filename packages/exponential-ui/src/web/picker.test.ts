@@ -18,3 +18,15 @@ describe(`picker (#EXP-1760)`, () => {
     expect(isPickerPick(undefined)).toBe(false)
   })
 })
+
+import { rootPartMacro } from "../recipes"
+
+describe(`rootParts (#EXP-1760)`, () => {
+  test(`a picker's Popover content answers to the picker's recipe; other parts and macros do not`, () => {
+    expect(rootPartMacro({ component: `Popover`, recipe: { macro: `IconPicker`, part: `root` } }, `content`)).toBe(`IconPicker`)
+    expect(rootPartMacro({ component: `Popover`, recipe: { macro: `ColorPicker`, part: `root` } }, `content`)).toBe(`ColorPicker`)
+    expect(rootPartMacro({ component: `Popover`, recipe: { macro: `IconPicker`, part: `root` } }, `arrow`)).toBeNull()
+    expect(rootPartMacro({ component: `Dialog`, recipe: { macro: `AlertDialog`, part: `root` } }, `content`)).toBeNull()
+    expect(rootPartMacro({ component: `Popover` }, `content`)).toBeNull()
+  })
+})
