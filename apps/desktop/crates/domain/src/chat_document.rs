@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use crate::rows::MessageRow;
-use crate::session_tree::SessionChatRow;
+use crate::session_tree::{CardSurface, SessionChatRow};
 use uicore_model::chat::{ChatOption, ChatRowInput};
 
 /// `HH:MM` (local) of a wire timestamp; empty when unparseable.
@@ -17,6 +17,16 @@ pub fn clock(at: Option<&str>) -> String {
         .and_then(chrono::DateTime::from_timestamp_millis)
         .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
         .unwrap_or_default()
+}
+
+/// A card's surface as the Embed draws it (`{version?, root, data}`);
+/// `answered` = the data model as the person answered it, which a closed
+/// plan or question card shows instead of the card's own (the IDE's
+/// `ensure_closed_surface`).
+fn embed_surface(surface: Option<&CardSurface>, answered: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let surface = surface?;
+    let surface = CardSurface { data: answered.filter(|data| data.is_object()).cloned().or_else(|| surface.data.clone()), ..surface.clone() };
+    serde_json::to_value(surface).ok()
 }
 
 /// The domain's chat rows as the chat model's; `messages` = the rows'
@@ -42,14 +52,15 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             title: card.name.clone(),
             text: card.kind_word.clone(),
             target: Some(card.session_id.clone()),
+            surface: None,
         },
         SessionChatRow::Report { id, session_id, text, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()) }
+            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
         }
         SessionChatRow::Suggestions { id, session_id, header, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()) }
+            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
         }
-        SessionChatRow::Question { id, question, options, custom, multi, answer, answers, answered, dismissed, .. } => ChatRowInput::Question {
+        SessionChatRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, dismissed, .. } => ChatRowInput::Question {
             id: id.clone(),
             question: question.clone(),
             options: options.iter().map(|o| ChatOption { label: o.label.clone(), description: o.description.clone() }).collect(),
@@ -57,9 +68,10 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             multi: *multi,
             waiting: !*answered && *dismissed != Some(true),
             answer: answers.as_ref().filter(|a| !a.is_empty()).map(|a| a.join(", ")).or_else(|| answer.clone()),
+            surface: embed_surface(surface.as_ref(), surface_data.as_ref()),
         },
         // The plan row (session_chat `plan_row`): the plan's label, its status word.
-        SessionChatRow::Plan { id, session_id, plan, decision, fresh, .. } => ChatRowInput::Card {
+        SessionChatRow::Plan { id, session_id, plan, surface, decision, fresh, surface_data, .. } => ChatRowInput::Card {
             id: id.clone(),
             icon: if decision.as_deref() == Some("approved") { "ui-check" } else { "coding-plan" }.into(),
             title: crate::plan_page::plan_row_label(plan),
@@ -68,6 +80,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
                 Some(decision) => crate::ask_dock::plan_decision_label(decision, *fresh),
             },
             target: Some(session_id.clone()),
+            surface: embed_surface(surface.as_ref(), surface_data.as_ref()),
         },
         SessionChatRow::Subagent { id, title, status } => ChatRowInput::Line {
             id: id.clone(),
@@ -87,12 +100,13 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             let placeholder = &*crate::sealed::PLACEHOLDER;
             ChatRowInput::Pill { id: id.clone(), icon: placeholder.icon.clone(), label: placeholder.text(*reason).to_string() }
         }
-        SessionChatRow::Surface { id, session_id, title, .. } => ChatRowInput::Card {
+        SessionChatRow::Surface { id, session_id, title, surface } => ChatRowInput::Card {
             id: id.clone(),
             icon: "ui-widget".into(),
             title: title.clone().unwrap_or_else(|| crate::plan_card::PLAN_CARD.copy.surface.clone()),
             text: String::new(),
             target: Some(session_id.clone()),
+            surface: embed_surface(Some(surface), None),
         },
     })
 }
@@ -381,5 +395,61 @@ mod tests {
         assert_eq!(title, &crate::plan_page::plan_row_label("# Lazy-load the editor\n\nsteps"));
         assert_eq!(text, &crate::plan_page::PLAN_PAGE.copy.needs_you);
         assert_eq!(target.as_deref(), Some("s"));
+    }
+
+    fn card_surface() -> CardSurface {
+        CardSurface {
+            version: Some("1.0".into()),
+            root: serde_json::json!({"id": "r", "component": "Text", "props": {"text": {"@path": "/pick"}}}),
+            data: Some(serde_json::json!({"pick": "none"})),
+        }
+    }
+
+    #[test]
+    fn a_show_card_carries_its_surface_with_its_own_data() {
+        let row = SessionChatRow::Surface { id: "m1".into(), session_id: "s".into(), title: None, surface: card_surface() };
+        let ChatRowInput::Card { title, surface, target, .. } = &rows(&[row], &HashMap::new(), |_| None)[0] else { panic!() };
+        assert_eq!(title, &crate::plan_card::PLAN_CARD.copy.surface, "no title = the Preview word");
+        assert_eq!(target.as_deref(), Some("s"));
+        let surface = surface.as_ref().expect("a surface");
+        assert_eq!((surface["version"].as_str(), &surface["root"]["component"], &surface["data"]["pick"]), (Some("1.0"), &serde_json::json!("Text"), &serde_json::json!("none")));
+    }
+
+    #[test]
+    fn a_closed_card_s_surface_shows_what_the_person_answered() {
+        let answered = Some(serde_json::json!({"pick": "debug"}));
+        let plan = SessionChatRow::Plan {
+            id: "p".into(),
+            session_id: "s".into(),
+            plan: "# Plan".into(),
+            questions: vec![],
+            surface: Some(card_surface()),
+            decision: Some("approved".into()),
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: answered.clone(),
+        };
+        let question = SessionChatRow::Question {
+            id: "q".into(),
+            session_id: "s".into(),
+            question: "Which?".into(),
+            options: vec![],
+            custom: false,
+            multi: false,
+            surface: Some(card_surface()),
+            answer: None,
+            answers: None,
+            surface_data: None,
+            answered: false,
+            dismissed: None,
+        };
+        let session = SessionChatRow::Report { id: "r".into(), session_id: "s".into(), text: "Report".into(), summary: String::new(), xref: crate::session_tree::SessionXref { kind: "report".into(), session_id: "s".into(), name: "Child".into(), agent_id: None } };
+        let out = rows(&[plan, question, session], &HashMap::new(), |_| None);
+        let ChatRowInput::Card { surface: Some(plan), .. } = &out[0] else { panic!("{out:?}") };
+        assert_eq!(plan["data"], answered.unwrap(), "the answered model wins");
+        let ChatRowInput::Question { surface: Some(question), .. } = &out[1] else { panic!("{out:?}") };
+        assert_eq!(question["data"]["pick"], "none", "an open card shows its own data");
+        assert!(matches!(&out[2], ChatRowInput::Card { surface: None, .. }), "a report has no surface");
     }
 }
