@@ -75,6 +75,14 @@ pub(crate) struct ChangeEmailDialogView {
     shown_code: String,
     busy: bool,
     error: Option<SharedString>,
+    /// The field to focus once the document has drawn it (an `Input`'s
+    /// text field is its `<id>.field` part node): a field exists
+    /// only after the paint that first shows it, so a focus asked for
+    /// before then is retried after every render until it lands.
+    want_focus: Option<&'static str>,
+    /// Renders left to retry [`Self::want_focus`] (a field that never
+    /// shows must not keep the window rendering).
+    focus_tries: u8,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
 }
@@ -133,14 +141,12 @@ impl ChangeEmailDialogView {
             shown_code: String::new(),
             busy: false,
             error: None,
+            want_focus: Some("email.field"),
+            focus_tries: FOCUS_TRIES,
             binding,
             view,
         };
         this.push(cx);
-        let view = this.view.clone();
-        window.defer(cx, move |window, cx| {
-            view.update(cx, |view, cx| view.focus_field("email", window, cx));
-        });
         this
     }
 
@@ -161,7 +167,7 @@ impl ChangeEmailDialogView {
                 _ => return,
             },
             "submit" => self.submit(window, cx),
-            "cancel" if !self.busy => native_dialog::close_dialog_window(window, cx),
+            "cancel" => native_dialog::close_dialog_window(window, cx),
             "resend" => {
                 if let Step::Code { new_email } = self.step.clone() {
                     self.send_code(new_email, window, cx);
@@ -184,7 +190,12 @@ impl ChangeEmailDialogView {
             Some(address) => Step::Code { new_email: address.to_string() },
             None => Step::Address,
         };
-        let _ = window;
+        // Today's dialog: the address field holds the focus it opened
+        // with; a code step shot directly has none.
+        // The field lets the shot's text in only while unfocused (a
+        // focused field keeps what the user typed): blur, write, refocus.
+        self.view.update(cx, |view, cx| view.blur_field("email.field", window, cx));
+        (self.want_focus, self.focus_tries) = ((shot.code_for.is_none()).then_some("email.field"), FOCUS_TRIES);
         (self.email, self.shown_email) = (shot.email.to_string(), shot.email.to_string());
         (self.code, self.shown_code) = (shot.code.to_string(), shot.code.to_string());
         self.busy = shot.busy;
@@ -231,7 +242,7 @@ impl ChangeEmailDialogView {
                     async move { client.request_email_change(&instance_url, &token, &target_bg) },
                 )
                 .await;
-            let _ = this.update_in(cx, |this, window, cx| {
+            let _ = this.update_in(cx, |this, _window, cx| {
                 this.busy = false;
                 match result {
                     Ok(()) => {
@@ -241,11 +252,8 @@ impl ChangeEmailDialogView {
                         this.code.clear();
                         this.shown_code.clear();
                         this.step = Step::Code { new_email: target };
+                        (this.want_focus, this.focus_tries) = (Some("code.field"), FOCUS_TRIES);
                         this.push(cx);
-                        let view = this.view.clone();
-                        window.defer(cx, move |window, cx| {
-                            view.update(cx, |view, cx| view.focus_field("code", window, cx));
-                        });
                     }
                     // FEED-79: the server refusing the ADDRESS stays under the
                     // field; a request that failed otherwise is a toast.
@@ -397,7 +405,6 @@ impl ChangeEmailDialogView {
             "on": !off,
             "off": off && !self.busy,
             "busy": self.busy,
-            "cancelOff": self.busy,
         })
     }
 
@@ -407,10 +414,29 @@ impl ChangeEmailDialogView {
     }
 }
 
+/// Renders a wanted focus is retried for: the field appears on the paint
+/// after the one that first shows it.
+const FOCUS_TRIES: u8 = 4;
+
 impl Render for ChangeEmailDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "ChangeEmailDialogView").entered();
         self.push(cx);
+        if let Some(id) = self.want_focus.filter(|_| self.focus_tries > 0) {
+            self.focus_tries -= 1;
+            let view = self.view.clone();
+            cx.defer_in(window, move |this, window, cx| {
+                // Focus once the field holds its bound text: a focused field
+                // keeps its own text over a later write.
+                let bound = if id == "code.field" { &this.shown_code } else { &this.shown_email };
+                let ready = view.read(cx).field_text(id, cx).as_ref() == Some(bound);
+                if ready && view.update(cx, |view, cx| view.focus_field(id, window, cx)) {
+                    this.want_focus = None;
+                } else if this.focus_tries > 0 {
+                    cx.notify();
+                }
+            });
+        }
         div().w_full().min_w_0().child(self.view.clone())
     }
 }
@@ -483,16 +509,12 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
         "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}});
     let body = json!({"id": "body", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "width": "100%"},
         "children": [description, field(ink, "email", "New email", "you@example.com", path("/pane/address")), field(ink, "code", "Code", "123456", path("/pane/codeStep")), links, error]});
-    let mut cancel = sm_button(ink, "cancel", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
-    cancel["visible"] = super::doc::not(path("/pane/cancelOff"));
-    let mut cancel_off = sm_button(ink, "cancel_off", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
-    cancel_off["visible"] = path("/pane/cancelOff");
-    cancel_off["props"]["pressable"] = json!(false);
-    cancel_off["style"]["opacity"] = json!(0.5);
+    let cancel = sm_button(ink, "cancel", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
     let mut primary = sm_button(ink, "primary", None, path("/pane/primary"), &chrome.primary, None, &chrome.primary_fg, "submit", chrome.radius);
     primary["visible"] = path("/pane/on");
     primary["style"][":hover"] = json!({"backgroundColor": chrome.primary_hover});
-    // Disabled: the fill at half under the solid label; busy: the spinner too.
+    // Disabled: the fill at half under the solid label; busy: web's pending
+    // Button, the spinner before the progressive word.
     let off = |id: &str, glyph: Option<Value>, visible: Value| {
         let mut button = sm_button(ink, id, glyph, path("/pane/primary"), "#00000000", None, &chrome.primary_fg, "submit", chrome.radius);
         button["visible"] = visible;
@@ -505,13 +527,58 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     };
     let spinner = json!({"id": "busy_spinner", "component": "Spinner", "style": {"width": ink.r(SM), "height": ink.r(SM), "color": chrome.primary_fg, "flexShrink": 0}});
     let footer = json!({"id": "footer", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "gap": ink.r(0.5)},
-        "children": [cancel, cancel_off, primary, off("primary_off", None, path("/pane/off")), off("primary_busy", Some(spinner), path("/pane/busy"))]});
+        "children": [cancel, primary, off("primary_off", None, path("/pane/off")), off("primary_busy", Some(spinner), path("/pane/busy"))]});
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0}, "children": [body, footer]})
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        };
+        let chrome = Chrome {
+            radius: 6.,
+            danger: "#f87171ff".into(),
+            button_fg: "#fafafaff".into(),
+            button_fill: "#ffffff08".into(),
+            button_stroke: "#ffffff26".into(),
+            primary: "#f4f4f5ff".into(),
+            primary_fg: "#18181bff".into(),
+            primary_hover: "#e4e4e7ff".into(),
+        };
+        let tree = document(&ink, &chrome);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-change-email", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     #[test]
     fn code_field_keeps_six_digits_only() {
