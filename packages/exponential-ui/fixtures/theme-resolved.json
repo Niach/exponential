@@ -2715,6 +2715,14 @@
             },
             {
               "when": {
+                "size": "sm"
+              },
+              "style": {
+                "height": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
                 "variant": "row"
               },
               "style": {
@@ -11175,6 +11183,14 @@
             },
             {
               "when": {
+                "size": "sm"
+              },
+              "style": {
+                "height": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
                 "variant": "row"
               },
               "style": {
@@ -11244,6 +11260,29 @@
                 "height": 18,
                 "fontSize": 12.25,
                 "lineHeight": 18
+              }
+            },
+            {
+              "when": {
+                "variant": "box"
+              },
+              "style": {
+                "height": 36,
+                "paddingHorizontal": 10,
+                "borderRadius": "$radius.lg",
+                "borderColor": "$color.border",
+                "backgroundColor": "#ffffff08",
+                "fontSize": 12.25,
+                "lineHeight": 17.5
+              }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "size": "sm"
+              },
+              "style": {
+                "height": 32
               }
             }
           ],
@@ -20049,6 +20088,14 @@
               },
               "style": {
                 "borderColor": "$color.destructive"
+              }
+            },
+            {
+              "when": {
+                "size": "sm"
+              },
+              "style": {
+                "height": "$control.buttonMd"
               }
             },
             {
@@ -28969,6 +29016,14 @@
             },
             {
               "when": {
+                "size": "sm"
+              },
+              "style": {
+                "height": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
                 "variant": "row"
               },
               "style": {
@@ -29038,6 +29093,29 @@
                 "height": 18,
                 "fontSize": 12.25,
                 "lineHeight": 18
+              }
+            },
+            {
+              "when": {
+                "variant": "box"
+              },
+              "style": {
+                "height": 36,
+                "paddingHorizontal": 10,
+                "borderRadius": "$radius.lg",
+                "borderColor": "$color.border",
+                "backgroundColor": "#ffffff08",
+                "fontSize": 12.25,
+                "lineHeight": 17.5
+              }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "size": "sm"
+              },
+              "style": {
+                "height": 32
               }
             }
           ],

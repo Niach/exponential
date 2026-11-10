@@ -3657,7 +3657,8 @@
       "props": [
         "type",
         "disabled",
-        "variant"
+        "variant",
+        "size"
       ]
     },
     {

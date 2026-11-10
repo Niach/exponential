@@ -44,7 +44,7 @@
     "Link": { "parts": ["root"], "props": ["external"] },
     "Toggle": { "parts": ["root", "icon", "label"], "props": ["variant", "size", "pressed"] },
     "Form": { "parts": ["root", "summary"], "props": ["disabled", "busy"] },
-    "Input": { "parts": ["root", "label", "field", "placeholder", "description", "error"], "props": ["type", "disabled", "variant"] },
+    "Input": { "parts": ["root", "label", "field", "placeholder", "description", "error"], "props": ["type", "disabled", "variant", "size"] },
     "Textarea": { "parts": ["root", "label", "field", "placeholder", "description", "error"], "props": ["disabled", "variant"] },
     "NumberField": { "parts": ["root", "label", "field", "decrement", "increment", "unit", "description", "error", "input"], "props": ["disabled"] },
     "Checkbox": { "parts": ["root", "box", "check", "label", "description", "error"], "props": ["checked", "disabled", "indeterminate"] },
