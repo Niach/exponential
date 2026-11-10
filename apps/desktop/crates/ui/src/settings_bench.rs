@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
@@ -754,6 +755,64 @@ mod field_variants {
     }
 }
 
+/// #EXP-1629: the IDE's spinner (`feedback::spinner`, muted) vs genUI
+/// `Spinner` at the same sizes (xs = the 10 px inline one, sm, default, lg)
+/// and phase (Reduce motion freezes both at their start frame). Shoot
+/// `settings_spinner_ide`, then `settings_spinner_eui` with
+/// `EXP_SETTINGS_BEFORE` at the first: 0 px.
+mod spinner_parity {
+    use super::*;
+    use serde_json::json;
+
+    const SIZES: [(&str, f32); 4] = [("xs", 10.), ("sm", 16.), ("default", 20.), ("lg", 24.)];
+
+    pub(super) struct Ide;
+
+    impl Render for Ide {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            SIZES.iter().fold(gpui_component::h_flex().items_start().gap(px(16.)), |row, (_, side)| row.child(crate::feedback::spinner(*side, cx)))
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+    }
+
+    impl Eui {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
+            let children: Vec<serde_json::Value> = SIZES.iter().map(|(size, _)| json!({"id": format!("spin_{size}"), "component": "Spinner", "props": {"size": size}})).collect();
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": 16, "width": "100%"}, "children": children});
+            let view = crate::settings::doc_mount("bench-spinner", tree, &binding, window, cx);
+            Self { view }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_spinner_ide() {
+        shoot_pane("spinner", |_, cx| {
+            cx.set_reduce_motion(true);
+            Ide
+        }, |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_spinner_eui() {
+        shoot_pane("spinner", |window, cx| {
+            cx.set_reduce_motion(true);
+            Eui::new(window, cx)
+        }, |_, _| {});
+    }
+}
+
 fn skill_row(id: &str, name: &str, description: &str, enabled_by_default: bool, builtin: bool) -> domain::rows::SkillRow {
     serde_json::from_value(serde_json::json!({"id": id, "team_id": "team-shots", "name": name, "description": description, "enabled_by_default": enabled_by_default, "builtin": builtin})).expect("a skill row")
 }
@@ -857,4 +916,60 @@ fn settings_skill_new_touched() {
 #[ignore]
 fn settings_skill_name_taken() {
     skill_page("skill-name-taken", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, true);
+}
+
+fn board(repository: Option<&str>, branch: Option<&str>) -> domain::rows::Board {
+    serde_json::from_value(serde_json::json!({
+        "id": "board-web", "team_id": "team-acme", "name": "Web app", "prefix": "WEB", "color": "#3b82f6", "icon": "rocket",
+        "repository_id": repository, "default_branch": branch,
+    }))
+    .expect("a board")
+}
+
+fn board_repos() -> serde_json::Value {
+    serde_json::json!([
+        {"id": "r1", "fullName": "acme/web", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true},
+        {"id": "r2", "fullName": "acme/api", "defaultBranch": "develop", "private": false},
+    ])
+}
+
+fn board_detail(name: &str, shot: BoardShot) {
+    shoot_pane(name, BoardDetailPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_board_unlinked() {
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_linked() {
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_pinned() {
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_loading() {
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_unavailable() {
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_failed_plain() {
+    let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
 }
