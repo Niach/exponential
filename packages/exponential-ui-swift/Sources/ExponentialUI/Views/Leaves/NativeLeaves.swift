@@ -141,7 +141,8 @@ struct PickerTriggerLeaf: View {
     var body: some View {
         let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
         let select = cx.node.recipeComponent == "Select"
-        let pill = select && SelectTrigger.isPill(cx.props, owner: cx.ownerProps)
+        // #EXP-1778: a `button` trigger paints as a pill does (its own recipe).
+        let pill = select && SelectTrigger.isPillLike(cx.props, owner: cx.ownerProps)
         let states = pill && cx.model.isDisabled(cx.index) ? ["disabled"] : []
         let ph = cx.part(cx.node.recipeComponent, "placeholder", states: states)
         let value = select ? cx.part("Select", "value", states: states) : .empty

@@ -835,8 +835,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // #EXP-1629: the glyph is the `chevron` part (a `row` trigger is a
         // container of parts, measured as its nodes).
         let glyph = SelectTrigger.glyphSize(part("Select", "chevron", leaf.props))
-        // #EXP-1765: a pill's text and glyph sit its recipe `gap` apart.
-        let gap = SelectTrigger.isPill(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
+        // #EXP-1765: a pill's text and glyph sit its recipe `gap` apart (#EXP-1778: a `button`'s too).
+        let gap = SelectTrigger.isPillLike(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
         return MeasuredContent(line(text, ts) + gap + glyph, ts.lineHeight, Self.baseline(ts))
     }
 
@@ -909,7 +909,25 @@ enum SelectTrigger {
     /// #EXP-1765: `triggerVariant: pill` on the trigger (the core copies the
     /// owner's props), else on its owner.
     static func isPill(_ props: Props, owner: Props = [:]) -> Bool {
-        (props["triggerVariant"]?.string ?? owner["triggerVariant"]?.string) == "pill"
+        variant(props, owner: owner) == "pill"
+    }
+
+    /// #EXP-1778: `triggerVariant: button` (an outline small button; the
+    /// IDE's pointer menus), on the trigger else on its owner.
+    static func isButton(_ props: Props, owner: Props = [:]) -> Bool {
+        variant(props, owner: owner) == "button"
+    }
+
+    /// #EXP-1778: a trigger painted as a pill's (`pill` or `button`): no
+    /// label part, the `Select.dropdown` glyph at opacity 1, the recipe gap,
+    /// a pointer-opened popup without a cursor. The pill's search clear
+    /// button stays `isPill` alone.
+    static func isPillLike(_ props: Props, owner: Props = [:]) -> Bool {
+        isPill(props, owner: owner) || isButton(props, owner: owner)
+    }
+
+    private static func variant(_ props: Props, owner: Props) -> String? {
+        props["triggerVariant"]?.string ?? owner["triggerVariant"]?.string
     }
 
     /// #EXP-1765: a pill's text-to-glyph gap: the recipe's, else `$spacing.sm`
