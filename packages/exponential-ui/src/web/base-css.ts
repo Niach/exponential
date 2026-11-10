@@ -358,7 +358,6 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-Skeleton-dot,.xui-Skeleton-bar{animation:xui-skeleton ${SKELETON_PULSE_MS}ms ease-in-out infinite;opacity:${SKELETON_OPACITY_LOW};flex-shrink:0}
 [data-xui-c="Skeleton"][data-rows].xui-el{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;background:none;border-radius:0}
 .xui-Skeleton-row{display:flex;flex-direction:row;align-items:center;flex-shrink:0}
-.xui-Skeleton-row+.xui-Skeleton-row{border-top:var(--xui-border-hairline) solid var(--xui-color-border)}
 .xui-Skeleton-dot{display:block}
 .xui-Skeleton-bar{display:block}
 .xui-Skeleton-bar[data-title]{flex-shrink:1;min-width:0}

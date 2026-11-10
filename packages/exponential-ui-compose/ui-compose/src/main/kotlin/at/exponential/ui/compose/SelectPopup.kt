@@ -473,8 +473,8 @@ private val SKELETON_BARS = listOf(56f to 168f, 56f to 120f, 56f to 192f)
 
 /**
  * #EXP-1765: a `loading` Select's placeholder in our own popup: the core's
- * Skeleton rows (`selectLoadingRows` of them, `$control.row` high, a
- * hairline between, the dot and the two bars) from the `Skeleton/row|dot|bar`
+ * Skeleton rows (`selectLoadingRows` of them, `$control.row` high,
+ * borderless, the dot and the two bars) from the `Skeleton/row|dot|bar`
  * recipes, each block pulsing like the painted Skeleton's.
  */
 @Composable
@@ -484,8 +484,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
     val dot = cx.part("Skeleton", "dot", none)
     val bar = cx.part("Skeleton", "bar", none)
     val fill = cx.themeColor("muted") ?: Color.Transparent
-    val line = cx.themeColor("border")
-    val hairline = cx.control("hairline", 1f)
     val h = cx.control("row", 32f)
     val reduced = cx.model.reducedMotion
     for (r in 0 until CatalogConstants.SELECT_LOADING_ROWS) {
@@ -494,7 +492,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
             Modifier
                 .fillMaxWidth()
                 .height(h.dp)
-                .drawBehind { if (r > 0 && line != null) drawLine(line, Offset(0f, hairline.dp.toPx() / 2f), Offset(size.width, hairline.dp.toPx() / 2f), hairline.dp.toPx()) }
                 .padding(horizontal = (rowPart.px("paddingHorizontal") ?: rowPart.style.paddingHorizontal).dp),
             horizontalArrangement = Arrangement.spacedBy((rowPart.px("gap") ?: rowPart.style.gap).dp),
             verticalAlignment = Alignment.CenterVertically,
