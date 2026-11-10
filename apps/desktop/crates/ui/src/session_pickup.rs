@@ -310,8 +310,19 @@ fn run_pass(cx: &mut App) {
         collections.users.read(cx).iter().filter_map(|user| Some((user.id.clone(), user.email.clone()?))),
     );
     // #EXP-1730: keyed by their own `session_id`.
-    let mut messages: Vec<MessageRow> =
-        crate::session_data::keyed_messages(cx, hosted.iter().copied(), |_, _| true);
+    // #LOGS-11: only the rows a pass can act on (was every hosted message,
+    // a long chat's thousands cloned per pass): an unconsumed input, a card,
+    // a system line (a move's), a row an engine here holds, a row the direct
+    // inbox holds (its dedupe). A consumed plain message is history.
+    let held = live.held_message_ids();
+    let direct: HashSet<String> = coding::direct_inbox::pending().into_iter().map(|row| row.id).collect();
+    let mut messages: Vec<MessageRow> = crate::session_data::keyed_messages(cx, hosted.iter().copied(), |_, message| {
+        message.consumed_at.as_deref().is_none_or(str::is_empty)
+            || message.card.as_ref().is_some_and(|card| !card.is_null())
+            || message.author_kind.as_deref() == Some("system")
+            || held.contains(&message.id)
+            || direct.contains(&message.id)
+    });
     // EXP-1458: agent-to-agent messages that came over eNet ahead of their
     // synced copy (deduped by id against it).
     coding::direct_inbox::merge(&mut messages);

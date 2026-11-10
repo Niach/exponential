@@ -1735,6 +1735,20 @@ impl LiveRegistry {
     /// [`plan`]'s view of the running engines (done ones excluded — the
     /// pass treats them as gone): handed ids and the open, not yet answered
     /// cards.
+    /// #LOGS-11: every message id an engine here still holds: handed (not
+    /// yet seen consumed), being consumed, or an open card it posted. A
+    /// host's pass snapshot must carry these rows whatever their state
+    /// ([`Self::settle_handed`], a revoke, an answer).
+    pub fn held_message_ids(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = locked(&self.consuming).iter().cloned().collect();
+        for entry in self.lock().values() {
+            ids.extend(entry.handed.iter().cloned());
+            ids.extend(entry.engine.open_cards().into_keys());
+            ids.extend(entry.answered.iter().cloned());
+        }
+        ids
+    }
+
     pub fn live_views(&self) -> HashMap<String, LiveView> {
         self.lock()
             .iter_mut()
