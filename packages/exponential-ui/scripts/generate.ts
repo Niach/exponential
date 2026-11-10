@@ -1145,6 +1145,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: a status picker: each option's glyph in its own tint
+    // (`iconColor`), the chosen one's leading the row's value.
+    label: `option iconColor + triggerIcon`,
+    node: {
+      id: `pr_automation`,
+      component: `Group`,
+      children: [
+        { id: `pr_opened`, component: `Select`, props: { label: `When a PR opens`, name: `prOpened`, triggerVariant: `row`, triggerIcon: true, popupMinWidth: 170, value: `in_review`, options: [
+          { label: `Backlog`, value: `backlog`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+          { label: `In Progress`, value: `in_progress`, icon: `status-in-progress`, iconColor: `$color.warning` },
+          { label: `In Review`, value: `in_review`, icon: `status-in-review`, iconColor: `$color.success` },
+          { label: `Cancelled`, value: `cancelled`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+        ] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
