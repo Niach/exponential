@@ -179,6 +179,7 @@ mod api_keys;
 mod app_detail;
 mod board_detail;
 mod box_fields;
+mod change_email;
 mod field_variants;
 mod labels;
 mod local_repos;

@@ -18,9 +18,9 @@
 //! the IDE's chrome written in). Push to talk is genUI's `KeyRecorder` (the
 //! bound keys a `KbdGroup`): the component captures and shows; THIS adapter
 //! keeps Exponential's grammar (`capture_step` over its `key` events) and
-//! pauses the global push-to-talk grab between `start` and the end. The
-//! styleguide twin (`styleguide/entries/voice_settings.rs`) mounts the same
-//! document over static values ([`VoicePrefsPane::twin`]).
+//! pauses the global push-to-talk grab between `start` and the end.
+//! [`VoicePrefsPane::twin`] mounts the same document over static values
+//! (its specimen was retired with the styleguide, #EXP-1779).
 
 use std::rc::Rc;
 
