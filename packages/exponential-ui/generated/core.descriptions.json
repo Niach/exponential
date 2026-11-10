@@ -1217,7 +1217,7 @@
           "description": "Press on the child, or the context gesture."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "example": {
         "label": "More",
         "items": [

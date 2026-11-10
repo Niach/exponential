@@ -3500,7 +3500,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "props": {
         "label": {
           "type": "string",
