@@ -1092,7 +1092,7 @@ struct AgentSessionView: View {
                 if case let .marker(_, label) = TranscriptGrouping.feedInput(text) {
                     // #EXP-1772: a system input = THE inline marker (a
                     // hidden one never reaches the transcript).
-                    TranscriptMarkerRow(label: label, icon: nil)
+                    TranscriptMarkerRow(label: label)
                 } else if let divider = Chats.commandDivider(text) {
                     // EXP-1373: `/new` and `/compact` = the centred divider.
                     TranscriptDividerPill(
@@ -4282,21 +4282,25 @@ private struct PermissionRow: View {
 /// system input's too (`label` = transcript-grouping.json `copy.markers`).
 struct TranscriptMarkerRow: View {
     var label: String = AgentFeed.compactedLabel
-    var icon: String? = AppIcons.codingCompact
 
     var body: some View {
-        HStack(spacing: 6) {
-            Spacer(minLength: 0)
-            if let icon {
-                AppIcon(icon, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+        // The web row: the label between two hairlines (`bg-border/60`).
+        HStack(spacing: 8) {
+            hairline
             Text(label)
                 .transcriptToolText()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Spacer(minLength: 0)
+                .layoutPriority(1)
+            hairline
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var hairline: some View {
+        Rectangle()
+            .fill(DesignTokens.Palette.border.opacity(0.6))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
     }
 }
 

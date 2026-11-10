@@ -643,7 +643,7 @@ struct ChatTranscriptSpecimens: View {
                 }
             }
         } else if let marker = row.marker {
-            TranscriptMarkerRow(label: marker, icon: nil)
+            TranscriptMarkerRow(label: marker)
         } else {
             switch row.item.id {
             case "surface":
