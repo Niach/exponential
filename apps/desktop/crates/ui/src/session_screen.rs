@@ -465,6 +465,7 @@ mod tests {
     /// and its header always holds the way back: the chat by name, `Back` with
     /// the agent not synced; with no root at all, the history's.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_child_of_an_agent_chat_always_has_a_back_link(cx: &mut gpui::TestAppContext) {
         const BACK: &str = "session-back-link";
         cx.update(|cx| {

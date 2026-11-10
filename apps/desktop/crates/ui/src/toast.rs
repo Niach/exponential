@@ -84,6 +84,7 @@ pub(crate) enum ToastKind {
 
 impl ToastKind {
     /// Every kind, in the contract's `kinds` order.
+    #[cfg(test)]
     pub(crate) const ALL: [ToastKind; 4] = [Self::Success, Self::Error, Self::Info, Self::Warning];
 
     /// The contract spelling (`constants.kinds`).
@@ -323,11 +324,6 @@ fn face(toast: &Toast, content: f32, dismiss: Option<Dismiss>, cx: &App) -> Div 
 /// same [`face`] the live layer draws.
 pub(crate) fn card(toast: &Toast, cx: &App) -> Div {
     face(toast, 1., None, cx)
-}
-
-/// A card BEHIND the front one in a collapsed stack: the edge alone.
-pub(crate) fn card_back(toast: &Toast, cx: &App) -> Div {
-    face(toast, 0., None, cx)
 }
 
 // ---------------------------------------------------------------------------

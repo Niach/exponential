@@ -1,5 +1,4 @@
-/* The site's own parts, shared with the styleguide (apps/styleguide
-   entries site-mega-menu and site-cta-band inline this file): the header's
+/* The site's own parts: the header's
    mega menu, the closing band with the curve motif, and the site's motion
    (headline rise, scroll reveal, curve draw). Starlight's --sl-* variables
    are the only inputs. */

@@ -5,7 +5,7 @@
 // label (a 700 ms buffer; one repeated letter cycles).
 
 import { LAYOUT_CONSTANTS } from "../layout"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "../overlay"
+import { OVERLAY_OFFSET, OVERLAY_PADDING, placeInsetOverlay } from "../overlay"
 import type { UiNode } from "../types"
 
 /** The TYPE-AHEAD buffer resets after this pause (ms). */
@@ -47,8 +47,11 @@ export function typeaheadStep(buffer: TypeaheadBuffer, key: string, now: number,
  *  hangs `selectPillPopupOffset` under the pill, starting
  *  `selectPillPopupInset` OUTSIDE its aligned edge (`alignOffset`, the
  *  popper's: negative = outward for `start` and `end`, none centred), the
- *  same margin; a field's off the trigger by the overlay defaults. */
-export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; alignOffset: number; collisionPadding: number } {
+ *  same margin; a field's off the trigger by the overlay defaults. `inset`
+ *  (a pill's) = `placeInsetOverlay`'s: after the shift and flip the box
+ *  moves to whole px from the pill (Solid's popper middleware, React's
+ *  `insetPopupNudge`). */
+export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; alignOffset: number; collisionPadding: number; inset: number | undefined } {
   const row = props.triggerVariant === `row`
   const pill = props.triggerVariant === `pill`
   const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : `start`
@@ -62,7 +65,26 @@ export function selectPopupGeometry(props: Record<string, unknown>, triggerWidth
     sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : pill ? LAYOUT_CONSTANTS.selectPillPopupOffset! : OVERLAY_OFFSET,
     alignOffset: pill && align !== `center` ? -LAYOUT_CONSTANTS.selectPillPopupInset! : 0,
     collisionPadding: row || pill ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
+    inset: pill ? LAYOUT_CONSTANTS.selectPillPopupInset! : undefined,
   }
+}
+
+/** #EXP-1629: how far a pill popup's content moves (a `translate`) from
+ *  where Radix's popper put its `wrapper` (which rounds to device px and
+ *  takes no middleware) onto `placeInsetOverlay`'s box: the inset, the
+ *  clamp, then whole px from the `trigger`. Null until the wrapper is laid
+ *  out (or with no `inset`). Under RTL the popper's `start` is the right
+ *  edge, as floating-ui reads the wrapper's direction. */
+export function insetPopupNudge(trigger: Element, wrapper: HTMLElement, geometry: { align: `start` | `center` | `end`; sideOffset: number; collisionPadding: number; inset: number | undefined }): { x: number; y: number } | null {
+  if (geometry.inset === undefined) return null
+  const w = wrapper.getBoundingClientRect()
+  if (w.width === 0 && w.height === 0) return null
+  const t = trigger.getBoundingClientRect()
+  const doc = wrapper.ownerDocument.documentElement
+  const rtl = getComputedStyle(wrapper).direction === `rtl`
+  const align = rtl && geometry.align !== `center` ? (geometry.align === `start` ? `end` : `start`) : geometry.align
+  const at = placeInsetOverlay({ x: t.left, y: t.top, width: t.width, height: t.height }, { width: w.width, height: w.height }, { width: doc.clientWidth, height: doc.clientHeight }, { side: `bottom`, align, offset: geometry.sideOffset, padding: geometry.collisionPadding }, geometry.inset)
+  return { x: at.x - w.left, y: at.y - w.top }
 }
 
 /** #EXP-1765: the Skeleton a `loading` Select's list holds in place of its
