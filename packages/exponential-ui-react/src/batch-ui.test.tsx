@@ -157,7 +157,7 @@ describe(`Skeleton rows`, () => {
       cleanup()
       const root = tree({ id: `sk`, component: `Skeleton`, props: c.skeleton } as unknown as NestedNode)
       const { container } = render(<ExponentialSurface root={root} theme="exponential" id="sk" />)
-      for (const [id, [, , w, h]] of Object.entries(c.frames)) {
+      for (const [id, [, , , h]] of Object.entries(c.frames)) {
         const el = container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement | null
         expect(el, `${c.name}: ${id}`).not.toBeNull()
         if (/\.row\.\d+$/.test(id)) expect(el!.style.height, `${c.name}: ${id}`).toBe(`${h}px`)
