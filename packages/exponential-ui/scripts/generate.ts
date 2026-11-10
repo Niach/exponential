@@ -1037,6 +1037,19 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
       },
     },
+  }, {
+    // #EXP-1762: THE session composer, flat: "+" left, the field growing
+    // upward, the context Ring + send right, all on one bottom-aligned row.
+    label: `layout · flat`,
+    node: {
+      id: `flat`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        leading: { id: `flat_options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `flat_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `flat_context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
   }],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),
   // then the same rows of a query in compact euros.

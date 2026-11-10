@@ -61,7 +61,7 @@
     "FileUpload": { "parts": ["root", "label", "dropzone", "icon", "hint", "file", "fileName", "fileMeta", "remove", "description", "error", "title", "browse", "fileIcon"], "props": ["multiple", "disabled"] },
     "QrScanner": { "parts": ["root", "viewfinder", "feed", "corner", "scanLine", "placeholder", "placeholderIcon", "hint"], "props": ["disabled"] },
     "CodeBlock": { "parts": ["root", "header", "title", "copy", "gutter", "line", "lineNumber", "token", "body", "code"], "props": ["lineNumbers", "wrap", "kind", "variant", "size"] },
-    "Composer": { "parts": ["root", "field", "placeholder", "attachment", "send"], "props": ["attachments", "busy"] },
+    "Composer": { "parts": ["root", "field", "placeholder", "attachment", "send"], "props": ["attachments", "busy", "layout"] },
     "TreeGuides": { "parts": ["root", "line"], "props": ["tee"] },
     "Unknown": { "parts": ["root", "label"], "props": [] }
   }

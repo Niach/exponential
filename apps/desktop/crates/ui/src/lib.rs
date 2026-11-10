@@ -279,7 +279,14 @@ mod transcript_bench;
 #[cfg(test)]
 mod shell_bench;
 #[cfg(test)]
+mod rail_bench;
+#[cfg(test)]
 mod settings_bench;
+/// #EXP-1488: the accessible-name rules (eui-gpui's `tests/accessible_names.rs`),
+/// compiled here too so the desktop job's lib tests run them on every IDE change.
+#[cfg(test)]
+#[path = "../../eui-gpui/tests/accessible_names.rs"]
+mod accessible_names;
 #[cfg(test)]
 mod picker_bench;
 

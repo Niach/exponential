@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `multiple` (#EXP-1629), React's: `joinTop` / `joinBottom` on a picked item next to another shown pick. A parity case (with and without search).
+- Composer `layout: "flat"` (#EXP-1762), like React: the leading slot in its own bar before the field, one row.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only (parity with React).
 - Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.
 - `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
