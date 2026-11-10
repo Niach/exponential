@@ -1754,3 +1754,36 @@ fn a_composer_attaches_a_pasted_image_like_the_fixture(cx: &mut TestAppContext) 
         assert_eq!(draft, c["draft"], "{name}: /draft");
     }
 }
+
+/// The laid-out height of a 400 px surface holding one Textarea (`props`).
+fn textarea_height(cx: &mut TestAppContext, mut props: Value) -> f32 {
+    init(cx);
+    props["label"] = json!("Prompt");
+    props["name"] = json!("prompt");
+    // The team prompt's variant (the `field` variant pins its height).
+    props["variant"] = json!("code");
+    let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, ..Default::default() };
+    let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+    view.update(vcx, |v, cx| {
+        v.set_width(400.0, cx);
+        let out = v.set_nested(serde_json::from_value::<NestedNode>(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Textarea", "props": props}]})).unwrap(), cx);
+        assert!(out.issues.is_empty(), "{:?}", out.issues);
+    });
+    draw(vcx);
+    draw(vcx);
+    view.read_with(vcx, |v, _| v.surface_height())
+}
+
+/// #EXP-1629: a 12k-char line without a break opportunity (a long URL, a
+/// hash) in an autosize Textarea (rows 10 → maxRows 40) wraps by character
+/// as gpui-component's field draws it, so the field grows to its 40 rows
+/// instead of measuring one line and scrolling at 10.
+#[gpui::test]
+fn an_autosize_textarea_grows_for_a_long_unbroken_line(cx: &mut TestAppContext) {
+    let hash = "a".repeat(12_000);
+    let long = textarea_height(cx, json!({"autosize": true, "rows": 10, "maxRows": 40, "value": hash}));
+    let forty = textarea_height(cx, json!({"rows": 40, "value": ""}));
+    let ten = textarea_height(cx, json!({"autosize": true, "rows": 10, "maxRows": 40, "value": "short"}));
+    assert!(ten < forty, "rows 10 ({ten}) is shorter than 40 ({forty})");
+    assert_eq!(long, forty, "the long line fills maxRows");
+}
