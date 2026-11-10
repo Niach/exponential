@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `pill` popup EXACTLY where `placeInsetOverlay` puts it (#EXP-1629): `popperWrapper` gains `inset`, a middleware after the shift and flip moving the box to whole px from the pill (`snapInset`, half away from zero), its translate then not rounded to device px; lands where React's nudge does. The browser overlay suite replays the `overlay-geometry.json` `inset` cases with no tolerance, plain and searchable (harness `?view=inset`).
 - Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`), React's.
 - Input `variant: "box"` + `size` (#EXP-1629): React's: no label part, `aria-label` on the field. Parity case (Input box sm, typing).
