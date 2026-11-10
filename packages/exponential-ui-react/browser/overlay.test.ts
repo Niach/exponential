@@ -7,7 +7,7 @@ import { placeInsetOverlay, placeOverlay } from "@exponential_app/eui"
 import overlays from "@exponential_app/eui/fixtures/overlay-geometry.json"
 import { openPage, startHarness, type Harness } from "./support"
 
-type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; align?: `start` | `center` | `end`; expected: { x: number; y: number; side: string; flipped: boolean } }
+type Case = { name: string; anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: `top` | `right` | `bottom` | `left`; align?: `start` | `center` | `end`; matchAnchorWidth?: boolean; expected: { x: number; y: number; side: string; flipped: boolean } }
 const cases = overlays.cases as Case[]
 const tolerance = overlays.tolerancePx as number
 
@@ -33,6 +33,8 @@ describe(`overlay-geometry.json in Chromium`, () => {
       expect(want.side).toBe(c.expected.side)
       expect(Math.abs(got.x - want.x), `x: radix ${got.x} rule ${want.x}`).toBeLessThanOrEqual(tolerance)
       expect(Math.abs(got.y - want.y), `y: radix ${got.y} rule ${want.y}`).toBeLessThanOrEqual(tolerance)
+      // `matchAnchorWidth`: the panel is exactly the anchor's width.
+      if (c.matchAnchorWidth) expect(Math.abs(got.w - c.anchor.width), `width: ${got.w} anchor ${c.anchor.width}`).toBeLessThanOrEqual(tolerance)
     })
   })
 })
