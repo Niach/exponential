@@ -340,10 +340,12 @@ fn kitchen_sink_uses_every_visible_component_at_least_once() {
     // sink already has. #EXP-1629: KeyRecorder joins with that rewrite too
     // (catalog-macros.json + template-items.json lock it). #EDE-65: Embed
     // (a nested surface) is locked by embed.json, not the sink.
+    // IconPicker and ColorPicker (Popover, Button, Box, Icon) join with that
+    // rewrite; catalog-macros.json locks them.
     let catalog = fixture("../catalog/core.catalog.json");
     let host_filled = |name: &str| catalog["components"][name]["props"].as_object().is_some_and(|p| p.values().any(|s| s["host"] == json!(true)));
     for name in component_names(false) {
-        assert!(seen.contains(&name) || name == "Calendar" || name == "Timeline" || name == "KeyRecorder" || name == "Embed" || host_filled(&name), "{name}");
+        assert!(seen.contains(&name) || name == "Calendar" || name == "Timeline" || name == "KeyRecorder" || name == "Embed" || name == "IconPicker" || name == "ColorPicker" || host_filled(&name), "{name}");
     }
 }
 
