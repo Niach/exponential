@@ -121,6 +121,7 @@ pub mod strings;
 pub mod style_check;
 pub mod surface;
 pub mod swipe;
+pub mod text_truncate;
 pub mod tabs_strip;
 pub mod theme;
 pub mod text_shimmer;

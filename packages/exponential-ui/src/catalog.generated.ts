@@ -87,7 +87,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
-  selectTrigger: ["field","row","pill"],
+  selectTrigger: ["field","row","pill","button"],
   inputVariant: ["field","row","bare","code","box"],
   inputSize: ["default","sm"],
   textareaVariant: ["field","row","code"],
@@ -234,7 +234,7 @@ export interface ComponentProps {
   Toolbar: { gap?: GapValue }
   Section: { title?: string | Dynamic; caption?: string | Dynamic; count?: number | Dynamic; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean | Dynamic; style?: Style }
   Group: { title?: string; footer?: string }
-  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
+  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
   Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }

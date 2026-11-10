@@ -1971,6 +1971,13 @@
           "type": "number",
           "description": "Truncates to this many lines with an ellipsis."
         },
+        "truncate": {
+          "enum": [
+            "end",
+            "middle"
+          ],
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
         "tone": {
           "enum": [
             "neutral",
@@ -13146,9 +13153,10 @@
           "enum": [
             "field",
             "row",
-            "pill"
+            "pill",
+            "button"
           ],
-          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule.",
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule; `button` = an outline small button.",
           "default": "field"
         },
         "align": {

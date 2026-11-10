@@ -401,7 +401,11 @@ impl Builder<'_, '_> {
         // #EXP-1765: a `pill` trigger is a capsule (the field trigger's parts,
         // the `Select.dropdown` glyph); its label stays the accessible name.
         let pill = variant == "pill";
-        let owner = self.field_open_with(index, !row && !pill);
+        // #EXP-1778: a `button` trigger is the outline small Button (the
+        // field trigger's parts, the `Select.dropdown` glyph, the label the
+        // accessible name), its popup the IDE's pointer menu.
+        let button = variant == "button";
+        let owner = self.field_open_with(index, !row && !pill && !button);
         // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
@@ -413,8 +417,8 @@ impl Builder<'_, '_> {
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
-        if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, if pill || button { "Select.dropdown" } else { "Select.trigger" }), None) };
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| (pill || button) && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
         self.field_close(&owner, Some(trigger));

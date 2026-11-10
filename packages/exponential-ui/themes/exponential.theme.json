@@ -964,6 +964,34 @@
             "backgroundColor": "#ffffff0b",
             "opacity": 1
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "button"
+          },
+          "style": {
+            "height": 32,
+            "minHeight": 32,
+            "paddingHorizontal": 12,
+            "paddingVertical": 0,
+            "gap": 4,
+            "borderRadius": "$radius.md",
+            "borderWidth": 1,
+            "borderColor": "$color.border",
+            "backgroundColor": "$color.secondary",
+            "color": "$color.foreground",
+            "fontSize": 12.25,
+            "lineHeight": 17.5
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "button",
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
         }
       ],
       "label": [
@@ -1068,6 +1096,17 @@
             "color": "$color.mutedForeground",
             "opacity": 1
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "button"
+          },
+          "style": {
+            "width": 14,
+            "height": 14,
+            "color": "$color.mutedForeground",
+            "opacity": 1
+          }
         }
       ],
       "description": [
@@ -1132,6 +1171,19 @@
           "style": {
             "padding": 3.5,
             "gap": 3.5,
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.popover",
+            "backgroundClip": "padding-box",
+            "borderColor": "#ffffff19"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "button"
+          },
+          "style": {
+            "padding": 4,
+            "gap": 2,
             "borderRadius": "$radius.md",
             "boxShadow": "$shadow.popover",
             "backgroundClip": "padding-box",
@@ -1277,6 +1329,19 @@
             "fontSize": 10.5,
             "lineHeight": 16.99
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "button"
+          },
+          "style": {
+            "height": 26,
+            "paddingHorizontal": 8,
+            "gap": 4,
+            "borderRadius": "$radius.sm",
+            "fontSize": 12.25,
+            "lineHeight": 17.5
+          }
         }
       ],
       "button": [
@@ -1330,6 +1395,15 @@
             "width": 10.5,
             "height": 10.5,
             "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "button"
+          },
+          "style": {
+            "width": 12,
+            "height": 12
           }
         }
       ],

@@ -444,6 +444,12 @@ fn copy_pill(id: SharedString, label: String, text: String, copied: String) -> B
         })
 }
 
+/// One mono line, middle-truncated (start…end): a hook's URL and the
+/// shown-once secret (#EXP-1778: genUI Text `truncate: "middle"`).
+pub(crate) fn mid_text(text: impl Into<SharedString>, mono: SharedString) -> gpui::Div {
+    div().font_family(mono).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(text.into())
+}
+
 /// #VAPP-238: the Webhooks group (`app-settings-webhooks`), under
 /// Automations, `None` when the published package listens on none: one row
 /// per hook = the name (mono) over its URL (mono, muted, middle-truncated)
@@ -479,16 +485,7 @@ pub(crate) fn webhooks_group(
                     .flex_1()
                     .min_w_0()
                     .child(div().text_sm().font_family(mono.clone()).truncate().child(hook.name.clone()))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_family(mono.clone())
-                            .text_color(muted)
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis_middle()
-                            .child(hook.url.clone()),
-                    ),
+                    .child(mid_text(hook.url.clone(), mono.clone()).text_xs().text_color(muted)),
             )
             .child(
                 crate::surface::glass_pill(
@@ -531,15 +528,7 @@ pub(crate) fn webhooks_group(
                             .flex_1()
                             .min_w_0()
                             .child(div().text_xs().text_color(muted).truncate().child(copy.secret.clone()))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_family(mono.clone())
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_ellipsis_middle()
-                                    .child(secret.clone()),
-                            ),
+                            .child(mid_text(secret.clone(), mono.clone()).text_sm()),
                     )
                     .child(copy_pill(
                         SharedString::from(format!("app-webhook-copy-secret-{}", hook.name)),

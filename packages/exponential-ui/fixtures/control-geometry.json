@@ -797,6 +797,19 @@
               "borderWidth": 1,
               "borderRadius": 8
             }
+          },
+          "triggerVariant=button": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "button"
+            },
+            "geometry": {
+              "paddingHorizontal": 12,
+              "borderWidth": 1,
+              "borderRadius": 8
+            }
           }
         }
       },
@@ -2355,6 +2368,23 @@
               "borderWidth": 1,
               "borderRadius": 9999
             }
+          },
+          "triggerVariant=button": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "button"
+            },
+            "geometry": {
+              "height": 32,
+              "minHeight": 32,
+              "paddingHorizontal": 12,
+              "paddingVertical": 0,
+              "gap": 4,
+              "borderWidth": 1,
+              "borderRadius": 10
+            }
           }
         }
       },
@@ -3902,6 +3932,19 @@
               "searchable": false,
               "disabled": false,
               "triggerVariant": "pill"
+            },
+            "geometry": {
+              "paddingHorizontal": 16,
+              "borderWidth": 3,
+              "borderRadius": 9999
+            }
+          },
+          "triggerVariant=button": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "button"
             },
             "geometry": {
               "paddingHorizontal": 16,
@@ -5468,6 +5511,23 @@
               "gap": 3.5,
               "borderWidth": 1,
               "borderRadius": 9999
+            }
+          },
+          "triggerVariant=button": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "button"
+            },
+            "geometry": {
+              "height": 32,
+              "minHeight": 32,
+              "paddingHorizontal": 12,
+              "paddingVertical": 0,
+              "gap": 4,
+              "borderWidth": 1,
+              "borderRadius": 10
             }
           }
         }

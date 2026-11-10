@@ -380,7 +380,8 @@
     "selectTrigger": [
       "field",
       "row",
-      "pill"
+      "pill",
+      "button"
     ],
     "inputVariant": [
       "field",
@@ -2052,6 +2053,14 @@
         "lines": {
           "type": "number",
           "description": "Truncates to this many lines with an ellipsis."
+        },
+        "truncate": {
+          "type": "enum",
+          "values": [
+            "end",
+            "middle"
+          ],
+          "description": "One line; `middle` keeps the start and end (start…end)."
         },
         "tone": {
           "type": "enum",
@@ -5363,7 +5372,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule; `button` = an outline small button."
         },
         "align": {
           "type": "enum",
