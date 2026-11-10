@@ -69,6 +69,7 @@ ${ROUND2_CSS}
 .xui-surface{display:block;position:relative;font-family:var(--xui-font-sans);color:var(--xui-color-foreground);font-size:var(--xui-type-size-sm);line-height:var(--xui-type-lineHeight-sm);-webkit-font-smoothing:antialiased}
 .xui-surface *{box-sizing:border-box}
 .xui-container{container-type:inline-size;container-name:xui;width:100%;position:relative}
+[data-xui-c="Embed"].xui-el>.xui-surface{flex:1 1 0%;min-width:0}
 :where([data-xui-part]){border:0 solid transparent}
 .xui-el{box-sizing:border-box;display:flex;flex-direction:row;position:relative;margin:0;padding:0;border:0 solid transparent;min-width:auto;min-height:auto;font:inherit;color:inherit;background:transparent;text-align:start;text-decoration:none;outline:none;appearance:none;-webkit-appearance:none}
 button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav){margin:0;padding:0;border:0 solid transparent;background:transparent;color:inherit;font:inherit;appearance:none;-webkit-appearance:none}
