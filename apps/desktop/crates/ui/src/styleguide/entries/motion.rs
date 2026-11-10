@@ -1,7 +1,7 @@
 //! EXP-1604: `motion` (General components): THE eUI Motion painted by the
 //! gpui painter (`eui_gpui::motion`, the raster → RenderImage path). The
 //! specimens are the web entry's own file
-//! (`apps/styleguide/src/entries/motion.specimens.json`), so the twin cannot
+//! (`packages/exponential-ui/fixtures/motion.specimens.json`), so the twin cannot
 //! drift: a spinner, a success check drawing on, a Slider scrubbing a
 //! Motion through its bound `progress`, and a themed illustration in light
 //! and dark; EXP-1605: the `interactive` state-machine specimens (a like
@@ -17,7 +17,7 @@ use crate::exponential_ui_screen::styleguide_surface_in;
 pub(crate) const ID: &str = "motion";
 pub(crate) const OWNER: &str = "EXP-1604";
 
-const SPECIMENS: &str = include_str!("../../../../../../styleguide/src/entries/motion.specimens.json");
+const SPECIMENS: &str = include_str!("../../../../../../../packages/exponential-ui/fixtures/motion.specimens.json");
 
 fn specimens() -> Value {
     serde_json::from_str(SPECIMENS).expect("motion.specimens.json")

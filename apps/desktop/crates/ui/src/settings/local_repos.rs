@@ -63,30 +63,23 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    div, App, Div, Entity, FontWeight, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
-    h_flex,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use sync::Store;
+
+use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
 
 use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 use coding::CodingAgent;
 
 use crate::coding_flow::{CodingHub, LocalSessions};
-use crate::controls::WebControl as _;
 use crate::file_tree::{self, OpenAgentShellHere, OpenTerminalHere};
 use crate::native_dialog::{self, AlertSpec};
 use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
-use crate::surface;
 
-use super::section;
-use crate::icons::registry;
+use super::doc::{and, empty_state, faded, hex, path, IdeToasts, Ink, PillPaint, SM, VALUE_ALPHA, XS};
 
 // ---------------------------------------------------------------------------
 // Background scan model
@@ -244,11 +237,31 @@ pub struct LocalReposPane {
     /// constructed without a window): it maps a scanned `owner/name` back to
     /// the team's `repositories` row id, which the agent launches need.
     resolver: Option<Entity<RepoResolver>>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// The bench's state (headless has no clones or sessions).
+    #[cfg(test)]
+    shot: Option<LocalShot>,
     _subscriptions: Vec<Subscription>,
 }
 
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct LocalShot {
+    /// The clones: full name, size (`None` = still measuring), worktrees
+    /// (directory name, branch); `None` = the first scan is still out.
+    pub repos: Option<Vec<(String, Option<u64>, Vec<(String, Option<String>)>)>>,
+    /// The disk's free and capacity bytes.
+    pub disk: Option<(u64, u64)>,
+    /// Clones a live session holds.
+    pub in_use: Vec<String>,
+    /// A clone mid-prune and the report under a clone: (full name, text).
+    pub busy: Option<String>,
+    pub message: Option<(String, String)>,
+}
+
 impl LocalReposPane {
-    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // EXP-369: the worktree rows dispatch the file-tree terminal actions;
         // registration is a process-wide `Once`, so claiming it here keeps the
         // pane working even in a window whose file tree was never built.
@@ -280,7 +293,45 @@ impl LocalReposPane {
                 cx.notify();
             }),
         ];
+        // Every action leaves the binding for the pane (the confirms and the
+        // terminal dispatch need its window).
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(std::rc::Rc::new(IdeToasts));
+            for name in ["refresh", "pruneAll", "prune", "removeRepo", "removeWorktree", "terminal"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, &value, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let theme = cx.theme();
+        let chrome = Chrome {
+            foreground: hex(theme.foreground),
+            muted: hex(theme.muted_foreground),
+            danger: hex(theme.danger),
+            warning: hex(theme.warning),
+            ghost_hover: hex(theme.secondary_hover),
+            skeleton: hex(theme.muted_foreground.opacity(0.18)),
+            skeleton_value: hex(theme.skeleton),
+            radius_md: eui_gpui::chrome::Chrome::global(cx).radius_md,
+        };
+        let plugin: std::rc::Rc<dyn HostPlugin> = std::rc::Rc::new(PanePlugin { inner: super::doc::ide_plugin() });
+        let view = super::doc::mount_with("settings-local-repos", document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
         Self {
+            binding,
+            view,
             scan: Scan::Idle,
             scanned_root: None,
             sizes: HashMap::new(),
@@ -290,8 +341,69 @@ impl LocalReposPane {
             generation: 0,
             actions: HashMap::new(),
             resolver: None,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
+    }
+
+    /// The pane in a pinned state, its clones under `/bench/repos`.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: LocalShot, cx: &mut gpui::Context<Self>) {
+        let root = PathBuf::from("/bench/repos");
+        // A scan the first frame started (the real root) never lands.
+        self.generation += 1;
+        self.scanning = false;
+        self.scanned_root = Some(root.clone());
+        self.scan = match &shot.repos {
+            None => Scan::Idle,
+            Some(repos) => Scan::Ready(
+                repos
+                    .iter()
+                    .map(|(name, size, worktrees)| RepoEntry {
+                        full_name: name.clone(),
+                        clone_path: root.join(name),
+                        size_bytes: *size,
+                        worktrees: worktrees
+                            .iter()
+                            .map(|(dir, branch)| WorktreeRow { path: root.join(format!("{name}.worktrees")).join(dir), branch: branch.clone() })
+                            .collect(),
+                    })
+                    .collect(),
+            ),
+        };
+        self.disk = shot.disk.map(|disk| (disk, Instant::now()));
+        if let Some(name) = &shot.busy {
+            self.action_mut(name).busy = true;
+        }
+        if let Some((name, text)) = &shot.message {
+            self.action_mut(name).message = Some(SharedString::from(text.clone()));
+        }
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The repos root (the bench's, under test).
+    fn root(&self, cx: &mut App) -> PathBuf {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return PathBuf::from("/bench/repos");
+        }
+        CodingHub::global(cx).read(cx).settings.repos_root_path()
+    }
+
+    /// Whether a live session holds `clone` (the bench's list, under test).
+    fn clone_held(&self, clone: &Path, live: &HashSet<String>) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.in_use.iter().any(|name| clone.ends_with(name));
+        }
+        clone_in_use(clone, live)
     }
 
     /// Bind (once) the window's shared repo resolver and keep it warm — the
@@ -332,6 +444,10 @@ impl LocalReposPane {
     /// so the rows paint immediately; [`Self::measure_sizes`] fills the disk
     /// usage in afterwards under the same `generation`.
     fn ensure_scanned(&mut self, root: PathBuf, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         let same_root = self.scanned_root.as_ref() == Some(&root);
         let have_result = matches!(self.scan, Scan::Ready(_));
         if same_root && !self.stale && (self.scanning || have_result) {
@@ -614,7 +730,7 @@ impl LocalReposPane {
             ),
             "Remove worktree",
         )
-        .ok_variant(ButtonVariant::Danger)
+        .ok_variant(gpui_component::button::ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let full_name = full_name.clone();
             let clone = clone.clone();
@@ -649,6 +765,10 @@ impl LocalReposPane {
     /// [`DISK_TTL`]. Takes `&mut self` because the reading is cached on the
     /// pane, and it is read from the render.
     fn disk_headroom(&mut self, root: &Path) -> Option<(u64, u64)> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.disk;
+        }
         if let Some((reading, at)) = self.disk {
             if at.elapsed() < DISK_TTL {
                 return Some(reading);
@@ -684,7 +804,7 @@ impl LocalReposPane {
             ),
             "Remove local copy",
         )
-        .ok_variant(ButtonVariant::Danger)
+        .ok_variant(gpui_component::button::ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let full_name = full_name.clone();
             let clone = clone.clone();
@@ -700,482 +820,356 @@ impl LocalReposPane {
     /// usage + worktree count, its own broom and the confirmed
     /// "Remove local copy". The worktrees themselves are no longer nested
     /// here — they are the flat group above, across every clone.
-    fn render_repo_row(
-        &self,
-        ix: usize,
-        repo: &RepoEntry,
-        in_use: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> Div {
-        let action = self.actions.get(&repo.full_name);
-        let busy = action.map(|a| a.busy).unwrap_or(false);
-        let count = repo.worktrees.len();
-        let worktrees_label = if count == 1 {
-            "1 worktree".to_string()
-        } else {
-            format!("{count} worktrees")
-        };
-
-        let meta = h_flex()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(Icon::new(registry::SETTINGS_STORAGE).xsmall())
-                    // Phase 2 still walking this clone (first scan only — a
-                    // re-scan carries the previous number forward).
-                    .child(match repo.size_bytes {
-                        Some(bytes) => div()
-                            .child(SharedString::from(format_size(bytes)))
-                            .into_any_element(),
-                        None => crate::controls::skeleton().h_3().w_12().into_any_element(),
-                    }),
-            )
-            .child(div().child("·"))
-            .child(SharedString::from(worktrees_label));
-
-        let name_col = v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_0p5()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(repo.full_name.clone())),
-            )
-            .child(meta);
-
-        let prune = {
-            let full_name = repo.full_name.clone();
-            let clone = repo.clone_path.clone();
-            Button::new(("repo-prune", ix))
-                .ghost()
-                .web_icon_xs()
-                .icon(registry::UI_CLEAN)
-                .tooltip(
-                    "Remove worktrees whose work has landed on the default branch \
-                     (merged PR, squash merges included, or a finished issue) and \
-                     delete stale session branches. Uncommitted changes to tracked \
-                     files are never discarded; live sessions are never touched.",
-                )
-                .loading(busy)
-                .disabled(busy || count == 0)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.run_prune(full_name.clone(), clone.clone(), window, cx);
-                }))
-        };
-
-        let remove = {
-            let full_name = repo.full_name.clone();
-            let clone = repo.clone_path.clone();
-            // EXP-720: a Sm pill like every other row-trailing destructive
-            // action (API keys' Revoke), the trash glyph carrying the tint.
-            let mut button = surface::glass_pill_button(
-                ("repo-remove", ix),
-                surface::PillSize::Sm,
-                cx,
-            )
-                .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
-                    cx.theme().muted_foreground
-                } else {
-                    cx.theme().danger
-                }))
-                .label("Remove local copy")
-                .disabled(busy || in_use);
-            if in_use {
-                button = button
-                    .tooltip("A session is active on this repository. Stop it first.");
-            } else {
-                button = button
-                    .tooltip("Delete the local clone and its worktrees from disk (confirmed).")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_remove(full_name.clone(), clone.clone(), window, cx);
-                    }));
-            }
-            button
-        };
-
-        // EXP-1076: one rung of the hairline LADDER every settings entity
-        // list wears (`list_row` + `flat_row`, the web `SETTINGS_LIST_CLASS`
-        // twin) — a clone is an object, not a field of a form.
-        let row = surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .child(
-                Icon::new(registry::UI_FOLDER)
-                    .small()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(name_col)
-            .child(h_flex().gap_1().flex_shrink_0().child(prune).child(remove));
-
-        // A prune/remove report lands under its own row, inside the ladder.
-        match action.and_then(|a| a.message.clone()) {
-            Some(text) => v_flex().w_full().child(row).child(
-                div()
-                    .px_3()
-                    .pb_2()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(text),
-            ),
-            None => row,
-        }
+    /// The worktree row's terminal menu: every installed agent (inert
+    /// without a matching team repository: no installation token to mint),
+    /// then "New shell" (EXP-697: no dividers in menus).
+    fn terminal_items(installed: &[CodingAgent], has_repository: bool) -> Vec<Value> {
+        let mut items: Vec<Value> = installed
+            .iter()
+            .map(|agent| json!({"label": agent.label(), "value": format!("agent:{}", agent.id()), "icon": agent_icon_name(*agent), "disabled": !has_repository}))
+            .collect();
+        items.push(json!({"label": "New shell", "value": "shell", "icon": "nav-terminal"}));
+        items
     }
 
-    /// One worktree row of the FLAT worktrees group (EXP-369/694): its repo +
-    /// branch (or directory) over the path on disk, with the terminal
-    /// dropdown and the confirmed force-remove on the right. Not grouped by
-    /// clone any more — the machine's worktrees are ONE list.
-    #[allow(clippy::too_many_arguments)]
-    fn render_worktree_row(
-        &self,
-        repo_ix: usize,
-        wt_ix: usize,
-        repo: &RepoEntry,
-        worktree: &WorktreeRow,
-        repository_id: Option<&String>,
-        installed: &[CodingAgent],
-        busy: bool,
-        in_use: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> Div {
-        let path = worktree.path.to_string_lossy().into_owned();
-        // Element ids are (repo, worktree)-unique — gpui has no 3-tuple id.
-        let terminal_id = SharedString::from(format!("worktree-terminal-{repo_ix}"));
-        let remove_id = SharedString::from(format!("worktree-remove-{repo_ix}"));
-
-        let terminal = {
-            // Everything the menu dispatches is resolved here: the closure is
-            // an `Fn` that rebuilds its action boxes on every open.
-            let agents: Vec<CodingAgent> = installed.to_vec();
-            let repository_id = repository_id.cloned();
-            let full_name = repo.full_name.clone();
-            let path = path.clone();
-            crate::controls::PointerMenu::for_button(Button::new((terminal_id, wt_ix))
-                .ghost()
-                .web_icon_xs()
-                .icon(registry::NAV_TERMINAL)
-                .tooltip("Open a terminal in this worktree"),
-                move |mut menu, _window, _cx| {
-                    for agent in &agents {
-                        // No matching team repository ⇒ no repository_id ⇒ no
-                        // installation token to mint: the agent items stay
-                        // inert (a plain shell always works).
-                        let action = OpenAgentShellHere {
-                            agent: agent.id().to_string(),
-                            repository_id: repository_id.clone().unwrap_or_default(),
-                            full_name: full_name.clone(),
-                            path: path.clone(),
-                        };
-                        menu = menu.menu_with_icon_and_disabled(
-                            agent.label(),
-                            crate::coding_selects::agent_mark(*agent),
-                            Box::new(action),
-                            repository_id.is_none(),
-                        );
-                    }
-                    // EXP-697: no dividers in menus.
-                    menu.menu_with_icon(
-                        "New shell",
-                        Icon::new(registry::NAV_TERMINAL),
-                        Box::new(OpenTerminalHere { path: path.clone() }),
-                    )
-                })
-        };
-
-        let remove = {
-            let full_name = repo.full_name.clone();
-            let clone = repo.clone_path.clone();
-            let worktree = worktree.clone();
-            // A `--force` remove would yank a running agent's cwd — same gate
-            // as "Remove local copy", one level down.
-            let tip = if in_use {
-                "A session is active on this worktree. Stop it first."
-            } else {
-                "Remove this worktree from disk (confirmed)"
-            };
-            let mut button = Button::new((remove_id, wt_ix))
-                .ghost()
-                .web_icon_xs()
-                .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
-                    cx.theme().muted_foreground
-                } else {
-                    cx.theme().danger
-                }))
-                .disabled(busy || in_use)
-                .tooltip(tip);
-            if !in_use {
-                button = button
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_remove_worktree(
-                            full_name.clone(),
-                            clone.clone(),
-                            worktree.clone(),
-                            window,
-                            cx,
-                        );
-                    }));
-            }
-            button
-        };
-
-        let muted = cx.theme().muted_foreground;
-        // EXP-1076: a worktree row on the ladder's rhythm (`list_row` +
-        // `flat_row`, the web `SETTINGS_LIST_CLASS` twin).
-        surface::flat_row()
-            .flex()
-            .w_full()
-            .items_center()
-            .px_3()
-            .py_2()
-            .gap_2()
-            .min_w_0()
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .child(Icon::new(registry::UI_BRANCH).xsmall().text_color(muted)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        // The flat list spans every clone, so the row names
-                        // its repo (the device dialog's `repo branch` line).
-                        h_flex()
-                            .gap_1()
-                            .min_w_0()
-                            .text_xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .text_color(muted)
-                                    .child(SharedString::from(repo.full_name.clone())),
-                            )
-                            .child(worktree.label()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(muted.opacity(0.7))
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(path)),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap_1()
-                    .flex_shrink_0()
-                    .child(terminal)
-                    .child(remove),
-            )
-    }
-}
-
-impl Render for LocalReposPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "LocalReposPane").entered();
-        let root = CodingHub::global(cx).read(cx).settings.repos_root_path();
-        self.ensure_scanned(root.clone(), cx);
-        self.ensure_resolver(window, cx);
-        let hub = CodingHub::global(cx);
-        let installed: Vec<CodingAgent> = hub
+    /// The state as the document binds it.
+    fn project(&mut self, root: &Path, cx: &mut gpui::Context<Self>) -> Value {
+        let installed: Vec<CodingAgent> = CodingHub::global(cx)
             .read(cx)
             .doctor
             .report
             .as_ref()
             .map(|report| report.installed_agents())
             .unwrap_or_default();
-
-        // The count would be a REPO count — misleading under this title.
-        // EXP-694: the broom sits in the header, machine-wide.
         let sweeping = self.any_busy();
-        let has_worktrees = matches!(&self.scan, Scan::Ready(repos)
-            if repos.iter().any(|repo| !repo.worktrees.is_empty()));
-        // EXP-862: the broom rides the BAND's trailing slot as a ghost glyph;
-        // `loading` swaps it for the spinner.
-        let prune_all = crate::controls::ghost_icon_button(
-            "local-repos-prune-all",
-            Icon::new(registry::UI_CLEAN),
-            cx,
-        )
-        .loading(sweeping)
-        .tooltip("Prune merged worktrees")
-        .disabled(sweeping || !has_worktrees)
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.run_prune_all(window, cx);
-        }))
-        .into_any_element();
-        // EXP-862: Refresh rides the band's trailing slot too (a ghost glyph
-        // beside the broom) — a disk scan has no mutation to refetch it.
-        let refresh = crate::controls::ghost_icon_button(
-            "local-repos-refresh",
-            Icon::new(registry::UI_REFRESH),
-            cx,
-        )
-        .loading(self.scanning)
-        .tooltip("Refresh")
-        .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
-        .into_any_element();
-        let mut body = section(cx).child(crate::surface::glass_section_header(
-            "Worktrees",
-            Some(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(refresh)
-                    .child(prune_all)
-                    .into_any_element(),
-            ),
-            cx,
-        ));
-
-        body = body.child(
-            div()
-                .text_xs()
-                .font_family(theme::terminal::FONT_FAMILY)
-                .text_color(cx.theme().muted_foreground.opacity(0.7))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(SharedString::from(root.to_string_lossy().into_owned())),
-        );
-
-        // EXP-1020: worktrees are the one thing on this page that grows
-        // without being asked, so a disk running out is said HERE, next to
-        // the broom that frees it.
-        if let Some((free, capacity)) = self.disk_headroom(&root) {
-            if disk_is_low(free, capacity) {
-                body = body.child(
-                    div().text_xs().text_color(cx.theme().warning).child(
-                        SharedString::from(format!(
-                            "Only {} free on this disk. Pruning merged worktrees frees \
-                             what the agents left behind.",
-                            format_size(free)
-                        )),
-                    ),
-                );
+        let disk = self.disk_headroom(root).filter(|(free, capacity)| disk_is_low(*free, *capacity));
+        let mut out = json!({
+            "root": root.to_string_lossy(),
+            "diskLow": disk.is_some(),
+            "disk": disk.map(|(free, _)| format!("Only {} free on this disk. Pruning merged worktrees frees what the agents left behind.", format_size(free))).unwrap_or_default(),
+            "scanning": self.scanning,
+            "idle": !self.scanning,
+            "sweeping": sweeping,
+            "loading": matches!(self.scan, Scan::Idle),
+        });
+        let Scan::Ready(repos) = &self.scan else {
+            out["noRepos"] = json!(false);
+            out["hasRepos"] = json!(false);
+            out["pruneAllOff"] = json!(true);
+            out["pruneAllOn"] = json!(false);
+            return out;
+        };
+        let live = live_session_branches(cx);
+        let repository_ids = self.repository_ids(cx);
+        let mut worktrees = Vec::new();
+        let mut clones = Vec::new();
+        for repo in repos {
+            let action = self.actions.get(&repo.full_name);
+            let busy = action.is_some_and(|action| action.busy);
+            let worktrees_used: Vec<bool> = repo
+                .worktrees
+                .iter()
+                .map(|worktree| worktree_in_use(&repo.clone_path, worktree, &live) || worktree.branch.as_deref().is_some_and(|branch| local_session_on_branch(branch, cx)))
+                .collect();
+            // A held worktree holds its clone too, even when the
+            // branch→dir mapping didn't resolve.
+            let in_use = self.clone_held(&repo.clone_path, &live) || worktrees_used.iter().any(|used| *used);
+            let has_repository = repository_ids.contains_key(&repo.full_name);
+            for (ix, worktree) in repo.worktrees.iter().enumerate() {
+                let used = worktrees_used.get(ix).copied().unwrap_or(false);
+                worktrees.push(json!({
+                    "key": format!("{}\u{0}{}", repo.full_name, worktree.path.to_string_lossy()),
+                    "repo": repo.full_name,
+                    "label": worktree.label().to_string(),
+                    "path": worktree.path.to_string_lossy(),
+                    "items": Self::terminal_items(&installed, has_repository),
+                    "removeOff": busy || used,
+                    "removeOn": !(busy || used),
+                    "held": used,
+                    "free": !used,
+                    // A `--force` remove would yank a running agent's cwd.
+                    "removeTip": if used { "A session is active on this worktree. Stop it first." } else { "Remove this worktree from disk (confirmed)" },
+                }));
             }
+            let count = repo.worktrees.len();
+            clones.push(json!({
+                "key": repo.full_name,
+                "name": repo.full_name,
+                "sized": repo.size_bytes.is_some(),
+                "measuring": repo.size_bytes.is_none(),
+                "size": repo.size_bytes.map(format_size).unwrap_or_default(),
+                "count": if count == 1 { "1 worktree".to_string() } else { format!("{count} worktrees") },
+                "pruning": busy,
+                "pruneOff": !busy && count == 0,
+                "pruneOn": !busy && count > 0,
+                "held": in_use,
+                "free": !in_use,
+                "removeOff": busy || in_use,
+                "removeTip": if in_use { "A session is active on this repository. Stop it first." } else { "Delete the local clone and its worktrees from disk (confirmed)." },
+                "hasMessage": action.is_some_and(|action| action.message.is_some()),
+                "message": action.and_then(|action| action.message.clone()).map(|m| m.to_string()).unwrap_or_default(),
+            }));
         }
+        let has_worktrees = !worktrees.is_empty();
+        out["noRepos"] = json!(repos.is_empty());
+        out["hasRepos"] = json!(!repos.is_empty());
+        out["noWorktrees"] = json!(!has_worktrees);
+        out["hasWorktrees"] = json!(has_worktrees);
+        out["pruneAllOff"] = json!(!sweeping && !has_worktrees);
+        out["pruneAllOn"] = json!(!sweeping && has_worktrees);
+        out["worktrees"] = json!(worktrees);
+        out["repos"] = json!(clones);
+        out
+    }
 
-        match &self.scan {
-            // Only before the FIRST result (or right after a root change) —
-            // a re-scan keeps the rows it already has.
-            Scan::Idle => {
-                body = body.child(super::settings_skeleton("local-repos-skeleton", cx));
+    /// A document action: the band's Refresh and Prune-all, a clone's Prune
+    /// and Remove local copy, a worktree's Remove and terminal pick.
+    fn action(&mut self, name: &str, key: &str, value: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Scan::Ready(repos) = &self.scan else {
+            if name == "refresh" {
+                self.refresh(cx);
             }
-            Scan::Ready(repos) if repos.is_empty() => {
-                body = body.child(crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_LOCAL_REPOS),
-                    "No local repositories yet",
-                    cx,
-                ));
+            return;
+        };
+        let (repo_name, worktree_path) = key.split_once('\u{0}').unwrap_or((key, ""));
+        let Some(repo) = repos.iter().find(|repo| repo.full_name == repo_name).cloned().or_else(|| (name == "refresh" || name == "pruneAll").then(|| repos[0].clone())) else {
+            if name == "refresh" {
+                self.refresh(cx);
             }
-            Scan::Ready(repos) => {
-                // Snapshot (clone + in-use gates, repo AND per worktree) so
-                // the manager/collection borrows end before the row listeners
-                // borrow `cx`.
-                let live = live_session_branches(cx);
-                let rows: Vec<(RepoEntry, bool, Vec<bool>)> = repos
-                    .iter()
-                    .map(|repo| {
-                        let worktrees_used: Vec<bool> = repo
-                            .worktrees
-                            .iter()
-                            .map(|worktree| {
-                                worktree_in_use(&repo.clone_path, worktree, &live)
-                                    || worktree.branch.as_deref().is_some_and(|branch| {
-                                        local_session_on_branch(branch, cx)
-                                    })
-                            })
-                            .collect();
-                        // A held worktree holds its clone too, even when the
-                        // branch→dir mapping didn't resolve.
-                        let in_use = clone_in_use(&repo.clone_path, &live)
-                            || worktrees_used.iter().any(|used| *used);
-                        (repo.clone(), in_use, worktrees_used)
-                    })
-                    .collect();
-                let repository_ids = self.repository_ids(cx);
-                // EXP-694: ONE flat group of worktrees across every clone —
-                // no per-repo nesting, and a clone with none contributes
-                // nothing to it (it still gets its maintenance row below).
-                let mut worktree_rows: Vec<Div> = Vec::new();
-                for (repo_ix, (repo, _, worktrees_used)) in rows.iter().enumerate() {
-                    let busy = self
-                        .actions
-                        .get(&repo.full_name)
-                        .map(|action| action.busy)
-                        .unwrap_or(false);
-                    for (wt_ix, worktree) in repo.worktrees.iter().enumerate() {
-                        worktree_rows.push(self.render_worktree_row(
-                            repo_ix,
-                            wt_ix,
-                            repo,
-                            worktree,
-                            repository_ids.get(&repo.full_name),
-                            &installed,
-                            busy,
-                            worktrees_used.get(wt_ix).copied().unwrap_or(false),
-                            cx,
-                        ));
+            return;
+        };
+        match name {
+            "refresh" => self.refresh(cx),
+            "pruneAll" => self.run_prune_all(window, cx),
+            "prune" => self.run_prune(repo.full_name.clone(), repo.clone_path.clone(), window, cx),
+            "removeRepo" => self.confirm_remove(repo.full_name.clone(), repo.clone_path.clone(), window, cx),
+            "removeWorktree" => {
+                if let Some(worktree) = repo.worktrees.iter().find(|w| w.path.to_string_lossy() == worktree_path).cloned() {
+                    self.confirm_remove_worktree(repo.full_name.clone(), repo.clone_path.clone(), worktree, window, cx);
+                }
+            }
+            "terminal" => {
+                let path = worktree_path.to_string();
+                if value == "shell" {
+                    window.dispatch_action(Box::new(OpenTerminalHere { path }), cx);
+                } else if let Some(agent) = value.strip_prefix("agent:") {
+                    if let Some(repository_id) = self.repository_ids(cx).get(&repo.full_name).cloned() {
+                        window.dispatch_action(Box::new(OpenAgentShellHere { agent: agent.to_string(), repository_id, full_name: repo.full_name.clone(), path }), cx);
                     }
                 }
-                body = body.child(if worktree_rows.is_empty() {
-                    crate::controls::empty_state_list(
-                        gpui_component::Icon::new(crate::icons::registry::UI_BRANCH),
-                        "No worktrees",
-                        cx,
-                    )
-                } else {
-                    // EXP-1076: the gapless ladder under the band.
-                    v_flex().w_full().min_w_0().children(
-                        worktree_rows.into_iter().map(surface::list_row),
-                    )
-                });
-
-                // The clones themselves — disk usage and the maintenance
-                // actions — as their own flat group underneath.
-                let clone_rows: Vec<Div> = rows
-                    .iter()
-                    .enumerate()
-                    .map(|(ix, (repo, in_use, _))| self.render_repo_row(ix, repo, *in_use, cx))
-                    .collect();
-                body = body
-                    .child(crate::surface::glass_section_header(
-                        "Local repositories",
-                        None,
-                        cx,
-                    ))
-                    .child(
-                        v_flex().w_full().min_w_0().children(
-                            clone_rows.into_iter().map(surface::list_row),
-                        ),
-                    );
             }
+            _ => {}
         }
-
-        v_flex().child(body)
     }
+}
+
+/// The registry name of an agent's mark.
+fn agent_icon_name(agent: CodingAgent) -> &'static str {
+    match agent {
+        CodingAgent::Claude => "claude",
+        CodingAgent::Codex => "codex",
+    }
+}
+
+impl Render for LocalReposPane {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "LocalReposPane").entered();
+        let root = self.root(cx);
+        self.ensure_scanned(root.clone(), cx);
+        self.ensure_resolver(window, cx);
+        let projection = self.project(&root, cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The pane's plugin: the IDE's, the agents' brand marks in their colour
+/// (`coding_selects::mark_icon`).
+struct PanePlugin {
+    inner: crate::exponential_ui_host::IdePlugin,
+}
+
+impl HostPlugin for PanePlugin {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.inner.icon(name)
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        (name == "claude").then(|| { use gpui_component::Sizable as _; crate::coding_selects::mark_icon(crate::icons::ExpIcon::Claude).with_size(gpui::px(size)).into_any_element() }).or_else(|| self.inner.icon_element(name, size, color, cx))
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.inner.on_unknown(node)
+    }
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Chrome {
+    /// The ghost glyphs' plain ink and their disabled ink.
+    foreground: String,
+    muted: String,
+    danger: String,
+    warning: String,
+    ghost_hover: String,
+    skeleton: String,
+    skeleton_value: String,
+    radius_md: f32,
+}
+
+/// A `web_icon_xs` ghost `Button`: the 24 px circle, its `size_3` glyph in
+/// `tint`, the ghost hover; `loading` swaps the glyph for the spinner, a
+/// disabled one takes no press and draws a plain glyph muted at half (a
+/// tinted glyph keeps its own colour, as gpui-component's does).
+#[allow(clippy::too_many_arguments)]
+fn ghost_xs(chrome: &Chrome, id: &str, icon: &str, tint: &str, tip: Value, event: Value, visible: Value, dim: bool) -> Value {
+    let untinted = tint == chrome.foreground;
+    let mut button = json!({"id": id, "component": "Box", "visible": visible, "accessibility": {"label": tip.clone()},
+        "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24, "borderRadius": 9999},
+        "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": 10.5, "height": 10.5, "color": if dim && untinted { &chrome.muted } else { tint }, "opacity": if dim && untinted { 0.5 } else { 1.0 }}}]});
+    if !dim {
+        button["props"] = json!({"pressable": true});
+        button["on"] = json!({"press": {"event": event}});
+        button["style"]["cursor"] = json!("pointer");
+        button["style"][":hover"] = json!({"backgroundColor": chrome.ghost_hover});
+    }
+    json!({"id": format!("{id}_tip"), "component": "Tooltip", "visible": button["visible"].clone(), "props": {"content": tip}, "children": [button]})
+}
+
+/// `controls::ghost_icon_button` (the band's): the 32 px square on the
+/// medium radius, its `size_3p5` glyph at 70% (dimmed by half when
+/// disabled), the ghost hover.
+#[allow(clippy::too_many_arguments)]
+fn band_ghost(ink: &Ink, chrome: &Chrome, id: &str, icon: &str, tip: &str, event: Value, visible: Value, dim: bool) -> Value {
+    let glyph = ink.r(0.875);
+    let mut button = json!({"id": id, "component": "Box", "accessibility": {"label": tip},
+        "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": ink.radius_md},
+        "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": if dim { &ink.muted } else { &ink.foreground }, "opacity": if dim { 0.5 } else { VALUE_ALPHA }}}]});
+    if !dim {
+        button["props"] = json!({"pressable": true});
+        button["on"] = json!({"press": {"event": event}});
+        button["style"]["cursor"] = json!("pointer");
+        button["style"][":hover"] = json!({"backgroundColor": chrome.ghost_hover});
+    }
+    json!({"id": format!("{id}_tip"), "component": "Tooltip", "visible": visible, "props": {"content": tip}, "children": [button]})
+}
+
+/// The band button's spinner (its `loading` look).
+fn band_spinner(ink: &Ink, id: &str, visible: Value, disabled: bool) -> Value {
+    let glyph = ink.r(0.875);
+    let (color, alpha) = if disabled { (&ink.muted, 0.5) } else { (&ink.foreground, VALUE_ALPHA) };
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32},
+        "children": [{"id": format!("{id}_spin"), "component": "Spinner", "style": {"width": glyph, "height": glyph, "color": color, "opacity": alpha}}]})
+}
+
+/// The 24 px ghost slot's spinner (a busy button).
+fn ghost_spinner(ink: &Ink, id: &str, visible: Value) -> Value {
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24},
+        "children": [{"id": format!("{id}_spin"), "component": "Spinner", "style": {"width": 10.5, "height": 10.5, "color": ink.muted, "opacity": 0.5}}]})
+}
+
+/// One worktree row (EXP-369/694, the ladder's rhythm: `px_3` / `py_2`,
+/// `gap_2`): the branch glyph, `repo branch` over the path (mono, `text_xs`),
+/// the terminal menu and the confirmed force-remove.
+fn worktree_row(ink: &Ink, chrome: &Chrome) -> Value {
+    let mono = |id: &str, text: Value, color: &str| {
+        let mut t = ink.text(id, text, XS, color);
+        t["style"]["fontFamily"] = json!("$type.family.mono");
+        t["props"]["lines"] = json!(1);
+        t
+    };
+    let mut repo = mono("wt_repo", path("repo"), &ink.muted);
+    repo["style"]["flexShrink"] = json!(0);
+    let mut label = mono("wt_label", path("label"), &ink.foreground);
+    label["style"]["minWidth"] = json!(0);
+    let head = json!({"id": "wt_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "gap": ink.r(0.25), "minWidth": 0, "overflow": "hidden"}, "children": [repo, label]});
+    let mut path_text = faded(mono("wt_path", path("path"), &ink.muted), 0.7);
+    path_text["style"]["minWidth"] = json!(0);
+    let column = json!({"id": "wt_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}, "children": [head, path_text]});
+    let glyph = json!({"id": "wt_glyph", "component": "Box", "style": {"display": "flex", "flexShrink": 0}, "children": [{"id": "wt_glyph_icon", "component": "Icon", "props": {"name": "ui-branch"}, "style": {"width": ink.r(XS), "height": ink.r(XS), "color": ink.muted}}]});
+    let terminal = ghost_xs(chrome, "wt_terminal", "nav-terminal", &ink.foreground, json!("Open a terminal in this worktree"), json!({"name": "menu"}), json!(true), false);
+    let terminal = json!({"id": "wt_menu", "component": "Menu", "props": {"items": path("items"), "align": "end"}, "on": {"select": {"event": {"name": "terminal", "context": {"key": path("key")}}}}, "children": [terminal]});
+    let event = json!({"name": "removeWorktree", "context": {"key": path("key")}});
+    let remove = ghost_xs(chrome, "wt_remove", "ui-delete", &chrome.danger, path("removeTip"), event.clone(), path("removeOn"), false);
+    let remove_off = ghost_xs(chrome, "wt_remove_off", "ui-delete", &chrome.danger, path("removeTip"), event.clone(), and(path("removeOff"), path("free")), true);
+    let remove_held = ghost_xs(chrome, "wt_remove_held", "ui-delete", &ink.muted, path("removeTip"), event, path("held"), true);
+    let actions = json!({"id": "wt_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "gap": ink.r(0.25), "flexShrink": 0}, "children": [terminal, remove, remove_off, remove_held]});
+    json!({"id": "wt_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [glyph, column, actions]})
+}
+
+/// One clone row (EXP-1076: the hairline ladder): the folder glyph, the
+/// name over its size · worktree count, Prune and Remove local copy; a
+/// prune/remove report under it.
+fn repo_row(ink: &Ink, chrome: &Chrome) -> Value {
+    let mut name = ink.text("repo_name", path("name"), SM, &ink.foreground);
+    name["props"]["lines"] = json!(1);
+    name["style"]["fontWeight"] = json!(500);
+    let bar = json!({"id": "repo_size_bar", "component": "Skeleton", "visible": path("measuring"), "props": {"width": "42", "height": "10.5"}, "style": {"width": 42, "height": 10.5, "borderRadius": chrome.radius_md, "backgroundColor": chrome.skeleton_value}});
+    let mut size = ink.text("repo_size", path("size"), XS, &ink.muted);
+    size["visible"] = path("sized");
+    let storage = json!({"id": "repo_storage", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25)},
+        "children": [{"id": "repo_storage_icon", "component": "Icon", "props": {"name": "settings-storage"}, "style": {"width": ink.r(XS), "height": ink.r(XS), "color": ink.muted}}, size, bar]});
+    let meta = json!({"id": "repo_meta", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5)},
+        "children": [storage, ink.text("repo_dot", json!("·"), XS, &ink.muted), ink.text("repo_count", path("count"), XS, &ink.muted)]});
+    let column = json!({"id": "repo_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.125), "flexGrow": 1, "flexShrink": 1, "minWidth": 0}, "children": [name, meta]});
+    let folder = json!({"id": "repo_folder", "component": "Icon", "props": {"name": "ui-folder"}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": ink.muted, "flexShrink": 0}});
+    let tip = json!("Remove worktrees whose work has landed on the default branch (merged PR, squash merges included, or a finished issue) and delete stale session branches. Uncommitted changes to tracked files are never discarded; live sessions are never touched.");
+    let prune_event = json!({"name": "prune", "context": {"key": path("key")}});
+    let prune = ghost_xs(chrome, "repo_prune", "ui-clean", &ink.foreground, tip.clone(), prune_event.clone(), path("pruneOn"), false);
+    let prune_off = ghost_xs(chrome, "repo_prune_off", "ui-clean", &ink.foreground, tip, prune_event, path("pruneOff"), true);
+    let pruning = ghost_spinner(ink, "repo_pruning", path("pruning"));
+    let remove_event = json!({"name": "removeRepo", "context": {"key": path("key")}});
+    let pill = |id: &str, tint: &str, visible: Value| {
+        let [on, off] = ink.pill_button_with(id, PillPaint::Glass, Some(json!("ui-delete")), Some(tint), json!("Remove local copy"), path("removeOff"), None, remove_event.clone());
+        json!({"id": format!("{id}_tip"), "component": "Tooltip", "visible": visible, "props": {"content": path("removeTip")}, "children": [{"id": format!("{id}_slot"), "component": "Box", "style": {"display": "flex", "flexShrink": 0}, "children": [on, off]}]})
+    };
+    let actions = json!({"id": "repo_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25), "flexShrink": 0},
+        "children": [prune, prune_off, pruning, pill("repo_remove", &chrome.danger, path("free")), pill("repo_remove_held", &ink.muted, path("held"))]});
+    let row = json!({"id": "repo_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [folder, column, actions]});
+    let mut report = ink.text("repo_message", path("message"), XS, &ink.muted);
+    report["visible"] = path("hasMessage");
+    report["style"]["paddingHorizontal"] = json!(ink.r(0.75));
+    report["style"]["paddingBottom"] = json!(ink.r(0.5));
+    json!({"id": "repo_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row, report]})
+}
+
+/// A flat list of `row` over `/pane/<list>`.
+fn ladder(list: &str, row: Value, visible: Value) -> Value {
+    json!({"id": format!("{list}_rows"), "component": "List", "visible": visible, "props": {"gap": "none"},
+        "template": {"component": format!("{list}_item"), "path": format!("/pane/{list}"), "key": "key"},
+        "children": [{"id": format!("{list}_item"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]})
+}
+
+/// The pane's tree (`section`: `gap_2`): the Worktrees band (Refresh and
+/// the broom), the root, the disk warning, then the skeleton / empty state
+/// / the worktree ladder and the Local repositories band over the clones.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    // EXP-862: Refresh and the broom ride the band's trailing slot as
+    // ghost glyphs; `loading` swaps a glyph for the spinner.
+    let refresh = band_ghost(ink, chrome, "refresh", "ui-refresh", "Refresh", json!({"name": "refresh"}), path("/pane/idle"), false);
+    let refreshing = band_spinner(ink, "refreshing", path("/pane/scanning"), false);
+    let prune_all = band_ghost(ink, chrome, "prune_all", "ui-clean", "Prune merged worktrees", json!({"name": "pruneAll"}), path("/pane/pruneAllOn"), false);
+    let prune_all_off = band_ghost(ink, chrome, "prune_all_off", "ui-clean", "Prune merged worktrees", json!({"name": "pruneAll"}), path("/pane/pruneAllOff"), true);
+    let sweeping = band_spinner(ink, "sweeping", path("/pane/sweeping"), true);
+    let trailing = json!({"id": "band_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.25)}, "children": [refresh, refreshing, prune_all, prune_all_off, sweeping]});
+    let mut root_line = faded(ink.text("root_path", path("/pane/root"), XS, &ink.muted), 0.7);
+    root_line["props"]["lines"] = json!(1);
+    root_line["style"]["fontFamily"] = json!("$type.family.mono");
+    let mut disk = ink.text("disk", path("/pane/disk"), XS, &chrome.warning);
+    disk["visible"] = path("/pane/diskLow");
+    let skeleton = ink.skeleton_rows("skeleton", &chrome.skeleton, path("/pane/loading"));
+    let no_repos = empty_state(ink, "no_repos", "settings-local-repos", "No local repositories yet", path("/pane/noRepos"));
+    let no_worktrees = empty_state(ink, "no_worktrees", "ui-branch", "No worktrees", and(path("/pane/hasRepos"), path("/pane/noWorktrees")));
+    let mut clones_band = ink.band("clones_band", "Local repositories", None);
+    clones_band["visible"] = path("/pane/hasRepos");
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
+        "children": [
+            ink.band("band", "Worktrees", Some(trailing)), root_line, disk, skeleton, no_repos, no_worktrees,
+            ladder("worktrees", worktree_row(ink, chrome), and(path("/pane/hasRepos"), path("/pane/hasWorktrees"))),
+            clones_band,
+            ladder("repos", repo_row(ink, chrome), path("/pane/hasRepos")),
+        ]})
 }
 
 // ---------------------------------------------------------------------------
@@ -1475,6 +1469,53 @@ fn format_prune_result(report: &coding::PruneReport) -> SharedString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1629: the document raises no issue a debug build's mount check
+    /// refuses (#EXP-1767's class).
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        };
+        let chrome = Chrome {
+            foreground: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            danger: "#f87171ff".into(),
+            warning: "#fbbf24ff".into(),
+            ghost_hover: "#ffffff0f".into(),
+            skeleton: "#a1a1aa2e".into(),
+            skeleton_value: "#27272aff".into(),
+            radius_md: 8.,
+        };
+        let tree = document(&ink, &chrome);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-local-repos", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     #[test]
     fn format_size_scales_units() {

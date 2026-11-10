@@ -197,7 +197,7 @@ fn avatar_text(initials: Div, size: Size) -> Div {
 /// only, so every `firstname.lastname@` address collapsed to the same two
 /// letters) — that one still runs on the `Avatar` image path's own fallback,
 /// which only shows if a fetched picture fails to decode.
-fn initials(label: &str) -> String {
+pub(crate) fn initials(label: &str) -> String {
     let base = label.trim();
     let local = match base.split_once('@') {
         Some((local, _)) => local,
