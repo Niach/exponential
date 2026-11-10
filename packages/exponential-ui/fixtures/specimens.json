@@ -14031,6 +14031,72 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_composer_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_composer_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "layout · flat",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_flat",
+                "component": "Composer",
+                "props": {
+                  "placeholder": "Reply…",
+                  "layout": "flat"
+                },
+                "slots": {
+                  "leading": {
+                    "id": "c4_flat_options",
+                    "component": "Menu",
+                    "props": {
+                      "items": [
+                        {
+                          "label": "Attach a file",
+                          "value": "attach",
+                          "icon": "ui-attach"
+                        },
+                        {
+                          "label": "Plan first",
+                          "value": "plan"
+                        }
+                      ]
+                    },
+                    "children": [
+                      {
+                        "id": "c4_flat_plus",
+                        "component": "Button",
+                        "props": {
+                          "icon": "ui-add",
+                          "label": "Options",
+                          "variant": "ghost",
+                          "size": "icon"
+                        }
+                      }
+                    ]
+                  },
+                  "trailing": {
+                    "id": "c4_flat_context",
+                    "component": "Ring",
+                    "props": {
+                      "value": 0.42,
+                      "size": "sm"
+                    }
+                  }
+                }
+              }
+            ]
           }
         ]
       }
