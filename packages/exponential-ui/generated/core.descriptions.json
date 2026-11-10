@@ -2690,7 +2690,7 @@
           "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
         }
       },
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "example": {
         "placeholder": "Ask anything"
       }

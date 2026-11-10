@@ -844,7 +844,12 @@ export function ComposerNative(props: NativeProps): JSX.Element {
   const placeholder = () => str(props.props.placeholder)
   const submitLabel = () => str(props.props.submitLabel) || ctx.t(`send`)
   return (
-    <div {...props.rootProps} data-busy={busy() ? `true` : undefined}>
+    <div {...props.rootProps} data-busy={busy() ? `true` : undefined} data-above={props.node.slots?.above ? `true` : undefined}>
+      {/* #EXP-1762: `above` = one child over the field, inside the card,
+          the content's full width (a flat root wraps it onto its own line). */}
+      <Show when={props.node.slots?.above}>
+        <div class="xui-composer-above">{props.slots.above}</div>
+      </Show>
       <Show when={flat() && props.node.slots?.leading}>
         <div class="xui-composer-bar">
           <div class="xui-composer-leading">{props.slots.leading}</div>

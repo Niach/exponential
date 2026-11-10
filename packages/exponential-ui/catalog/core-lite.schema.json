@@ -8726,7 +8726,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -8792,7 +8792,8 @@
             "children": "none",
             "slots": [
               "leading",
-              "trailing"
+              "trailing",
+              "above"
             ],
             "events": [
               "submit",
@@ -21861,6 +21862,9 @@
           "$ref": "common_types.json#/$defs/ComponentId"
         },
         "trailing": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "above": {
           "$ref": "common_types.json#/$defs/ComponentId"
         }
       },

@@ -4587,7 +4587,8 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "props": {
         "placeholder": {

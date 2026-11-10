@@ -892,7 +892,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 12)
+        XCTAssertEqual(cases.count, 16)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"
@@ -911,6 +911,18 @@ final class Round1ModelTests: XCTestCase {
                 continue
             }
             let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
+            // #EXP-1762: `above` sits inside the card at its content top, the
+            // content's full width (the same inset either side), over the row.
+            if slots["above"] != nil {
+                let above = try XCTUnwrap(frame("c.above"), "\(name): above laid out")
+                let strip = try XCTUnwrap(frame("strip"), "\(name): the above child")
+                let inset = above.minX - cf.minX
+                XCTAssertGreaterThan(inset, 0, "\(name): above inside the card")
+                XCTAssertEqual(cf.maxX - above.maxX, inset, accuracy: 0.01, "\(name): above spans the content width")
+                XCTAssertEqual(above.minY - cf.minY, inset, accuracy: 0.01, "\(name): above at the content top")
+                XCTAssertEqual(strip.width, above.width, accuracy: 0.01, "\(name): the above child spans it")
+                XCTAssertLessThanOrEqual(above.maxY, send.minY, "\(name): above over the row")
+            }
             var along: [(CGFloat, String)] = []
             for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
                 guard let b = frame(id) else {

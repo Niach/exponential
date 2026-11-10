@@ -523,13 +523,17 @@ internal fun ComposerLeaf(cx: LeafContext) {
     // recipe's paddingTop below the row's top, one line or grown
     // (composerSlots `field`; the text field has no inset of its own).
     val flat = cx.props.str("layout") == "flat"
-    val flatBox = flatComposerField(h, field.px("paddingTop") ?: 0f)
+    // #EXP-1762: the core lays an `above` slot out at the content top; the
+    // field (and a flat row) start one gap below it.
+    val top = model.indexOf("${cx.node.id}.above")?.let { model.frame(it).height + gap } ?: 0f
+    val rh = maxOf(h - top, 0f)
+    val flatBox = flatComposerField(rh, field.px("paddingTop") ?: 0f)
     val slotW = { slot: String -> model.indexOf("${cx.node.id}.$slot")?.let { model.frame(it).width + gap } ?: 0f }
     val lead = if (flat) slotW("leading") else 0f
     val fieldW = if (flat) maxOf(w - lead - slotW("trailing") - (if (cx.props.flag("attachments")) COMPOSER_ATTACH_W + gap else 0f) - sendSize - gap, 0f) else w
-    val fieldH = if (!flat) maxOf(h - sendSize - gap, 0f) else flatBox.second
+    val fieldH = if (!flat) maxOf(rh - sendSize - gap, 0f) else flatBox.second
     val fieldX = if (!flat) 0f else if (cx.rtl) w - lead - fieldW else lead
-    val fieldY = if (flat) flatBox.first else 0f
+    val fieldY = top + if (flat) flatBox.first else 0f
     InnerBox(cx) {
             OwnedTextField(
                 index = index,

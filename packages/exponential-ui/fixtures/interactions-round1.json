@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 review (renderer hardening): interaction semantics every renderer must share, HAND-AUTHORED and replayed by packages/exponential-ui-react/src/interactions-fixture.test.tsx (the reference, jsdom) and apps/desktop/crates/eui-core/tests/interactions_fixture.rs (the core, so gpui and the natives through the FFI). numberField: a NumberField bound to /v (value null = /v unseeded), one op (increment / decrement press, commit = type `input` then leave the field, none), then the value at /v and the text the field shows (en-US; `precision` absent = the step's decimals; values round like toFixed, the text like Intl.NumberFormat with that many fraction digits; a stepper on an unset value starts from min when min > 0, else 0; a stepper at its limit is disabled). checks: a Form `f` holding Checkbox `agree` (checked bound to /agreed) with `checks` and a submit Button; submitting gives the failing messages in order (a check WITH a condition fails when it resolves to nothing, null, false or an empty string; 0 passes; a non-string message reads `Invalid value`) and whether `submit` fired. tableSort: an UNBOUND sort of literal rows by one column (`sortRows`: missing values last both ways, two numbers numerically, a number column coerces, a date column by time, booleans as 0/1, the rest by Intl.Collator(locale, {numeric: true, sensitivity: base}); ties keep row order) → the row indexes in display order. choiceTiles (EXP-1280): a ChoiceTiles `c` over options a, b, c (`disabled` = the index of a disabled option) with `value` bound to /v (null = unseeded), the tiles pressed in order (a press on any part of tile i), then /v and every `change` value fired: single picks the pressed value; multiple toggles it in the comma-joined list kept in OPTION order (nothing picked = an empty string); a disabled option does nothing. select (VAPP-146): a plain single Select `s` over the options Any (value \"\"), Open (open) and Done (done) with `value` bound to /v (null = unseeded), the options picked in order (open the trigger, press option i), then /v, the text the trigger shows and every `change` value fired: an empty string is an ordinary option value (never refused, never the error placeholder); an unseeded value reads as \"\", so the trigger shows the option holding \"\"; picking an option writes its value; picking the option that holds the current value fires nothing (the empty one included, an unseeded /v stays unseeded). buttonHold (VAPP-162, docs/round-5-contract.md §9): a Button `b` (label `Hold to talk`, `holdingLabel` `Holding…` unless the case says otherwise) laid out at 120 × 40 px, coordinates relative to its top-left; `props` override the button's (null = unset; the base props are `hold: true`); `steps` = pointerdown/pointermove/pointerup at {x, y}, pointercancel, keydown/keyup {key}, blur; after each step `events` = the events that step fired (in order) and `pressed` / `label` = what the button paints. THE RULE: with `hold: true` a press never fires `press`; pointer down (or Space/Enter key down; key repeat ignored) fires `holdStart` and paints the pressed state + `holdingLabel`; while the hold is active the pointer may wander up to 24 px (the slop) outside the box; release (pointer up anywhere within the slop, or key up of the key that started it) fires `holdEnd`; the pointer leaving the box by more than the slop (the slide away), pointercancel, Escape or losing focus fire `holdCancel`; after a cancel nothing fires until the next down. `disabled` fires nothing; `hold: false` keeps the plain `press` on release over the box. VAPP-206 rowPress: a Table bound to /rows whose on.rowPress action reads {path: <value>} (a set's value, an event's context); pressing row `press` reads `expect`: the action's relative paths read the pressed row, absolute ones the data model. VAPP-279 tabsReorder: the six-tab strip of fixtures/tabs-strip.json `layout` (fifth active, closable on hover, addable, theme default, fixed measure) at 900 px in `direction`; `tab` = the tab index the steps act on. `drag {phase, delta}` = what a painter sends for a pointer (or touch long-press) drag, delta = px since the start in screen direction; `order` = the tab values in strip order after the step (the live preview); the end drops the preview and fires `reorder {from, to, value}` when the tab changed place (array indexes; the host owns `tabs`). `key` = what a painter sends for Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on the tab. `expect` = every `reorder` fired, in order. #VAPP-284 foldRow (docs/round-7-contract.md): the tree = `surface` (a Row `issues` with two child Rows, `open` bound to /open, on.press = event `select`, on.change = event `fold`; `pressable: false` drops on.press, so the head itself folds); /open starts at `open`; `rtl` puts the Row in a `direction: rtl` box; ONE step: `press` the part (`head` = `issues.head`, `fold` = `issues.head.fold`) or `key` (a DOM key name) on it while focused; then `events` = the event names fired in order and `after` = /open. THE RULE: a pressable head presses as `select` and its fold button folds; a plain head folds; ArrowRight opens and ArrowLeft closes (swapped in rtl) the focused head or fold button, firing `fold` (context {open}) and writing /open; a key that would not change the state does nothing. #VAPP-285 tree (docs/round-7-contract.md): `surface` = a Tree `files` over the repository of fixtures/tree.json with `expanded` bound to /open and `value` to /picked (so every row is in the tree; `rowIds` maps an item id to its row node), on.select = event `open`, on.toggle = `fold`, on.load = `fetch`; /open starts at `open`, /picked unset; `rtl` puts the Tree in a `direction: rtl` box; ONE step: `press` the row of an item or `key` (a DOM key name) on it while focused; then `events` = the event names fired in order, `after.open` = /open, `after.picked` = /picked (null = unset), `after.focus` = the item whose row has the focus after a key (null = the focus did not move), `after.visible` (when given) = the visible rows' items in order. THE RULE: a leaf press selects (`open {id}`, /picked = id); a branch press folds (`fold {id, open}`, the id added to or removed from /open); a lazy branch (hasChildren, no children) folds through `fetch` and shows its loading row while open; the arrows follow treeKey over the VISIBLE rows (Down/Up, Home/End, Right opens a closed branch or enters an open one, Left closes an open branch or goes to the parent; swapped in rtl). fieldWrites (#VAPP-288): an Input `draft` (value bound to /draft, seeded `seed`) and a Button `save` whose press is `functionCall set {path, value}` (`press` sets `pressPath` to `pressValue`); steps: `focus`, `type` (the field's own edit: the text the person typed, written through to the data model like every edit), `hostWrite` (the host writes `value` at `path`: updateDataModel, a bind, a server's echo), `press` (the Button), `blur`; then the text the field shows and the value at /draft. THE ECHO RULE stays for everything that is not a programmatic write: a focused field (or one with an edit outstanding) keeps its text against a host write. A PROGRAMMATIC write (an action's `set` step: a press's `functionCall set`, a package action's `sets`) bumps the surface's write epoch; a field whose bound value changed since it last looked AND saw the epoch move adopts the new value even while focused (the cursor at the end, an outstanding edit dropped). A programmatic write to another path leaves the field alone. Round 8 checkbox (docs/round-8-contract.md §2): the tree = `surface` (a Checkbox `c` with `checked` bound to /checked and `indeterminate` bound to /mixed, on.change = event `change`); `data` seeds /checked and /mixed (absent = unseeded), `unbound` (when given) replaces the two bindings with those LITERAL props; then `presses` presses on the box (`c.box`); `before` = the checked state painters expose before any press (`mixed` | `true` | `false`: mixed wins over checked; the box paints the checked look with the dash `Checkbox.check.indeterminate`); after each press `steps[i]` = {change: the change event's context {checked, indeterminate}, checked: /checked, mixed: /mixed (null = unseeded; for an unbound case the box's own props), state}. THE RULE: a press on a mixed box sets checked TRUE and indeterminate false (both written: bound paths through their bindings), whatever checked was; a press on a plain box toggles checked and writes nothing to indeterminate (an unseeded /mixed stays unseeded); `change` always carries {checked, indeterminate: false}. checkSeverities (round 9 §6.6): a Form `f` holding Input `x` (name x, validateOn submit) with `checks` over data results and a submit Button `go`; after pressing `go`: `submitted`, the `errors` of `invalid`, and the ONE message `shown`: part `x.error` holds it, in recipe state `invalid` for an error, `warning` / `info` otherwise (role alert / status on web); `invalid` = the Input's own `invalid` state. Only a failing error blocks. buttonChecks: a Button `b` with `checks` and a `press` action: a failing error disables it, warning and info never do; `disabled` = the press does not fire. boxHover (#EDE-65): a Box's `on.hover` fires when the pointer ENTERS it, exactly like Motion's: no payload (the action's own context only), leaving fires nothing, entering again fires again; a Box need not be pressable to hover, and a pressable one still presses. The tree = `surface` (Boxes `a` and `b` with on.hover = event `hovered` {id}, `b` also pressable with on.press = `pressed`, `c` without on.hover); `steps` = `enter` / `leave` / `press` on a Box by id; `events` = the actions fired, in order, {name, context}. tilePress (#FEED-201): StatTile and Card fire `press` like a pressable Box (an `on.press` implies `pressable`: a button, the Row hover fill); a StatTile's press target is its card part (`<id>.card`), a Card's its root; a Card without `on.press` stays a group and fires nothing. Same shape as boxHover (`press` steps only). overlayAnchor (#EXP-1739): an open anchored overlay (Popover, Menu, Tooltip) CLOSES once its anchor scrolls (a scroll container holding it scrolls), moves (its box's origin changes: here a node inserted above it) or leaves the tree; a frame that moves nothing keeps it. `surface` is a scrolling Stack holding the anchor `target` and a Popover open against it; a step re-lays out (`relayout`), scrolls `list` by `y`, inserts `above` before the anchor (`insertAbove`) or drops the anchor (`removeAnchor`); `after` = whether the Popover is still open. keyRecorder (#EXP-1629): KeyRecorder is a macro (a Box `field` + Kbd caps); the renderers capture, the HOST owns the grammar. `surface` = a KeyRecorder `ptt` with value, pending and recording bound (/value, /pending, /recording unseeded), on.start = `pause`, on.stop = `resume`, on.key = `key`. Steps: `press` the field (a click, or Enter/Space while idle), `down`/`up` a key with the `mods` held, `modifiers` = the held set changes to these (a modifier key alone: the platform's own modifier-change event), `mouse` = button n pressed over the field (1 left, 2 right, 3 middle, 4 back, 5 forward), `blur` = the field loses focus, `hostWrite` = the host writes `value` at `path`; then `events` = the actions fired in order {name, context} and `recording` = /recording (null = unset). THE RULE: a press while idle fires `start` and writes recording true (the two-way set), and the field takes the focus; a press while recording does nothing. While recording (the field's `recording` recipe prop, read live) EVERY key goes to `key` and nothing else sees it (no Tab focus move, no Escape dismiss, no shortcut, no key repeat): a non-modifier key down/up = {type: down|up, key}, a modifier key alone = {type: modifiers}, mouse buttons 3-5 over the field = {type: mouse, button} (1 and 2 fire nothing), each with the held flags {ctrl, alt, shift, meta} (meta = Cmd / Super / Win). `key` is the CANONICAL name, the same on every platform: a-z, 0-9 (the physical key, never the shifted character), f1-f24, space, enter, tab, escape, backspace, delete, insert, home, end, pageup, pagedown, up, down, left, right, and the US-layout punctuation of the key (- = [ ] \\ ; ' , . / `); a key outside that list is not sent. Losing the focus while recording fires `stop` and writes recording false. The host stops recording by writing recording false (no `stop` fires); idle, keys and blur fire nothing. composerKeys (#EDE-65): `menuKeys` lets a host drive a suggestion menu above a Composer by keyboard (eDE's `/` menu, the @ / # / : typeahead); the host moves its own highlighted row. The tree = `surface` (a Composer `c` with value bound to /draft and menuKeys bound to /menu, on.submit = event `send`, on.key = event `key`); `data` seeds /draft and /menu. Steps: `type` = the field's own edit (the text written through to /draft), `key` = a key down in the field (SearchList's DOM-style names, the catalog's one key naming: ArrowUp, ArrowDown, Enter, Tab, Escape) with the `mods` held (ctrl, alt, shift, meta) and `composing` = an IME composition is in progress, `hostWrite` = the host writes `value` at `path`; `handled` on a key step = the Composer took the key (the field does not edit, move its caret, submit or move the focus, and nothing outside sees it). Then `events` = the actions fired in order {name, context} and `draft` = /draft (null = unset). THE RULE: while menuKeys is true (read live), Up, Down, Enter, Tab and Escape with NO modifier held fire `key` {key} (that same name: ArrowUp, ArrowDown, Enter, Tab, Escape) and nothing else (Enter never submits, busy or not); a key with any modifier held (Shift+Enter's newline, Shift+Tab, Alt+Down) is never intercepted, and every key during an IME composition is the IME's (never `key`, never a submit, menuKeys on or off). While menuKeys is false nothing changes: Enter submits (`submit` {value: the trimmed text}, the draft cleared; an empty draft submits nothing), Shift+Enter is the field's newline, the arrows, Tab and Escape are the field's own. composerSlots (#EDE-65 R): a Composer's `leading` and `trailing` slots hold any genUI child, drawn INSIDE the composer's controls row (the send disc's row at the bottom of its content box). Each case = a Composer `c` with the case's `props` and `slots` (in `direction`, default ltr) inside a 400 px wide surface; `order` = the row's controls from the START edge (`leading`, `attachment` = the attach control when `attachments`, `trailing`, `send`). THE RULE: `leading` starts at the content box's start edge; a spacer takes the free width; `trailing` ends one row gap (`$spacing.xs`) before the send disc; the attach control ends one gap before `trailing` (before the disc without it), so without slots nothing moves; every slot root is vertically centred on the disc and inside the composer's box; the field above is unchanged (slots never size the composer). #EXP-1762 `layout: \"flat\"`: ONE row, the field (`field` in `order`) takes the spacer's place, between `leading` and the attach control (or `trailing`, or the disc), one row gap either side; the controls stay in the bottom row (vertically centred on the disc) while the field grows upward; the field box SPANS the row (its top = the content box's top, its height = the row's: the disc's while the draft is one line) and the text's first line starts the Composer `field` recipe's `paddingTop` below the field box's top, one line or grown alike (the app's bottom-aligned row: neutral `$spacing.sm` = (disc 36 − line 20) / 2, the exponential theme 4.25, the IDE's); the row grows past the disc once paddingTop + the text's lines (+ any paddingBottom) are taller; the field wraps at the width the slots and controls leave. A case's `data` seeds the surface (the draft at /draft); `field` = the geometry check {rows: the draft's lines, grown: whether the row is taller than the disc}: the field box's top and height are the row's, the text's top = field top + paddingTop (a renderer without layout, jsdom, checks the field's resolved padding-top is the recipe's and that it stretches across the row). A slot child is a real node: `press` = press the node with that id; `events` = the actions fired in order {name, context}. composerPaste (#EDE-65 R): pasting into a Composer's field (`attachments` on or off). `clipboard` = what the paste carries: `text` and `files` [{name, size, type}]. THE RULE: when the paste carries image files (`type` image/*), the Composer fires the existing `attach` event with context {files: [{name, size, type}]} (only the images, in clipboard order; the same file shape as FileUpload's `upload`), hands their bytes to the host's upload hook (web `onUpload(files, {nodeId, name})`, gpui `on_upload`, SwiftUI / Compose `onUpload`; `name` = the Composer's id) and inserts nothing; a native clipboard image without a file name is `image.<ext of its type>` (`image.png`). A paste carrying files but no image does nothing (no `attach`, no text: a copied file's path is no draft); a paste without files is the field's own (the text inserted, `change` fired, no `attach`). The attach control's press still fires `attach` with no context. Then `events` = the actions fired in order and `draft` = /draft. pickerPick (#EXP-1760): IconPicker and ColorPicker are macros over a Popover; `surface` = which of `surfaces`, `data` = the seeded model. Steps: `press` = press the node with that id (`<id>.trigger` opens, a ColorPicker with a child opens on `<id>.customTrigger` (a ghost button around it), `<id>.scroll.grid.cell.<i>` / `<id>.grid.swatch.<i>` / `<id>.none` pick; an `inline` ColorPicker is the grid alone: `<id>.swatch.<i>` picks, there is no popover, so `open` stays false). THE RULE: a pick sets the bound `value` (the cell's icon, the swatch's hex, `\"\"` for No icon), fires the author's `change` with context {value} and CLOSES the popover (`open: false`); the trigger only opens it and fires nothing; the Popover's own open/close never fires the author's `change` (the cells claim it). Then `events` = the actions fired in order, `value` = /value, `open` = whether the popover shows.",
+  "$comment": "Round 1 review (renderer hardening): interaction semantics every renderer must share, HAND-AUTHORED and replayed by packages/exponential-ui-react/src/interactions-fixture.test.tsx (the reference, jsdom) and apps/desktop/crates/eui-core/tests/interactions_fixture.rs (the core, so gpui and the natives through the FFI). numberField: a NumberField bound to /v (value null = /v unseeded), one op (increment / decrement press, commit = type `input` then leave the field, none), then the value at /v and the text the field shows (en-US; `precision` absent = the step's decimals; values round like toFixed, the text like Intl.NumberFormat with that many fraction digits; a stepper on an unset value starts from min when min > 0, else 0; a stepper at its limit is disabled). checks: a Form `f` holding Checkbox `agree` (checked bound to /agreed) with `checks` and a submit Button; submitting gives the failing messages in order (a check WITH a condition fails when it resolves to nothing, null, false or an empty string; 0 passes; a non-string message reads `Invalid value`) and whether `submit` fired. tableSort: an UNBOUND sort of literal rows by one column (`sortRows`: missing values last both ways, two numbers numerically, a number column coerces, a date column by time, booleans as 0/1, the rest by Intl.Collator(locale, {numeric: true, sensitivity: base}); ties keep row order) → the row indexes in display order. choiceTiles (EXP-1280): a ChoiceTiles `c` over options a, b, c (`disabled` = the index of a disabled option) with `value` bound to /v (null = unseeded), the tiles pressed in order (a press on any part of tile i), then /v and every `change` value fired: single picks the pressed value; multiple toggles it in the comma-joined list kept in OPTION order (nothing picked = an empty string); a disabled option does nothing. select (VAPP-146): a plain single Select `s` over the options Any (value \"\"), Open (open) and Done (done) with `value` bound to /v (null = unseeded), the options picked in order (open the trigger, press option i), then /v, the text the trigger shows and every `change` value fired: an empty string is an ordinary option value (never refused, never the error placeholder); an unseeded value reads as \"\", so the trigger shows the option holding \"\"; picking an option writes its value; picking the option that holds the current value fires nothing (the empty one included, an unseeded /v stays unseeded). buttonHold (VAPP-162, docs/round-5-contract.md §9): a Button `b` (label `Hold to talk`, `holdingLabel` `Holding…` unless the case says otherwise) laid out at 120 × 40 px, coordinates relative to its top-left; `props` override the button's (null = unset; the base props are `hold: true`); `steps` = pointerdown/pointermove/pointerup at {x, y}, pointercancel, keydown/keyup {key}, blur; after each step `events` = the events that step fired (in order) and `pressed` / `label` = what the button paints. THE RULE: with `hold: true` a press never fires `press`; pointer down (or Space/Enter key down; key repeat ignored) fires `holdStart` and paints the pressed state + `holdingLabel`; while the hold is active the pointer may wander up to 24 px (the slop) outside the box; release (pointer up anywhere within the slop, or key up of the key that started it) fires `holdEnd`; the pointer leaving the box by more than the slop (the slide away), pointercancel, Escape or losing focus fire `holdCancel`; after a cancel nothing fires until the next down. `disabled` fires nothing; `hold: false` keeps the plain `press` on release over the box. VAPP-206 rowPress: a Table bound to /rows whose on.rowPress action reads {path: <value>} (a set's value, an event's context); pressing row `press` reads `expect`: the action's relative paths read the pressed row, absolute ones the data model. VAPP-279 tabsReorder: the six-tab strip of fixtures/tabs-strip.json `layout` (fifth active, closable on hover, addable, theme default, fixed measure) at 900 px in `direction`; `tab` = the tab index the steps act on. `drag {phase, delta}` = what a painter sends for a pointer (or touch long-press) drag, delta = px since the start in screen direction; `order` = the tab values in strip order after the step (the live preview); the end drops the preview and fires `reorder {from, to, value}` when the tab changed place (array indexes; the host owns `tabs`). `key` = what a painter sends for Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on the tab. `expect` = every `reorder` fired, in order. #VAPP-284 foldRow (docs/round-7-contract.md): the tree = `surface` (a Row `issues` with two child Rows, `open` bound to /open, on.press = event `select`, on.change = event `fold`; `pressable: false` drops on.press, so the head itself folds); /open starts at `open`; `rtl` puts the Row in a `direction: rtl` box; ONE step: `press` the part (`head` = `issues.head`, `fold` = `issues.head.fold`) or `key` (a DOM key name) on it while focused; then `events` = the event names fired in order and `after` = /open. THE RULE: a pressable head presses as `select` and its fold button folds; a plain head folds; ArrowRight opens and ArrowLeft closes (swapped in rtl) the focused head or fold button, firing `fold` (context {open}) and writing /open; a key that would not change the state does nothing. #VAPP-285 tree (docs/round-7-contract.md): `surface` = a Tree `files` over the repository of fixtures/tree.json with `expanded` bound to /open and `value` to /picked (so every row is in the tree; `rowIds` maps an item id to its row node), on.select = event `open`, on.toggle = `fold`, on.load = `fetch`; /open starts at `open`, /picked unset; `rtl` puts the Tree in a `direction: rtl` box; ONE step: `press` the row of an item or `key` (a DOM key name) on it while focused; then `events` = the event names fired in order, `after.open` = /open, `after.picked` = /picked (null = unset), `after.focus` = the item whose row has the focus after a key (null = the focus did not move), `after.visible` (when given) = the visible rows' items in order. THE RULE: a leaf press selects (`open {id}`, /picked = id); a branch press folds (`fold {id, open}`, the id added to or removed from /open); a lazy branch (hasChildren, no children) folds through `fetch` and shows its loading row while open; the arrows follow treeKey over the VISIBLE rows (Down/Up, Home/End, Right opens a closed branch or enters an open one, Left closes an open branch or goes to the parent; swapped in rtl). fieldWrites (#VAPP-288): an Input `draft` (value bound to /draft, seeded `seed`) and a Button `save` whose press is `functionCall set {path, value}` (`press` sets `pressPath` to `pressValue`); steps: `focus`, `type` (the field's own edit: the text the person typed, written through to the data model like every edit), `hostWrite` (the host writes `value` at `path`: updateDataModel, a bind, a server's echo), `press` (the Button), `blur`; then the text the field shows and the value at /draft. THE ECHO RULE stays for everything that is not a programmatic write: a focused field (or one with an edit outstanding) keeps its text against a host write. A PROGRAMMATIC write (an action's `set` step: a press's `functionCall set`, a package action's `sets`) bumps the surface's write epoch; a field whose bound value changed since it last looked AND saw the epoch move adopts the new value even while focused (the cursor at the end, an outstanding edit dropped). A programmatic write to another path leaves the field alone. Round 8 checkbox (docs/round-8-contract.md §2): the tree = `surface` (a Checkbox `c` with `checked` bound to /checked and `indeterminate` bound to /mixed, on.change = event `change`); `data` seeds /checked and /mixed (absent = unseeded), `unbound` (when given) replaces the two bindings with those LITERAL props; then `presses` presses on the box (`c.box`); `before` = the checked state painters expose before any press (`mixed` | `true` | `false`: mixed wins over checked; the box paints the checked look with the dash `Checkbox.check.indeterminate`); after each press `steps[i]` = {change: the change event's context {checked, indeterminate}, checked: /checked, mixed: /mixed (null = unseeded; for an unbound case the box's own props), state}. THE RULE: a press on a mixed box sets checked TRUE and indeterminate false (both written: bound paths through their bindings), whatever checked was; a press on a plain box toggles checked and writes nothing to indeterminate (an unseeded /mixed stays unseeded); `change` always carries {checked, indeterminate: false}. checkSeverities (round 9 §6.6): a Form `f` holding Input `x` (name x, validateOn submit) with `checks` over data results and a submit Button `go`; after pressing `go`: `submitted`, the `errors` of `invalid`, and the ONE message `shown`: part `x.error` holds it, in recipe state `invalid` for an error, `warning` / `info` otherwise (role alert / status on web); `invalid` = the Input's own `invalid` state. Only a failing error blocks. buttonChecks: a Button `b` with `checks` and a `press` action: a failing error disables it, warning and info never do; `disabled` = the press does not fire. boxHover (#EDE-65): a Box's `on.hover` fires when the pointer ENTERS it, exactly like Motion's: no payload (the action's own context only), leaving fires nothing, entering again fires again; a Box need not be pressable to hover, and a pressable one still presses. The tree = `surface` (Boxes `a` and `b` with on.hover = event `hovered` {id}, `b` also pressable with on.press = `pressed`, `c` without on.hover); `steps` = `enter` / `leave` / `press` on a Box by id; `events` = the actions fired, in order, {name, context}. tilePress (#FEED-201): StatTile and Card fire `press` like a pressable Box (an `on.press` implies `pressable`: a button, the Row hover fill); a StatTile's press target is its card part (`<id>.card`), a Card's its root; a Card without `on.press` stays a group and fires nothing. Same shape as boxHover (`press` steps only). overlayAnchor (#EXP-1739): an open anchored overlay (Popover, Menu, Tooltip) CLOSES once its anchor scrolls (a scroll container holding it scrolls), moves (its box's origin changes: here a node inserted above it) or leaves the tree; a frame that moves nothing keeps it. `surface` is a scrolling Stack holding the anchor `target` and a Popover open against it; a step re-lays out (`relayout`), scrolls `list` by `y`, inserts `above` before the anchor (`insertAbove`) or drops the anchor (`removeAnchor`); `after` = whether the Popover is still open. keyRecorder (#EXP-1629): KeyRecorder is a macro (a Box `field` + Kbd caps); the renderers capture, the HOST owns the grammar. `surface` = a KeyRecorder `ptt` with value, pending and recording bound (/value, /pending, /recording unseeded), on.start = `pause`, on.stop = `resume`, on.key = `key`. Steps: `press` the field (a click, or Enter/Space while idle), `down`/`up` a key with the `mods` held, `modifiers` = the held set changes to these (a modifier key alone: the platform's own modifier-change event), `mouse` = button n pressed over the field (1 left, 2 right, 3 middle, 4 back, 5 forward), `blur` = the field loses focus, `hostWrite` = the host writes `value` at `path`; then `events` = the actions fired in order {name, context} and `recording` = /recording (null = unset). THE RULE: a press while idle fires `start` and writes recording true (the two-way set), and the field takes the focus; a press while recording does nothing. While recording (the field's `recording` recipe prop, read live) EVERY key goes to `key` and nothing else sees it (no Tab focus move, no Escape dismiss, no shortcut, no key repeat): a non-modifier key down/up = {type: down|up, key}, a modifier key alone = {type: modifiers}, mouse buttons 3-5 over the field = {type: mouse, button} (1 and 2 fire nothing), each with the held flags {ctrl, alt, shift, meta} (meta = Cmd / Super / Win). `key` is the CANONICAL name, the same on every platform: a-z, 0-9 (the physical key, never the shifted character), f1-f24, space, enter, tab, escape, backspace, delete, insert, home, end, pageup, pagedown, up, down, left, right, and the US-layout punctuation of the key (- = [ ] \\ ; ' , . / `); a key outside that list is not sent. Losing the focus while recording fires `stop` and writes recording false. The host stops recording by writing recording false (no `stop` fires); idle, keys and blur fire nothing. composerKeys (#EDE-65): `menuKeys` lets a host drive a suggestion menu above a Composer by keyboard (eDE's `/` menu, the @ / # / : typeahead); the host moves its own highlighted row. The tree = `surface` (a Composer `c` with value bound to /draft and menuKeys bound to /menu, on.submit = event `send`, on.key = event `key`); `data` seeds /draft and /menu. Steps: `type` = the field's own edit (the text written through to /draft), `key` = a key down in the field (SearchList's DOM-style names, the catalog's one key naming: ArrowUp, ArrowDown, Enter, Tab, Escape) with the `mods` held (ctrl, alt, shift, meta) and `composing` = an IME composition is in progress, `hostWrite` = the host writes `value` at `path`; `handled` on a key step = the Composer took the key (the field does not edit, move its caret, submit or move the focus, and nothing outside sees it). Then `events` = the actions fired in order {name, context} and `draft` = /draft (null = unset). THE RULE: while menuKeys is true (read live), Up, Down, Enter, Tab and Escape with NO modifier held fire `key` {key} (that same name: ArrowUp, ArrowDown, Enter, Tab, Escape) and nothing else (Enter never submits, busy or not); a key with any modifier held (Shift+Enter's newline, Shift+Tab, Alt+Down) is never intercepted, and every key during an IME composition is the IME's (never `key`, never a submit, menuKeys on or off). While menuKeys is false nothing changes: Enter submits (`submit` {value: the trimmed text}, the draft cleared; an empty draft submits nothing), Shift+Enter is the field's newline, the arrows, Tab and Escape are the field's own. composerSlots (#EDE-65 R): a Composer's `leading` and `trailing` slots hold any genUI child, drawn INSIDE the composer's controls row (the send disc's row at the bottom of its content box). Each case = a Composer `c` with the case's `props` and `slots` (in `direction`, default ltr) inside a 400 px wide surface; `order` = the row's controls from the START edge (`leading`, `attachment` = the attach control when `attachments`, `trailing`, `send`). THE RULE: `leading` starts at the content box's start edge; a spacer takes the free width; `trailing` ends one row gap (`$spacing.xs`) before the send disc; the attach control ends one gap before `trailing` (before the disc without it), so without slots nothing moves; every slot root is vertically centred on the disc and inside the composer's box; the field above is unchanged (slots never size the composer). #EXP-1762 `layout: \"flat\"`: ONE row, the field (`field` in `order`) takes the spacer's place, between `leading` and the attach control (or `trailing`, or the disc), one row gap either side; the controls stay in the bottom row (vertically centred on the disc) while the field grows upward; the field box SPANS the row (its top = the content box's top, its height = the row's: the disc's while the draft is one line) and the text's first line starts the Composer `field` recipe's `paddingTop` below the field box's top, one line or grown alike (the app's bottom-aligned row: neutral `$spacing.sm` = (disc 36 − line 20) / 2, the exponential theme 4.25, the IDE's); the row grows past the disc once paddingTop + the text's lines (+ any paddingBottom) are taller; the field wraps at the width the slots and controls leave. #EXP-1762 `above`: ONE child drawn INSIDE the card between its content box's top edge and the field, the content box's full width (start edge to end edge, in both directions), in both layouts; `stack` (when given) = the composer's content top → bottom (`above`, `field`, `row` = the controls row; flat: `above`, `row`, the field being in the row). Unlike leading/trailing it SIZES the composer: the card grows by the slot's height plus the root's gap (`$spacing.sm` stacked, `$spacing.xs` flat); the field and the row below it are unchanged; absent = nothing moves. A case's `data` seeds the surface (the draft at /draft); `field` = the geometry check {rows: the draft's lines, grown: whether the row is taller than the disc}: the field box's top and height are the row's, the text's top = field top + paddingTop (a renderer without layout, jsdom, checks the field's resolved padding-top is the recipe's and that it stretches across the row). A slot child is a real node: `press` = press the node with that id; `events` = the actions fired in order {name, context}. composerPaste (#EDE-65 R): pasting into a Composer's field (`attachments` on or off). `clipboard` = what the paste carries: `text` and `files` [{name, size, type}]. THE RULE: when the paste carries image files (`type` image/*), the Composer fires the existing `attach` event with context {files: [{name, size, type}]} (only the images, in clipboard order; the same file shape as FileUpload's `upload`), hands their bytes to the host's upload hook (web `onUpload(files, {nodeId, name})`, gpui `on_upload`, SwiftUI / Compose `onUpload`; `name` = the Composer's id) and inserts nothing; a native clipboard image without a file name is `image.<ext of its type>` (`image.png`). A paste carrying files but no image does nothing (no `attach`, no text: a copied file's path is no draft); a paste without files is the field's own (the text inserted, `change` fired, no `attach`). The attach control's press still fires `attach` with no context. Then `events` = the actions fired in order and `draft` = /draft. pickerPick (#EXP-1760): IconPicker and ColorPicker are macros over a Popover; `surface` = which of `surfaces`, `data` = the seeded model. Steps: `press` = press the node with that id (`<id>.trigger` opens, a ColorPicker with a child opens on `<id>.customTrigger` (a ghost button around it), `<id>.scroll.grid.cell.<i>` / `<id>.grid.swatch.<i>` / `<id>.none` pick; an `inline` ColorPicker is the grid alone: `<id>.swatch.<i>` picks, there is no popover, so `open` stays false). THE RULE: a pick sets the bound `value` (the cell's icon, the swatch's hex, `\"\"` for No icon), fires the author's `change` with context {value} and CLOSES the popover (`open: false`); the trigger only opens it and fires nothing; the Popover's own open/close never fires the author's `change` (the cells claim it). Then `events` = the actions fired in order, `value` = /value, `open` = whether the popover shows.",
   "numberField": [
     {
       "name": "step 0.1 increments without float noise",
@@ -4202,6 +4202,263 @@
         },
         "steps": [],
         "events": []
+      },
+      {
+        "name": "above: inside the card over the field, full width, sizing the composer",
+        "props": {},
+        "slots": {
+          "above": {
+            "id": "strip",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "wrap": true,
+              "gap": "xs"
+            },
+            "children": [
+              {
+                "id": "file",
+                "component": "Chip",
+                "props": {
+                  "label": "screenshot.png",
+                  "pressable": true
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "team",
+                "component": "Chip",
+                "props": {
+                  "label": "Design"
+                }
+              }
+            ]
+          }
+        },
+        "stack": [
+          "above",
+          "field",
+          "row"
+        ],
+        "order": [
+          "send"
+        ],
+        "steps": [],
+        "events": []
+      },
+      {
+        "name": "above with leading + trailing: the row is unchanged",
+        "props": {
+          "attachments": true
+        },
+        "slots": {
+          "above": {
+            "id": "strip",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "wrap": true,
+              "gap": "xs"
+            },
+            "children": [
+              {
+                "id": "file",
+                "component": "Chip",
+                "props": {
+                  "label": "screenshot.png",
+                  "pressable": true
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "team",
+                "component": "Chip",
+                "props": {
+                  "label": "Design"
+                }
+              }
+            ]
+          },
+          "leading": {
+            "id": "plus",
+            "component": "Button",
+            "props": {
+              "icon": "ui-add",
+              "label": "Options",
+              "variant": "ghost",
+              "size": "icon"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "options"
+                }
+              }
+            }
+          },
+          "trailing": {
+            "id": "ring",
+            "component": "Ring",
+            "props": {
+              "value": 0.4,
+              "size": "sm",
+              "label": "Context"
+            }
+          }
+        },
+        "stack": [
+          "above",
+          "field",
+          "row"
+        ],
+        "order": [
+          "leading",
+          "attachment",
+          "trailing",
+          "send"
+        ],
+        "steps": [],
+        "events": []
+      },
+      {
+        "name": "flat: above over the one row",
+        "props": {
+          "layout": "flat"
+        },
+        "slots": {
+          "above": {
+            "id": "strip",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "wrap": true,
+              "gap": "xs"
+            },
+            "children": [
+              {
+                "id": "file",
+                "component": "Chip",
+                "props": {
+                  "label": "screenshot.png",
+                  "pressable": true
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "team",
+                "component": "Chip",
+                "props": {
+                  "label": "Design"
+                }
+              }
+            ]
+          },
+          "leading": {
+            "id": "plus",
+            "component": "Button",
+            "props": {
+              "icon": "ui-add",
+              "label": "Options",
+              "variant": "ghost",
+              "size": "icon"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "options"
+                }
+              }
+            }
+          }
+        },
+        "stack": [
+          "above",
+          "row"
+        ],
+        "order": [
+          "leading",
+          "field",
+          "send"
+        ],
+        "steps": [],
+        "events": []
+      },
+      {
+        "name": "above in rtl: full width, a child is live",
+        "props": {},
+        "slots": {
+          "above": {
+            "id": "strip",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "wrap": true,
+              "gap": "xs"
+            },
+            "children": [
+              {
+                "id": "file",
+                "component": "Chip",
+                "props": {
+                  "label": "screenshot.png",
+                  "pressable": true
+                },
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "team",
+                "component": "Chip",
+                "props": {
+                  "label": "Design"
+                }
+              }
+            ]
+          }
+        },
+        "direction": "rtl",
+        "stack": [
+          "above",
+          "field",
+          "row"
+        ],
+        "order": [
+          "send"
+        ],
+        "steps": [
+          {
+            "press": "file"
+          }
+        ],
+        "events": [
+          {
+            "name": "open",
+            "context": {}
+          }
+        ]
       }
     ]
   },

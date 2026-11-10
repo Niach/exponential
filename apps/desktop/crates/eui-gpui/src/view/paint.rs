@@ -1535,6 +1535,10 @@ impl SurfaceView {
         // #EXP-1762: `flat` = one row: the field between the leading slot and
         // the controls, spanning the row (the disc's height while one line,
         // growing upward: the controls stay at the bottom).
+        // #EXP-1762: the core lays an `above` slot out at the content top; the
+        // field (and a flat row) start one gap below it.
+        let top = self.cache.index_of(&format!("{}.above", n.id)).and_then(|i| self.frames.get(i as usize)).map_or(0.0, |f| f.h + gap);
+        let rh = (h - top).max(0.0);
         let (field_x, field_y, field_w, field_h) = if lcx.str("layout") == "flat" {
             let slot = |name: &str| self.cache.index_of(&format!("{}.{name}", n.id)).and_then(|i| self.frames.get(i as usize)).map_or(0.0, |f| f.w + gap);
             let lead = slot("leading");
@@ -1546,10 +1550,10 @@ impl SurfaceView {
             // gpui-component's Textarea draws its text its own editor inset
             // (`Size::Medium` `input_py`) below its top, so the widget sits
             // that inset above it and covers the rest of the row.
-            let (y, fh) = flat_field_box(h, px_prop(&field_props, "paddingTop").unwrap_or(0.0), f32::from(gpui_component::Size::Medium.input_py()));
-            (x, y, fw, fh)
+            let (y, fh) = flat_field_box(rh, px_prop(&field_props, "paddingTop").unwrap_or(0.0), f32::from(gpui_component::Size::Medium.input_py()));
+            (x, top + y, fw, fh)
         } else {
-            (0.0, 0.0, w, (h - send - gap).max(0.0))
+            (0.0, top, w, (rh - send - gap).max(0.0))
         };
         let empty = self.fields.get(&n.id).is_none_or(|f| f.value(cx).trim().is_empty());
         let mut out = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
