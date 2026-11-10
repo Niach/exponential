@@ -42,6 +42,8 @@ export XDG_RUNTIME_DIR="$scratch/run"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$
 export EDE_FACTORY_DIR="$here/ui"
 # A golden never ticks.
 export EDE_SHELL_CLOCK="${EDE_SHELL_CLOCK:-12:00}"
+# Nor turns the page: the calendar applet draws this day, not the runner's.
+export EDE_SHELL_DATE="${EDE_SHELL_DATE:-2026-11-08}"
 export EDE_SHELL_DEMO=1
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=error,wgpu_hal=error}"
 log="$scratch/run.log"
