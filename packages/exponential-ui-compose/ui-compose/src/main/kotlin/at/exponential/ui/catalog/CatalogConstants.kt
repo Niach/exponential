@@ -48,6 +48,8 @@ object CatalogConstants {
     val SELECT_BUTTON_POPUP_OFFSET: Float = named("selectButtonPopupOffset")
     /** #EXP-1778: the narrowest a `button` Select popup gets (dp). */
     val SELECT_BUTTON_POPUP_MIN_WIDTH: Float = named("selectButtonPopupMinWidth")
+    /** #EXP-1778: the space between a `button` Select's menu rows (dp). */
+    val SELECT_BUTTON_ITEM_GAP: Float = named("selectButtonItemGap")
     /** EXP-1259: the bottom fade over a list while more rows sit below (dp; #EXP-1629: a Select's popup too). */
     val SEARCH_LIST_FADE: Float = named("searchListFade")
 

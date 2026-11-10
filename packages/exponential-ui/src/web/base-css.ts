@@ -538,6 +538,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
 .xui-Select-content{gap:var(--xui-spacing-xs)}
 .xui-Select-listbox{max-height:256px}
+.xui-Select-content[data-r-trigger-variant="button"] :is(.xui-Select-listbox,[data-radix-select-viewport]){display:flex;flex-direction:column;gap:${LAYOUT_CONSTANTS.selectButtonItemGap}px}
 .xui-Select-empty{display:block}
 .xui-TimePicker-list{min-width:var(--radix-popover-trigger-width)}
 [data-xui-c="Toast"].xui-el{flex-direction:row;align-items:flex-start;width:min(360px,calc(100vw - 32px));pointer-events:auto}

@@ -454,7 +454,7 @@ impl Builder<'_, '_> {
         // bottom `fade` while more options sit below (SearchList's).
         let body = self.part_in(root, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "position": "relative", "flexShrink": 1, "minHeight": 0}), json!({}), "");
         self.nodes[body as usize].part_query = None;
-        let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
+        let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256, "gap": if button { crate::layout::SELECT_BUTTON_ITEM_GAP } else { 0.0 }}), json!({}), "");
         self.nodes[list as usize].part_query = None;
         // #EXP-1765: while `loading` the list holds the Skeleton's rows (its
         // own recipe, the item row's height) in place of the options.
@@ -526,6 +526,11 @@ impl Builder<'_, '_> {
                 }
                 if selected {
                     props["check"] = json!(super::builtin_icon("Select.check"));
+                }
+                // #EXP-1778: a `button`'s menu row holds the check on the
+                // chosen row only (no slot on the others: the IDE menu).
+                if button {
+                    props["checkSlot"] = json!("chosen");
                 }
                 let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
                 if mono {

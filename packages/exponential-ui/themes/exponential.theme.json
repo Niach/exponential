@@ -1345,8 +1345,10 @@
           },
           "style": {
             "height": 26,
+            "minHeight": 26,
+            "paddingVertical": 3,
             "paddingHorizontal": 8,
-            "gap": 4,
+            "gap": 16,
             "borderRadius": "$radius.sm",
             "fontSize": 14,
             "lineHeight": 20

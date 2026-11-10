@@ -1879,10 +1879,10 @@ mod app_mcp_twins {
                     {"id": "upstream", "component": "Select", "props": {"label": "github", "name": "upstream", "triggerVariant": "button", "value": "s1", "options": options}, "style": {"width": SELECT_W}},
                 ]},
                 {"id": "url_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                    {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 10.5, "lineHeight": 14, "color": ink.3}},
+                    {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 10.5, "lineHeight": 16.99, "color": ink.3}},
                 ]},
                 {"id": "secret_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                    {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 12.25, "lineHeight": 17.5}},
+                    {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 12.25, "lineHeight": 19.82}},
                 ]},
             ]});
             let view = crate::settings::doc_mount_lifted("bench-app-mcp", tree, &binding, window, cx);

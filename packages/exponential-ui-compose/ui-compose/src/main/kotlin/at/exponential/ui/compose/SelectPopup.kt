@@ -319,10 +319,11 @@ internal fun SelectPopup(cx: LeafContext) {
                 }
             }
             Box(Modifier.weight(1f, fill = false).fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().verticalScroll(scroll)) {
+                // #EXP-1778: a `button`'s menu rows sit `selectButtonItemGap` apart.
+                Column(Modifier.fillMaxWidth().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy((if (button) CatalogConstants.SELECT_BUTTON_ITEM_GAP else 0f).dp)) {
                     if (loading) SelectSkeletonRows(cx)
                     for ((i, o) in options.withIndex()) {
-                        SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupTs, popupInk, onHover = {
+                        SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupTs, popupInk, checkOnChosenOnly = button, onHover = {
                             cursorless = false
                             cursor = i
                         }, onPick = { pick(o) })
@@ -413,7 +414,7 @@ private fun SelectSearch(cx: LeafContext, query: String, hint: String, pill: Boo
 
 /** One option: the `item` recipe under its states (`hover` = the cursor, `selected` = chosen), icon, label, the check slot. */
 @Composable
-private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, height: Float, base: ResolvedTextStyle, popupInk: Color, onHover: () -> Unit, onPick: () -> Unit) {
+private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, height: Float, base: ResolvedTextStyle, popupInk: Color, checkOnChosenOnly: Boolean = false, onHover: () -> Unit, onPick: () -> Unit) {
     val states = buildList {
         if (cursor) add("hover")
         if (chosen) add("selected")
@@ -465,7 +466,8 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             BasicText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText(o.trailing, style = cx.composeTextStyle(ts = base.copy(fontSize = sans.fontSize, lineHeight = sans.lineHeight, fontFamily = null), color = cx.themeColor("mutedForeground") ?: ink), maxLines = 1, softWrap = false)
         }
-        Box(Modifier.size(checkSize.dp)) {
+        // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+        if (chosen || !checkOnChosenOnly) Box(Modifier.size(checkSize.dp)) {
             if (chosen) IconOrGlyph(builtinIcon("Select.check", "ui-check"), Glyph.Check, checkSize, cx, check.color ?: ink)
         }
     }
