@@ -63,7 +63,7 @@ pub(crate) mod doctor_section;
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
 mod resend_invite_dialog;
-mod issues;
+pub(crate) mod issues;
 mod labels;
 mod mcp;
 pub(crate) mod mcp_servers;
