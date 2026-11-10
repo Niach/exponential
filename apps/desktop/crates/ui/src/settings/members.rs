@@ -761,8 +761,8 @@ fn copy_icon(copied: bool) -> &'static str {
 
 /// gpui-component's own Copy / Check glyphs, by name (the host resolves
 /// them to their asset paths).
-const COPY_ICON: &str = "gpui-copy";
-const CHECK_ICON: &str = "gpui-check";
+const COPY_ICON: &str = "ide-copy";
+const CHECK_ICON: &str = "ide-check";
 
 /// A profile picture's src: an absolute http(s) URL (Better Auth `image`).
 fn picture_src(url: &str) -> bool {
@@ -812,8 +812,10 @@ struct MembersHost {
 impl HostPlugin for MembersHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
         match name {
-            COPY_ICON => Some(gpui_component::IconName::Copy.path()),
-            CHECK_ICON => Some(gpui_component::IconName::Check.path()),
+            // The registry's copy / check (the same Lucide paths gpui-component's
+            // `Clipboard` draws).
+            COPY_ICON => Some(registry::UI_COPY.path()),
+            CHECK_ICON => Some(registry::UI_CHECK.path()),
             _ => self.ide.icon(name),
         }
     }
