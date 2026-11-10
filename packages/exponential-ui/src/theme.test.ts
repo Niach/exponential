@@ -290,8 +290,8 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
   test(`#EXP-1629 a destructive Menu item: web's destructive DropdownMenuItem (text, glyph and its highlight)`, () => {
     for (const id of [`neutral`, `exponential`, `playful`]) {
       const t = builtinTheme(id)
-      expect(t.modes.light.color.destructiveHover).toBe(`${t.modes.light.color.destructive.slice(0, 7)}1a`)
-      expect(t.modes.dark.color.destructiveHover).toBe(`${t.modes.dark.color.destructive.slice(0, 7)}33`)
+      expect(t.modes.light.color.destructiveHover as string).toBe(`${t.modes.light.color.destructive.slice(0, 7)}1a`)
+      expect(t.modes.dark.color.destructiveHover as string).toBe(`${t.modes.dark.color.destructive.slice(0, 7)}33`)
       const item = (destructive: boolean, states: string[]) => resolveRecipe(t, { component: `Menu`, part: `item`, props: { openOn: `press`, destructive }, states }, `dark`)
       expect(item(true, []).color).toBe(t.modes.dark.color.destructive)
       expect(item(true, [`hover`]).backgroundColor).toBe(t.modes.dark.color.destructiveHover)
