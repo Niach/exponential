@@ -254,13 +254,23 @@ pub fn demo_input() -> ChatInput {
         session_id: Some("demo".into()),
         rows: vec![
             message("m1", "user", "Which issues are still open on this desktop?", "09:14"),
-            message("m2", "agent", "Two are open on **General**:\n\n- GEN-1 Set up the printer\n- GEN-2 Back up the photos\n\nWant me to take one?", "09:14"),
-            ChatRowInput::Pill { id: "d1".into(), icon: "coding-compact".into(), label: "Conversation compacted · 09:20".into() },
-            message("m3", "user", "Take the printer.", "09:21"),
+            message("m2", "agent", "Two are open on **General**: GEN-1 Set up the printer, GEN-2 Back up the photos.", "09:14"),
+            // #EXP-1772: a busy agent chat: a schedule firing the agent
+            // answered (THE marker above the reply), a merge line, a relay.
+            ChatRowInput::Marker { id: "e1".into(), label: "Schedule".into() },
+            message("m4", "agent", "PR #412 merged overnight; the iPad sign-in reports stopped.", "07:00"),
+            ChatRowInput::Marker { id: "e2".into(), label: "Merged PR #412".into() },
+            message("x2", "agent", "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.", "08:41"),
         ],
         ..assistant_home()
     };
     crate::chat::demo_group(&mut input.rows, ASSISTANT_ICON, "Assistant");
+    // The relay: another session's message, its name above the bubble.
+    if let Some(ChatRowInput::Message { name, group: Some(group), .. }) = input.rows.last_mut() {
+        *name = Some("Fix the sign-in redirect".into());
+        group.avatar = Some(format!("{}coding-assistant", crate::chat::AVATAR_ICON_PREFIX));
+        group.link = Some("c-fix".into());
+    }
     input
 }
 
@@ -283,7 +293,7 @@ mod tests {
         assert_eq!((home.face, home.agent_row.label.as_str()), (ChatFace::Home, "To Assistant"));
         let demo = chat_view(&super::demo_input());
         assert_eq!(demo.face, ChatFace::Conversation);
-        assert_eq!(demo.rows.len(), 4);
+        assert_eq!(demo.rows.len(), 6);
         assert_eq!(demo.composer.placeholder, "Type / for commands", "eDE's composer has the / menu");
     }
 }

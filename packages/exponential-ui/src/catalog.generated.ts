@@ -160,7 +160,7 @@ export type TextareaVariantValue = (typeof ENUMS)["textareaVariant"][number]
 
 /** Token NAMES by group (values come from a theme). */
 export const TOKEN_NAMES = {
-  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover"],
+  "color": ["background","foreground","card","cardForeground","popover","popoverForeground","primary","primaryForeground","secondary","secondaryForeground","muted","mutedForeground","accent","accentForeground","destructive","destructiveForeground","success","successForeground","warning","warningForeground","info","infoForeground","border","input","ring","chart1","chart2","chart3","chart4","chart5","chart6","chart7","chart8","link","borderStrong","ghostHover","strokeActive"],
   "spacing": ["none","xxs","xs","sm","md","lg","xl","xl2","xl3"],
   "radius": ["none","sm","md","lg","xl","xl2","xl3","full"],
   "type.size": ["xs","sm","base","lg","xl","xl2","xl3"],
@@ -308,7 +308,7 @@ export interface ComponentProps {
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }
   IconPicker: { value?: string | Dynamic; icons?: IconName[]; color?: string; allowNone?: boolean; open?: boolean | Dynamic }
-  ColorPicker: { value?: string | Dynamic; colors?: string[]; open?: boolean | Dynamic }
+  ColorPicker: { value?: string | Dynamic; colors?: string[]; open?: boolean | Dynamic; inline?: boolean }
   DatePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number; inline?: boolean; marks?: Shapes["dateMark"][]; today?: string }
   DateRangePicker: { label?: string; name: string; start?: string | Dynamic; end?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number }
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
