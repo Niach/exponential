@@ -1,37 +1,32 @@
 //! Settings → New agent (EXP-1319): the agent page in CREATE mode, the web's
 //! `settings/agents/new` — every field of [`super::agent_detail`] (identity,
 //! Device, Account, Schedule, Instructions), all LOCAL until "Create agent"
-//! sends `sessions.send({teamId, deviceId, cli, account, agent})`; then the
-//! page becomes the new agent's (`SettingsSection::Agent`). Owner-only.
+//! sends `agents.create`; then the page becomes the new agent's
+//! (`SettingsSection::Agent`). Owner-only.
 //!
 //! Validation is the fixture's `validateAgentForm`, shown inline; a failed
 //! create is the "Couldn't create the agent" toast (FEED-79).
+//!
+//! #EXP-1629: the page is an eUI document on the native binding (the agent
+//! pages' pieces, [`super::agent_doc`]); the pane keeps the draft and the
+//! create.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, WeakEntity, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
-};
-use serde_json::Value;
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription, WeakEntity, Window};
+use serde_json::{json, Value};
 use sync::Store;
 
 use domain::agent_settings::{validate_agent_form, AgentForm, AGENT_SETTINGS};
+use eui_gpui::binding::Binding;
+use eui_gpui::host::HostPlugin;
+use eui_gpui::view::SurfaceView;
 
-use super::agent_detail::{
-    account_options, agent_devices, current_account, device_picker_control, field_label, seed_device,
-    AgentDevice,
-};
-use super::{section, SettingsSection};
-use crate::controls::{glass_input, WebControl as _};
-use crate::icons::registry;
+use super::agent_detail::{account_options, agent_devices, current_account, seed_device, AgentDevice};
+use super::agent_doc::{account_rows, agent_mark_icon, device_row, divided, field_error, identity, instructions_caption, instructions_field, schedule_rows, Chrome};
+use super::doc::{path, Ink, SM};
+use super::SettingsSection;
 use crate::navigation::{navigate, Screen};
 use crate::queries;
 use crate::trigger_dialog::{self, DraftTriggers};
@@ -40,10 +35,14 @@ use crate::trigger_editor;
 /// The page's create button label (web `agents-section.tsx`).
 const CREATE_AGENT: &str = "Create agent";
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
 pub struct NewAgentPane {
     team_id: String,
-    name: Entity<InputState>,
-    instructions: Entity<TextareaState>,
+    /// The name and instructions as typed (the document's fields).
+    name: String,
+    instructions: String,
     /// Curated icon concept (contract `boardIcon`), sent as `icon`.
     icon: String,
     color: String,
@@ -55,35 +54,24 @@ pub struct NewAgentPane {
     account: Option<(String, String)>,
     /// The Schedule's draft — shared with the trigger dialog's save.
     triggers: Rc<RefCell<Vec<Value>>>,
-    pending: crate::feedback::Pending,
+    /// A create in flight.
+    pending: bool,
     /// The fixture's validation messages (INVALID INPUT), by field.
     errors: Vec<domain::agent_settings::AgentFormError>,
     focused_once: bool,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// The bench's frames left to run a pressed popup's fade on.
+    #[cfg(test)]
+    shot_settle: u8,
     _subscriptions: Vec<Subscription>,
 }
 
 impl NewAgentPane {
     pub fn new(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let copy = &AGENT_SETTINGS.copy;
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder(copy.name_placeholder.clone()));
-        let instructions = cx.new(|cx| {
-            crate::controls::web_textarea(4, 16, window, cx)
-                .placeholder(copy.instructions_placeholder.clone())
-        });
-        let mut subscriptions = vec![
-            cx.subscribe(&name, |this, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.clear_error("identity", cx);
-                }
-            }),
-            cx.subscribe(&instructions, |this, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.clear_error("instructions", cx);
-                }
-            }),
-        ];
         // The devices shape can land AFTER the page opened: the seed re-runs
         // on every delta (a pick the person made is never disturbed).
+        let mut subscriptions = Vec::new();
         if let Some(store) = Store::try_global(cx) {
             let devices = store.collections().devices.clone();
             subscriptions.push(cx.observe(&devices, |this: &mut Self, _, cx| {
@@ -91,35 +79,98 @@ impl NewAgentPane {
                 cx.notify();
             }));
         }
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(super::doc::IdeToasts));
+            for name in ["icon", "color", "device", "account", "scheduleNew", "triggerAdd", "triggerOpen", "triggerToggle", "create"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = event.context.clone();
+                    let payload = event.payload.clone().unwrap_or(Value::Null);
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &context, &payload, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin() });
+        let view = super::doc::mount_with("settings-new-agent", document(&Ink::of(cx), &Chrome::of(cx)), &binding, plugin, true, window, cx);
         let defaults = &domain::session_tree::CHATS_LIST.agent_defaults;
         let mut this = Self {
             team_id,
-            name,
-            instructions,
+            name: String::new(),
+            instructions: String::new(),
             icon: defaults.icon.clone(),
             color: defaults.color.clone(),
             device_id: None,
             account: None,
             triggers: Rc::default(),
-            pending: crate::feedback::Pending::default(),
+            pending: false,
             errors: Vec::new(),
             focused_once: false,
+            binding,
+            view,
+            #[cfg(test)]
+            shot_settle: 0,
             _subscriptions: subscriptions,
         };
         this.seed_device(cx);
         this
     }
 
+    /// The bench's page of the shots team (unfocused: the caret blinks).
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut pane = Self::new("team-shots".into(), window, cx);
+        pane.focused_once = true;
+        pane
+    }
+
+    /// The page in a pinned state.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: NewAgentShot, _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.name = shot.name.into();
+        self.instructions = shot.instructions.into();
+        if let Some(device) = shot.device {
+            self.device_id = Some(device.into());
+        }
+        *self.triggers.borrow_mut() = shot.triggers;
+        if shot.validate {
+            self.errors = validate_agent_form(&self.form());
+        }
+        self.pending = shot.pending;
+        cx.notify();
+    }
+
+    /// The bench's press on a document node (a headless click never
+    /// reaches an eUI popup), its popup's enter fade run out.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            // The bench's click (today's pane's) may already have opened it.
+            if view.layers().is_empty() {
+                let index = view.index_of(id).expect("the pressed node");
+                view.press(index, window, cx);
+            }
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
+        self.shot_settle = 4;
+        cx.notify();
+    }
+
     /// The caller's default machine, else the only one, else the first online.
     fn seed_device(&mut self, cx: &App) {
         if self.device_id.is_none() {
             let devices = agent_devices(&self.team_id, cx);
-            self.device_id = seed_device(&devices).or_else(|| {
-                devices
-                    .iter()
-                    .find(|device| device.online)
-                    .map(|device| device.device_id.clone())
-            });
+            self.device_id = seed_device(&devices).or_else(|| devices.iter().find(|device| device.online).map(|device| device.device_id.clone()));
         }
     }
 
@@ -131,22 +182,18 @@ impl NewAgentPane {
         }
     }
 
-    fn error(&self, field: &str) -> Option<SharedString> {
-        self.errors
-            .iter()
-            .find(|error| error.field == field)
-            .map(|error| SharedString::from(error.message.clone()))
+    fn error(&self, field: &str) -> Option<String> {
+        self.errors.iter().find(|error| error.field == field).map(|error| error.message.clone())
+    }
+
+    fn form(&self) -> AgentForm {
+        AgentForm { name: self.name.clone(), device_id: self.device_id.clone(), instructions: self.instructions.clone() }
     }
 
     /// The Account row's login on the picked machine (THE rule,
     /// `agent_account_value`): the pick, else the machine's last used one.
     fn picked_account(&self, devices: &[AgentDevice]) -> (Vec<coding::AccountOption>, Option<coding::AccountOption>) {
-        let options = self
-            .device_id
-            .as_deref()
-            .and_then(|id| devices.iter().find(|device| device.device_id == id))
-            .map(account_options)
-            .unwrap_or_default();
+        let options = self.device_id.as_deref().and_then(|id| devices.iter().find(|device| device.device_id == id)).map(account_options).unwrap_or_default();
         let (cli, account) = match &self.account {
             Some((cli, account)) => (Some(cli.as_str()), Some(account.as_str())),
             None => (None, None),
@@ -155,15 +202,82 @@ impl NewAgentPane {
         (options, current)
     }
 
+    /// A field's edit (the plugin's): the live text clears its error.
+    fn edited(&mut self, field: &str, value: String, cx: &mut gpui::Context<Self>) {
+        match field {
+            "name" => {
+                self.name = value;
+                self.clear_error("identity", cx);
+            }
+            "instructions" => {
+                self.instructions = value;
+                self.clear_error("instructions", cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// The trigger dialog's handle on this page's draft array.
+    fn draft(&self, view: WeakEntity<Self>) -> DraftTriggers {
+        let read = self.triggers.clone();
+        let write = self.triggers.clone();
+        DraftTriggers {
+            team_id: self.team_id.clone(),
+            read: Rc::new(move |_| read.borrow().clone()),
+            write: Rc::new(move |next, cx| {
+                *write.borrow_mut() = next;
+                let _ = view.update(cx, |_, cx| cx.notify());
+            }),
+        }
+    }
+
+    /// A document action.
+    fn action(&mut self, name: &str, context: &Value, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
+        let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        match name {
+            "icon" if !value.is_empty() => self.icon = value,
+            "color" if !value.is_empty() => self.color = value,
+            // A pick drops the account pick (a profile id is device-local,
+            // EXP-995).
+            "device" if !value.is_empty() => {
+                if self.device_id.as_deref() != Some(value.as_str()) {
+                    self.account = None;
+                }
+                self.device_id = Some(value);
+                self.clear_error("device", cx);
+            }
+            "account" => {
+                let (options, _) = self.picked_account(&agent_devices(&self.team_id, cx));
+                if let Some(option) = options.iter().find(|option| option.account_option_key() == value) {
+                    self.account = Some((option.agent.id().to_string(), option.id.clone()));
+                }
+            }
+            "scheduleNew" | "triggerAdd" => {
+                let draft = self.draft(cx.entity().downgrade());
+                trigger_dialog::open_new_draft(window, cx, draft);
+            }
+            "triggerOpen" if !key.is_empty() => {
+                let draft = self.draft(cx.entity().downgrade());
+                trigger_dialog::open_edit_draft(window, cx, draft, key);
+            }
+            "triggerToggle" if !key.is_empty() => {
+                if let Some(on) = payload.get("checked").and_then(Value::as_bool) {
+                    let next = trigger_editor::triggers_with_enabled(&self.triggers.borrow(), &key, on);
+                    *self.triggers.borrow_mut() = next;
+                }
+            }
+            "create" => self.submit(window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.pending.active() {
+        if self.pending {
             return;
         }
-        let form = AgentForm {
-            name: self.name.read(cx).value().to_string(),
-            device_id: self.device_id.clone(),
-            instructions: self.instructions.read(cx).value().to_string(),
-        };
+        let form = self.form();
         self.errors = validate_agent_form(&form);
         if !self.errors.is_empty() {
             cx.notify();
@@ -174,7 +288,7 @@ impl NewAgentPane {
             return;
         };
         let (_, login) = self.picked_account(&agent_devices(&self.team_id, cx));
-        self.pending.start(cx);
+        self.pending = true;
         cx.notify();
 
         // NEW-2: an agent is a DEFINITION row (`agents.create`), never a
@@ -192,34 +306,25 @@ impl NewAgentPane {
             model: None,
         };
         cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::agents::create(&trpc, &input) })
-                .await;
+            let result = window.background_executor().spawn(async move { api::agents::create(&trpc, &input) }).await;
             match result {
                 Ok(agent) => {
                     // Land on the agent's page once its row has synced (the
                     // nav clamps an unknown `Agent(id)` away).
                     let agent_id = agent.id;
-                    let agents = window
-                        .update(|_, cx| Store::global(cx).collections().agents.clone())
-                        .ok();
+                    let agents = window.update(|_, cx| Store::global(cx).collections().agents.clone()).ok();
                     if let Some(agents) = agents {
                         queries::await_row_visible(&agents, &agent_id, window).await;
                     }
                     let _ = this.update_in(window, |this, window, cx| {
-                        this.pending.finish();
-                        crate::sidebar::select_settings_section(
-                            window,
-                            cx,
-                            SettingsSection::Agent(agent_id),
-                        );
+                        this.pending = false;
+                        crate::sidebar::select_settings_section(window, cx, SettingsSection::Agent(agent_id));
                         navigate(window, cx, Screen::Settings);
                     });
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, _, cx| {
-                        this.pending.finish();
+                        this.pending = false;
                         // A create can duplicate, so no Retry.
                         crate::action_error::failed_action_err("create", "the agent", &err, cx);
                         cx.notify();
@@ -230,258 +335,190 @@ impl NewAgentPane {
         .detach();
     }
 
-    /// The board form's identity row: icon picker, colour picker, name.
-    fn identity_row(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let view = cx.entity().downgrade();
-        let icon_picker = crate::board_form::icon_picker(
-            "new-agent",
-            registry::PICKABLE_ICONS,
-            Some(self.icon.as_str()),
-            Some(self.color.as_str()),
-            false,
-            move |name, _, cx| {
-                let Some(name) = name else { return };
-                let _ = view.update(cx, |this, cx| {
-                    this.icon = name.to_string();
-                    cx.notify();
-                });
-            },
-            cx,
-        );
-        let view = cx.entity().downgrade();
-        let color_picker = crate::board_form::color_picker(
-            "new-agent",
-            &self.color,
-            move |color, _, cx| {
-                let _ = view.update(cx, |this, cx| {
-                    this.color = color.to_string();
-                    cx.notify();
-                });
-            },
-            cx,
-        );
-        crate::surface::glass_row_shell()
-            .gap_2()
-            .child(icon_picker)
-            .child(color_picker)
-            .child(
-                div().flex_1().min_w_0().child(
-                    crate::surface::glass_row_input(glass_input(&self.name, window, cx)).text_left(),
-                ),
-            )
-    }
-
-    /// The Device row: a pick drops the account pick (a profile id is
-    /// device-local, EXP-995).
-    fn device_row(&self, devices: &[AgentDevice], cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let view = cx.entity().downgrade();
-        let control = device_picker_control(
-            "new-agent",
-            devices,
-            self.device_id.clone(),
-            Rc::new(move |device_id: String, _: &mut Window, cx: &mut App| {
-                let _ = view.update(cx, |this, cx| {
-                    if this.device_id.as_deref() != Some(device_id.as_str()) {
-                        this.account = None;
-                    }
-                    this.device_id = Some(device_id);
-                    this.clear_error("device", cx);
-                    cx.notify();
-                });
-            }),
-            cx,
-        );
-        crate::surface::glass_picker_row(field_label("device"), None, control, cx)
-    }
-
-    /// The Account row: THE account picker over the picked machine's logins
-    /// (brand mark + email); none reported reads "Last used", muted.
-    fn account_row(&self, devices: &[AgentDevice], cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let (options, current) = self.picked_account(devices);
-        let control = match current {
-            None => div()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(AGENT_SETTINGS.copy.account_last_used.clone()))
-                .into_any_element(),
-            Some(current) => {
-                let trigger = trigger_editor::picker_trigger_bare(
-                    "new-agent-account".into(),
-                    SharedString::from(current.email.clone()),
-                    cx,
-                )
-                .icon(crate::coding_selects::agent_mark(current.agent))
-                .child(crate::surface::picker_row_chevron(cx))
-                .into_any_element();
-                let picked = current.account_option_key();
-                let view = cx.entity().downgrade();
-                crate::picker::deferred(move |window, cx| {
-                    let rows = options.clone();
-                    let view = view.clone();
-                    crate::picker::account_picker::account_picker(
-                        &options,
-                        Some(picked),
-                        trigger,
-                        Rc::new(move |next: Vec<String>, _window: &mut Window, cx: &mut App| {
-                            let Some(option) = next.into_iter().next().and_then(|key| {
-                                rows.iter().find(|option| option.account_option_key() == key).cloned()
-                            }) else {
-                                return;
-                            };
-                            let _ = view.update(cx, |this, cx| {
-                                this.account = Some((option.agent.id().to_string(), option.id.clone()));
-                                cx.notify();
-                            });
-                        }),
-                    )
-                    .id(SharedString::from("new-agent-account-picker"))
-                    .render(window, cx)
-                })
-                .into_any_element()
-            }
-        };
-        crate::surface::glass_picker_row(field_label("account"), None, control, cx)
-    }
-
-    /// The trigger dialog's handle on this page's draft array.
-    fn draft(&self, view: WeakEntity<Self>) -> DraftTriggers {
-        let read = self.triggers.clone();
-        let write = self.triggers.clone();
-        DraftTriggers {
-            team_id: self.team_id.clone(),
-            read: Rc::new(move |_| read.borrow().clone()),
-            write: Rc::new(move |next, cx| {
-                *write.borrow_mut() = next;
-                let _ = view.update(cx, |_, cx| cx.notify());
-            }),
-        }
-    }
-
-    /// The Schedule rows, the agent page's: none = ONE row reading "Waits
-    /// for messages" that opens the editor; else the "Schedule" row carrying
-    /// "+ Add", then one row per trigger (summary opens it, switch pauses it).
-    fn schedule_rows(&self, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
-        let copy = &AGENT_SETTINGS.copy;
-        let label = field_label("triggers");
-        let draft = self.draft(cx.entity().downgrade());
-        let triggers = self.triggers.borrow().clone();
-        if triggers.is_empty() {
-            let control = trigger_editor::picker_trigger("new-agent-schedule-new".into(), copy.no_schedule.clone(), cx)
-                .on_click(move |_, window, cx| trigger_dialog::open_new_draft(window, cx, draft.clone()))
-                .into_any_element();
-            return vec![crate::surface::glass_picker_row(label, None, control, cx)];
-        }
-        let add: gpui::AnyElement = if triggers.len() < domain::contract::AGENT_TRIGGER_MAX_PER_AGENT {
-            let draft = draft.clone();
-            Button::new("new-agent-schedule-add")
-                .outline()
-                .cursor_pointer()
-                .xsmall()
-                .icon(registry::UI_ADD)
-                .label(copy.add_trigger.clone())
-                .on_click(move |_, window, cx| trigger_dialog::open_new_draft(window, cx, draft.clone()))
-                .into_any_element()
-        } else {
-            div().into_any_element()
-        };
-        let mut rows = vec![crate::surface::glass_picker_row(label, None, add, cx)];
-        rows.extend(triggers.iter().enumerate().filter_map(|(index, trigger)| {
-            let trigger_id = trigger_editor::trigger_id(trigger)?.to_string();
-            let enabled = trigger_editor::trigger_enabled(trigger);
-            let (edit_draft, edit_trigger) = (draft.clone(), trigger_id.clone());
-            let summary = trigger_editor::picker_trigger_bare(
-                format!("new-agent-trigger-{index}").into(),
-                domain::agent_settings::trigger_summary(trigger),
-                cx,
-            )
-            .text_color(cx.theme().foreground)
-            .on_click(move |_, window, cx| {
-                trigger_dialog::open_edit_draft(window, cx, edit_draft.clone(), edit_trigger.clone())
-            });
-            let switch = crate::controls::web_switch(("new-agent-trigger-enabled", index))
-                .small()
-                .checked(enabled)
-                .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                    let next = trigger_editor::triggers_with_enabled(&this.triggers.borrow(), &trigger_id, *on);
-                    *this.triggers.borrow_mut() = next;
-                    cx.notify();
-                }));
-            Some(
-                crate::surface::glass_row_shell()
-                    .text_sm()
-                    .child(h_flex().flex_1().min_w_0().justify_start().child(summary))
-                    .child(switch),
-            )
-        }));
-        rows
-    }
-
-    /// The Instructions card: the chrome-less textarea in a glass group, its
-    /// label as the caption under it.
-    fn instructions_card(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let mut card = v_flex()
-            .w_full()
-            .gap_1()
-            .child(
-                crate::surface::glass_group().child(
-                    Textarea::new(&self.instructions)
-                        .appearance(false)
-                        .w_full()
-                        .px_4()
-                        .py_3(),
-                ),
-            )
-            .child(
-                div()
-                    .px_1()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(field_label("instructions")),
-            );
-        if let Some(message) = self.error("instructions") {
-            card = card.child(crate::action_error::field_error(message, cx).px_1());
-        }
-        card
+    /// The page as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let devices = agent_devices(&self.team_id, cx);
+        // THE device picker: each machine by its glyph, offline ones say so.
+        let device_options: Vec<Value> = devices
+            .iter()
+            .map(|device| {
+                let mut option = json!({"label": device.label, "value": device.device_id, "icon": crate::icons::device_icon_name(device.icon.as_deref(), device.server)});
+                if !device.online {
+                    option["description"] = json!("Offline");
+                }
+                option
+            })
+            .collect();
+        // The Account row: THE account picker over the picked machine's
+        // logins (brand mark + email), "Last used" when it reports none.
+        let (options, current) = self.picked_account(&devices);
+        let logins: Vec<Value> = options
+            .iter()
+            .filter(|option| !option.id.is_empty())
+            .map(|option| {
+                let mut row = json!({"label": option.email, "value": option.account_option_key(), "icon": agent_mark_icon(option.agent)});
+                if let Some(badge) = option.health.badge_label() {
+                    row["description"] = json!(badge);
+                }
+                row
+            })
+            .collect();
+        let triggers = self.triggers.borrow();
+        let trigger_rows: Vec<Value> = triggers
+            .iter()
+            .filter_map(|trigger| {
+                let id = trigger_editor::trigger_id(trigger)?.to_string();
+                Some(json!({"key": id, "summary": domain::agent_settings::trigger_summary(trigger), "enabled": trigger_editor::trigger_enabled(trigger)}))
+            })
+            .collect();
+        let at_max = triggers.len() >= domain::contract::AGENT_TRIGGER_MAX_PER_AGENT;
+        // The identity block's one message: the name's, else the device's.
+        let identity_error = self.error("identity").or_else(|| self.error("device"));
+        let instructions_error = self.error("instructions");
+        json!({
+            // The draft's trigger rows carry no ⋯ (the agent page's owner menu).
+            "owner": false,
+            "icon": self.icon,
+            "color": self.color,
+            "fields": {"name": self.name, "instructions": self.instructions},
+            "device": {"value": self.device_id.clone().unwrap_or_default(), "options": device_options},
+            "account": {"has": current.is_some(), "none": current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
+            "noTriggers": trigger_rows.is_empty(),
+            "hasTriggers": !trigger_rows.is_empty(),
+            "canAdd": !trigger_rows.is_empty() && !at_max,
+            "triggers": trigger_rows,
+            "busy": false,
+            "identityError": identity_error.clone().unwrap_or_default(),
+            "hasIdentityError": identity_error.is_some(),
+            "instructionsError": instructions_error.clone().unwrap_or_default(),
+            "hasInstructionsError": instructions_error.is_some(),
+            "pending": self.pending,
+        })
     }
 }
 
 impl Render for NewAgentPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "NewAgentPane").entered();
+        #[cfg(test)]
+        if self.shot_settle > 0 {
+            self.shot_settle -= 1;
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            cx.notify();
+        }
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         if !self.focused_once {
             self.focused_once = true;
-            self.name.update(cx, |state, cx| state.focus(window, cx));
+            self.view.update(cx, |view, cx| {
+                view.focus_field("name", window, cx);
+            });
         }
-        let devices = agent_devices(&self.team_id, cx);
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
 
-        let mut identity = v_flex().w_full().gap_2().child(crate::surface::glass_group_rows(vec![
-            self.identity_row(window, cx),
-            self.device_row(&devices, cx),
-        ]));
-        if let Some(message) = self.error("identity").or_else(|| self.error("device")) {
-            identity = identity.child(crate::action_error::field_error(message, cx).px_1());
+/// The pane's plugin: the IDE's, and the name / instructions edits for
+/// the pane.
+struct PanePlugin {
+    pane: WeakEntity<NewAgentPane>,
+    inner: crate::exponential_ui_host::IdePlugin,
+}
+
+impl HostPlugin for PanePlugin {
+    fn icon(&self, name: &str) -> Option<gpui::SharedString> {
+        self.inner.icon(name)
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        self.inner.icon_element(name, size, color, cx)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.inner.on_unknown(node)
+    }
+
+    fn on_input(&self, event: &eui_gpui::host::InputEvent, cx: &mut App) {
+        let field = event.name.clone();
+        let value = event.value.as_str().unwrap_or_default().to_string();
+        let pane = self.pane.clone();
+        cx.defer(move |cx| {
+            let _ = pane.update(cx, |pane, cx| pane.edited(&field, value, cx));
+        });
+    }
+}
+
+/// The page's tree (`gap_4`): the identity group (identity + Device) and its
+/// message; Account + Schedule; the Instructions card and its message; the
+/// right-aligned "Create agent".
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let mut first = vec![identity(ink)];
+    first.extend(divided(ink, device_row()));
+    let identity_block = json!({"id": "identity_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
+        "children": [ink.group("agent_group", first), field_error(ink, chrome, "identity_error", path("/pane/identityError"), path("/pane/hasIdentityError"))]});
+    let [account_pick, account_none] = account_rows(ink);
+    let [schedule_none, schedule_head, trigger_list] = schedule_rows(ink, chrome);
+    let mut second = vec![account_pick, account_none];
+    second.extend(divided(ink, schedule_none));
+    second.extend(divided(ink, schedule_head));
+    second.push(trigger_list);
+    let instructions = json!({"id": "instructions_card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
+        "children": [ink.group("instructions_group", vec![instructions_field(json!(true))]), instructions_caption(ink),
+            field_error(ink, chrome, "instructions_error", path("/pane/instructionsError"), path("/pane/hasInstructionsError"))]});
+    // `Button::primary().web_sm()`: h 32, px 12, the theme radius, the
+    // Small label; pending = gpui-component's `loading` face (disabled).
+    let size = ink.r(SM);
+    let draw = |dim: bool| {
+        let id = if dim { "create_dim" } else { "create" };
+        let mut button = json!({"id": id, "component": "Box", "visible": if dim { path("/pane/pending") } else { super::doc::not(path("/pane/pending")) }, "accessibility": {"label": CREATE_AGENT},
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": chrome.primary},
+            "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": CREATE_AGENT}, "style": {"fontSize": size, "lineHeight": size, "color": chrome.primary_fg, "flexShrink": 0}}]});
+        if dim {
+            // gpui-component's disabled primary: the fill at half, the
+            // label solid. The half fill as a layer at half opacity (a
+            // `#rrggbbaa` alpha byte can't say 0.5).
+            button["style"]["backgroundColor"] = json!("#00000000");
+            button["children"].as_array_mut().expect("the button's children").insert(0, json!({"id": "create_dim_fill", "component": "Box",
+                "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": chrome.radius, "backgroundColor": chrome.primary, "opacity": 0.5}}));
+        } else {
+            button["props"] = json!({"pressable": true});
+            button["on"] = json!({"press": {"event": {"name": "create"}}});
+            button["style"]["cursor"] = json!("pointer");
+            button["style"][":hover"] = json!({"backgroundColor": chrome.primary_hover});
         }
-        let mut runner_rows = vec![self.account_row(&devices, cx)];
-        runner_rows.extend(self.schedule_rows(cx));
+        button
+    };
+    let create = json!({"id": "create_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "width": "100%"}, "children": [draw(false), draw(true)]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
+        "children": [identity_block, ink.group("runner_group", second), instructions, create]})
+}
 
-        let create = h_flex().justify_end().child(self.pending.apply(
-            Button::new("new-agent-create")
-                .primary()
-                .cursor_pointer()
-                .web_sm()
-                .label(CREATE_AGENT)
-                .disabled(self.pending.active())
-                .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-            CREATE_AGENT,
-            cx,
-        ));
+/// One bench state of the page.
+#[cfg(test)]
+pub(crate) struct NewAgentShot {
+    pub name: &'static str,
+    pub instructions: &'static str,
+    /// A machine other than the seeded default.
+    pub device: Option<&'static str>,
+    pub triggers: Vec<Value>,
+    /// Run the form's validation (its inline errors).
+    pub validate: bool,
+    pub pending: bool,
+}
 
-        v_flex().child(
-            section(cx)
-                .gap_4()
-                .child(identity)
-                .child(crate::surface::glass_group_rows(runner_rows))
-                .child(self.instructions_card(cx))
-                .child(create),
-        )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #EXP-1629: the document raises no issue a debug build's mount check
+    /// refuses (#EXP-1767's class).
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let tree = document(&super::super::readiness::tests::test_ink(), &Chrome::test());
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-new-agent", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
     }
 }

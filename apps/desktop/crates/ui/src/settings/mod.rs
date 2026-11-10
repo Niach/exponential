@@ -51,10 +51,11 @@ mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
+mod agent_doc;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
 pub(crate) mod app_mcp;
-mod new_agent;
+pub(crate) mod new_agent;
 mod agents;
 mod agents_index;
 pub(crate) mod api_keys;
