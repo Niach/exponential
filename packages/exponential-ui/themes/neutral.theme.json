@@ -2170,6 +2170,34 @@
           "style": {
             "opacity": "$opacity.disabled"
           }
+        },
+        {
+          "when": {
+            "destructive": true
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "destructive": true,
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.destructiveHover",
+            "color": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "destructive": true,
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.destructiveHover",
+            "color": "$color.destructive"
+          }
         }
       ],
       "separator": [

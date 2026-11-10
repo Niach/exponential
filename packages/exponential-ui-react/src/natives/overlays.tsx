@@ -595,7 +595,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
           )
         }
         return (
-          <N.Item key={key} {...(part(`item`, bool(item.disabled) && `disabled`) as Record<string, string>)} disabled={bool(item.disabled)} data-destructive={item.destructive ? `true` : undefined} onSelect={() => void emit(`select`, { value: item.value ?? item.label })}>
+          <N.Item key={key} {...(part.with(`item`, { destructive: bool(item.destructive) }, bool(item.disabled) && `disabled`) as Record<string, string>)} disabled={bool(item.disabled)} data-destructive={item.destructive ? `true` : undefined} onSelect={() => void emit(`select`, { value: item.value ?? item.label })}>
             {icon}
             <span className="xui-menu-label">{str(item.label)}</span>
             {shortcut}

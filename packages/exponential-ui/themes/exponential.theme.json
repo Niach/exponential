@@ -1655,6 +1655,24 @@
           "style": {
             "backgroundColor": "$color.accent"
           }
+        },
+        {
+          "when": {
+            "destructive": true,
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.destructiveHover"
+          }
+        },
+        {
+          "when": {
+            "destructive": true,
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.destructiveHover"
+          }
         }
       ]
     },

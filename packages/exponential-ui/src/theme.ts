@@ -514,11 +514,19 @@ export function tryLoadTheme(source: unknown, options: ThemeOptions = {}): { the
   return { theme, issues: [] }
 }
 
+/** `#rrggbb[aa]` with its alpha scaled by `factor` (rounded to a byte). */
+function withAlpha(hex: string, factor: number): string {
+  const alpha = hex.length >= 9 ? parseInt(hex.slice(7, 9), 16) : 255
+  return `${hex.slice(0, 7)}${Math.round(alpha * factor).toString(16).padStart(2, `0`)}`
+}
+
 /** #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
  *  after themes shipped takes a sibling's value when the chain sets none, so
  *  every older theme stays complete: `link` = `primary`, #EDE-65
  *  `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`,
- *  `strokeActive` = `ring`. */
+ *  `strokeActive` = `ring`, `destructiveHover` = `destructive` at 10 %
+ *  alpha in light and 20 % in dark (web's destructive menu item
+ *  highlight, `bg-destructive/10` / `dark:bg-destructive/20`). */
 function deriveColors(theme: ResolvedTheme): void {
   for (const mode of MODES) {
     const color = theme.modes[mode].color as Record<string, string>
@@ -526,6 +534,7 @@ function deriveColors(theme: ResolvedTheme): void {
     if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
     if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
     if (color.strokeActive === undefined && color.ring !== undefined) color.strokeActive = color.ring
+    if (color.destructiveHover === undefined && color.destructive !== undefined) color.destructiveHover = withAlpha(color.destructive, mode === `dark` ? 0.2 : 0.1)
     // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
     const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined
     if (shadow && shadow.popoverRing === undefined && shadow.popover !== undefined) shadow.popoverRing = shadow.popover
