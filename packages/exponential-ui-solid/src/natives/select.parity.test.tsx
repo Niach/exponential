@@ -247,6 +247,73 @@ describe(`select: open popup`, () => {
       expect(react.icon).toBe(searchable ? `Select/searchIcon` : null)
     }
   })
+  it(`pill search: Clear search only with text, a press empties the field and keeps focus (#EXP-1765)`, async () => {
+    const tree = sel({ triggerVariant: `pill`, searchable: true })
+    const flow = async (wrap: (f: () => Promise<void> | void) => Promise<void>, root: Element) => {
+      const out: unknown[] = []
+      await wrap(async () => {
+        openIt(root)
+        await settle()
+      })
+      const field = () => document.querySelector<HTMLInputElement>(`.xui-Select-searchfield`)!
+      out.push(document.querySelector(`.xui-Select-clear`) === null)
+      await wrap(async () => {
+        const f = field()
+        f.value = `Ba`
+        f.dispatchEvent(new Event(`input`, { bubbles: true }))
+        await settle()
+      })
+      const clear = document.querySelector<HTMLButtonElement>(`.xui-Select-clear`)
+      out.push(clear?.getAttribute(`aria-label`) ?? null, clear?.style.width ?? null, clear?.querySelector(`svg`)?.getAttribute(`data-slot`) ?? null, document.querySelectorAll(`.xui-Select-item`).length)
+      await wrap(async () => {
+        clear!.dispatchEvent(new MouseEvent(`mousedown`, { bubbles: true, cancelable: true }))
+        clear!.click()
+        await settle()
+      })
+      out.push(field().value, document.activeElement === field(), document.querySelector(`.xui-Select-clear`) === null, document.querySelectorAll(`.xui-Select-item`).length)
+      return out
+    }
+    const r = await renderReact({ tree, theme: `exponential` })
+    let react: unknown[]
+    try {
+      react = await flow((f) => act(async () => void (await f())), r.root)
+    } finally {
+      r.cleanup()
+    }
+    const so = await renderSolidSurface({ tree, theme: `exponential` })
+    try {
+      expect(await flow(async (f) => void (await f()), so.root)).toEqual(react)
+    } finally {
+      so.cleanup()
+    }
+    expect(react).toEqual([true, `Clear search`, `17.5px`, `Select.clear`, 1, ``, true, true, 3])
+  })
+  it(`a loading Select still opens from the pointer (#EXP-1765)`, async () => {
+    for (const searchable of [false, true]) {
+      const tree = sel({ triggerVariant: `pill`, searchable, loading: true })
+      const read = (root: Element) => [root.querySelector(`.xui-Select-trigger`)!.getAttribute(`aria-expanded`), document.querySelectorAll(`[data-xui-id="s.skeleton"] .xui-Skeleton-row`).length]
+      const r = await renderReact({ tree })
+      let react: unknown[]
+      try {
+        await act(async () => {
+          pointerOpen(r.root)
+          await settle()
+        })
+        react = read(r.root)
+      } finally {
+        r.cleanup()
+      }
+      const so = await renderSolidSurface({ tree })
+      try {
+        pointerOpen(so.root)
+        await settle()
+        expect(read(so.root)).toEqual(react)
+      } finally {
+        so.cleanup()
+      }
+      expect(react).toEqual([`true`, 3])
+    }
+  })
   it(`multiple, nothing chosen: no cursor until the arrows reach for the list`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [] }) })
     expect(solid).toEqual(react)

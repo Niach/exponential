@@ -24,7 +24,8 @@
 // options' trailing run, `searchPlaceholder`, the `searchIcon` part.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, createField, joinIds, type FieldState } from "../form"
@@ -99,6 +100,8 @@ interface SelectState {
   loading: () => boolean
   skeleton: () => NativeProps[`node`]
   searchPlaceholder: () => string
+  /** The node's resolved props (#EXP-1765: the clear button's recipe). */
+  props: () => Record<string, unknown>
 }
 
 export function SelectNative(props: NativeProps): JSX.Element {
@@ -214,7 +217,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   const loading = () => bool(props.props.loading)
   const skeleton = createMemo(() => selectLoadingNode(props.node.id))
   const searchPlaceholder = () => str(props.props.searchPlaceholder) || ctx.t(`search`)
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry, ariaLabel, byPointer, bare, loading, skeleton, searchPlaceholder }
+  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry, ariaLabel, byPointer, bare, loading, skeleton, searchPlaceholder, props: () => props.props }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
       <Show when={!row() && !pill()}>
@@ -646,7 +649,10 @@ function ComboboxContent(props: {
   const part = s.part
   let content: HTMLElement | undefined
   let listEl: HTMLDivElement | undefined
+  let searchEl: HTMLInputElement | undefined
   let interactedOutside = false
+  // #EXP-1765: a pill's search shows a CLEAR button while it holds text.
+  const clear = createMemo(() => (str(s.props().triggerVariant) === `pill` ? selectClearSize(resolveRecipe(ctx.theme, { component: `Select`, part: `searchIcon`, props: nativeRecipeProps(`Select`, s.props(), ctx.extensionDefs) }, ctx.mode).width) : null))
   const close = () => s.setOpen(false)
   dismissable({ layer: () => content, onDismiss: close, isInside: (t) => Boolean(s.trigger()?.contains(t)), onOutside: () => (interactedOutside = true) })
   // FocusScope: mount auto-focus (the search field, else the listbox as
@@ -698,6 +704,7 @@ function ComboboxContent(props: {
           <div {...part(`search`)} class={`${part(`search`).class as string} xui-Select-searchbox`}>
             <BuiltinIcon slot="Select.search" part={part(`searchIcon`)} />
             <input
+              ref={searchEl}
               class="xui-Select-searchfield"
               role="combobox"
               aria-expanded={true}
@@ -711,6 +718,21 @@ function ComboboxContent(props: {
               onInput={(e) => s.setQuery(e.currentTarget.value)}
               onKeyDown={props.nav.onKeyDown}
             />
+            <Show when={clear() && s.query()}>
+              <button
+                type="button"
+                class="xui-Select-clear"
+                aria-label={ctx.t(`clearSearch`)}
+                style={css({ width: `${clear()!.box}px`, height: `${clear()!.box}px` })}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  s.setQuery(``)
+                  searchEl?.focus()
+                }}
+              >
+                <BuiltinIcon slot="Select.clear" size={clear()!.glyph} />
+              </button>
+            </Show>
           </div>
         ) : null}
         <div class="xui-Select-body">

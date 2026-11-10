@@ -46,6 +46,9 @@ import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.selectPick
+import at.exponential.ui.model.fieldCommitted
+import at.exponential.ui.model.selectSearchClearable
+import at.exponential.ui.model.selectSearchClear
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
@@ -519,6 +522,56 @@ class InteractionTest {
         assertEquals(emptyList<String>(), m.nodes.filter { it.owner == "s" && (it.part == "item" || it.part == "empty") && !it.hidden }.map { "${it.id}/${it.component}" })
         val search = m.nodes.first { it.owner == "s" && it.part == "search" }
         assertEquals("Search branches", search.props["placeholder"]?.displayText)
+    }
+
+    /**
+     * #EXP-1765: a `pill` Select's search ends in the clear button only while
+     * it holds text; pressing it empties the field, the core hears the empty
+     * query (the list unfiltered) and the focus stays in the field. A
+     * `field` Select's search never has one.
+     */
+    @Test
+    fun selectPillSearchClear() {
+        for (variant in listOf("pill", "field")) {
+            val m = SurfaceModel("select-clear", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"$variant","searchable":true,"options":[{"label":"main","value":"main"},{"label":"develop","value":"develop"}]}}]}""")
+            m.setViewport(390f, 800f)
+            m.press("s.trigger")
+            val search = { m.nodes.first { it.owner == "s" && it.part == "search" }.index }
+            val items = { m.nodes.filter { it.owner == "s" && it.part == "item" && !it.hidden }.map { it.id } }
+            assertFalse("$variant: no clear while empty", m.selectSearchClearable(search()))
+            m.fieldEdited(search(), "dev")
+            m.fieldCommitted(search())
+            assertEquals("$variant: filtered", listOf("s.item.1"), items())
+            assertEquals("$variant: clear only on a pill", variant == "pill", m.selectSearchClearable(search()))
+            if (variant != "pill") continue
+            m.selectSearchClear(search())
+            assertEquals("", m.fieldText(search()))
+            assertEquals(listOf("s.item.0", "s.item.1"), items())
+            assertFalse(m.selectSearchClearable(search()))
+            assertEquals("s.search", m.focusRequest)
+            assertTrue(m.layers.any { it.owner == "s" })
+        }
+    }
+
+    /** #EXP-1765: a `loading` Select is not inert: it opens (the core's layer with its skeleton, and our own popup). */
+    @Test
+    fun selectLoadingOpens() {
+        for (native in listOf(false, true)) {
+            val overlays = if (native) OverlayPresentation.Native else OverlayPresentation.Painted
+            val m = SurfaceModel("select-loading", SurfaceOptions(overlays = overlays), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"pill","loading":true,"options":[{"label":"main","value":"main"}]}}]}""")
+            m.setViewport(390f, 800f)
+            assertFalse(m.isDisabled(m.idx("s.trigger")))
+            m.press("s.trigger")
+            if (native) assertEquals("s.trigger", m.popup)
+            else {
+                assertTrue(m.layers.any { it.owner == "s" })
+                assertNotNull(m.indexOf("s.skeleton"))
+            }
+        }
     }
 
     /** #EXP-1765: a pill's popup geometry (our own popup): `selectRowPopupWidth` wide, 3 under the pill, its aligned edge 1 outside the pill's. */

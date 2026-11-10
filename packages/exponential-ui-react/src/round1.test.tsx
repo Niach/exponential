@@ -635,6 +635,41 @@ describe(`new natives`, () => {
       loaded.unmount()
     }
   })
+  it(`Select pill search: the Clear search button only with text; a press empties the field and keeps focus in it; field searches have none (#EXP-1765)`, () => {
+    for (const triggerVariant of [`pill`, `field`]) {
+      const { container, unmount } = render(<ExponentialSurface root={tree({ id: `c`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant, searchable: true, options: [{ label: `main`, value: `main` }, { label: `dev`, value: `dev` }] } })} theme="exponential" id={`cl${triggerVariant}`} />)
+      fireEvent.keyDown(container.querySelector(`.xui-Select-trigger`)!, { key: `ArrowDown` })
+      const field = document.querySelector<HTMLInputElement>(`.xui-Select-searchfield`)!
+      expect(document.querySelector(`.xui-Select-clear`)).toBeNull()
+      fireEvent.change(field, { target: { value: `ma` } })
+      expect(document.querySelectorAll(`.xui-Select-item`)).toHaveLength(1)
+      const clear = document.querySelector<HTMLButtonElement>(`.xui-Select-clear`)
+      if (triggerVariant === `field`) expect(clear).toBeNull()
+      else {
+        expect(clear!.getAttribute(`aria-label`)).toBe(`Clear search`)
+        expect(clear!.style.width).toBe(`17.5px`)
+        expect(clear!.querySelector(`svg`)!.getAttribute(`data-slot`)).toBe(`Select.clear`)
+        fireEvent.click(clear!)
+        expect(field.value).toBe(``)
+        expect(document.activeElement).toBe(field)
+        expect(document.querySelector(`.xui-Select-clear`)).toBeNull()
+        expect(document.querySelectorAll(`.xui-Select-item`)).toHaveLength(2)
+      }
+      unmount()
+    }
+  })
+  it(`Select loading stays openable (a press opens it onto the skeleton) (#EXP-1765)`, () => {
+    for (const searchable of [false, true]) {
+      const { container, unmount } = render(<ExponentialSurface root={tree({ id: `o`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `pill`, searchable, loading: true, options: [] } })} theme="exponential" id={`lo${searchable}`} />)
+      const trigger = container.querySelector<HTMLButtonElement>(`.xui-Select-trigger`)!
+      expect(trigger.disabled).toBe(false)
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: `mouse`, pointerId: 1 })
+      fireEvent.click(trigger)
+      expect(trigger.getAttribute(`aria-expanded`)).toBe(`true`)
+      expect(document.querySelectorAll(`[data-xui-id="o.skeleton"] .xui-Skeleton-row`)).toHaveLength(3)
+      unmount()
+    }
+  })
   it(`Chart: measured width, nice ticks, a ring per pie series, the legend with 2+ series, arrow keys move the tooltip`, () => {
     const bar = tree({ id: `c`, component: `Chart`, props: { kind: `bar`, categories: [`a`, `b`], series: [{ name: `x`, values: [3, 7] }, { name: `y`, values: [5, 1] }] } })
     const { container } = render(<ExponentialSurface root={bar} theme="neutral" id="ch" />)

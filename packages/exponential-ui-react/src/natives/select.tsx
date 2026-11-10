@@ -33,8 +33,9 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
+import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath, listMoreBelow, openingCursorIndex, revealOption, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -434,6 +435,10 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
   // #EXP-1765: while `loading` the list holds the skeleton, no option.
   const shown = useMemo(() => (loading ? [] : query && localFilter ? options.filter((o) => str(o.label).toLowerCase().includes(query.toLowerCase())) : options), [options, query, localFilter, loading])
   const listRef = useRef<HTMLDivElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  // #EXP-1765: a pill's search shows a CLEAR button while it holds text.
+  const pill = str(props.triggerVariant) === `pill`
+  const clear = pill ? selectClearSize(resolveRecipe(ctx.theme, { component: `Select`, part: `searchIcon`, props: nativeRecipeProps(`Select`, props, ctx.extensionDefs) }, ctx.mode).width) : null
   const pick = (i: number) => {
     const o = shown[i]
     if (!o || bool(o.disabled)) return
@@ -523,6 +528,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
               <div {...(part(`search`) as Record<string, string>)} className={`${part(`search`).className as string} xui-Select-searchbox`}>
                 <BuiltinIcon slot="Select.search" part={part(`searchIcon`)} />
                 <input
+                  ref={searchRef}
                   className="xui-Select-searchfield"
                   role="combobox"
                   aria-expanded
@@ -535,6 +541,21 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={nav.onKeyDown}
                 />
+                {clear && query ? (
+                  <button
+                    type="button"
+                    className="xui-Select-clear"
+                    aria-label={ctx.t(`clearSearch`)}
+                    style={{ width: clear.box, height: clear.box }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setQuery(``)
+                      searchRef.current?.focus()
+                    }}
+                  >
+                    <BuiltinIcon slot="Select.clear" size={clear.glyph} />
+                  </button>
+                ) : null}
               </div>
             ) : null}
             <div className="xui-Select-body">

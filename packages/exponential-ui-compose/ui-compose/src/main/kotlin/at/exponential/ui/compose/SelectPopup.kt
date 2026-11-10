@@ -302,7 +302,7 @@ internal fun SelectPopup(cx: LeafContext) {
                 .focusable(),
         ) {
             if (searchable) {
-                SelectSearch(cx, query, owner.str("searchPlaceholder").ifEmpty { cx.string("search") }, popupTs, popupInk, muted, searchFocus) {
+                SelectSearch(cx, query, owner.str("searchPlaceholder").ifEmpty { cx.string("search") }, pill, popupTs, popupInk, muted, searchFocus) {
                     cursorless = false
                     query = it
                 }
@@ -332,8 +332,9 @@ internal fun SelectPopup(cx: LeafContext) {
                 val empty = cx.part("Select", "empty")
                 BasicText(
                     owner["emptyText"]?.displayText ?: cx.string("noResults"),
-                    Modifier.fillMaxWidth().padding((empty.px("padding") ?: cx.spacing("sm")).dp),
-                    style = cx.composeTextStyle(ts = popupTs.copy(fontSize = empty.style.fontSize ?: popupTs.fontSize), color = empty.color ?: muted),
+                    (empty.px("padding") ?: cx.spacing("sm")).let { p -> Modifier.fillMaxWidth().padding(horizontal = (empty.px("paddingHorizontal") ?: p).dp, vertical = (empty.px("paddingVertical") ?: p).dp) },
+                    // #EXP-1765: the recipe's `textAlign` (a pill's centred).
+                    style = cx.composeTextStyle(ts = popupTs.copy(fontSize = empty.style.fontSize ?: popupTs.fontSize), color = empty.color ?: muted, align = empty.style.textAlign?.let { leafTextAlign(it, cx.rtl) }),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -346,10 +347,12 @@ internal fun SelectPopup(cx: LeafContext) {
  * The `search` part: the glyph and the filter field, its recipe height, a
  * hairline under it; #EXP-1765: [hint] (`searchPlaceholder`), the
  * `searchIcon` part's glyph size, the text and glyph centred above the
- * recipe's `paddingBottom` (below its `paddingTop`).
+ * recipe's `paddingBottom` (below its `paddingTop`); a [pill]'s ends in
+ * the clear button while it holds text ([SelectSearchClearButton]: empties
+ * the query, the focus stays in the field).
  */
 @Composable
-private fun SelectSearch(cx: LeafContext, query: String, hint: String, base: ResolvedTextStyle, popupInk: Color, muted: Color, focus: FocusRequester, onQuery: (String) -> Unit) {
+private fun SelectSearch(cx: LeafContext, query: String, hint: String, pill: Boolean, base: ResolvedTextStyle, popupInk: Color, muted: Color, focus: FocusRequester, onQuery: (String) -> Unit) {
     val search = cx.part("Select", "search")
     val s = search.style
     val ink = search.color ?: popupInk
@@ -388,6 +391,12 @@ private fun SelectSearch(cx: LeafContext, query: String, hint: String, base: Res
                 }
             },
         )
+        if (pill && query.isNotEmpty()) {
+            SelectSearchClearButton(cx, glyph) {
+                onQuery("")
+                runCatching { focus.requestFocus() }
+            }
+        }
     }
 }
 
