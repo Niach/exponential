@@ -149,6 +149,9 @@
                 },
                 "ghostHover": {
                   "$ref": "#/$defs/hex"
+                },
+                "strokeActive": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -295,6 +298,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "ghostHover": {
+                  "$ref": "#/$defs/hex"
+                },
+                "strokeActive": {
                   "$ref": "#/$defs/hex"
                 }
               }
@@ -450,6 +456,9 @@
                 },
                 "ghostHover": {
                   "$ref": "#/$defs/hex"
+                },
+                "strokeActive": {
+                  "$ref": "#/$defs/hex"
                 }
               }
             },
@@ -596,6 +605,9 @@
                   "$ref": "#/$defs/hex"
                 },
                 "ghostHover": {
+                  "$ref": "#/$defs/hex"
+                },
+                "strokeActive": {
                   "$ref": "#/$defs/hex"
                 }
               }
