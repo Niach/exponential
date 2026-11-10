@@ -175,6 +175,8 @@ public enum AppIcons {
         "boxes",
         "braces",
         "brain",
+        "brand-claude",
+        "brand-codex",
         "brand-exponential",
         "briefcase",
         "brush-cleaning",
