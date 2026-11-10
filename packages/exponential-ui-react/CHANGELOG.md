@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer matches the app: the send glyph is `ui-submit` (`CircleArrowUp`, in `FALLBACK_ICONS`); a flat field stretches across the row (`align-self: stretch`, grown by its `min-height`, never a `height`) with its text at the recipe's padding-top. Snapshots: every `Composer/*` case (the glyph; `Composer/layout=flat` = `min-height` instead of `height`).
 - Composer `layout: "flat"` (#EXP-1762): the root is one row (`[data-r-layout="flat"]`): the leading slot in its own `.xui-composer-bar` before the field, the field flexes and centres on the disc, the controls bar after it. Snapshots: `data-r-layout` on every Composer part, + `Composer/layout=flat|stacked`.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only; snapshots gain `ColorPicker/inline=*` and `ColorPicker/child`; the three new `pickerPick` cases replay here.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` trigger with `triggerIcon` draws the chosen option's `icon` (the `valueIcon` part) before its value; `brand-claude` paints in its own orange (its node's fill).

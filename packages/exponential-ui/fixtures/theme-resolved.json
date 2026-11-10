@@ -4095,7 +4095,8 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -13347,7 +13348,16 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],
@@ -22224,7 +22234,8 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -31786,7 +31797,16 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],

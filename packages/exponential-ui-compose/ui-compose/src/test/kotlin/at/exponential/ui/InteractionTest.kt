@@ -1,6 +1,7 @@
 package at.exponential.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
+import at.exponential.ui.compose.flatComposerField
 import at.exponential.ui.compose.handleKey
 import at.exponential.ui.compose.keyRecorderKeyName
 import at.exponential.ui.compose.keyRecorderKeyPayload
@@ -833,7 +834,7 @@ class InteractionTest {
     fun composerSlotCasesSitInTheControlsRow() = runTest {
         val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
         val cases = f["cases"]?.array.orEmpty()
-        assertEquals(10, cases.size)
+        assertEquals(12, cases.size)
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val rtl = c["direction"]?.string == "rtl"
@@ -870,6 +871,28 @@ class InteractionTest {
             for (step in c["steps"]?.array.orEmpty()) m.press(step["press"]!!.string!!)
             runCurrent()
             assertEquals("$name: events", c["events"]?.array.orEmpty().map { it["name"]?.string }, host.actions.map { it.name })
+        }
+    }
+
+    /**
+     * #EXP-1762 composerSlots `field`: a flat Composer's text starts the field
+     * recipe's paddingTop below the row's top, one line (the disc's row) or
+     * grown, the text field reaching the row's bottom (neutral: paddingTop
+     * `$spacing.sm` 8, line 20, disc 36; the core replays the recipe values).
+     */
+    @Test
+    fun aFlatComposerSetsItsTextAtTheFieldTopPadding() {
+        val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
+        val cases = f["cases"]?.array.orEmpty().filter { it["field"] != null }
+        assertEquals(2, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val rows = c["field"]!!["rows"]!!.number!!.toFloat()
+            val row = maxOf(36f, 8f + rows * 20f)
+            assertEquals("$name: grown", c["field"]!!["grown"]?.bool == true, row > 36.5f)
+            val (top, height) = flatComposerField(row, 8f)
+            assertEquals("$name: the text at the field's paddingTop", 8f, top, 0.001f)
+            assertEquals("$name: the field reaches the row's bottom", row, top + height, 0.001f)
         }
     }
 

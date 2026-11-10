@@ -1508,6 +1508,16 @@
             "boxShadow": "$shadow.none"
           }
         }
+      ],
+      "field": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "paddingTop": 4.25
+          }
+        }
       ]
     },
     "Tabs": {

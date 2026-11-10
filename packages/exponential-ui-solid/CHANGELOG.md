@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
 - Composer `layout: "flat"` (#EXP-1762), like React: the leading slot in its own bar before the field, one row.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only (parity with React).
 - Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.
