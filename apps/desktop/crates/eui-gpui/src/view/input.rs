@@ -177,6 +177,7 @@ impl SurfaceView {
         let mut keep = HashSet::new();
         let epoch = self.surface.write_epoch();
         let fields: Vec<PlacedNode> = self.cache.nodes.iter().filter(|n| !n.removed && is_text_field(n)).cloned().collect();
+        let mut regrow = Vec::new();
         for n in fields {
             keep.insert(n.id.clone());
             let kind = FieldKind::of(&n);
@@ -202,6 +203,7 @@ impl SurfaceView {
                 if moved {
                     f.external = external.clone();
                 }
+                let before = f.grows.then(|| f.value(cx));
                 if programmatic {
                     let focused = f.focus_handle(cx).is_focused(window);
                     f.adopt(external, focused, window, cx);
@@ -213,6 +215,13 @@ impl SurfaceView {
                     }
                 }
                 f.seen_epoch = epoch;
+                // #EXP-1768: `set_value` emits no Change, and this pass
+                // measured the field's live text BEFORE the write (a body
+                // that loads after the first paint measured as the empty
+                // field): a growing field measures again at the new text.
+                if before.is_some_and(|before| before != f.value(cx)) {
+                    regrow.push(n.id.clone());
+                }
                 continue;
             }
             let id = n.id.clone();
@@ -243,6 +252,12 @@ impl SurfaceView {
             self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, seen_epoch: epoch, placeholder, grows, focused: false, focusing_press: None, _subscription: sub });
         }
         self.fields.retain(|id, _| keep.contains(id));
+        for id in regrow {
+            if let Some(i) = self.cache.index_of(&id) {
+                self.surface.mark_dirty(i);
+            }
+            cx.notify();
+        }
     }
 
     fn on_field_event(&mut self, id: &str, ev: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
