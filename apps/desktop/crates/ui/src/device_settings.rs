@@ -2170,7 +2170,7 @@ mod tests {
         let seeded = super::remote_baseline(Some(&serde_json::json!({ "computerUseDisplayId": "uuid-c" })));
         assert_eq!(seeded.computer_use_display_id.as_deref(), Some("uuid-c"));
         assert_eq!(super::remote_baseline(Some(&serde_json::json!({}))).computer_use_display_id, None);
-        let displays = crate::styleguide::entries::work_screen::demo_displays();
+        let displays = crate::coding_selects::demo_displays();
         let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref());
         let values: Vec<&str> = items.iter().map(|item| item.value.as_ref()).collect();
         assert_eq!(values, ["auto", "id:uuid-a", "id:uuid-b", "id:uuid-c"]);

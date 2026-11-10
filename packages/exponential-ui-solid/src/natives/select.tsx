@@ -425,6 +425,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     onPlaced: () => {
@@ -692,6 +693,7 @@ function ComboboxContent(props: {
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     dir: () => undefined,
