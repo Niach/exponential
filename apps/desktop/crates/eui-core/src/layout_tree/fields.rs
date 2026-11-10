@@ -451,14 +451,34 @@ impl Builder<'_, '_> {
                 Some(trailing) => format!("{label} {trailing}"),
                 None => label,
             };
-            let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
-            if let Some(icon) = option.get("icon") {
-                props["icon"] = icon.clone();
-            }
-            if selected {
-                props["check"] = json!(super::builtin_icon("Select.check"));
-            }
-            let item = self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), props, &format!(".{i}"));
+            let suffix = format!(".{i}");
+            let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
+            let description = option.get("description").map(js).filter(|d| !d.is_empty());
+            let item = if icon.is_some() || description.is_some() {
+                // #EXP-1629: an option with a glyph or a `description` is a
+                // row of parts (the IDE picker's row): the `itemIcon`, the
+                // `itemText` column (`itemLabel` over the muted
+                // `itemDescription`), then the chosen one's `check`.
+                let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
+                if let Some(icon) = icon {
+                    self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                }
+                let column = self.part_in(item, &owner, "itemText", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), &suffix);
+                self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
+                if let Some(description) = description {
+                    self.part_in(column, &owner, "itemDescription", "Text", NodeKind::Leaf, json!({}), json!({"text": description, "lines": 1}), &suffix);
+                }
+                if selected {
+                    self.part_in(item, &owner, "check", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.check")}), &suffix);
+                }
+                item
+            } else {
+                let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+                if selected {
+                    props["check"] = json!(super::builtin_icon("Select.check"));
+                }
+                self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), props, &suffix)
+            };
             self.nodes[item as usize].pressable = !disabled;
             if selected {
                 self.add_state(item, "selected");

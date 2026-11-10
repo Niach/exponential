@@ -2339,3 +2339,10 @@ pub(crate) fn doc_ink(cx: &App) -> (f32, String, f32, String, String) {
 pub(crate) fn doc_mount<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
     doc::mount(id, tree, binding, window, cx)
 }
+
+/// #EXP-1629: [`doc::mount_with`] with the IDE plugin and window-level
+/// popups, for the Select bench.
+#[cfg(test)]
+pub(crate) fn doc_mount_lifted<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    doc::mount_with(id, tree, binding, std::rc::Rc::new(doc::ide_plugin()), true, window, cx)
+}

@@ -3810,7 +3810,11 @@
         "description",
         "labels",
         "control",
-        "button"
+        "button",
+        "itemIcon",
+        "itemText",
+        "itemLabel",
+        "itemDescription"
       ],
       "props": [
         "multiple",

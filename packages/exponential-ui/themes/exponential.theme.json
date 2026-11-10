@@ -979,6 +979,28 @@
           }
         }
       ],
+      "itemIcon": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 14,
+            "height": 14
+          }
+        }
+      ],
+      "itemDescription": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 16.99
+          }
+        }
+      ],
       "search": [
         {
           "style": {
@@ -1002,7 +1024,7 @@
       "item": [
         {
           "style": {
-            "height": "$control.row",
+            "minHeight": "$control.row",
             "borderRadius": "$radius.md"
           }
         },
@@ -1012,9 +1034,10 @@
           },
           "style": {
             "paddingHorizontal": 8,
+            "paddingVertical": 4.5,
             "gap": 7,
             "fontSize": 12.25,
-            "lineHeight": 17
+            "lineHeight": 19.82
           }
         },
         {
