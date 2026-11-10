@@ -3390,7 +3390,7 @@
           "name": "content",
           "type": "string",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Hint text."
         },
@@ -6351,7 +6351,8 @@
       "slots": [],
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "basic": [
         "ChoicePicker (filterable, multipleSelection)"

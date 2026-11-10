@@ -12657,6 +12657,59 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_select_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + option trailing",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_board_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c4_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Branch",
+                      "name": "branch",
+                      "triggerVariant": "row",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "trailing": "· default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop"
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

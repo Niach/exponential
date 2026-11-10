@@ -212,6 +212,11 @@ fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatR
     hasher.finish()
 }
 
+/// #LOGS-10: a head card's row key in the Chat tab's document.
+fn head_card_key(id: &str) -> String {
+    format!("card-{id}")
+}
+
 /// EXP-850 §3: an orphan card row's content identity — its ROW id is an
 /// index (the cards are keyed positionally at the tail), so the workflow it
 /// actually shows rides the fingerprint instead.
@@ -655,6 +660,9 @@ pub(crate) struct SteerSessionView {
     /// web's `renderToolCards(unanchored, 'head')` (`conv_unanchored`, see
     /// [`Self::conv_head`] / [`Self::conv_tail`]).
     conv_cards: Vec<domain::session_tree::SessionChatRow>,
+    /// #LOGS-10: each conversation card's fingerprint, derived when the
+    /// cards change (never per frame).
+    conv_prints: Vec<u64>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
     conv_unanchored: Vec<usize>,
     /// #EXP-1732: a ROOT's view (its chat's Chat tab) also paints the tree's
@@ -932,6 +940,7 @@ impl SteerSessionView {
             row_layout_at: HashMap::new(),
             transcript_origin: None,
             conv_cards: Vec::new(),
+            conv_prints: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
             tree_suggestions: Vec::new(),
@@ -1746,14 +1755,10 @@ impl SteerSessionView {
                 fingerprint,
                 self.row_layout(ix).map_or(0, crate::session_chat::layout_fingerprint),
             );
-            // The head cards ride the first row's measure.
+            // #LOGS-10: the head cards are rows of their own above the
+            // first; the first row's gap moves with them.
             let fingerprint = match ix {
-                0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(
-                    fingerprint,
-                    self.conv_head().iter().fold(0u64, |acc, &card| {
-                        acc.rotate_left(7) ^ conversation_card_fingerprint(self.conv_cards.get(card))
-                    }),
-                ),
+                0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(fingerprint, 1),
                 _ => fingerprint,
             };
             keys.push(RowKey { id, fingerprint });
@@ -1794,7 +1799,7 @@ impl SteerSessionView {
             let Some(row_id) = synthetic_row_id(self.orphan_workflows.len() + ix) else { break };
             let at = self.rows.len() + self.orphan_workflows.len() + ix;
             let gap = f32::from(self.row_gap(at));
-            let fingerprint = transcript_rows::fold_gap(conversation_card_fingerprint(self.conv_cards.get(card)), gap);
+            let fingerprint = transcript_rows::fold_gap(self.conv_prints.get(card).copied().unwrap_or_default(), gap);
             keys.push(RowKey { id: row_id, fingerprint });
         }
         if self.working {
@@ -1851,6 +1856,14 @@ impl SteerSessionView {
             let mut rows = Vec::with_capacity(self.row_keys.len());
             let mut host_rows = HashMap::new();
             let mut senders = HashMap::new();
+            // #LOGS-10: the head cards, each a row of the document's window
+            // (never all of them inside the first row).
+            for &card in self.conv_head() {
+                let Some(row) = self.conv_cards.get(card) else { continue };
+                let key = head_card_key(row.id());
+                host_rows.insert(host_id(&key), HostRow::Card { index: card, fingerprint: self.conv_prints.get(card).copied().unwrap_or_default() });
+                rows.push(uicore_model::chat::ChatRowInput::Host { id: key });
+            }
             for (ix, key) in self.row_keys.iter().enumerate() {
                 let spec = self.rows.get(ix);
                 let content = match spec {
@@ -3300,6 +3313,7 @@ impl SteerSessionView {
     fn refresh_conversation_cards(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
         if !main {
             self.conv_cards.clear();
+            self.conv_prints.clear();
             self.conv_anchors.clear();
             self.conv_unanchored.clear();
             self.tree_suggestions.clear();
@@ -3364,6 +3378,9 @@ impl SteerSessionView {
                 self.conv_trailing.push(self.conv_cards.len());
                 self.conv_cards.push(row.clone());
             }
+        }
+        if !same || self.conv_prints.len() != self.conv_cards.len() {
+            self.conv_prints = self.conv_cards.iter().map(|row| conversation_card_fingerprint(Some(row))).collect();
         }
     }
 
@@ -3557,7 +3574,7 @@ impl SteerSessionView {
             // Session 58cb32df: the conversation cards after this call.
             if let Some(cards) = self.conv_anchors.get(&item.id) {
                 for &card in cards {
-                    conversation_card_fingerprint(self.conv_cards.get(card)).hash(&mut hasher);
+                    self.conv_prints.get(card).hash(&mut hasher);
                 }
             }
             if let Some(workflow) = self.workflow_of(item) {
@@ -5490,7 +5507,9 @@ impl SteerSessionView {
     /// (a host row): EXP-787's ladder gap above the row's content; the
     /// document's row is the reading column (EXP-927's [`work_column_row`]).
     pub(crate) fn chat_host_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let gap = self.row_gap(ix);
+        // #LOGS-10: under the head cards, the first row keeps the gap it
+        // had below them inside its own row.
+        let gap = if ix == 0 && !self.conv_head().is_empty() { px(transcript::GAP_BLOCK) } else { self.row_gap(ix) };
         let element = self.render_list_row(ix, window, cx);
         // Tests find the row the document painted by its row key.
         let key = self.row_keys.get(ix).map(|key| crate::chat_tab_transcript::row_key(key.id)).unwrap_or_default();
@@ -5501,6 +5520,14 @@ impl SteerSessionView {
             .debug_selector(move || format!("chat-host-row.{key}"))
             .child(element)
             .into_any_element()
+    }
+
+    /// #LOGS-10: head card `index` as the Chat tab's document paints it, a
+    /// row of its own above the first list row (the first of them flush,
+    /// the rest a block gap apart, as they stacked inside that row).
+    pub(crate) fn chat_card_row(&mut self, index: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let gap = if self.conv_head().first() == Some(&index) { px(0.) } else { px(transcript::GAP_BLOCK) };
+        div().w_full().min_w_0().pt(gap).child(self.render_conversation_cards(&[index], window, cx)).into_any_element()
     }
 
     /// EXP-783 (#EDE-65 lane O: the document's paging row painted): the
@@ -5563,17 +5590,15 @@ impl SteerSessionView {
             .flatten()
             .copied()
             .collect();
-        // …and the first row carries the unanchored ones above it (web's
-        // `head`: their calls are above the loaded window).
-        let head: Vec<usize> = if ix == 0 { self.conv_head().to_vec() } else { Vec::new() };
-        let element = if anchored.is_empty() && head.is_empty() {
+        // (#LOGS-10: the unanchored ones above the first row are rows of
+        // their own, [`Self::chat_card_row`].)
+        let element = if anchored.is_empty() {
             element
         } else {
             v_flex()
                 .w_full()
                 .min_w_0()
                 .gap(px(transcript::GAP_BLOCK))
-                .when(!head.is_empty(), |column| column.child(self.render_conversation_cards(&head, window, cx)))
                 .child(element)
                 .when(!anchored.is_empty(), |column| column.child(self.render_conversation_cards(&anchored, window, cx)))
                 .into_any_element()

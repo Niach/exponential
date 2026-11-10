@@ -567,6 +567,19 @@ fn run_pipeline(
     use anyhow::Context as _;
 
     let staging = updater::staging_dir().context("no user data dir")?;
+    run_pipeline_in(plan, tx, &staging)
+}
+
+/// [`run_pipeline`] staging into `staging`. #EXP-1763: the tests pass their
+/// fixture's own dir, so parallel test processes never share (and clean up)
+/// the user's real staging dir.
+fn run_pipeline_in(
+    plan: &UpdatePlan,
+    tx: &flume::Sender<UpdateEvent>,
+    staging: &std::path::Path,
+) -> anyhow::Result<Option<PathBuf>> {
+    use anyhow::Context as _;
+
     // Signature checked before any download (EXP-1430): a tampered feed fails fast.
     let sums = updater::fetch_verified_sums(&plan.sums_url, plan.sig_url.as_deref())
         .context("fetch the signed SHA256SUMS.txt")?;
@@ -1010,7 +1023,8 @@ mod tests {
         let plan = info.plan.expect("self-update plan built");
         assert_eq!(plan.asset_name, fx.asset_name);
         let (tx, rx) = flume::unbounded();
-        let restart_path = run_pipeline(&plan, &tx).unwrap();
+        // The fixture's own staging dir, never the user's (#EXP-1763).
+        let restart_path = run_pipeline_in(&plan, &tx, &fx.dir.join("staging")).unwrap();
         assert_eq!(restart_path, Some(fx.appimage.clone()));
         assert_eq!(std::fs::read(&fx.appimage).unwrap(), fx.payload);
         let events: Vec<_> = rx.drain().collect();

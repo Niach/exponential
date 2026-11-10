@@ -20,7 +20,10 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -624,6 +627,22 @@ fn settings_prompts_no_team() {
     prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
 }
 
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened
+/// (the IDE's by its dev open, as a click would; genUI's by a trigger
+/// press), today's IDE row vs the genUI row: run each into its own dir, the
+/// second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_branch_menu_ide() {
+    shoot_pane("branch-menu", IdeBranchRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_branch_menu_eui() {
+    shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
 /// #EXP-1629: the IDE's chromeless group fields vs genUI Textarea
 /// `row`/`code` and Input `code`/`bare`: the agent instructions (`row`, 4–16
 /// rows), the skill description (`row`, empty, 2–6), the SKILL.md / prompt
@@ -818,4 +837,165 @@ mod box_fields {
     fn settings_box_fields_eui() {
         shoot_pane("box-fields", Eui::new, |_, _| {});
     }
+}
+
+fn skill_row(id: &str, name: &str, description: &str, enabled_by_default: bool, builtin: bool) -> domain::rows::SkillRow {
+    serde_json::from_value(serde_json::json!({"id": id, "team_id": "team-shots", "name": name, "description": description, "enabled_by_default": enabled_by_default, "builtin": builtin})).expect("a skill row")
+}
+
+fn skill_rows() -> Vec<domain::rows::SkillRow> {
+    vec![
+        skill_row("s1", "exponential-pr", "Open, update and land pull requests the Exponential way.", false, true),
+        skill_row("s2", "review", "Run the checks, then summarise the diff for the reviewer.", true, false),
+        skill_row("s3", "release-notes", "Draft the changelog entry from the merged pull requests since the last tag, grouped by area, in the house style.", false, false),
+        skill_row("s4", "triage", "", false, false),
+    ]
+}
+
+fn skills_list(name: &str, team: bool, ready: bool, owner: bool, rows: Vec<domain::rows::SkillRow>) {
+    shoot_pane(name, SkillsPane::for_shots, move |pane, cx| pane.show(SkillsListShot { team, ready, owner, rows }, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skills_rows() {
+    skills_list("skills-rows", true, true, true, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_member() {
+    skills_list("skills-member", true, true, false, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_empty() {
+    skills_list("skills-empty", true, true, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_loading() {
+    skills_list("skills-loading", true, false, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_no_team() {
+    skills_list("skills-no-team", false, true, true, Vec::new());
+}
+
+fn skill(builtin: bool) -> api::skills::Skill {
+    serde_json::from_value(serde_json::json!({"id": "s2", "teamId": "team-shots", "name": "review", "description": "Run the checks, then summarise the diff for the reviewer.", "enabledByDefault": true, "builtin": builtin})).expect("a skill")
+}
+
+const SKILL_BODY: &str = "---\nname: review\ndescription: Run the checks, then summarise the diff.\n---\n\n# Review\n\n1. Run `bun run typecheck` and the tests.\n2. Read the diff file by file.\n3. Summarise what changed and what to look at.";
+
+fn skill_page(name: &str, skill: Option<api::skills::Skill>, owner: bool, body: Option<Result<String, ()>>, touched: bool, taken: bool) {
+    shoot_pane_acted(name, move |window, cx| SkillPage::new("team-shots".into(), skill, window, cx), |_, _| {}, None, &[], move |page, window, cx| page.show(owner, body, touched, taken, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skill_page() {
+    skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_loading() {
+    skill_page("skill-loading", Some(skill(false)), true, None, false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_failed() {
+    skill_page("skill-failed", Some(skill(false)), true, Some(Err(())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_builtin() {
+    skill_page("skill-builtin", Some(skill(true)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_member() {
+    skill_page("skill-member", Some(skill(false)), false, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new() {
+    skill_page("skill-new", None, true, Some(Ok(String::new())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new_touched() {
+    skill_page("skill-new-touched", None, true, Some(Ok(String::new())), true, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_name_taken() {
+    skill_page("skill-name-taken", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, true);
+}
+
+fn board(repository: Option<&str>, branch: Option<&str>) -> domain::rows::Board {
+    serde_json::from_value(serde_json::json!({
+        "id": "board-web", "team_id": "team-acme", "name": "Web app", "prefix": "WEB", "color": "#3b82f6", "icon": "rocket",
+        "repository_id": repository, "default_branch": branch,
+    }))
+    .expect("a board")
+}
+
+fn board_repos() -> serde_json::Value {
+    serde_json::json!([
+        {"id": "r1", "fullName": "acme/web", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true},
+        {"id": "r2", "fullName": "acme/api", "defaultBranch": "develop", "private": false},
+    ])
+}
+
+fn board_detail(name: &str, shot: BoardShot) {
+    shoot_pane(name, BoardDetailPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_board_unlinked() {
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_linked() {
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_pinned() {
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_loading() {
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_unavailable() {
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_failed_plain() {
+    let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
 }
