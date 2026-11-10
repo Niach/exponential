@@ -4130,6 +4130,10 @@
           "enum": "selectTrigger",
           "default": "field"
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false
+        },
         "align": {
           "type": "enum",
           "enum": "overlayAlign"

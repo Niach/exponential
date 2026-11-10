@@ -12762,12 +12762,60 @@
                 "id": "specimen_select_case_6_label",
                 "component": "Text",
                 "props": {
+                  "text": "triggerVariant · row + triggerIcon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_agent_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c6_account",
+                    "component": "Select",
+                    "props": {
+                      "label": "Account",
+                      "name": "account",
+                      "triggerVariant": "row",
+                      "triggerIcon": true,
+                      "value": "claude",
+                      "options": [
+                        {
+                          "label": "ada@example.com",
+                          "value": "claude",
+                          "icon": "brand-claude"
+                        },
+                        {
+                          "label": "ada@example.org",
+                          "value": "codex",
+                          "icon": "brand-codex"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_7_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · pill + mono options + loading",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c6_repo_branches",
+                "id": "c7_repo_branches",
                 "component": "Stack",
                 "props": {
                   "direction": "horizontal",
@@ -12776,7 +12824,7 @@
                 },
                 "children": [
                   {
-                    "id": "c6_repo_branch",
+                    "id": "c7_repo_branch",
                     "component": "Select",
                     "props": {
                       "label": "Default branch",
@@ -12808,7 +12856,7 @@
                     }
                   },
                   {
-                    "id": "c6_repo_branch_loading",
+                    "id": "c7_repo_branch_loading",
                     "component": "Select",
                     "props": {
                       "label": "Default branch (loading)",
@@ -12828,7 +12876,7 @@
                     }
                   },
                   {
-                    "id": "c6_repo_branch_busy",
+                    "id": "c7_repo_branch_busy",
                     "component": "Select",
                     "props": {
                       "label": "Default branch (busy)",
@@ -12850,7 +12898,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_7",
+            "id": "specimen_select_case_8",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12859,7 +12907,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_7_label",
+                "id": "specimen_select_case_8_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + option icon, description",
@@ -12867,11 +12915,11 @@
                 }
               },
               {
-                "id": "c7_agent_prefs",
+                "id": "c8_agent_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c7_device",
+                    "id": "c8_device",
                     "component": "Select",
                     "props": {
                       "label": "Device",

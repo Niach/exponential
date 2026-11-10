@@ -3985,6 +3985,7 @@
         "labels",
         "control",
         "button",
+        "valueIcon",
         "searchIcon",
         "itemIcon",
         "itemText",
