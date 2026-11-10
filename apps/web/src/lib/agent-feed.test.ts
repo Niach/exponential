@@ -3044,6 +3044,6 @@ describe(`shownFeedRows (#EXP-1772)`, () => {
       item(7, `user_message`, `Ship it`),
       item(8, `narration`, `On it.`),
     ]
-    expect(shownFeedRows(rows).map((row) => row.item.id)).toEqual([3, 4, 5, 7, 8])
+    expect(shownFeedRows(rows).map((row) => (row.kind === `single` ? row.item.id : null))).toEqual([3, 4, 5, 7, 8])
   })
 })
