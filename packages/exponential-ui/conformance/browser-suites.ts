@@ -275,7 +275,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
 
     await block(`overlay: placement, side and flip`, async () => {
       const overlays = fixture(`overlay-geometry.json`)
-      const cases = overlays.cases as { name: string; viewport: { width: number; height: number }; anchor: { x: number; y: number; width: number; height: number }; side: `top`; align?: `start` | `center` | `end`; expected: { side: string } }[]
+      const cases = overlays.cases as { name: string; viewport: { width: number; height: number }; anchor: { x: number; y: number; width: number; height: number }; side: `top`; align?: `start` | `center` | `end`; matchAnchorWidth?: boolean; expected: { side: string } }[]
       for (const [i, c] of cases.entries()) {
         const page = await open({ view: `overlay`, case: i }, { width: c.viewport.width, height: c.viewport.height })
         await page.waitForSelector(`[data-xui-overlay="Popover"]`)
@@ -285,6 +285,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         record(`overlay`, c.name, () => {
           if (!got) return `not painted`
           const want = placeOverlay(c.anchor, { width: got.w, height: got.h }, c.viewport, { side: c.side, align: c.align })
+          // `matchAnchorWidth`: the panel is exactly the anchor's width.
+          if (c.matchAnchorWidth && Math.abs(got.w - c.anchor.width) > overlays.tolerancePx) return `width ${got.w} vs the anchor's ${c.anchor.width}`
           return got.side === c.expected.side && want.side === c.expected.side && Math.abs(got.x - want.x) <= overlays.tolerancePx && Math.abs(got.y - want.y) <= overlays.tolerancePx
         })
       }
