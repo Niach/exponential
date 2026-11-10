@@ -287,6 +287,17 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
       for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
   })
 
+  test(`strokeActive: the glass active stroke in exponential, ring elsewhere; a focused box Input takes it`, () => {
+    const exp = builtinTheme(`exponential`)
+    expect(exp.modes.dark.color.strokeActive).toBe(`#ffffff29`)
+    expect(exp.modes.light.color.strokeActive).toBe(exp.modes.light.color.ring)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.strokeActive).toBe(builtinTheme(id).modes[mode].color.ring)
+    const field = (states: string[]) => resolveRecipe(exp, { component: `Input`, part: `field`, props: { variant: `box` }, states }, `dark`)
+    expect(field([]).borderColor).toBe(`#ffffff1a`)
+    expect(field([`focus`]).borderColor).toBe(`#ffffff29`)
+  })
+
   test(`the exponential MessageBubble is the IDE's message_bubble`, () => {
     const exp = builtinTheme(`exponential`)
     const bubble = (side: string) => resolveRecipe(exp, { component: `MessageBubble`, part: `bubble`, props: { side } }, `dark`)

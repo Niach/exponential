@@ -16870,7 +16870,8 @@
               "chart8",
               "link",
               "borderStrong",
-              "ghostHover"
+              "ghostHover",
+              "strokeActive"
             ]
           }
         },
