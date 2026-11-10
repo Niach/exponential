@@ -1399,7 +1399,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",

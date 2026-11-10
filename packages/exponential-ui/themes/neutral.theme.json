@@ -4066,7 +4066,8 @@
             "layout": "flat"
           },
           "style": {
-            "minHeight": 0
+            "minHeight": 0,
+            "paddingTop": "$spacing.sm"
           }
         }
       ],

@@ -1062,7 +1062,11 @@ impl<'a> GpuiMeasure<'a> {
             rows as f32 * lh
         };
         if flat {
-            return (w, th.clamp(min_h, 200.0).max(send));
+            // The field's text starts its recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = px_prop(&field, "paddingTop").unwrap_or(0.0) + px_prop(&field, "paddingBottom").unwrap_or(0.0);
+            return (w, (th + pad).clamp(min_h, 200.0).max(send));
         }
         (w, th.clamp(min_h, 200.0) + gap + send)
     }

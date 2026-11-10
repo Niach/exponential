@@ -667,7 +667,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // slots' width off `wrap`), the row is the taller of field and disc.
         if props.str("layout") == "flat" {
             let att = props.flag("attachments") ? Self.composerAttachWidth + gap : 0
-            let fh = TextShaper.measure(text, fieldTs, wrap: max(w - send - gap - att, 1), lines: nil).height
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = (field.px("paddingTop") ?? 0) + (field.px("paddingBottom") ?? 0)
+            let fh = TextShaper.measure(text, fieldTs, wrap: max(w - send - gap - att, 1), lines: nil).height + pad
             return CGSize(width: w, height: max(min(max(fh, minH), 200), send))
         }
         let th = TextShaper.measure(text, fieldTs, wrap: max(w, 1), lines: nil).height
