@@ -399,6 +399,7 @@ pub fn work_screen_value(id: Option<&str>) -> SharedString {
 /// A demo machine's two displays (the settings bench's and the tests'): a
 /// 1440p external, the built-in Retina as the primary, each with its stable
 /// id (#FEED-161).
+#[cfg(test)]
 pub(crate) fn demo_displays() -> Vec<domain::work_screen::WorkScreenDisplay> {
     use domain::work_screen::WorkScreenDisplay;
     vec![
