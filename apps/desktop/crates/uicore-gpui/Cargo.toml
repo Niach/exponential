@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 eui-core = { path = "../eui-core" }
-eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor"] }
+eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor", "vendored-spinner"] }
 ede-ui = { path = "../../../ede/crates/ede-ui" }
 uicore-data = { path = "../uicore-data" }
 uicore-docs = { path = "../uicore-docs" }
