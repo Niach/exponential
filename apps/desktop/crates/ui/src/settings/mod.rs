@@ -62,7 +62,7 @@ pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
-mod resend_invite_dialog;
+pub(crate) mod resend_invite_dialog;
 mod issues;
 pub(crate) mod labels;
 mod mcp;
