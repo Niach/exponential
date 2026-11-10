@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import at.exponential.ui.ffi.UiException
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.json.str
 import at.exponential.ui.json.flag
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -190,6 +191,31 @@ private fun SurfaceModel.flushField(f: FieldState, index: Int, commit: Boolean) 
     // new external value so the echo of our own edit never applies.
     f.external = JsonValue.Str(f.text)
     dispatch(events, inputRevision = f.revision)
+}
+
+/**
+ * #EXP-1765: a `pill` Select search's clear button: the field empties, the
+ * core hears the empty `change` at once (the list unfiltered) and the
+ * focus stays in the field.
+ */
+fun SurfaceModel.selectSearchClear(index: Int) {
+    val f = field(index) ?: return
+    val n = node(index) ?: return
+    f.debounce?.cancel()
+    f.text = ""
+    f.revision += 1
+    f.writeGeneration += 1
+    f.pendingChange = true
+    flushField(f, index, commit = false)
+    focusRequest = n.id
+}
+
+/** #EXP-1765: does this node (a Select `search`) end in the clear button: a `pill`'s, while it holds text? */
+fun SurfaceModel.selectSearchClearable(index: Int): Boolean {
+    val n = node(index) ?: return false
+    if (n.ownerComponent != "Select" || n.part != "search") return false
+    // The core's query (its echo recomposes the leaf) or the live text not yet sent.
+    return ownerProps(index).str("triggerVariant") == "pill" && (n.props["value"]?.displayText.orEmpty().isNotEmpty() || fieldText(index).isNotEmpty())
 }
 
 /** Composer Enter / send: `submit` (or `stop` while busy), then the field empties. */

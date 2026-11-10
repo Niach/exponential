@@ -152,8 +152,9 @@ export interface Placed {
 
 /** Radix's PopperContent: the fixed wrapper (`data-radix-popper-content-
  *  wrapper`, floating-ui's translate, `--radix-popper-*`), the content's
- *  placed side/align. `content` renders the content element. */
-export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sideOffset: number; align: `start` | `center` | `end`; collisionPadding: number; dir?: () => `ltr` | `rtl` | `auto` | undefined; onPlaced?: () => void; content: (placed: Accessor<Placed>, ref: (el: HTMLElement) => void) => JSX.Element }): HTMLElement {
+ *  placed side/align. `content` renders the content element; `alignOffset`
+ *  = Radix's (#EXP-1765: a pill Select's popup a hairline outside it). */
+export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sideOffset: number; alignOffset?: number; align: `start` | `center` | `end`; collisionPadding: number; dir?: () => `ltr` | `rtl` | `auto` | undefined; onPlaced?: () => void; content: (placed: Accessor<Placed>, ref: (el: HTMLElement) => void) => JSX.Element }): HTMLElement {
   const [pos, setPos] = createSignal<{ x: number; y: number; placement: Placement; origin: [string, string] } | null>(null)
   const [zIndex, setZIndex] = createSignal<string>()
   let contentEl: HTMLElement | undefined
@@ -189,7 +190,7 @@ export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sid
         strategy: `fixed`,
         placement: (opts.align === `center` ? `bottom` : `bottom-${opts.align}`) as Placement,
         middleware: [
-          offset({ mainAxis: opts.sideOffset, alignmentAxis: 0 }),
+          offset({ mainAxis: opts.sideOffset, alignmentAxis: opts.alignOffset ?? 0 }),
           shift({ mainAxis: true, crossAxis: false, limiter: limitShift(), ...detect }),
           flip({ ...detect }),
           size({

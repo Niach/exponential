@@ -12140,6 +12140,55 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 24,
+                "minHeight": 24,
+                "paddingHorizontal": 8,
+                "paddingVertical": 0,
+                "gap": 3.5,
+                "borderRadius": "$radius.full",
+                "borderWidth": 1,
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.card",
+                "color": "$color.foreground",
+                "fontSize": 10.5,
+                "lineHeight": 13.125,
+                "fontFamily": "$type.family.mono",
+                "maxWidth": 240
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff8c"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "disabled": true
+              },
+              "style": {
+                "backgroundColor": "#ffffff0b",
+                "opacity": 1
+              }
             }
           ],
           "label": [
@@ -12217,6 +12266,19 @@
             {
               "when": {
                 "triggerVariant": "row"
+              },
+              "style": {
+                "padding": 3.5,
+                "gap": 3.5,
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popover",
+                "backgroundClip": "padding-box",
+                "borderColor": "#ffffff19"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
               },
               "style": {
                 "padding": 3.5,
@@ -12333,6 +12395,18 @@
                 "backgroundColor": "$color.accent",
                 "borderColor": "#ffffff29"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 24,
+                "paddingHorizontal": 7,
+                "gap": 7,
+                "fontSize": 10.5,
+                "lineHeight": 16.99
+              }
             }
           ],
           "check": [
@@ -12362,6 +12436,16 @@
                 "width": 0,
                 "height": 0,
                 "opacity": 0
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5,
+                "color": "$color.mutedForeground"
               }
             }
           ],
@@ -12393,6 +12477,21 @@
                 "fontSize": 12.25,
                 "borderColor": "#ffffff0d"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 32.5,
+                "paddingHorizontal": 8,
+                "paddingVertical": 0,
+                "paddingBottom": 3.5,
+                "gap": 4,
+                "fontSize": 12.25,
+                "borderBottomWidth": 1,
+                "borderColor": "#ffffff0d"
+              }
             }
           ],
           "empty": [
@@ -12401,6 +12500,18 @@
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "paddingVertical": 14,
+                "paddingHorizontal": 0,
+                "fontSize": 12.25,
+                "lineHeight": 19.82,
+                "textAlign": "center"
               }
             }
           ],
@@ -12457,6 +12568,24 @@
                 "opacity": 1,
                 "color": "$color.accentForeground"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "disabled": true
+              },
+              "style": {
+                "color": "$color.mutedForeground",
+                "opacity": 0.5
+              }
             }
           ],
           "chevron": [
@@ -12491,6 +12620,17 @@
               "style": {
                 "opacity": 1,
                 "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             }
           ],
@@ -12589,6 +12729,17 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "searchIcon": [
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]
@@ -29973,6 +30124,55 @@
                 "fontSize": 12.25,
                 "lineHeight": 17.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 24,
+                "minHeight": 24,
+                "paddingHorizontal": 8,
+                "paddingVertical": 0,
+                "gap": 3.5,
+                "borderRadius": "$radius.full",
+                "borderWidth": 1,
+                "borderColor": "$color.border",
+                "backgroundColor": "$color.card",
+                "color": "$color.foreground",
+                "fontSize": 10.5,
+                "lineHeight": 13.125,
+                "fontFamily": "$type.family.mono",
+                "maxWidth": 240
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff8c"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "disabled": true
+              },
+              "style": {
+                "backgroundColor": "#ffffff0b",
+                "opacity": 1
+              }
             }
           ],
           "label": [
@@ -30050,6 +30250,19 @@
             {
               "when": {
                 "triggerVariant": "row"
+              },
+              "style": {
+                "padding": 3.5,
+                "gap": 3.5,
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popover",
+                "backgroundClip": "padding-box",
+                "borderColor": "#ffffff19"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
               },
               "style": {
                 "padding": 3.5,
@@ -30166,6 +30379,18 @@
                 "backgroundColor": "$color.accent",
                 "borderColor": "#ffffff29"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 24,
+                "paddingHorizontal": 7,
+                "gap": 7,
+                "fontSize": 10.5,
+                "lineHeight": 16.99
+              }
             }
           ],
           "check": [
@@ -30195,6 +30420,16 @@
                 "width": 0,
                 "height": 0,
                 "opacity": 0
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5,
+                "color": "$color.mutedForeground"
               }
             }
           ],
@@ -30226,6 +30461,21 @@
                 "fontSize": 12.25,
                 "borderColor": "#ffffff0d"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "height": 32.5,
+                "paddingHorizontal": 8,
+                "paddingVertical": 0,
+                "paddingBottom": 3.5,
+                "gap": 4,
+                "fontSize": 12.25,
+                "borderBottomWidth": 1,
+                "borderColor": "#ffffff0d"
+              }
             }
           ],
           "empty": [
@@ -30234,6 +30484,18 @@
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "paddingVertical": 14,
+                "paddingHorizontal": 0,
+                "fontSize": 12.25,
+                "lineHeight": 19.82,
+                "textAlign": "center"
               }
             }
           ],
@@ -30290,6 +30552,24 @@
                 "opacity": 1,
                 "color": "$color.accentForeground"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill",
+                "disabled": true
+              },
+              "style": {
+                "color": "$color.mutedForeground",
+                "opacity": 0.5
+              }
             }
           ],
           "chevron": [
@@ -30324,6 +30604,17 @@
               "style": {
                 "opacity": 1,
                 "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             }
           ],
@@ -30422,6 +30713,17 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "searchIcon": [
+            {
+              "when": {
+                "triggerVariant": "pill"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ]

@@ -599,6 +599,78 @@ describe(`new natives`, () => {
       unmount()
     }
   })
+  it(`Select pill: the field trigger's parts, no label part (the label names it), the Select.dropdown glyph; the value part knows disabled (#EXP-1765)`, () => {
+    for (const searchable of [false, true]) {
+      const root = tree({ id: `p`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `pill`, searchable, description: `Hint`, disabled: true, value: `main`, options: [{ label: `main`, value: `main` }] } })
+      const { container, unmount } = render(<ExponentialSurface root={root} theme="exponential" id={`pl${searchable}`} />)
+      const trigger = container.querySelector(`.xui-Select-trigger`)!
+      expect(container.querySelector(`.xui-Select-label`)).toBeNull()
+      expect(container.querySelector(`.xui-Select-description`)).toBeNull()
+      expect(trigger.getAttribute(`aria-label`)).toBe(`Branch`)
+      expect(trigger.getAttribute(`data-r-trigger-variant`)).toBe(`pill`)
+      expect(container.querySelector(`.xui-Select-chevron`)!.getAttribute(`data-slot`)).toBe(`Select.dropdown`)
+      expect(container.querySelector(`.xui-Select-value`)!.getAttribute(`data-r-disabled`)).toBe(`true`)
+      unmount()
+    }
+  })
+  it(`Select loading: the Skeleton's rows in place of the options and the empty text; mono options; searchPlaceholder (#EXP-1765)`, () => {
+    for (const searchable of [false, true]) {
+      const options = [{ label: `main`, value: `main`, trailing: `default`, mono: true }, { label: `dev`, value: `dev`, trailing: `· old` }]
+      const loading = render(<ExponentialSurface root={tree({ id: `l`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `pill`, searchable, loading: true, options } })} theme="exponential" id={`ld${searchable}`} />)
+      fireEvent.keyDown(loading.container.querySelector(`.xui-Select-trigger`)!, { key: `ArrowDown` })
+      expect(document.querySelectorAll(`.xui-Select-item`)).toHaveLength(0)
+      expect(document.querySelectorAll(`.xui-Select-empty`)).toHaveLength(0)
+      expect(document.querySelectorAll(`[data-xui-id="l.skeleton"] .xui-Skeleton-row`)).toHaveLength(3)
+      loading.unmount()
+      const loaded = render(<ExponentialSurface root={tree({ id: `m`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `pill`, searchable, searchPlaceholder: `Search branches`, options } })} theme="exponential" id={`mo${searchable}`} />)
+      fireEvent.keyDown(loaded.container.querySelector(`.xui-Select-trigger`)!, { key: `ArrowDown` })
+      const items = Array.from(document.querySelectorAll(`.xui-Select-item`))
+      expect(items.map((el) => [el.hasAttribute(`data-mono`), el.querySelector(`.xui-Select-trailing`)?.textContent ?? null, el.textContent])).toEqual([[true, `default`, `maindefault`], [false, null, `dev · old`]])
+      // The trailing run is aria-hidden: the option is named by its label alone.
+      expect(items[0]!.querySelector(`.xui-Select-trailing`)!.getAttribute(`aria-hidden`)).toBe(`true`)
+      if (searchable) {
+        expect(document.querySelector<HTMLInputElement>(`.xui-Select-searchfield`)!.placeholder).toBe(`Search branches`)
+        expect(document.querySelector(`.xui-Select-searchbox > svg`)!.getAttribute(`data-xui-part`)).toBe(`Select/searchIcon`)
+      }
+      loaded.unmount()
+    }
+  })
+  it(`Select pill search: the Clear search button only with text; a press empties the field and keeps focus in it; field searches have none (#EXP-1765)`, () => {
+    for (const triggerVariant of [`pill`, `field`]) {
+      const { container, unmount } = render(<ExponentialSurface root={tree({ id: `c`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant, searchable: true, options: [{ label: `main`, value: `main` }, { label: `dev`, value: `dev` }] } })} theme="exponential" id={`cl${triggerVariant}`} />)
+      fireEvent.keyDown(container.querySelector(`.xui-Select-trigger`)!, { key: `ArrowDown` })
+      const field = document.querySelector<HTMLInputElement>(`.xui-Select-searchfield`)!
+      expect(document.querySelector(`.xui-Select-clear`)).toBeNull()
+      fireEvent.change(field, { target: { value: `ma` } })
+      expect(document.querySelectorAll(`.xui-Select-item`)).toHaveLength(1)
+      const clear = document.querySelector<HTMLButtonElement>(`.xui-Select-clear`)
+      if (triggerVariant === `field`) expect(clear).toBeNull()
+      else {
+        expect(clear!.getAttribute(`aria-label`)).toBe(`Clear search`)
+        expect(clear!.style.width).toBe(`17.5px`)
+        expect(clear!.querySelector(`svg`)!.getAttribute(`width`)).toBe(`10.5`)
+        expect(clear!.querySelector(`svg`)!.getAttribute(`data-slot`)).toBe(`Select.clear`)
+        fireEvent.click(clear!)
+        expect(field.value).toBe(``)
+        expect(document.activeElement).toBe(field)
+        expect(document.querySelector(`.xui-Select-clear`)).toBeNull()
+        expect(document.querySelectorAll(`.xui-Select-item`)).toHaveLength(2)
+      }
+      unmount()
+    }
+  })
+  it(`Select loading stays openable (a press opens it onto the skeleton) (#EXP-1765)`, () => {
+    for (const searchable of [false, true]) {
+      const { container, unmount } = render(<ExponentialSurface root={tree({ id: `o`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `pill`, searchable, loading: true, options: [] } })} theme="exponential" id={`lo${searchable}`} />)
+      const trigger = container.querySelector<HTMLButtonElement>(`.xui-Select-trigger`)!
+      expect(trigger.disabled).toBe(false)
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: `mouse`, pointerId: 1 })
+      fireEvent.click(trigger)
+      expect(trigger.getAttribute(`aria-expanded`)).toBe(`true`)
+      expect(document.querySelectorAll(`[data-xui-id="o.skeleton"] .xui-Skeleton-row`)).toHaveLength(3)
+      unmount()
+    }
+  })
   it(`Chart: measured width, nice ticks, a ring per pie series, the legend with 2+ series, arrow keys move the tooltip`, () => {
     const bar = tree({ id: `c`, component: `Chart`, props: { kind: `bar`, categories: [`a`, `b`], series: [{ name: `x`, values: [3, 7] }, { name: `y`, values: [5, 1] }] } })
     const { container } = render(<ExponentialSurface root={bar} theme="neutral" id="ch" />)

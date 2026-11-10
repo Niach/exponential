@@ -370,7 +370,8 @@ extension SurfaceModel {
             if node(id: top.owner)?.component == "Select" {
                 let field = candidates.first { i in node(i).map { $0.ownerComponent == "Select" && $0.part == "search" } ?? false }
                 let option = selectItems(top.owner).first { !isDisabled($0) }
-                target = (field ?? option).flatMap { node($0)?.id }
+                // #EXP-1765: a pointer-opened pill has no cursor to focus.
+                target = (field ?? (selectOpensCursorless(top.owner) ? nil : option)).flatMap { node($0)?.id }
             }
         } else if let o = closed.last {
             let inside = focusedId.flatMap { node(id: $0) }.map { $0.layer > 0 } ?? true
