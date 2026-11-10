@@ -544,6 +544,7 @@ class InteractionTest {
             m.fieldEdited(search(), "dev")
             advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
             runCurrent()
+            println("DBG $variant text=${m.fieldText(search())} field=${m.field(search())} pending=${m.field(search())?.pendingChange} props=${m.node(search())?.props} items=${m.nodes.filter { it.owner == "s" && it.part == "item" }.map { it.id + ":" + it.hidden }}")
             assertEquals("$variant: filtered", listOf("s.item.1"), items())
             assertEquals("$variant: clear only on a pill", variant == "pill", m.selectSearchClearable(search()))
             if (variant != "pill") continue
