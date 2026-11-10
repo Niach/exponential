@@ -1700,7 +1700,7 @@ impl BlockShot {
         Self {
             kind,
             model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
-            work_screen: crate::coding_selects::work_screen_select(&crate::styleguide::entries::work_screen::demo_displays(), None, window, cx),
+            work_screen: crate::coding_selects::work_screen_select(&crate::coding_selects::demo_displays(), None, window, cx),
             block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
         }
     }
