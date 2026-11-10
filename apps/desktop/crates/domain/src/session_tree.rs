@@ -366,6 +366,43 @@ fn oldest_first(messages: &mut Vec<&MessageRow>) {
     messages.extend(keyed.into_iter().map(|(_, message)| message));
 }
 
+/// #LOGS-11: a chat message's place in [`build_session_chat`]'s
+/// conversation (oldest first): its instant, then its id.
+pub fn chat_order_key(message: &MessageRow) -> (i64, &str) {
+    (ms_or_zero(message.created_at.as_deref()), message.id.as_str())
+}
+
+/// THE row of an unlocked, card-less conversation message
+/// ([`build_session_chat`]): a command divider (a person's), the message
+/// (`xref` = its link to the session that posted it), or none for an empty
+/// body. #LOGS-11: a chat's incremental append reads the same row.
+pub fn plain_message_row(message: &MessageRow, xref: Option<SessionXref>) -> Option<SessionChatRow> {
+    let author = match message.author_kind.as_deref() {
+        Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+        Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+        _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
+    };
+    let body = message_row_body(message.body_text(), &message.attachment_ids);
+    if body.trim().is_empty() {
+        return None;
+    }
+    let divider = (author == MESSAGE_AUTHOR_KIND_USER)
+        .then(|| crate::chats::command_divider(message.body_text()))
+        .flatten();
+    if let Some(kind) = divider {
+        return Some(SessionChatRow::Divider { id: message.id.clone(), kind, at: message.created_at.clone().unwrap_or_default() });
+    }
+    Some(SessionChatRow::Message {
+        id: message.id.clone(),
+        author: author.to_string(),
+        author_id: message.author_id.clone(),
+        body,
+        queued: author == MESSAGE_AUTHOR_KIND_USER && message.consumed_at.as_deref().is_none_or(str::is_empty),
+        author_session_id: message.author_session_id.clone(),
+        xref,
+    })
+}
+
 /// JS `String(value ?? '')`.
 fn js_string(value: Option<&Value>) -> String {
     match value {
@@ -1786,40 +1823,12 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
             continue;
         }
         let Some(card) = message.card.as_ref() else {
-            let author = match message.author_kind.as_deref() {
-                Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
-                Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
-                _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
-            };
-            let body = message_row_body(message.body_text(), &message.attachment_ids);
-            if body.trim().is_empty() {
-                continue;
-            }
-            let divider = (author == MESSAGE_AUTHOR_KIND_USER)
-                .then(|| crate::chats::command_divider(message.body_text()))
-                .flatten();
-            if let Some(kind) = divider {
-                rows.push(SessionChatRow::Divider {
-                    id: message.id.clone(),
-                    kind,
-                    at: message.created_at.clone().unwrap_or_default(),
-                });
-                continue;
-            }
-            rows.push(SessionChatRow::Message {
-                id: message.id.clone(),
-                author: author.to_string(),
-                author_id: message.author_id.clone(),
-                body,
-                queued: author == MESSAGE_AUTHOR_KIND_USER
-                    && message.consumed_at.as_deref().is_none_or(str::is_empty),
-                author_session_id: message.author_session_id.clone(),
-                xref: message
-                    .author_session_id
-                    .as_deref()
-                    .filter(|id| !id.is_empty() && *id != root.id)
-                    .and_then(|id| xref("message", Some(id))),
-            });
+            let link = message
+                .author_session_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && *id != root.id)
+                .and_then(|id| xref("message", Some(id)));
+            rows.extend(plain_message_row(message, link));
             continue;
         };
         match card_str(card, "kind") {
