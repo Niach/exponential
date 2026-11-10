@@ -75,6 +75,7 @@ mod accounts;
 mod chat;
 mod chat_files;
 mod chats;
+mod cli_setup;
 mod engine;
 mod issues;
 mod assets;
@@ -314,6 +315,10 @@ struct Shell {
     pending_pick: Option<String>,
     /// #EDE-58: the chat on the current Local desktop (its agent runs).
     chat_local: Option<local_runs::LocalChat>,
+    /// EXP-1513: the chat's Claude Code setup (install + its own sign-in)
+    /// and the running one's steps.
+    chat_setup: cli_setup::Step,
+    chat_setup_rx: Option<flume::Receiver<cli_setup::Step>>,
     /// #EDE-65: the current Local desktop's store changes (its chats).
     local_sessions: Option<flume::Receiver<elocal::LocalDelta>>,
     /// #EDE-65 lane I: the agent picked on the chat's home.
@@ -970,6 +975,13 @@ impl HostPlugin for Host {
                         Some("open") => chat_open(&shell, Some(&arg("sessionId")), cx),
                         Some("new") => chat_open(&shell, None, cx),
                         Some("stop") => {}
+                        // EXP-1513: the empty state's Set up Claude Code / Open sign-in.
+                        Some("setup") => chat_setup_start(&shell, cx),
+                        Some("signIn") => {
+                            if let cli_setup::Step::SigningIn { url: Some(url) } = &shell.borrow().chat_setup {
+                                connect::open_url(url);
+                            }
+                        }
                         Some("attach") => chat_attach(&shell, cx),
                         Some("unattach") => {
                             if let Ok(key) = arg("key").parse::<u64>() {
@@ -1607,6 +1619,13 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
     size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
+    // #EXP-1780: the chat's rows follow the newest one.
+    if doc.name == "chat" {
+        let view = shell.borrow().surfaces.region("chat").map(|r| r.view.clone());
+        if let Some(view) = view {
+            view.update(cx, uicore_gpui::follow_chat);
+        }
+    }
 }
 
 fn close(shell: &SharedShell, name: &str, cx: &mut App) {
@@ -1949,6 +1968,51 @@ fn chat_local(shell: &SharedShell) -> bool {
     true
 }
 
+/// EXP-1513: Set up Claude Code (the chat's empty state on a Local desktop
+/// without a usable CLI): one setup at a time ([`cli_setup`]).
+fn chat_setup_start(shell: &SharedShell, cx: &mut App) {
+    if shell.borrow().chat_setup.running() {
+        return;
+    }
+    {
+        let mut s = shell.borrow_mut();
+        s.chat_setup = cli_setup::Step::Installing;
+        s.chat_setup_rx = Some(cli_setup::start());
+    }
+    chatting_changed(shell, cx);
+}
+
+/// EXP-1513: the demo's setup step for a capture (`EDE_SHELL_DEMO_SETUP` =
+/// idle, installing, signingIn or failed); unset = the real chat.
+fn demo_setup() -> Option<cli_setup::Step> {
+    match std::env::var("EDE_SHELL_DEMO_SETUP").ok()?.as_str() {
+        "idle" => Some(cli_setup::Step::Idle),
+        "installing" => Some(cli_setup::Step::Installing),
+        "signingIn" => Some(cli_setup::Step::SigningIn { url: None }),
+        "failed" => Some(cli_setup::Step::Failed("Anthropic's installer exited with status 1.".into())),
+        _ => None,
+    }
+}
+
+/// A setup step arrived. `Ready` restarts the desktop's agent so its runner
+/// finds the CLI; `Ready` and `Failed` end the setup.
+fn chat_setup_step(shell: &SharedShell, step: cli_setup::Step, cx: &mut App) {
+    let done = !step.running();
+    if step == cli_setup::Step::Ready {
+        if let Some(chat) = shell.borrow_mut().chat_local.take() {
+            chat.stop();
+        }
+    }
+    {
+        let mut s = shell.borrow_mut();
+        s.chat_setup = if step == cli_setup::Step::Ready { cli_setup::Step::Idle } else { step };
+        if done {
+            s.chat_setup_rx = None;
+        }
+    }
+    chatting_changed(shell, cx);
+}
+
 /// `/chatting` into the views (#EDE-65 lane I): the chat model of the
 /// current conversation: the desktop's own agent on a Local desktop; on a
 /// team, until the shell syncs its sessions, the home with the Assistant.
@@ -1992,6 +2056,7 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     let view = uicore_model::chat::chat_view(&input);
     let mut value = chat::chatting(&view);
     value["noCli"] = json!(no_cli);
+    value["setup"] = shell.borrow().chat_setup.to_value();
     shell.borrow_mut().feed.set("/chatting", value);
     chat_composer(shell, &view.composer, cx);
     refresh(shell, cx);
@@ -2001,7 +2066,9 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
 /// items, #EDE-65 lane O) are literal props (genUI binds only a Composer's
 /// value): set by id, redrawn on a change.
 fn chat_composer(shell: &SharedShell, composer: &uicore_model::chat::ChatComposer, cx: &mut App) {
-    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "items": composer.menu});
+    // EXP-1513: the setup's failure reason is a literal prop too (`chat_cli_failed`).
+    let message = shell.borrow().chat_setup.to_value()["message"].clone();
+    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "items": composer.menu, "setupMessage": message});
     if shell.borrow().chat_composer == props {
         return;
     }
@@ -2035,6 +2102,9 @@ fn patch_chat(shell: &Shell, doc: &mut Document) {
         for id in ["chat_plus", "chat_home_plus"] {
             uicore_gpui::inline::set_prop(doc, id, "items", menu.clone());
         }
+    }
+    if let Some(message) = shell.feed.get("/chatting").map(|c| &c["setup"]["message"]).filter(|m| m.is_string()) {
+        uicore_gpui::inline::set_prop(doc, "chat_cli_failed", "description", message.clone());
     }
 }
 
@@ -3160,14 +3230,21 @@ fn main() {
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         // The goldens: the sample conversation (Local, or a demo team's).
         let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
+        // EXP-1513: `EDE_SHELL_DEMO_SETUP` = a Local desktop without a CLI at that setup step.
+        let setup = demo_setup().filter(|_| demo && !on_team);
         let mut chat = match (demo, on_team) {
-            (true, false) => local_runs::demo_input(),
+            (true, false) if setup.is_none() => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
         // #EDE-65 lane O: the "+" (Photo or file; the prompts arrive with a team's rows).
         chat.plus = chat::plus_rows(&[]);
-        feed.set("/chatting", chat::chatting(&uicore_model::chat::chat_view(&chat)));
+        let mut chatting = chat::chatting(&uicore_model::chat::chat_view(&chat));
+        if let Some(step) = &setup {
+            chatting["noCli"] = json!(true);
+            chatting["setup"] = step.to_value();
+        }
+        feed.set("/chatting", chatting);
         feed.set("/chatFiles", if demo && std::env::var_os("EDE_SHELL_DEMO_ATTACH").is_some() { chat_files::demo().feed() } else { chat_files::ChatFiles::default().feed() });
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
@@ -3284,6 +3361,8 @@ fn main() {
             // #EDE-65: the team picked last, once its account's teams are listed.
             pending_pick: saved_team,
             chat_local: None,
+            chat_setup: cli_setup::Step::Idle,
+            chat_setup_rx: None,
             local_sessions: None,
             chat_agent: None,
             chat_draft: String::new(),
@@ -3485,6 +3564,11 @@ fn main() {
                     tray_pending = false;
                     last_tray = Instant::now();
                     cx.update(|cx| exp_tray_refresh(&s, cx));
+                }
+                // EXP-1513: the chat's Claude Code setup moved on.
+                let setup = s.borrow().chat_setup_rx.as_ref().and_then(|rx| rx.drain().last());
+                if let Some(step) = setup {
+                    cx.update(|cx| chat_setup_step(&s, step, cx));
                 }
                 // #EDE-58: the local agent's runs changed a session or its messages.
                 let chat_changed = s.borrow().chat_local.as_ref().and_then(|c| c.changes.as_ref()).map(|rx| rx.drain().count() > 0).unwrap_or(false);

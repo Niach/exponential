@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -206,7 +207,7 @@ fun BoardRepoField(
                         onValueChange = { onBranchChange(it.trim().ifEmpty { null }) },
                         enabled = enabled,
                         placeholder = repoDefault,
-                        textStyle = TextStyle(fontFamily = FontFamily.Monospace),
+                        textStyle = TextStyle(fontFamily = ExpMono),
                     )
                 }
             }
@@ -483,7 +484,7 @@ private fun SelectRow(
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = if (monospace) FontFamily.Monospace else null,
+            fontFamily = if (monospace) ExpMono else null,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

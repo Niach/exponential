@@ -176,7 +176,7 @@ function expandTemplate(
   parentId: string
 ): UiNode[] {
   if (tpl.$each !== undefined) {
-    const items = evalValue(`{${tpl.$each}}`, ctx)
+    const items = Array.isArray(tpl.$each) ? tpl.$each : evalValue(`{${tpl.$each}}`, ctx)
     if (!Array.isArray(items)) return []
     const as = tpl.$as ?? `item`
     // #VAPP-285: under `$each` the part's `$if`/`$any` are decided PER ITEM

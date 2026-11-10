@@ -6,8 +6,9 @@
 //!   a browser's `overflow-wrap: normal` does.
 //! - **Min-content** = the widest unbreakable segment, **max-content** = the
 //!   widest hard line; trailing spaces HANG (they never count), as in CSS.
-//! - **Wrapping** is greedy over those segments; the painter draws the
-//!   resulting lines verbatim (hard breaks, no re-wrapping by gpui).
+//! - **Wrapping** is greedy over those segments, with gpui's `LineWrapper`
+//!   fit rule (a word's trailing space counts, #EXP-1773); the painter draws
+//!   the resulting lines verbatim (hard breaks, no re-wrapping by gpui).
 //! - `text-transform` applies before both.
 //!
 //! Every function here is pure: widths come from a caller closure (gpui's
@@ -146,8 +147,15 @@ pub fn wrap(text: &str, width: Option<f32>, width_of: &mut dyn FnMut(&str) -> f3
     let mut open = false;
     for s in segments(text) {
         let full = width_of(s.text);
-        let trimmed = if hang(s.text).len() == s.text.len() { full } else { width_of(hang(s.text)) };
-        if open && !line.is_empty() && line_full + trimmed > width + 0.5 {
+        // #EXP-1773: gpui's `LineWrapper` (the IDE's own text) adds a word's
+        // trailing spaces BEFORE it tests the fit, with no slack: a word
+        // that ends within a space-width of the edge moves down. A segment
+        // without trailing spaces (a line's last word) is tested on its ink,
+        // with 0.5 px for float noise (a box sized to its own max-content
+        // never wraps).
+        let spaced = hang(s.text).len() != s.text.len();
+        let over = if spaced { line_full + full > width } else { line_full + width_of(hang(s.text)) > width + 0.5 };
+        if open && !line.is_empty() && over {
             lines.push(hang(&line).to_string());
             line.clear();
             line_full = 0.0;
@@ -166,6 +174,65 @@ pub fn wrap(text: &str, width: Option<f32>, width_of: &mut dyn FnMut(&str) -> f3
         lines.push(hang(&line).to_string());
     }
     lines
+}
+
+/// The soft-wrap boundaries (byte offsets) of ONE hard line in a
+/// gpui-component `Textarea` (the Textarea and the Composer field): a port of
+/// gpui-base 0.9's `measured_wrap` (its oracle `measured_wrap_boundaries`,
+/// private there), so the autosize measurer counts exactly the rows the field
+/// draws. Each row takes the longest grapheme prefix that fits (`measure` of
+/// the row's text, trailing spaces included) and breaks at the last UAX #14
+/// opportunity inside it; a word wider than the row (a long URL, a hash)
+/// breaks at the last grapheme that fits, and every row takes at least one
+/// grapheme. Continuation rows keep the line's leading spaces as their
+/// indent (`WrappingIndent::Same`, the field's default).
+pub fn field_breaks(text: &str, width: f32, measure: &mut dyn FnMut(&str) -> f32) -> Vec<usize> {
+    use unicode_segmentation::UnicodeSegmentation;
+    /// gpui's `LineWrapper::MAX_INDENT`.
+    const MAX_INDENT: usize = 256;
+    let indent = text.chars().take_while(|&c| c == ' ').count().min(MAX_INDENT);
+    let indent_width = measure(&text[..indent]);
+    let ends: Vec<usize> = text.grapheme_indices(true).map(|(ix, g)| ix + g.len()).collect();
+    let opportunities: Vec<usize> = linebreaks(text).map(|(ix, _)| ix).filter(|ix| ends.binary_search(ix).is_ok()).collect();
+    let mut out = Vec::new();
+    let (mut first, mut start) = (0usize, 0usize);
+    while first < ends.len() {
+        let available = if start == 0 { width } else { width - indent_width };
+        let remaining = ends.len() - first;
+        let (mut low, mut high) = (0usize, 1usize);
+        while measure(&text[start..ends[first + high - 1]]) <= available {
+            low = high;
+            if high == remaining {
+                break;
+            }
+            high = (high * 2).min(remaining);
+        }
+        while low + 1 < high {
+            let mid = (low + high) / 2;
+            if measure(&text[start..ends[first + mid - 1]]) <= available {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        let fitting_end = ends[first + low.max(1) - 1];
+        if fitting_end == text.len() {
+            break;
+        }
+        let candidate = opportunities.partition_point(|&ix| ix <= fitting_end);
+        let end = candidate.checked_sub(1).map(|ix| opportunities[ix]).filter(|&ix| ix > start && (start != 0 || ix > indent)).unwrap_or(fitting_end);
+        out.push(end);
+        first = ends.partition_point(|&ix| ix <= end);
+        start = end;
+    }
+    out
+}
+
+/// The rows a gpui-component `Textarea` draws `text` in at `width`: every
+/// `\n`-separated line (an empty one, a trailing one included) is one row
+/// plus its [`field_breaks`].
+pub fn field_rows(text: &str, width: f32, measure: &mut dyn FnMut(&str) -> f32) -> usize {
+    text.split('\n').map(|line| 1 + field_breaks(line.strip_suffix('\r').unwrap_or(line), width, measure).len()).sum()
 }
 
 #[cfg(test)]
@@ -219,6 +286,22 @@ mod tests {
         assert_eq!(wrap("trailing\n", None, &mut w8), ["trailing"]);
     }
 
+    /// #EXP-1773: gpui's `LineWrapper` counts the space after a word when it
+    /// tests the fit, so a word ending within a space-width of the edge
+    /// moves down (the IDE's "…your old | address stops…").
+    #[test]
+    fn a_word_ending_within_a_space_of_the_edge_wraps_like_gpui() {
+        // "Hello brave " = 96 px; "Hello brave" = 88 px.
+        assert_eq!(wrap("Hello brave new", Some(95.0), &mut w8), ["Hello", "brave new"], "the trailing space overflows");
+        assert_eq!(wrap("Hello brave new", Some(96.0), &mut w8), ["Hello brave", "new"], "the space fits exactly");
+        assert_eq!(wrap("Hello brave new", Some(95.6), &mut w8), ["Hello", "brave new"], "no float slack on a spaced word");
+        // The last word of a line has no space after it: its ink fits, with
+        // 0.5 px for float noise.
+        assert_eq!(wrap("Hello brave", Some(87.6), &mut w8), ["Hello brave"]);
+        assert_eq!(wrap("Hello brave\nnew", Some(87.6), &mut w8), ["Hello brave", "new"]);
+        assert_eq!(wrap("Hello brave", Some(87.0), &mut w8), ["Hello", "brave"]);
+    }
+
     #[test]
     fn text_transform_matches_css() {
         assert_eq!(transform("hello world", Some("uppercase")), "HELLO WORLD");
@@ -226,5 +309,29 @@ mod tests {
         assert_eq!(transform("hello wide world", Some("capitalize")), "Hello Wide World");
         assert_eq!(transform("as is", Some("none")), "as is");
         assert_eq!(transform("as is", None), "as is");
+    }
+
+    #[test]
+    fn the_field_breaks_where_gpui_component_does() {
+        // gpui-base's own cases (one px per grapheme).
+        let mut g = |s: &str| s.chars().count() as f32;
+        assert_eq!(field_breaks("hello world", 8.0, &mut g), [6]);
+        assert_eq!(field_breaks("  abcdefgh", 5.0, &mut g), [5, 8], "continuation rows keep the indent");
+        assert!(field_breaks("", 0.0, &mut g).is_empty());
+        assert_eq!(field_breaks("abc", 0.0, &mut g), [1, 2], "a row takes at least one grapheme");
+        assert_eq!(field_breaks("你好，世界", 2.0, &mut g), [3, 9]);
+        // An unbroken word wider than the row breaks by character.
+        assert_eq!(field_breaks("Supercalifragilistic ok", 40.0, &mut w8), [5, 10, 15, 20]);
+        assert_eq!(field_rows("one\n\ntwo\n", 400.0, &mut w8), 4, "an empty and a trailing line are rows");
+    }
+
+    /// #EXP-1629: a 12k-char line without a break opportunity (a long URL,
+    /// a hash) fills an autosize Textarea's rows instead of measuring one.
+    #[test]
+    fn a_long_unbroken_line_wraps_by_character() {
+        let hash = "a".repeat(12_000);
+        // 8 px per char at 160 px = 20 chars a row.
+        assert_eq!(field_rows(&hash, 160.0, &mut w8), 600);
+        assert_eq!(wrap(&hash, Some(160.0), &mut w8).len(), 1, "CSS text wrap (overflow-wrap: normal) keeps it whole");
     }
 }

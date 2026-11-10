@@ -1,6 +1,7 @@
 package com.exponential.app.ui.chat
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -245,7 +246,7 @@ fun SessionIssuesBody(
                     Text(
                         issue.identifier,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                     )

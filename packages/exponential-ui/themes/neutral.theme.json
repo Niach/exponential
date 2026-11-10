@@ -329,6 +329,7 @@
       "avatarMd": 32,
       "avatarLg": 40,
       "avatarXl": 48,
+      "iconXl": 28,
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
@@ -701,6 +702,15 @@
           "style": {
             "width": "$control.iconLg",
             "height": "$control.iconLg"
+          }
+        },
+        {
+          "when": {
+            "size": "xl"
+          },
+          "style": {
+            "width": "$control.iconXl",
+            "height": "$control.iconXl"
           }
         },
         {
@@ -2692,6 +2702,14 @@
         },
         {
           "when": {
+            "size": "sm"
+          },
+          "style": {
+            "height": "$control.buttonMd"
+          }
+        },
+        {
+          "when": {
             "variant": "row"
           },
           "style": {
@@ -2702,6 +2720,31 @@
             "borderRadius": "$radius.none",
             "backgroundColor": "#00000000",
             "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": [
+              "bare",
+              "code"
+            ]
+          },
+          "style": {
+            "height": 20,
+            "paddingHorizontal": 0,
+            "paddingVertical": 0,
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "code"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono"
           }
         }
       ],
@@ -2769,7 +2812,6 @@
       "field": [
         {
           "style": {
-            "height": "$control.input",
             "paddingHorizontal": "$spacing.md",
             "borderRadius": "$radius.md",
             "borderWidth": "$border.hairline",
@@ -2780,8 +2822,16 @@
             "lineHeight": "$type.lineHeight.sm",
             "fontFamily": "$type.family.sans",
             "boxShadow": "$shadow.sm",
-            "minHeight": "$control.textarea",
             "paddingVertical": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "variant": "field"
+          },
+          "style": {
+            "height": "$control.input",
+            "minHeight": "$control.textarea"
           }
         },
         {
@@ -2806,6 +2856,32 @@
           },
           "style": {
             "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "variant": [
+              "row",
+              "code"
+            ]
+          },
+          "style": {
+            "paddingHorizontal": "$spacing.lg",
+            "paddingVertical": "$spacing.md",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "code"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs"
           }
         }
       ],
@@ -3458,13 +3534,14 @@
       "item": [
         {
           "style": {
-            "height": "$control.buttonSm",
             "paddingHorizontal": "$spacing.sm",
             "borderRadius": "$radius.sm",
             "fontSize": "$type.size.sm",
             "lineHeight": "$type.lineHeight.sm",
             "color": "$color.popoverForeground",
-            "gap": "$spacing.sm"
+            "gap": "$spacing.sm",
+            "minHeight": "$control.buttonSm",
+            "paddingVertical": "$spacing.xs"
           }
         },
         {
@@ -3575,6 +3652,14 @@
           }
         }
       ],
+      "valueIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
       "description": [
         {
           "style": {
@@ -3613,6 +3698,33 @@
           "style": {
             "height": 24,
             "backgroundColor": "$color.popover"
+          }
+        }
+      ],
+      "button": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "gap": "$spacing.md"
+          }
+        }
+      ],
+      "itemIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
+      "itemDescription": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
           }
         }
       ]
@@ -6750,6 +6862,89 @@
             "fontSize": "$type.size.sm",
             "lineHeight": "$type.lineHeight.sm",
             "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "IconPicker": {
+      "trigger": [
+        {
+          "when": {
+            "empty": true
+          },
+          "style": {
+            "borderStyle": "dashed"
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "cell": [
+        {
+          "style": {
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "borderColor": "$color.primary"
+          }
+        }
+      ],
+      "glyph": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "color": "$color.primary"
+          }
+        }
+      ],
+      "none": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "noneLabel": [
+        {
+          "style": {
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "ColorPicker": {
+      "swatch": [
+        {
+          "style": {
+            "borderColor": "#00000000"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "borderColor": "$color.foreground"
           }
         }
       ]

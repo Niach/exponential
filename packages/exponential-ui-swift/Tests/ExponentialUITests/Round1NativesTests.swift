@@ -247,6 +247,12 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(auto.height, 80)
         let short = measurer.measureLeaf(LeafRequest(component: "Textarea", part: "field", props: ["rows": .number(2), "autosize": .bool(true), "value": .string("hi")]), wrap: nil)
         XCTAssertEqual(short.height, 40)
+        // #EXP-1629: a 12k-char line without a break opportunity (a long URL,
+        // a hash) wraps by character at the field's laid-out width (the core
+        // asks an autosize field at that width): rows 10 grow to maxRows 40.
+        let hash = String(repeating: "a", count: 12_000)
+        let grown = measurer.measureLeaf(LeafRequest(component: "Textarea", part: "field", props: ["rows": .number(10), "maxRows": .number(40), "autosize": .bool(true), "value": .string(hash)]), wrap: 360)
+        XCTAssertEqual(grown.height, 800)
         // Markdown `lines` clamps; a sparkline is 120 × 32.
         let md = measurer.measureLeaf(LeafRequest(component: "Markdown", props: ["text": .string("a\n\nb\n\nc\n\nd"), "lines": .number(2)]), wrap: 300)
         XCTAssertEqual(md.height, 40)
@@ -449,7 +455,10 @@ final class Round1NativesTests: XCTestCase {
         let m = try surface(node("week", "Select", ["label": .string("Week starts on"), "triggerVariant": .string("row"), "value": .string("tuesday"), "options": options]))
         paint(m)
         let trigger = try XCTUnwrap(m.index(of: "week.trigger"))
-        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.value", "week.chevron"])
+        XCTAssertEqual(m.nodes.filter { $0.parent == trigger && !$0.removed }.map(\.id), ["week.label", "week.spacer", "week.button"])
+        // #EXP-1629: the IDE picker's ghost value button holds the value and the chevron.
+        let button = try XCTUnwrap(m.index(of: "week.button"))
+        XCTAssertEqual(m.nodes.filter { $0.parent == button && !$0.removed }.map(\.id), ["week.value", "week.chevron"])
         XCTAssertEqual(m.node(m.index(of: "week.label")!)?.props.str("text"), "Week starts on")
         XCTAssertEqual(m.node(m.index(of: "week.value")!)?.props.str("text"), "Tuesday")
         let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))
@@ -475,8 +484,12 @@ final class Round1NativesTests: XCTestCase {
 
         let zones: JSONValue = .array(["Europe/Berlin", "Europe/London", "Europe/Vienna", "UTC"].map { .object(["label": .string($0), "value": .string($0)]) })
         let s = try surface(node("tz", "Select", ["label": .string("Timezone"), "triggerVariant": .string("row"), "searchable": .bool(true), "value": .string("Europe/Vienna"), "options": zones]))
+        // No `paint` here: the open popup's focus is in its search FIELD, and
+        // on iOS `paint` renders into a throwaway UIWindow whose teardown
+        // takes the first responder back: the field blurs and the popup
+        // closes (the release suite's iOS Simulator leg). `setOpen` already
+        // ran the pass the assertions read.
         s.setOpen("tz", true)
-        paint(s)
         let tzHovered = { s.liveParts("tz", "item").filter { s.states(of: $0.id).contains("hover") }.map(\.id) }
         XCTAssertEqual(tzHovered(), ["tz.item.0"])
         XCTAssertEqual(s.focusedId, "tz.search", "focus in the search field")
@@ -488,6 +501,222 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(tzHovered(), ["tz.item.3"], "no wrap")
         s.fieldCommitted(search)
         XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
+    }
+
+    // MARK: - #EXP-1765: the `pill` Select, `loading`, `mono` options
+
+    func pillSelect(_ extra: [String: JSONValue] = [:]) -> JSONValue {
+        var props: [String: JSONValue] = [
+            "label": .string("Default branch"), "triggerVariant": .string("pill"), "value": .string("main"),
+            "options": .array([
+                .object(["label": .string("main"), "value": .string("main"), "mono": .bool(true), "trailing": .string("default")]),
+                .object(["label": .string("develop"), "value": .string("develop"), "mono": .bool(true)]),
+                .object(["label": .string("plain"), "value": .string("plain"), "trailing": .string("· x")]),
+            ]),
+        ]
+        for (k, v) in extra { props[k] = v }
+        return node("sel", "Select", props)
+    }
+
+    /// The pill trigger: the field trigger's parts content-sized, no label
+    /// part, the `Select.dropdown` glyph at the chevron part's size and
+    /// colour at full opacity, the label as its accessible name; the
+    /// trigger's `disabled` reaches the value part.
+    func testSelectPillTriggerPartsAndName() throws {
+        let m = try surface(pillSelect())
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "sel.trigger"))
+        let t = try XCTUnwrap(m.node(trigger))
+        XCTAssertTrue(t.isLeaf, "the field trigger's leaf, never the row's parts")
+        XCTAssertNil(m.index(of: "sel.label"), "no label part")
+        XCTAssertNil(m.index(of: "sel.description"))
+        XCTAssertEqual(t.props.str("icon"), BuiltinIcons.name("Select.dropdown"))
+        XCTAssertEqual(BuiltinIcons.name("Select.dropdown"), "ui-chevron-down")
+        XCTAssertLessThan(m.frame(trigger).width, 390 - 32, "content-sized, never stretched")
+        XCTAssertEqual(m.frame(trigger).height, 24, accuracy: 0.01)
+        XCTAssertTrue(SelectTrigger.isPill(t.props, owner: m.ownerProps(trigger)))
+        let chevron = m.part("Select", "chevron", props: m.ownerProps(trigger))
+        XCTAssertEqual(SelectTrigger.glyphSize(chevron), 10.5)
+        XCTAssertNotNil(chevron.color)
+        XCTAssertEqual(chevron.style.opacity ?? 1, 1, accuracy: 0.001, "the pill's glyph paints at 1 (the field's default 0.6 stays the field's)")
+        XCTAssertEqual(m.part("Select", "value", props: m.ownerProps(trigger)).style.opacity ?? 1, 0.7, accuracy: 0.001)
+        let off = try surface(pillSelect(["disabled": .bool(true)]))
+        let offTrigger = try XCTUnwrap(off.index(of: "sel.trigger"))
+        XCTAssertTrue(off.isDisabled(offTrigger))
+        XCTAssertEqual(off.part("Select", "value", props: off.ownerProps(offTrigger), states: ["disabled"]).style.opacity ?? 1, 0.5, accuracy: 0.001, "the theme dims a disabled pill's value")
+        let a = A11yInfo.of(t, model: m, style: m.style(trigger))
+        XCTAssertEqual(a.role, "combobox")
+        XCTAssertEqual(a.label, "Default branch")
+
+        // A field Select keeps its stretched trigger and its label part.
+        let f = try surface(node("f", "Select", ["label": .string("Branch"), "options": .array([])]))
+        XCTAssertNotNil(f.index(of: "f.label"))
+        XCTAssertFalse(SelectTrigger.isPill(f.node(f.index(of: "f.trigger")!)!.props))
+    }
+
+    /// The pill popup: `selectRowPopupWidth` wide, its border box
+    /// `selectPillPopupOffset` under the pill and `selectPillPopupInset`
+    /// before its start edge (align start; `end` = past its right edge).
+    func testSelectPillPopupGeometry() throws {
+        let m = try surface(.object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "padding": .number(16)]), "children": .array([pillSelect(["searchable": .bool(true)])])]))
+        m.setOpen("sel", true)
+        let t = m.frame(try XCTUnwrap(m.index(of: "sel.trigger")))
+        let c = m.frame(try XCTUnwrap(m.index(of: "sel.content")))
+        XCTAssertEqual(c.width, 262, accuracy: 0.01)
+        XCTAssertEqual(c.minX, t.minX - 1, accuracy: 0.01)
+        XCTAssertEqual(c.minY, t.maxY + 3, accuracy: 0.01)
+
+        let e = try surface(.object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "alignItems": .string("flex-end"), "padding": .number(16)]), "children": .array([pillSelect(["align": .string("end"), "popupWidth": .number(200)])])]))
+        e.setOpen("sel", true)
+        let et = e.frame(try XCTUnwrap(e.index(of: "sel.trigger")))
+        let ec = e.frame(try XCTUnwrap(e.index(of: "sel.content")))
+        XCTAssertEqual(ec.width, 200, accuracy: 0.01)
+        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(ec.maxX, 390 - 7 + 0.01, "selectRowPopupMargin from the view's edge")
+    }
+
+    /// Opened by the POINTER a pill shows no cursor until the pointer moves
+    /// over an option or a key goes (↓ = the first enabled option); opened
+    /// from the KEYBOARD it keeps the cursor; a field Select is unchanged.
+    func testSelectPillPointerOpenHasNoCursor() throws {
+        let hovered = { (m: SurfaceModel) in m.liveParts("sel", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id) }
+        let m = try surface(pillSelect())
+        m.pressDown("sel.trigger")
+        m.pressUp("sel.trigger")
+        m.setOpen("sel", true)
+        XCTAssertEqual(hovered(m), [], "no cursor on a pointer open")
+        m.setHover(id: "sel.item.1", true)
+        XCTAssertEqual(hovered(m), ["sel.item.1"], "the pointer brings it")
+
+        let k = try surface(pillSelect())
+        k.setOpen("sel", true)
+        XCTAssertEqual(hovered(k), [])
+        k.requestFocus("sel.trigger", keyboard: false)
+        XCTAssertTrue(k.handleKey(key: "down"))
+        XCTAssertEqual(hovered(k), ["sel.item.0"], "↓ lands on the first enabled option")
+        XCTAssertEqual(k.focusedId, "sel.item.0", "no search field: the keys go on from the option")
+        k.handleKey(key: "down")
+        XCTAssertEqual(hovered(k), ["sel.item.1"])
+
+        // The search field: its first ↓ lands on the first option.
+        let s = try surface(pillSelect(["searchable": .bool(true)]))
+        s.setOpen("sel", true)
+        XCTAssertEqual(s.focusedId, "sel.search")
+        XCTAssertEqual(hovered(s), [])
+        let search = try XCTUnwrap(s.index(of: "sel.search"))
+        XCTAssertTrue(s.fieldKey(search, key: "down"))
+        XCTAssertEqual(hovered(s), ["sel.item.0"])
+
+        // From the keyboard: today's cursor.
+        let kb = try surface(pillSelect())
+        kb.requestFocus("sel.trigger", keyboard: true)
+        kb.setOpen("sel", true)
+        XCTAssertEqual(hovered(kb), ["sel.item.0"])
+
+        // A field Select: the cursor on a pointer open, as before.
+        let f = try surface(pillSelect(["triggerVariant": .string("field")]))
+        f.pressDown("sel.trigger")
+        f.setOpen("sel", true)
+        XCTAssertEqual(hovered(f), ["sel.item.0"])
+    }
+
+    /// `loading`: the list holds a Skeleton (`<id>.skeleton`, its
+    /// `selectLoadingRows` rows `$control.row` tall) in place of the options
+    /// and of `empty`; the search still shows; a loading Select is not inert.
+    func testSelectLoadingSkeletonAndStillOpens() throws {
+        let m = try surface(pillSelect(["searchable": .bool(true), "loading": .bool(true), "options": .array([])]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.index(of: "sel.trigger"))
+        XCTAssertFalse(m.isDisabled(trigger), "loading never freezes a Select")
+        m.press(trigger)
+        XCTAssertTrue(m.layers.contains { $0.owner == "sel" }, "a loading Select still opens")
+        let skeleton = try XCTUnwrap(m.index(of: "sel.skeleton"))
+        XCTAssertEqual(m.node(skeleton)?.component, "Skeleton")
+        let rows = m.nodes.filter { !$0.removed && $0.owner == "sel.skeleton" && $0.part == "row" }
+        XCTAssertEqual(rows.count, 3)
+        for r in rows { XCTAssertEqual(m.frame(r.index).height, m.control("row", 32), accuracy: 0.01) }
+        XCTAssertNil(m.index(of: "sel.empty"))
+        XCTAssertTrue(m.liveParts("sel", "item").isEmpty)
+        XCTAssertNotNil(m.index(of: "sel.search"))
+        paint(m)
+        // A loading Button still freezes.
+        let b = try surface(node("b", "Button", ["label": .string("Save"), "loading": .bool(true)]))
+        XCTAssertTrue(b.isDisabled(try XCTUnwrap(b.index(of: "b"))))
+    }
+
+    /// A `mono` option: the label alone in the mono type, the `trailing`
+    /// its own run (measured in the sans type before the check slot) and
+    /// out of the accessible name; a plain option reads it on.
+    func testSelectMonoOptionTrailing() throws {
+        let m = try surface(pillSelect())
+        m.setOpen("sel", true)
+        paint(m)
+        let main = try XCTUnwrap(m.node(m.index(of: "sel.item.0")!))
+        XCTAssertEqual(main.props.str("text"), "main")
+        XCTAssertEqual(main.props.str("trailing"), "default")
+        let ts = m.textStyle(main.index)
+        XCTAssertNotEqual(ts.fontFamily, m.theme?.sansFamily, "the mono type")
+        XCTAssertEqual(SelectTrigger.trailingStyle(ts, sans: m.theme?.sansFamily).fontFamily, m.theme?.sansFamily)
+        XCTAssertEqual(A11yInfo.of(main, model: m, style: m.style(main.index)).label, "main", "the trailing stays out of the name")
+        let plain = try XCTUnwrap(m.node(m.index(of: "sel.item.2")!))
+        XCTAssertEqual(plain.props.str("text"), "plain · x")
+        XCTAssertNil(plain.props["trailing"])
+        // The trailing's room before the check slot (the measurer's chrome).
+        let gap: CGFloat = 7
+        let (_, trail) = SurfaceMeasurer.textChrome("Select", "item", ["trailing": .string("default"), "disabled": .bool(false)], gap: gap, countWidth: 30)
+        XCTAssertEqual(trail, 16 + 8 + 7 + 30, accuracy: 0.01)
+        XCTAssertGreaterThan(m.frame(main.index).width, 0)
+    }
+
+    /// `searchPlaceholder` names the search field; the `searchIcon` part
+    /// sizes its glyph; the pill's `empty` text centres (`textAlign`).
+    func testSelectSearchPlaceholderIconAndEmpty() throws {
+        let m = try surface(pillSelect(["searchable": .bool(true), "searchPlaceholder": .string("Search branches..."), "options": .array([])]))
+        m.setOpen("sel", true)
+        paint(m)
+        let search = try XCTUnwrap(m.node(m.index(of: "sel.search")!))
+        XCTAssertEqual(search.props.str("placeholder"), "Search branches...")
+        XCTAssertEqual(m.part("Select", "searchIcon", props: m.ownerProps(search.index)).width, 14)
+        let f = m.frame(search.index), st = m.style(search.index)
+        XCTAssertEqual(f.height, 32.5, accuracy: 0.01)
+        XCTAssertEqual(st.insets.bottom, 3.5 + 1, accuracy: 0.01, "paddingBottom + the hairline")
+        XCTAssertEqual(st.insets.top, 0, accuracy: 0.01)
+        let empty = try XCTUnwrap(m.index(of: "sel.empty"))
+        XCTAssertEqual(m.style(empty).textAlign, "center")
+
+        let d = try surface(node("d", "Select", ["searchable": .bool(true), "options": .array([])]))
+        d.setOpen("d", true)
+        XCTAssertEqual(d.node(d.index(of: "d.search")!)?.props.str("placeholder"), d.builtinString("search"))
+    }
+
+    /// The pill search's clear button: only while it holds text, a button
+    /// named "Clear search"; pressing it empties the field (the core hears
+    /// "", the list unfiltered) and keeps the focus in it; never on a field.
+    func testSelectPillSearchClearButton() throws {
+        let m = try surface(pillSelect(["searchable": .bool(true)]))
+        m.setOpen("sel", true)
+        let search = try XCTUnwrap(m.index(of: "sel.search"))
+        XCTAssertFalse(m.selectSearchClearable(search), "no clear button while empty")
+        m.fieldEdited(search, text: "dev")
+        XCTAssertTrue(m.selectSearchClearable(search))
+        m.flushPending(search)
+        XCTAssertEqual(m.liveParts("sel", "item").map { $0.props.str("text") }, ["develop"])
+        XCTAssertEqual(m.builtinString("clearSearch"), "Clear search")
+        XCTAssertEqual(BuiltinIcons.name("Select.clear"), "ui-clear")
+        XCTAssertTrue(BuiltinIcons.isKnown("ui-clear"))
+        XCTAssertEqual(14 * SelectTrigger.clearBox, 17.5, accuracy: 0.001)
+        XCTAssertEqual(14 * SelectTrigger.clearGlyph, 10.5, accuracy: 0.001)
+        m.selectSearchClear(search)
+        XCTAssertEqual(m.fieldText(search), "")
+        XCTAssertFalse(m.selectSearchClearable(search))
+        XCTAssertEqual(m.liveParts("sel", "item").count, 3, "the list unfiltered at once")
+        XCTAssertEqual(m.focusedId, "sel.search", "the focus stays in the field")
+
+        let f = try surface(node("f", "Select", ["searchable": .bool(true), "options": .array([.object(["label": .string("a"), "value": .string("a")])])]))
+        f.setOpen("f", true)
+        let fs = try XCTUnwrap(f.index(of: "f.search"))
+        f.fieldEdited(fs, text: "a")
+        XCTAssertFalse(f.selectSearchClearable(fs), "a field Select's search has none")
     }
 
     /// #EXP-1629: a `row` Input IS a Group row: no label above, the field
@@ -609,6 +838,8 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(slots.count, names.count)
         XCTAssertFalse(slots.isEmpty)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(slots, names)), BuiltinIcons.slots)
+        // #EXP-1764: the own-colour marks.
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(array("iconFillNames"), array("iconFillColors"))), BuiltinIcons.fills)
         let locale = JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/locale.json"), encoding: .utf8))
         XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), RTLGlyphs.mirrored)
     }

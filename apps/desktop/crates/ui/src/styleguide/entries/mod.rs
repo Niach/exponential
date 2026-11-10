@@ -83,6 +83,9 @@ pub(crate) mod settings_row;
 pub(crate) mod kbd_group;
 // #EXP-1629: the shortcut field.
 pub(crate) mod key_recorder;
+// #EXP-1760: the identity pickers of boards, agents and labels.
+pub(crate) mod genui_icon_picker;
+pub(crate) mod genui_color_picker;
 // #EDE-65: a nested genUI surface drawn in place (the chat's cards).
 pub(crate) mod embed;
 pub(crate) mod record_table;
@@ -205,6 +208,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: settings_row::ID, owner: settings_row::OWNER, render: settings_row::render },
     Entry { id: kbd_group::ID, owner: kbd_group::OWNER, render: kbd_group::render },
     Entry { id: key_recorder::ID, owner: key_recorder::OWNER, render: key_recorder::render },
+    Entry { id: genui_icon_picker::ID, owner: genui_icon_picker::OWNER, render: genui_icon_picker::render },
+    Entry { id: genui_color_picker::ID, owner: genui_color_picker::OWNER, render: genui_color_picker::render },
     Entry { id: embed::ID, owner: embed::OWNER, render: embed::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },

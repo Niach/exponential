@@ -682,6 +682,46 @@ describe(`fixtures/interactions-round1.json keyRecorder`, () => {
   }
 })
 
+// #EXP-1760 pickerPick: IconPicker / ColorPicker are macros over a Popover;
+// the trigger opens it, a pick (cell, swatch, No icon) writes `value`, fires
+// `change` {value} and closes it (ClosePickerContext).
+interface PickerCase {
+  name: string
+  surface: string
+  data: Record<string, unknown>
+  steps: { press: string }[]
+  events: { name: string; context: Record<string, unknown> }[]
+  value: unknown
+  open: boolean
+}
+const pickerFixture = (fixture as unknown as { pickerPick: { surfaces: Record<string, NestedNode>; cases: PickerCase[] } }).pickerPick
+
+function PickerSurface({ initial, data, onState, onAction }: { initial: NestedNode; data: Record<string, unknown>; onState: (s: SurfaceState) => void; onAction: (e: SurfaceActionEvent) => void }) {
+  const surface = useSurface({ surfaceId: `pk`, data, initial })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="pk" host={{ onAction }} />
+}
+
+describe(`fixtures/interactions-round1.json pickerPick`, () => {
+  for (const c of pickerFixture.cases) {
+    it(`pickerPick: ${c.name}`, async () => {
+      let state!: SurfaceState
+      const actions: SurfaceActionEvent[] = []
+      render(<PickerSurface initial={pickerFixture.surfaces[c.surface]!} data={c.data} onState={(s) => (state = s)} onAction={(e) => void actions.push(e)} />)
+      for (const step of c.steps) {
+        const target = document.querySelector(`[data-xui-id="${step.press}"]`) as HTMLElement | null
+        expect(target, `${c.name}: ${step.press}`).not.toBeNull()
+        await act(async () => void fireEvent.click(target!))
+      }
+      expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      expect((state.data as Record<string, unknown>).value ?? null).toEqual(c.value)
+      expect(document.querySelector(`[data-xui-overlay="Popover"]`) !== null, `${c.name}: open`).toBe(c.open)
+    })
+  }
+})
+
 // #EDE-65 composerKeys: while menuKeys is on, Up, Down, Enter, Tab and
 // Escape (no modifier, no IME composition) fire `key` {key} only; off,
 // Enter submits as before.

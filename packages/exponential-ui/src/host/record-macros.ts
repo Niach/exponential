@@ -340,7 +340,8 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     node.rows = narrows ? { "@call": `filter`, args: { items: allRows, ...narrow } } : allRows
     const total = narrows ? { "@call": `len`, args: { value: node.rows } } : { "@call": `coalesce`, args: { values: [{ "@path": `${base}/rows/count` }, 0] } }
     node.count = { "@call": `pluralize`, args: { value: total, one: `$string.recordCountOne`, other: `$string.recordCount` } }
-    node.loading = { "@call": `not`, args: { value: { "@path": `${base}/rows` } } }
+    // Presence, not `not`: A2UI 1.0 coerces an object to false (#EXP-1757).
+    node.loading = { "@call": `cond`, args: { if: { "@path": `${base}/rows` }, then: false, else: true } }
     if (options.readOnly) node.add = false
     node.editable = editable
     node.children = { componentId: `${id}__row`, path: `${base}/rows/rows`, key: `id` }

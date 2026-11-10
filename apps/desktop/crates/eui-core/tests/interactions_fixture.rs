@@ -669,6 +669,40 @@ fn key_recorder_cases_start_record_and_stop_like_the_reference() {
     }
 }
 
+/// #EXP-1760 pickerPick at the core: a press on the trigger opens the
+/// IconPicker / ColorPicker popover; a pick (a cell, a swatch, the No icon
+/// row) writes `value`, fires the author's `change` {value} and closes it.
+/// gpui, SwiftUI and Compose send the same `press` through the core.
+#[test]
+fn picker_pick_cases_write_fire_and_close_like_the_reference() {
+    let f = fixture();
+    let k = &f["pickerPick"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let tree = k["surfaces"][c["surface"].as_str().unwrap()].clone();
+        let owner = tree["id"].as_str().unwrap().to_string();
+        let mut s = surface(tree);
+        for (path, value) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{path}"), Some(value.clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        for step in c["steps"].as_array().unwrap() {
+            let id = step["press"].as_str().unwrap_or_else(|| panic!("{name}: step {step}"));
+            let at = s.nodes().iter().position(|n| n.id == id).unwrap_or_else(|| panic!("{name}: no {id}")) as u32;
+            let out = s.event(at, "press", None);
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        let _ = s.take_events();
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/value").cloned().unwrap_or(Value::Null), c["value"], "{name}: /value");
+        let open = s.layout(&mut m).layers.iter().any(|l| l.owner == owner);
+        assert_eq!(open, c["open"].as_bool().unwrap(), "{name}: open");
+    }
+}
+
 /// #EDE-65 composerKeys at the core: what a painter sends for each step
 /// (`change` for the field's edit; with menuKeys on, a menu key without a
 /// modifier or an IME composition = `key` {key}; else the field's own Enter

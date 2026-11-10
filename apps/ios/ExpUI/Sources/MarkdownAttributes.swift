@@ -172,9 +172,7 @@ public enum MarkdownStyle {
     }
 
     public static func monospaceFont(bodySize: CGFloat? = nil) -> PlatformFont {
-        PlatformFont.monospacedSystemFont(
-            ofSize: resolvedBodyFont(bodySize).pointSize * 0.9, weight: .regular
-        )
+        PlatformFont.expMono(size: resolvedBodyFont(bodySize).pointSize * 0.9)
     }
 
     /// The markdown text view's vertical inset (`MarkdownEditor`'s

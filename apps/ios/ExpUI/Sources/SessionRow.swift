@@ -77,7 +77,7 @@ public struct SessionRow<Lead: View>: View {
                 HStack(spacing: 6) {
                     if let identifier, !identifier.isEmpty {
                         Text(identifier)
-                            .font(.caption.monospaced())
+                            .font(.expMono(.caption))
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .fixedSize()

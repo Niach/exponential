@@ -74,7 +74,7 @@ impl Surface {
         let checkbox = token("checkbox", 16.0);
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
-            let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
+            let template = |id: &str| -> Option<&UiNode> { templates.get(id).and_then(Option::as_ref) };
             let gap = |name: &str| -> f32 { gaps.get(name).copied().unwrap_or(0.0) };
             let failures = self.failures.clone();
             let on_failure = move |failure: &crate::data::Failure, id: &str| {
@@ -250,6 +250,7 @@ impl Surface {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            macro_query: None,
             authored_keys: Vec::new(),
             hidden: true,
             lines: None,
@@ -406,7 +407,7 @@ impl Surface {
                     || old.live != n.live
                     || old.part_query.as_ref().map(|q| &q.states) != n.part_query.as_ref().map(|q| &q.states)
                     || old.own_query.as_ref().map(|q| &q.states) != n.own_query.as_ref().map(|q| &q.states);
-                let style_changed = old.base_style != n.base_style || old.default_keys != n.default_keys || old.own_query != n.own_query || old.part_query != n.part_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
+                let style_changed = old.base_style != n.base_style || old.default_keys != n.default_keys || old.own_query != n.own_query || old.part_query != n.part_query || old.macro_query != n.macro_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
                 let measure_changed = old.props != n.props || old.lines != n.lines || old.component != n.component || old.kind != n.kind || old.part != n.part;
                 if old.parent != n.parent || old.children != n.children || old.layer != n.layer {
                     structure_changed = true;
@@ -447,6 +448,9 @@ impl Surface {
                 if let Some(c) = self.archive.get(&n.id) {
                     if c.props == n.props && c.lines == n.lines {
                         self.memo.intrinsics.insert(slot, c.intrinsics);
+                        if crate::measure::follows_width(&n.component, n.part.as_deref(), &n.props) {
+                            self.memo.width_dependent.insert(slot);
+                        }
                         for (w, h) in &c.heights {
                             self.memo.insert_height(slot, *w, *h);
                         }

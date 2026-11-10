@@ -117,6 +117,12 @@
       "lg",
       "xl"
     ],
+    "iconSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -371,11 +377,24 @@
     ],
     "selectTrigger": [
       "field",
-      "row"
+      "row",
+      "pill"
     ],
     "inputVariant": [
       "field",
-      "row"
+      "row",
+      "bare",
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
+    ],
+    "textareaVariant": [
+      "field",
+      "row",
+      "code"
     ]
   },
   "defs": {
@@ -398,6 +417,12 @@
         },
         "description": {
           "type": "string"
+        },
+        "trailing": {
+          "type": "string"
+        },
+        "mono": {
+          "type": "boolean"
         },
         "image": {
           "type": "url"
@@ -1244,6 +1269,8 @@
     "Select.search": "search",
     "Select.check": "ui-check",
     "Select.chevron": "ui-chevron-right",
+    "Select.dropdown": "ui-chevron-down",
+    "Select.clear": "ui-clear",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -2009,7 +2036,7 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "iconSize",
           "default": "default"
         },
         "tone": {
@@ -2727,7 +2754,8 @@
       "props": {
         "content": {
           "type": "string",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "side": {
           "type": "enum",
@@ -3656,6 +3684,11 @@
           "enum": "inputVariant",
           "default": "field"
         },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default"
+        },
         "disabled": {
           "type": "boolean",
           "default": false
@@ -3711,6 +3744,11 @@
         "value": {
           "type": "string",
           "bindable": true
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "textareaVariant",
+          "default": "field"
         },
         "disabled": {
           "type": "boolean",
@@ -4083,10 +4121,18 @@
           "type": "string",
           "default": "$string.noResults"
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "default": "$string.search"
+        },
         "triggerVariant": {
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field"
+        },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false
         },
         "align": {
           "type": "enum",
@@ -4094,6 +4140,14 @@
         },
         "popupWidth": {
           "type": "number"
+        },
+        "popupMinWidth": {
+          "type": "number"
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         },
         "disabled": {
           "type": "boolean",
@@ -4114,7 +4168,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ]
     },
     "SearchList": {
@@ -4254,6 +4309,65 @@
         "start",
         "stop",
         "key"
+      ]
+    },
+    "IconPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "icons": {
+          "type": "array",
+          "items": {
+            "type": "icon"
+          }
+        },
+        "color": {
+          "type": "string"
+        },
+        "allowNone": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "ColorPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
       ]
     },
     "DatePicker": {

@@ -162,6 +162,12 @@ impl Surface {
         for (k, &i) in missing.iter().enumerate() {
             if let Some(a) = answers.get(k) {
                 self.memo.intrinsics.insert(i as u32, a.sanitised());
+                let n = &self.nodes[i];
+                if crate::measure::follows_width(&n.component, n.part.as_deref(), &n.props) {
+                    self.memo.width_dependent.insert(i as u32);
+                } else {
+                    self.memo.width_dependent.remove(&(i as u32));
+                }
                 self.memo_versions.insert(i as u32, self.node_state[i].content_version);
                 self.engine.mark_dirty(i as u32);
             }
@@ -589,7 +595,22 @@ impl Surface {
                 let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
-                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
+                let mut p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
+                // #EXP-1765: the aligned edge pushed out past the anchor's.
+                // The view's margin still bounds it (the inset never pushes a
+                // clamped popup past the edge).
+                if let (Some(inset), false) = (spec.inset, hosted) {
+                    match physical {
+                        OverlayAlign::Start => p.x -= inset as f64,
+                        OverlayAlign::End => p.x += inset as f64,
+                        OverlayAlign::Center => {}
+                    }
+                    let margin = spec.margin.map(f64::from).unwrap_or(0.0);
+                    let (lo, hi) = (view.x as f64 + margin, view.x as f64 + view.w as f64 - size.width - margin);
+                    if hi >= lo {
+                        p.x = p.x.clamp(lo, hi);
+                    }
+                }
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }

@@ -1194,8 +1194,11 @@ impl SurfaceView {
             }
         }
         let count = n.props.get("count").map(|v| display_text(Some(v))).filter(|s| !s.is_empty());
+        // #EXP-1765: a mono Select option's `trailing`, in the surface's sans type.
+        let trailing = n.props.get("trailing").map(|v| display_text(Some(v))).filter(|s| !s.is_empty());
         let mut shaper = Shaper::new(window, &self.fonts);
-        let count_w = count.as_ref().map(|c| shaper.line_width(c, &lcx.font, ts.font_size)).unwrap_or(0.0);
+        let trailing_font = gpui::Font { family: self.fonts.default.clone(), ..lcx.font.clone() };
+        let count_w = count.as_ref().map(|c| shaper.line_width(c, &lcx.font, ts.font_size)).or_else(|| trailing.as_ref().map(|t| shaper.line_width(t, &trailing_font, ts.font_size))).unwrap_or(0.0);
         let (lead, trail) = text_chrome(owner, part, &n.props, lcx.style.gap, count_w);
         let shown = text::transform(raw, lcx.style.text_transform.as_deref()).into_owned();
         // The lines break with the measurer's `letterSpacing`.
@@ -1263,6 +1266,10 @@ impl SurfaceView {
                 row = row.child(div().flex_none().child(chevron));
             }
             ("Select", Some("item")) => {
+                if let Some(t) = trailing {
+                    let muted = lcx.theme_color("mutedForeground").unwrap_or(lcx.ink);
+                    row = row.child(div().flex_none().font(trailing_font.clone()).text_color(muted).child(SharedString::from(t)));
+                }
                 let check = lcx.str("check");
                 let selected = NodeFlags::of(n).selected || lcx.bool("selected");
                 // #EXP-1629: the `check` part's recipe size and colour.

@@ -1,6 +1,8 @@
 package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.ColorSwatchGrid
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.TeamImage
 import com.exponential.app.domain.TeamZone
@@ -406,7 +408,7 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
                         minLines = 10,
                         bordered = false,
                         containerColor = Color.Transparent,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("team-agent-prompt")
@@ -828,7 +830,7 @@ private fun RepositoryRow(
             GlassPill(
                 repo.defaultBranch,
                 size = PillSize.Sm,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ExpMono,
                 maxLines = 1,
                 modifier = Modifier.widthIn(max = 140.dp),
                 trailing = if (canManage) ({
@@ -1233,7 +1235,7 @@ private fun InviteMemberForm(viewModel: TeamSettingsViewModel) {
         form.inviteUrl?.let { url ->
             Text(
                 url,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.testTag("invite-url-input"),
             )
@@ -1381,32 +1383,7 @@ private fun LabelEditorDialog(
                 placeholder = "Label name",
                 modifier = Modifier.fillMaxWidth(),
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LabelPalette.colors.forEach { swatch ->
-                    val selected = swatch.equals(color, ignoreCase = true)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .background(parseColor(swatch), CircleShape)
-                            .then(
-                                if (selected) {
-                                    Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                } else Modifier,
-                            )
-                            .clickable { color = swatch },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (selected) {
-                            Icon(
-                                ExpIcons.uiCheck,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
-            }
+            ColorSwatchGrid(selected = color, onSelect = { color = it })
         }
     }
 }
@@ -1422,7 +1399,7 @@ private fun RepoNameChip(repo: TeamRepo) {
         repo.fullName,
         size = PillSize.Sm,
         icon = ExpIcons.uiRepository,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ExpMono,
         maxLines = 1,
         modifier = Modifier.widthIn(max = 180.dp),
         trailing = {

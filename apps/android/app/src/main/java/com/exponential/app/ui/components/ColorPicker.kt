@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,11 +20,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.LabelPalette
@@ -65,46 +65,58 @@ fun ColorPicker(
     if (open) {
         GlassSheet(title = "Color", onDismiss = { open = false }) {
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ColorSwatchGrid(
+                    selected = selected,
+                    onSelect = {
+                        onSelect(it)
+                        open = false
+                    },
+                    colors = colors,
                     modifier = Modifier.padding(bottom = 12.dp),
-                ) {
-                    colors.forEach { swatch ->
-                        val picked = swatch.equals(selected, ignoreCase = true)
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(parseColor(swatch), CircleShape)
-                                .then(
-                                    if (picked) {
-                                        Modifier.border(
-                                            2.dp,
-                                            MaterialTheme.colorScheme.onSurface,
-                                            CircleShape,
-                                        )
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .clickable {
-                                    onSelect(swatch)
-                                    open = false
-                                }
-                                .semantics { contentDescription = swatch },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (picked) {
-                                Icon(
-                                    ExpIcons.uiCheck,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * #EXP-1774: the palette grid, web `ui/color-swatch-grid.tsx` cell for cell
+ * (iOS `ColorSwatchGrid`): a 28dp cell with a 2dp ring (foreground when
+ * picked, clear otherwise) around a 20dp dot, wrapping with a 6dp gap. The
+ * ring sits INSIDE the cell, never a halo past it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ColorSwatchGrid(
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    colors: List<String> = LabelPalette.colors,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier,
+    ) {
+        colors.forEach { swatch ->
+            val picked = swatch.equals(selected, ignoreCase = true)
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .border(
+                        2.dp,
+                        if (picked) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                        CircleShape,
+                    )
+                    .clickable { onSelect(swatch) }
+                    .semantics {
+                        contentDescription = swatch
+                        this.selected = picked
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(modifier = Modifier.size(20.dp).background(parseColor(swatch), CircleShape))
             }
         }
     }

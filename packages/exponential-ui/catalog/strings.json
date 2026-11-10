@@ -14,6 +14,7 @@
     "checkFailed": "Invalid value",
     "choose": "Choose",
     "clear": "Clear",
+    "clearSearch": "Clear search",
     "close": "Close",
     "closeTab": "Close {name}",
     "codeBlock": "Code",
@@ -114,6 +115,11 @@
     "total": "Total",
     "keyRecorderNone": "None",
     "keyRecorderPlaceholder": "Press any key or combination…",
-    "embedInvalid": "This card could not be shown"
+    "embedInvalid": "This card could not be shown",
+    "noIcon": "No icon",
+    "pickIcon": "Pick an icon",
+    "iconValue": "Icon: {name}",
+    "pickColor": "Pick a color",
+    "colorValue": "Color: {color}"
   }
 }

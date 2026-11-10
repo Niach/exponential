@@ -37,6 +37,15 @@
 pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
+// #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
+#[cfg(test)]
+pub(crate) mod branch_row_shots;
+// #EXP-1764: the bench's Account rows (IDE vs genUI `triggerIcon`).
+#[cfg(test)]
+pub(crate) mod account_row_shots;
+// #EXP-1765: the bench's repo branch pickers (IDE vs genUI `pill` Select).
+#[cfg(test)]
+pub(crate) mod branch_picker_shots;
 pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -74,12 +83,13 @@ pub(crate) mod voice_prefs;
 pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
-mod board_detail;
+pub(crate) mod board_detail;
+pub(crate) mod readiness;
 pub(crate) mod repositories;
 pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
-mod tools;
+pub(crate) mod tools;
 pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
@@ -770,8 +780,8 @@ impl SettingsView {
         let agent_detail =
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
-        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
-        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
+        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
+        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), window, cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
@@ -782,7 +792,7 @@ impl SettingsView {
         let sessions = cx.new(|cx| SessionsPane::new(window, cx));
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
         let notifications = cx.new(|cx| NotificationsPrefsPane::new(window, cx));
-        let voice = cx.new(VoicePrefsPane::new);
+        let voice = cx.new(|cx| VoicePrefsPane::new(window, cx));
         let api_keys = cx.new(|cx| ApiKeysPane::new(window, cx));
         let about = cx.new(|cx| AboutPane::new(window, cx));
 
@@ -2320,4 +2330,26 @@ mod tests {
         }
         assert!(!nav_lit(&SettingsSection::Prompts, &SettingsSection::Repositories));
     }
+}
+
+/// #EXP-1629: the field bench's (`settings_bench::field_variants`) read of
+/// [`doc::Ink`]: the group radius and fill, the rem, the muted glyph and the
+/// row hairline.
+#[cfg(test)]
+pub(crate) fn doc_ink(cx: &App) -> (f32, String, f32, String, String) {
+    let ink = doc::Ink::of(cx);
+    (ink.radius_lg, ink.fill_row.clone(), ink.rem, ink.muted.clone(), ink.stroke_row.clone())
+}
+
+/// #EXP-1629: [`doc::mount`] for the field bench.
+#[cfg(test)]
+pub(crate) fn doc_mount<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    doc::mount(id, tree, binding, window, cx)
+}
+
+/// #EXP-1629: [`doc::mount_with`] with the IDE plugin and window-level
+/// popups, for the Select bench.
+#[cfg(test)]
+pub(crate) fn doc_mount_lifted<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    doc::mount_with(id, tree, binding, std::rc::Rc::new(doc::ide_plugin()), true, window, cx)
 }

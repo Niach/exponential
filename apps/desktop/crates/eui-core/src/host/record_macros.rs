@@ -488,7 +488,8 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         let total = if narrows { json!({"@call": "len", "args": {"value": rows}}) } else { json!({"@call": "coalesce", "args": {"values": [{"@path": format!("{base}/rows/count")}, 0]}}) };
         node.insert("rows".into(), rows);
         node.insert("count".into(), json!({"@call": "pluralize", "args": {"value": total, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
-        node.insert("loading".into(), json!({"@call": "not", "args": {"value": {"@path": format!("{base}/rows")}}}));
+        // Presence, not `not`: A2UI 1.0 coerces an object to false (#EXP-1757).
+        node.insert("loading".into(), json!({"@call": "cond", "args": {"if": {"@path": format!("{base}/rows")}, "then": false, "else": true}}));
         if read_only {
             node.insert("add".into(), json!(false));
         }

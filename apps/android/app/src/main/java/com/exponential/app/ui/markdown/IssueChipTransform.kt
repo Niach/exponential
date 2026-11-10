@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
@@ -393,7 +394,7 @@ internal class ChipVisualTransformation(
             val span: SpanStyle? = when (a.kind) {
                 BlockKind.Heading -> MdStyle.heading(a.headingLevel).toSpanStyle()
                 BlockKind.CodeBlock -> SpanStyle(
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ExpMono,
                     fontSize = MdStyle.mono.fontSize,
                 )
                 BlockKind.Blockquote -> SpanStyle(color = MdStyle.Blockquote)
@@ -455,7 +456,7 @@ internal class ChipVisualTransformation(
                 chip.displayEnd,
             )
             builder.addStyle(
-                SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
+                SpanStyle(fontFamily = ExpMono, color = MdStyle.ChipToken),
                 chip.displayStart,
                 chip.displayTokenEnd,
             )

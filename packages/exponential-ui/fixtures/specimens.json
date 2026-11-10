@@ -3256,7 +3256,7 @@
                 "id": "specimen_icon_case_3_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · neutral",
+                  "text": "size · xl",
                   "variant": "caption"
                 }
               },
@@ -3265,8 +3265,7 @@
                 "component": "Icon",
                 "props": {
                   "name": "ui-check",
-                  "size": "default",
-                  "tone": "neutral"
+                  "size": "xl"
                 }
               }
             ]
@@ -3284,7 +3283,7 @@
                 "id": "specimen_icon_case_4_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · primary",
+                  "text": "tone · neutral",
                   "variant": "caption"
                 }
               },
@@ -3294,7 +3293,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "primary"
+                  "tone": "neutral"
                 }
               }
             ]
@@ -3312,7 +3311,7 @@
                 "id": "specimen_icon_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · success",
+                  "text": "tone · primary",
                   "variant": "caption"
                 }
               },
@@ -3322,7 +3321,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "success"
+                  "tone": "primary"
                 }
               }
             ]
@@ -3340,7 +3339,7 @@
                 "id": "specimen_icon_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · warning",
+                  "text": "tone · success",
                   "variant": "caption"
                 }
               },
@@ -3350,7 +3349,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "warning"
+                  "tone": "success"
                 }
               }
             ]
@@ -3368,7 +3367,7 @@
                 "id": "specimen_icon_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · danger",
+                  "text": "tone · warning",
                   "variant": "caption"
                 }
               },
@@ -3378,7 +3377,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "danger"
+                  "tone": "warning"
                 }
               }
             ]
@@ -10918,7 +10917,7 @@
                 "id": "specimen_input_case_3_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · text",
+                  "text": "variant · bare",
                   "variant": "caption"
                 }
               },
@@ -10928,8 +10927,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "text",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "bare"
                 }
               }
             ]
@@ -10947,7 +10947,7 @@
                 "id": "specimen_input_case_4_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · password",
+                  "text": "variant · code",
                   "variant": "caption"
                 }
               },
@@ -10957,8 +10957,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "password",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "code"
                 }
               }
             ]
@@ -10976,7 +10977,7 @@
                 "id": "specimen_input_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · number",
+                  "text": "variant · box",
                   "variant": "caption"
                 }
               },
@@ -10986,8 +10987,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "number",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "box"
                 }
               }
             ]
@@ -11005,7 +11007,7 @@
                 "id": "specimen_input_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · search",
+                  "text": "type · text",
                   "variant": "caption"
                 }
               },
@@ -11015,7 +11017,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "search",
+                  "type": "text",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11034,7 +11036,7 @@
                 "id": "specimen_input_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · url",
+                  "text": "type · password",
                   "variant": "caption"
                 }
               },
@@ -11044,7 +11046,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "url",
+                  "type": "password",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11123,6 +11125,176 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_input_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · bare, code (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_identity",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c10_agent",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "paddingHorizontal": "$spacing.lg",
+                      "paddingVertical": "$spacing.md"
+                    },
+                    "children": [
+                      {
+                        "id": "c10_agent_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "agent",
+                          "variant": "bare",
+                          "value": "Triage"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c10_skill",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.md",
+                      "paddingHorizontal": "$spacing.lg",
+                      "paddingVertical": "$spacing.md"
+                    },
+                    "children": [
+                      {
+                        "id": "c10_skill_icon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "book-open"
+                        }
+                      },
+                      {
+                        "id": "c10_skill_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "skill",
+                          "variant": "code",
+                          "placeholder": "skill-name"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_input_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · box, size sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_invite",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "id": "c11_invite_sm",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "id": "c11_invite_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "name",
+                          "variant": "box",
+                          "size": "sm",
+                          "placeholder": "Name"
+                        },
+                        "style": {
+                          "width": 176,
+                          "flexShrink": 0
+                        }
+                      },
+                      {
+                        "id": "c11_invite_email",
+                        "component": "Input",
+                        "props": {
+                          "label": "Email",
+                          "name": "email",
+                          "variant": "box",
+                          "size": "sm",
+                          "value": "ada@example.com"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c11_invite_md",
+                    "component": "Input",
+                    "props": {
+                      "label": "Email",
+                      "name": "email-md",
+                      "variant": "box",
+                      "placeholder": "teammate@example.com"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -11183,7 +11355,7 @@
                 "id": "specimen_textarea_case_1_label",
                 "component": "Text",
                 "props": {
-                  "text": "disabled · true",
+                  "text": "variant · field",
                   "variant": "caption"
                 }
               },
@@ -11194,8 +11366,142 @@
                   "label": "Notes",
                   "name": "notes",
                   "rows": 4,
+                  "variant": "field"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · row",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
+                  "variant": "row"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · code",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
+                  "variant": "code"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "disabled · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_textarea",
+                "component": "Textarea",
+                "props": {
+                  "label": "Notes",
+                  "name": "notes",
+                  "rows": 4,
                   "disabled": true
                 }
+              }
+            ]
+          },
+          {
+            "id": "specimen_textarea_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_textarea_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · row, code (in a Group)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_bodies",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c5_instructions",
+                    "component": "Textarea",
+                    "props": {
+                      "label": "Instructions",
+                      "name": "instructions",
+                      "variant": "row",
+                      "rows": 3,
+                      "value": "Triage new issues every morning.\nLabel them and ping the board's owner."
+                    }
+                  },
+                  {
+                    "id": "c5_body",
+                    "component": "Textarea",
+                    "props": {
+                      "label": "SKILL.md",
+                      "name": "body",
+                      "variant": "code",
+                      "rows": 4,
+                      "value": "---\nname: review\n---\nRun the checks, then summarise the diff."
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -12222,16 +12528,55 @@
                 "id": "specimen_select_case_2_label",
                 "component": "Text",
                 "props": {
+                  "text": "loading · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_select",
+                "component": "Select",
+                "props": {
+                  "label": "Board",
+                  "name": "board",
+                  "options": [
+                    {
+                      "label": "Backlog",
+                      "value": "backlog"
+                    },
+                    {
+                      "label": "Sprint",
+                      "value": "sprint"
+                    }
+                  ],
+                  "value": "sprint",
+                  "loading": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_3_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · row (in a Group)",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c2_prefs",
+                "id": "c3_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c2_timezone",
+                    "id": "c3_timezone",
                     "component": "Select",
                     "props": {
                       "label": "Timezone",
@@ -12260,7 +12605,7 @@
                     }
                   },
                   {
-                    "id": "c2_week",
+                    "id": "c3_week",
                     "component": "Select",
                     "props": {
                       "label": "Week starts on",
@@ -12278,13 +12623,35 @@
                         }
                       ]
                     }
+                  },
+                  {
+                    "id": "c3_apps",
+                    "component": "Select",
+                    "props": {
+                      "label": "Apps",
+                      "name": "apps",
+                      "triggerVariant": "row",
+                      "multiple": true,
+                      "searchable": true,
+                      "value": "zoom",
+                      "options": [
+                        {
+                          "label": "Slack",
+                          "value": "slack"
+                        },
+                        {
+                          "label": "Zoom",
+                          "value": "zoom"
+                        }
+                      ]
+                    }
                   }
                 ]
               }
             ]
           },
           {
-            "id": "specimen_select_case_3",
+            "id": "specimen_select_case_4",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12293,7 +12660,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_3_label",
+                "id": "specimen_select_case_4_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + description",
@@ -12301,11 +12668,11 @@
                 }
               },
               {
-                "id": "c3_voice_prefs",
+                "id": "c4_voice_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c3_language",
+                    "id": "c4_language",
                     "component": "Select",
                     "props": {
                       "label": "Language",
@@ -12321,6 +12688,261 @@
                         {
                           "label": "Deutsch",
                           "value": "de"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + option trailing",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_board_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c5_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Branch",
+                      "name": "branch",
+                      "triggerVariant": "row",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "trailing": "· default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop"
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_6_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + triggerIcon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_agent_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c6_account",
+                    "component": "Select",
+                    "props": {
+                      "label": "Account",
+                      "name": "account",
+                      "triggerVariant": "row",
+                      "triggerIcon": true,
+                      "value": "claude",
+                      "options": [
+                        {
+                          "label": "ada@example.com",
+                          "value": "claude",
+                          "icon": "brand-claude"
+                        },
+                        {
+                          "label": "ada@example.org",
+                          "value": "codex",
+                          "icon": "brand-codex"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_7_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · pill + mono options + loading",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7_repo_branches",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c7_repo_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch",
+                      "name": "repoBranch",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "mono": true,
+                          "trailing": "default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "c7_repo_branch_loading",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (loading)",
+                      "name": "repoBranchLoading",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "develop",
+                      "loading": true,
+                      "options": [
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "c7_repo_branch_busy",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (busy)",
+                      "name": "repoBranchBusy",
+                      "triggerVariant": "pill",
+                      "value": "release/2026-11",
+                      "disabled": true,
+                      "options": [
+                        {
+                          "label": "release/2026-11",
+                          "value": "release/2026-11",
+                          "mono": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_8",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_8_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + option icon, description",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c8_agent_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c8_device",
+                    "component": "Select",
+                    "props": {
+                      "label": "Device",
+                      "name": "device",
+                      "triggerVariant": "row",
+                      "popupMinWidth": 170,
+                      "value": "mint",
+                      "options": [
+                        {
+                          "label": "mint",
+                          "value": "mint",
+                          "icon": "monitor"
+                        },
+                        {
+                          "label": "build-server",
+                          "value": "build",
+                          "icon": "server"
+                        },
+                        {
+                          "label": "macbook",
+                          "value": "macbook",
+                          "icon": "laptop",
+                          "description": "Offline"
                         }
                       ]
                     }
@@ -12663,6 +13285,217 @@
                   "recording": true,
                   "error": "Hold Ctrl, Alt, Shift or Super with that key"
                 }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-icon-picker",
+      "component": "IconPicker",
+      "title": "IconPicker",
+      "node": {
+        "id": "specimen_icon_picker",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_icon_picker_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "value · color",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_icon",
+                "component": "IconPicker",
+                "props": {
+                  "value": "rocket",
+                  "color": "#3b82f6"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_icon_picker_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "empty",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_icon_none",
+                "component": "IconPicker",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "id": "specimen_icon_picker_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "open · the board set, allowNone",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_icon_open_box",
+                "component": "Box",
+                "style": {
+                  "height": 400
+                },
+                "children": [
+                  {
+                    "id": "c2_icon_open",
+                    "component": "IconPicker",
+                    "props": {
+                      "value": "rocket",
+                      "color": "#3b82f6",
+                      "allowNone": true,
+                      "open": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-color-picker",
+      "component": "ColorPicker",
+      "title": "ColorPicker",
+      "node": {
+        "id": "specimen_color_picker",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_color_picker_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "value",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_color",
+                "component": "ColorPicker",
+                "props": {
+                  "value": "#3b82f6"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "empty",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_color_none",
+                "component": "ColorPicker",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "open · the label palette",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_color_open_box",
+                "component": "Box",
+                "style": {
+                  "height": 160
+                },
+                "children": [
+                  {
+                    "id": "c2_color_open",
+                    "component": "ColorPicker",
+                    "props": {
+                      "value": "#3b82f6",
+                      "open": true
+                    }
+                  }
+                ]
               }
             ]
           }

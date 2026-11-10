@@ -382,7 +382,7 @@ private struct TeamGeneralPage: View {
                         get: { current },
                         set: { prompt = $0; schedulePromptSave() }
                     ), lines: 10...40, bordered: false, accessibilityIdentifier: "team-agent-prompt")
-                    .font(.footnote.monospaced())
+                    .font(.expMono(.footnote))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .focused($focused, equals: .prompt)

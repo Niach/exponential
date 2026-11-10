@@ -356,6 +356,16 @@ fn ms_or_zero(iso: Option<&str>) -> i64 {
     ms(iso).unwrap_or(0)
 }
 
+/// Messages oldest first (`created_at`, then `id`). #LOGS-7: each
+/// timestamp parsed once, not on every comparison (a 5,000-message chat
+/// parsed ~120k of them per sort).
+fn oldest_first(messages: &mut Vec<&MessageRow>) {
+    let mut keyed: Vec<(i64, &MessageRow)> = messages.iter().map(|message| (ms_or_zero(message.created_at.as_deref()), *message)).collect();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    messages.clear();
+    messages.extend(keyed.into_iter().map(|(_, message)| message));
+}
+
 /// JS `String(value ?? '')`.
 fn js_string(value: Option<&Value>) -> String {
     match value {
@@ -1669,11 +1679,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
         .copied()
         .filter(|message| message.session_id == root.id)
         .collect();
-    own.sort_by(|a, b| {
-        ms_or_zero(a.created_at.as_deref())
-            .cmp(&ms_or_zero(b.created_at.as_deref()))
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    oldest_first(&mut own);
     let title = title_of(&titles, &root.id).to_string();
     let focus = focus.and_then(|id| tree.iter().copied().find(|session| session.id == id));
     // EXP-1334: the conversation IS the dispatcher (no chip of its own); the
@@ -1763,11 +1769,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 matches!(card_str(card, "kind"), Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN))
             })
     }));
-    conversation.sort_by(|a, b| {
-        ms_or_zero(a.created_at.as_deref())
-            .cmp(&ms_or_zero(b.created_at.as_deref()))
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    oldest_first(&mut conversation);
     let mut rows: Vec<SessionChatRow> = Vec::new();
     let messages_by_id: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();

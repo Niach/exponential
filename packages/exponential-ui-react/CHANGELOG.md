@@ -5,8 +5,17 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` trigger with `triggerIcon` draws the chosen option's `icon` (the `valueIcon` part) before its value; `brand-claude` paints in its own orange (its node's fill).
+- `IconPicker` + `ColorPicker` (#EXP-1760): a pick (a cell, a swatch, the No icon row) closes the picker's Popover (`ClosePickerContext`), as the core does; `pickerPick` replays here.
+- Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765): the pill is the field trigger content-sized with no label part (the label = its `aria-label`, no description row) and the `Select.dropdown` glyph in the `chevron` part; its popup `selectRowPopupWidth` wide, `selectPillPopupOffset` under it and `selectPillPopupInset` outside its aligned edge (`selectPopupGeometry` `alignOffset`); opened by the pointer it shows no cursor until a key (the keyboard keeps it); `loading` fills the list with the Skeleton's `selectLoadingRows` rows (`<id>.skeleton`) instead of the options and `empty`; a `mono` option's item is `data-mono` (the mono type) with its `trailing` a muted sans `.xui-Select-trailing` run, `aria-hidden` (the option is named by its label); the value/placeholder parts carry the trigger's `disabled`; a pill search shows the `Select.clear` button ("Clear search", a 0.75 × `searchIcon` glyph centred in a 1.25 × box) only while it holds text, a press empties it and keeps focus; a `loading` Select still opens; `Select/empty` honours the recipe `textAlign` (the part is a block).
+- Select option `description` (#EXP-1629): an option's glyph sits in the `itemIcon` part (its recipe size), a described option draws `itemText` holding `itemLabel` and the muted `itemDescription`. `popupMinWidth` lets the popup fit its options (the core's layer minimum).
+- Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
+- Input `variant: "box"` + `size` (#EXP-1629): no label part, the field's `aria-label` is the label (as `bare` / `code`). Snapshots re-recorded (every Input gains `data-r-size="default"`).
+- Select option `trailing` + event `open` (#EXP-1629): the popup row reads `label trailing` (Radix's `ItemText` keeps the label alone), the trigger the label; `open` fires as the popup opens.
+- Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).
 - Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.
 - Composer `leading` / `trailing` slots and image paste (#EDE-65 R), React's: the slots sit in the controls row (`.xui-composer-leading` before the attach control, `.xui-composer-trailing` before send); a paste with image files fires `attach` {files} and calls `host.onUpload(images, {nodeId, name: <the Composer's id>})`, a paste with other files only is prevented, text pastes as before.
+- Select (#EXP-1629, the IDE's multi picker): a `row` trigger's value and chevron sit in the `button` part, which lends its pointer hover to them; a `multiple` popup opens with the cursor on its first chosen option. Snapshot `Select/triggerVariant=row` re-recorded (the `button` span).
 
 ## 0.21.0 (2026-11-09)
 

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -112,7 +113,7 @@ fun CodeBlock(
     val text = remember(shown, destructive) { annotate(shown, colored = !destructive) }
     val copyText = remember(shown) { shown.joinToString("\n") { line -> line.joinToString("") { it.text } } }
     val codeStyle = TextStyle(
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ExpMono,
         fontWeight = FontWeight.Normal,
         fontSize = spec.FONT_SIZE.sp,
         lineHeight = spec.LINE_HEIGHT.sp,

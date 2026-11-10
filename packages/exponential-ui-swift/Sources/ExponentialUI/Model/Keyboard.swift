@@ -200,6 +200,9 @@ extension SurfaceModel {
             break
         }
         guard let n = focused else { return false }
+        // #EXP-1765: the first key in a pointer-opened pill popup brings its
+        // cursor (↓ lands on the first enabled option).
+        if selectWakeCursor(n) && key == "down" { return true }
         if n.isTextField { return fieldKey(n.index, key: key, shift: shift) }
         // A Resizable handle (round 2 §1): the core moves it (arrows by
         // `resizeStep`, Home / End to the limits, Enter collapses).
@@ -422,6 +425,8 @@ extension SurfaceModel {
         // #EXP-1629: a searchable Select's field keeps the focus; ↑/↓ move
         // the cursor over the options (Enter picks it: `fieldCommitted`).
         if n.ownerComponent == "Select", n.part == "search", let ownerId = n.owner, key == "down" || key == "up" {
+            // #EXP-1765: a cursorless pill's first ↓ lands on the first option.
+            if selectWakeCursor(n) { return true }
             stepSelectCursor(ownerId, key == "down" ? 1 : -1)
             return true
         }
@@ -475,6 +480,7 @@ extension SurfaceModel {
     /// option stays `selected` only, the core's).
     func moveSelectCursor(_ owner: String, to index: Int?, reveal: Bool = false) {
         let id = index.flatMap { node($0)?.id }
+        if id != nil { selectCursorless.remove(owner) }
         let prev = selectCursor[owner]
         if prev != id {
             selectCursor[owner] = id
@@ -499,15 +505,52 @@ extension SurfaceModel {
     }
 
     /// A Select popup opened: a fresh pick (the IDE's picker), the cursor
-    /// on the FIRST enabled option; the core opens the list at its top.
+    /// on the FIRST enabled option (a `multiple` one's on its first chosen,
+    /// none while nothing is: the IDE's multi picker); the core opens the
+    /// list at its top.
+    /// #EXP-1765: a `pill` opened by the POINTER shows no cursor until the
+    /// pointer moves over an option or a key goes (`selectWakeCursor`); one
+    /// opened from the keyboard keeps it.
     func selectOpened(_ owner: String) {
-        let target = selectItems(owner).first { !isDisabled($0) }
         selectCursor[owner] = nil
-        moveSelectCursor(owner, to: target)
+        if selectOpensCursorless(owner) {
+            selectCursorless.insert(owner)
+            return
+        }
+        moveSelectCursor(owner, to: selectFirstTarget(owner))
+    }
+
+    /// The option a fresh cursor lands on: the first enabled one (a
+    /// `multiple` Select's first chosen).
+    func selectFirstTarget(_ owner: String) -> Int? {
+        let enabled = selectItems(owner).filter { !isDisabled($0) }
+        let multiple = byId[owner].flatMap { node($0) }?.props.flag("multiple") ?? false
+        return multiple ? enabled.first { node($0)?.selected == true } : enabled.first
+    }
+
+    /// #EXP-1765: does Select `owner`'s popup open without a cursor (a
+    /// `pill`, opened by the pointer)?
+    func selectOpensCursorless(_ owner: String) -> Bool {
+        !keyboardFocus && SelectTrigger.isPill(node(id: owner)?.props ?? [:])
+    }
+
+    /// #EXP-1765: a key went while `n` (a Select's trigger, search or
+    /// option) has focus: a cursorless pill popup gets its cursor. True
+    /// when it woke one.
+    func selectWakeCursor(_ n: NodeInfo) -> Bool {
+        guard let owner = n.triggerFor ?? n.owner, selectCursorless.remove(owner) != nil else { return false }
+        guard let target = selectFirstTarget(owner) else { return true }
+        moveSelectCursor(owner, to: target, reveal: true)
+        // Without a search field the keys go on from the option.
+        if !nodes.contains(where: { $0.owner == owner && $0.part == "search" && !$0.removed && !$0.hidden }), let id = node(target)?.id {
+            requestFocus(id, keyboard: true)
+        }
+        return true
     }
 
     /// A Select popup closed: its cursor goes.
     func selectClosed(_ owner: String) {
+        selectCursorless.remove(owner)
         guard let prev = selectCursor.removeValue(forKey: owner) else { return }
         setInteraction(prev) { $0.hover = false }
     }

@@ -210,6 +210,14 @@ extension SurfaceModel {
             hoverTrigger(id, target: target, hovered)
             return
         }
+        // #EXP-1629: a row Select's value button lends its `hover` to the
+        // value/placeholder/chevron inside it; theirs alone is never reported.
+        if let i = byId[id], nodes[i].ownerComponent == "Select" {
+            if ["value", "placeholder", "chevron"].contains(nodes[i].part ?? ""), let p = nodes[i].parent, nodes[p].part == "button" { return }
+            if nodes[i].part == "button" {
+                for c in nodes[i].children { setInteraction(nodes[c].id) { $0.hover = hovered } }
+            }
+        }
         setInteraction(id) { $0.hover = hovered }
     }
 
@@ -362,7 +370,8 @@ extension SurfaceModel {
             if node(id: top.owner)?.component == "Select" {
                 let field = candidates.first { i in node(i).map { $0.ownerComponent == "Select" && $0.part == "search" } ?? false }
                 let option = selectItems(top.owner).first { !isDisabled($0) }
-                target = (field ?? option).flatMap { node($0)?.id }
+                // #EXP-1765: a pointer-opened pill has no cursor to focus.
+                target = (field ?? (selectOpensCursorless(top.owner) ? nil : option)).flatMap { node($0)?.id }
             }
         } else if let o = closed.last {
             let inside = focusedId.flatMap { node(id: $0) }.map { $0.layer > 0 } ?? true

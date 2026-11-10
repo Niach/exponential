@@ -4,12 +4,14 @@
 //! options' states (only the chosen one is `selected` and checked), the
 //! list opening at the top and the bottom fade while options sit below.
 //! A row's `description` stacks under its label (the `labels` column) and
-//! the value + chevron move into the trailing `control` column.
+//! the value + chevron move into the trailing `control` column. An
+//! option's `trailing` reads on after its label in the popup row only, and
+//! `open` fires as the popup opens.
 
 use std::collections::HashMap;
 
 use eui_core::measure::FixedMeasure;
-use eui_core::surface::{LayoutOutput, PlacedFrame, Surface, SurfaceOptions};
+use eui_core::surface::{LayoutOutput, OutEvent, PlacedFrame, Surface, SurfaceOptions};
 use eui_core::types::NestedNode;
 use serde_json::{json, Value};
 
@@ -60,7 +62,11 @@ fn a_row_trigger_is_label_spacer_value_and_chevron() {
     assert_eq!(t.props["text"], json!("Sunday"), "the trigger keeps its accessible value");
     let trigger = s.index_of("sel.trigger").unwrap();
     let parts: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(trigger)).map(|n| n.id).collect();
-    assert_eq!(parts, ["sel.label", "sel.spacer", "sel.value", "sel.chevron"]);
+    assert_eq!(parts, ["sel.label", "sel.spacer", "sel.button"]);
+    // The IDE picker's ghost value button holds the value and the chevron.
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.value", "sel.chevron"]);
     assert_eq!(node(&mut s, "sel.label").props["text"], json!("Week starts on"));
     assert_eq!(node(&mut s, "sel.value").props["text"], json!("Sunday"));
     assert_eq!(node(&mut s, "sel.chevron").props["name"], json!("ui-chevron-right"), "Select.chevron");
@@ -98,7 +104,10 @@ fn a_row_description_stacks_under_the_label_and_wraps() {
     assert_eq!(column, ["sel.label", "sel.description"]);
     let control = s.index_of("sel.control").unwrap();
     let end: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(control)).map(|n| n.id).collect();
-    assert_eq!(end, ["sel.value", "sel.chevron"]);
+    assert_eq!(end, ["sel.button"]);
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.value", "sel.chevron"]);
     let (t, label, desc) = (frame(&s, &out, "sel.trigger"), frame(&s, &out, "sel.label"), frame(&s, &out, "sel.description"));
     assert!(desc.y >= label.y + label.h, "the hint sits under the label");
     assert!((t.h - (10.5 * 2.0 + label.h + 1.75 + desc.h)).abs() < 0.01, "the row grows past its minHeight: {}", t.h);
@@ -205,4 +214,123 @@ fn every_opening_starts_at_the_top_with_the_fade_below() {
     let mut s = surface(select(json!({"triggerVariant": "row"})));
     open(&mut s);
     assert!(s.index_of("sel.fade").is_none());
+}
+
+fn branch() -> Value {
+    json!({"id": "sel", "component": "Select", "props": {"label": "Branch", "name": "branch", "triggerVariant": "row", "searchable": true, "value": "main", "options": [{"label": "main", "value": "main", "trailing": "\u{00b7} default"}, {"label": "develop", "value": "develop"}]}, "on": {"open": {"event": {"name": "loadBranches"}}}})
+}
+
+fn opens(events: &[OutEvent]) -> usize {
+    events.iter().filter(|e| matches!(e, OutEvent::Action { name, event, .. } if name == "loadBranches" && event == "open")).count()
+}
+
+#[test]
+fn an_option_trailing_reads_on_after_its_label_in_the_popup_only() {
+    let mut s = surface(branch());
+    open(&mut s);
+    assert_eq!(node(&mut s, "sel.value").props["text"], json!("main"), "the trigger shows the label alone");
+    assert_eq!(node(&mut s, "sel.trigger").props["text"], json!("main"));
+    // The IDE branch picker's `format!("{name} \u{00b7} default")`, in the item's own style.
+    assert_eq!(node(&mut s, "sel.item.0").props["text"], json!("main \u{00b7} default"));
+    assert_eq!(node(&mut s, "sel.item.1").props["text"], json!("develop"));
+    // The search matches the label, never the trailing text.
+    let search = s.index_of("sel.search").unwrap();
+    s.event(search, "change", Some(json!({"value": "default"})));
+    s.layout(&mut fixed());
+    assert!(s.index_of("sel.item.0").is_none(), "`default` is no branch name");
+    s.event(search, "change", Some(json!({"value": "mai"})));
+    s.layout(&mut fixed());
+    assert_eq!(node(&mut s, "sel.item.0").props["text"], json!("main \u{00b7} default"));
+}
+
+#[test]
+fn open_fires_once_as_the_popup_opens() {
+    let mut s = surface(branch());
+    let mut m = fixed();
+    s.layout(&mut m);
+    let t = s.index_of("sel.trigger").unwrap();
+    assert_eq!(opens(&s.event(t, "press", None)), 1, "the press that opens it");
+    s.layout(&mut m);
+    // Re-opening through `change {open}` while open: nothing.
+    assert_eq!(opens(&s.event(t, "change", Some(json!({"open": true})))), 0);
+    assert_eq!(opens(&s.event(t, "press", None)), 0, "closing fires nothing");
+    s.layout(&mut m);
+    assert_eq!(opens(&s.set_open("sel", true)), 1, "a host's set_open opens it too");
+    assert_eq!(opens(&s.set_open("sel", false)), 0);
+    // A host's PLATFORM menu (Compose's native one) reports its opening.
+    s.layout(&mut m);
+    let t = s.index_of("sel.trigger").unwrap();
+    assert_eq!(opens(&s.event(t, "open", None)), 1);
+    // A Select without the handler, a Popover: no `open` action.
+    let mut plain = surface(select(json!({})));
+    plain.layout(&mut m);
+    let t = plain.index_of("sel.trigger").unwrap();
+    assert!(plain.event(t, "press", None).iter().all(|e| !matches!(e, OutEvent::Action { event, .. } if event == "open")));
+}
+
+/// #EXP-1764: `triggerIcon` = a row leads its value with the CHOSEN
+/// option's `icon` (the IDE Account row's agent mark), in the `button`
+/// before the value; off by default, and a field trigger never draws it.
+#[test]
+fn a_trigger_icon_row_leads_its_value_with_the_chosen_options_icon() {
+    let options = json!([{"label": "ada@example.com", "value": "claude", "icon": "brand-claude"}, {"label": "ada@example.org", "value": "codex", "icon": "brand-codex"}]);
+    let mut s = surface(select(json!({"triggerVariant": "row", "triggerIcon": true, "value": "claude", "options": options})));
+    let out = s.layout(&mut fixed());
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.valueIcon", "sel.value", "sel.chevron"]);
+    assert_eq!(node(&mut s, "sel.valueIcon").props["name"], json!("brand-claude"));
+    let icon = frame(&s, &out, "sel.valueIcon");
+    let value = frame(&s, &out, "sel.value");
+    assert!((icon.w - 14.0).abs() < 0.01 && (icon.h - 14.0).abs() < 0.01, "the recipe's 14 square (the IDE Medium trigger's icon): {icon:?}");
+    assert!((value.x - (icon.x + icon.w + 7.0)).abs() < 0.01, "the button's gap (7) before the value, as after it");
+    assert_eq!(eui_core::layout_tree::icon_fill("brand-claude"), Some("#D97757"), "Claude's own orange");
+    assert_eq!(eui_core::layout_tree::icon_fill("brand-codex"), None, "Codex rides the ink");
+
+    for extra in [json!({"triggerVariant": "row", "value": "claude", "options": options}), json!({"triggerIcon": true, "value": "claude", "options": options})] {
+        let mut s = surface(select(extra));
+        s.layout(&mut fixed());
+        assert!(s.index_of("sel.valueIcon").is_none(), "off by default; a field trigger never");
+    }
+}
+
+/// #EXP-1629: an option with a glyph or a `description` is a row of parts
+/// (the IDE picker row): `itemIcon`, the `itemText` column (`itemLabel` over
+/// `itemDescription`), the chosen one's `check`; plain options stay one leaf.
+#[test]
+fn an_option_with_a_glyph_or_a_description_is_a_row_of_parts() {
+    let mut s = surface(select(json!({"triggerVariant": "row", "value": "mint", "options": [
+        {"label": "mint", "value": "mint", "icon": "monitor"},
+        {"label": "macbook", "value": "macbook", "icon": "laptop", "description": "Offline"},
+        {"label": "plain", "value": "plain"},
+    ]})));
+    let out = open(&mut s);
+    let kids = |s: &mut Surface, id: &str| -> Vec<String> {
+        let i = s.index_of(id).unwrap();
+        s.nodes().into_iter().filter(|n| n.parent == Some(i)).map(|n| n.id).collect()
+    };
+    assert_eq!(kids(&mut s, "sel.item.0"), ["sel.itemIcon.0", "sel.itemText.0", "sel.check.0"]);
+    assert_eq!(kids(&mut s, "sel.itemText.0"), ["sel.itemLabel.0"]);
+    assert_eq!(kids(&mut s, "sel.item.1"), ["sel.itemIcon.1", "sel.itemText.1"]);
+    assert_eq!(kids(&mut s, "sel.itemText.1"), ["sel.itemLabel.1", "sel.itemDescription.1"]);
+    assert_eq!(node(&mut s, "sel.itemDescription.1").props["text"], json!("Offline"));
+    assert_eq!(node(&mut s, "sel.itemIcon.1").props["name"], json!("laptop"));
+    assert!(kids(&mut s, "sel.item.2").is_empty(), "a plain option stays the one-line item text");
+    // A described option grows past the row's minimum.
+    let (one, two) = (frame(&s, &out, "sel.item.0").h, frame(&s, &out, "sel.item.1").h);
+    assert!(two > one, "{two} > {one}");
+}
+
+/// #EXP-1629: `popupMinWidth` = content-fit, at least that wide (the IDE's
+/// non-searchable picker), instead of the row's fixed width.
+#[test]
+fn popup_min_width_fits_the_options_at_least_that_wide() {
+    let mut s = surface(select(json!({"triggerVariant": "row", "popupMinWidth": 170})));
+    let out = open(&mut s);
+    let w = frame(&s, &out, "sel.content").w;
+    assert!(w >= 170.0 && w < 262.0, "short options: the minimum, {w}");
+    let long = "a very long option label that is wider than the minimum popup";
+    let mut s = surface(select(json!({"triggerVariant": "row", "popupMinWidth": 170, "options": [{"label": long, "value": "l"}]})));
+    let out = open(&mut s);
+    assert!(frame(&s, &out, "sel.content").w > 262.0, "long options: the content");
 }

@@ -56,6 +56,7 @@
 //! the screen's own chrome is the desktop's answer to that.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -211,6 +212,11 @@ fn conversation_card_fingerprint(row: Option<&domain::session_tree::SessionChatR
     hasher.finish()
 }
 
+/// #LOGS-10: a head card's row key in the Chat tab's document.
+fn head_card_key(id: &str) -> String {
+    format!("card-{id}")
+}
+
 /// EXP-850 §3: an orphan card row's content identity — its ROW id is an
 /// index (the cards are keyed positionally at the tail), so the workflow it
 /// actually shows rides the fingerprint instead.
@@ -227,6 +233,9 @@ fn orphan_fingerprint(workflow_id: &str) -> u64 {
 /// list's own bookkeeping) is over the window and not over the run. The
 /// contract's `steerFeed.window` — web, iOS and Android render the same.
 const FEED_WINDOW: usize = domain::contract::STEER_FEED_WINDOW;
+
+/// #LOGS-7: a session's conversation cards and (a root's) tree suggestions.
+type ConvMemo = (Rc<Vec<domain::session_tree::SessionChatRow>>, Option<Rc<Vec<domain::session_tree::SessionChatRow>>>);
 
 /// How much older transcript one "scrolled to the top" extension pulls in.
 const FEED_WINDOW_STEP: usize = domain::contract::STEER_FEED_WINDOW_STEP;
@@ -652,6 +661,9 @@ pub(crate) struct SteerSessionView {
     /// web's `renderToolCards(unanchored, 'head')` (`conv_unanchored`, see
     /// [`Self::conv_head`] / [`Self::conv_tail`]).
     conv_cards: Vec<domain::session_tree::SessionChatRow>,
+    /// #LOGS-10: each conversation card's fingerprint, derived when the
+    /// cards change (never per frame).
+    conv_prints: Vec<u64>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
     conv_unanchored: Vec<usize>,
     /// #EXP-1732: a ROOT's view (its chat's Chat tab) also paints the tree's
@@ -660,6 +672,9 @@ pub(crate) struct SteerSessionView {
     /// tail (`conv_trailing`: indices into `conv_cards`).
     tree_suggestions: Vec<domain::session_tree::SessionChatRow>,
     conv_trailing: Vec<usize>,
+    /// #LOGS-7: the memoised cards and suggestions `conv_cards` /
+    /// `tree_suggestions` were last taken from.
+    conv_memo: Option<ConvMemo>,
     /// #EXP-1545: the Live child whose Queue THE Dock shows (its view, its
     /// name), set by the chat ([`Self::set_queue_from`]).
     queue_from: Option<(Entity<SteerSessionView>, String)>,
@@ -927,10 +942,12 @@ impl SteerSessionView {
             row_layout_at: HashMap::new(),
             transcript_origin: None,
             conv_cards: Vec::new(),
+            conv_prints: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
             tree_suggestions: Vec::new(),
             conv_trailing: Vec::new(),
+            conv_memo: None,
             queue_from: None,
             dock: cx.new(|_| crate::dock::DockState::default()),
             replies: None,
@@ -1730,14 +1747,10 @@ impl SteerSessionView {
                 fingerprint,
                 self.row_layout(ix).map_or(0, crate::session_chat::layout_fingerprint),
             );
-            // The head cards ride the first row's measure.
+            // #LOGS-10: the head cards are rows of their own above the
+            // first; the first row's gap moves with them.
             let fingerprint = match ix {
-                0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(
-                    fingerprint,
-                    self.conv_head().iter().fold(0u64, |acc, &card| {
-                        acc.rotate_left(7) ^ conversation_card_fingerprint(self.conv_cards.get(card))
-                    }),
-                ),
+                0 if !self.conv_head().is_empty() => transcript_rows::fold_extra(fingerprint, 1),
                 _ => fingerprint,
             };
             keys.push(RowKey { id, fingerprint });
@@ -1778,7 +1791,7 @@ impl SteerSessionView {
             let Some(row_id) = synthetic_row_id(self.orphan_workflows.len() + ix) else { break };
             let at = self.rows.len() + self.orphan_workflows.len() + ix;
             let gap = f32::from(self.row_gap(at));
-            let fingerprint = transcript_rows::fold_gap(conversation_card_fingerprint(self.conv_cards.get(card)), gap);
+            let fingerprint = transcript_rows::fold_gap(self.conv_prints.get(card).copied().unwrap_or_default(), gap);
             keys.push(RowKey { id: row_id, fingerprint });
         }
         if self.working {
@@ -1835,6 +1848,14 @@ impl SteerSessionView {
             let mut rows = Vec::with_capacity(self.row_keys.len());
             let mut host_rows = HashMap::new();
             let mut senders = HashMap::new();
+            // #LOGS-10: the head cards, each a row of the document's window
+            // (never all of them inside the first row).
+            for &card in self.conv_head() {
+                let Some(row) = self.conv_cards.get(card) else { continue };
+                let key = head_card_key(row.id());
+                host_rows.insert(host_id(&key), HostRow::Card { index: card, fingerprint: self.conv_prints.get(card).copied().unwrap_or_default() });
+                rows.push(uicore_model::chat::ChatRowInput::Host { id: key });
+            }
             for (ix, key) in self.row_keys.iter().enumerate() {
                 let spec = self.rows.get(ix);
                 let content = match spec {
@@ -2230,6 +2251,12 @@ impl SteerSessionView {
     /// One drained batch, then ONE [`Self::refresh_derived`]: it walks the
     /// whole feed, so a per-event call makes a replay quadratic.
     /// Tests: feed `events` as if the stream delivered them.
+    /// #LOGS-7: the composer's field (the long-chat bench types into it).
+    #[cfg(test)]
+    pub(crate) fn composer_for_test(&self) -> Entity<TextareaState> {
+        self.input.clone()
+    }
+
     #[cfg(test)]
     pub(crate) fn apply_events_for_test(&mut self, events: Vec<ViewerEvent>, cx: &mut gpui::Context<Self>) {
         self.apply_events(events, cx);
@@ -3281,28 +3308,39 @@ impl SteerSessionView {
     fn refresh_conversation_cards(&mut self, main: bool, cx: &mut gpui::Context<Self>) {
         if !main {
             self.conv_cards.clear();
+            self.conv_prints.clear();
             self.conv_anchors.clear();
             self.conv_unanchored.clear();
             self.tree_suggestions.clear();
             self.conv_trailing.clear();
+            self.conv_memo = None;
             return;
         }
         // EXP-1398 (ask-dock.json `sessionCardsCases`): THE card set ×4.
-        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-        let by_id: HashMap<&str, &domain::rows::MessageRow> =
-            messages.iter().map(|message| (message.id.as_str(), message)).collect();
-        self.conv_cards = domain::ask_dock::session_cards(&messages)
-            .iter()
-            .filter_map(|card| {
-                let message = by_id.get(card.id.as_str())?;
-                if card.kind == domain::ask_dock::SessionCardKind::Surface {
-                    domain::session_tree::surface_card_row(message)
-                } else {
-                    domain::session_tree::ask_card_row(message)
+        // #LOGS-7: the cards and the tree's suggestions are derived once per
+        // store change (`session_data`'s memos), never per frame; a frame
+        // whose inputs did not move keeps what the last one derived.
+        let cards = crate::session_data::conversation_cards(&self.session_id, cx);
+        let suggestions = self
+            .tree_scope
+            .then(|| crate::session_data::tree_suggestions(&self.session_id, crate::session_data::now_ms(), cx));
+        let same = self.conv_memo.as_ref().is_some_and(|(at, tree)| {
+            Rc::ptr_eq(at, &cards)
+                && match (tree, &suggestions) {
+                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                    (None, None) => true,
+                    _ => false,
                 }
-            })
-            .collect();
-        crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
+        });
+        if same {
+            // Last frame's trailing suggestions come off again below.
+            self.conv_cards.truncate(cards.len());
+        } else {
+            self.conv_cards = cards.to_vec();
+            crate::surface_card::sync_rows(cx.entity_id(), &self.conv_cards, cx);
+            self.tree_suggestions = suggestions.as_deref().cloned().unwrap_or_default();
+            self.conv_memo = Some((cards, suggestions));
+        }
         // The calls the window shows (a card whose call is above it sits at
         // the head).
         let shown: HashSet<FeedItemId> = self
@@ -3328,18 +3366,6 @@ impl SteerSessionView {
         // #EXP-1732: a ROOT's view = its chat's Chat tab: the tree's
         // suggested tasks too (dock.json: an open item docks; a settled
         // card stays inline, at the tail).
-        self.tree_suggestions = if self.tree_scope {
-            crate::session_data::chat_view_and_messages(&self.session_id, None, crate::session_data::now_ms(), false, cx)
-                .map(|(view, _)| {
-                    view.rows
-                        .into_iter()
-                        .filter(|row| matches!(row, domain::session_tree::SessionChatRow::Suggestions { .. }))
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
         let docked = crate::session_chat::docked_ids(&self.tree_suggestions);
         self.conv_trailing.clear();
         for row in &self.tree_suggestions {
@@ -3347,6 +3373,9 @@ impl SteerSessionView {
                 self.conv_trailing.push(self.conv_cards.len());
                 self.conv_cards.push(row.clone());
             }
+        }
+        if !same || self.conv_prints.len() != self.conv_cards.len() {
+            self.conv_prints = self.conv_cards.iter().map(|row| conversation_card_fingerprint(Some(row))).collect();
         }
     }
 
@@ -3541,7 +3570,7 @@ impl SteerSessionView {
             // Session 58cb32df: the conversation cards after this call.
             if let Some(cards) = self.conv_anchors.get(&item.id) {
                 for &card in cards {
-                    conversation_card_fingerprint(self.conv_cards.get(card)).hash(&mut hasher);
+                    self.conv_prints.get(card).hash(&mut hasher);
                 }
             }
             if let Some(workflow) = self.workflow_of(item) {
@@ -5379,7 +5408,9 @@ impl SteerSessionView {
     /// (a host row): EXP-787's ladder gap above the row's content; the
     /// document's row is the reading column (EXP-927's [`work_column_row`]).
     pub(crate) fn chat_host_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let gap = self.row_gap(ix);
+        // #LOGS-10: under the head cards, the first row keeps the gap it
+        // had below them inside its own row.
+        let gap = if ix == 0 && !self.conv_head().is_empty() { px(transcript::GAP_BLOCK) } else { self.row_gap(ix) };
         let element = self.render_list_row(ix, window, cx);
         // Tests find the row the document painted by its row key.
         let key = self.row_keys.get(ix).map(|key| crate::chat_tab_transcript::row_key(key.id)).unwrap_or_default();
@@ -5390,6 +5421,14 @@ impl SteerSessionView {
             .debug_selector(move || format!("chat-host-row.{key}"))
             .child(element)
             .into_any_element()
+    }
+
+    /// #LOGS-10: head card `index` as the Chat tab's document paints it, a
+    /// row of its own above the first list row (the first of them flush,
+    /// the rest a block gap apart, as they stacked inside that row).
+    pub(crate) fn chat_card_row(&mut self, index: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let gap = if self.conv_head().first() == Some(&index) { px(0.) } else { px(transcript::GAP_BLOCK) };
+        div().w_full().min_w_0().pt(gap).child(self.render_conversation_cards(&[index], window, cx)).into_any_element()
     }
 
     /// EXP-783 (#EDE-65 lane O: the document's paging row painted): the
@@ -5452,17 +5491,15 @@ impl SteerSessionView {
             .flatten()
             .copied()
             .collect();
-        // …and the first row carries the unanchored ones above it (web's
-        // `head`: their calls are above the loaded window).
-        let head: Vec<usize> = if ix == 0 { self.conv_head().to_vec() } else { Vec::new() };
-        let element = if anchored.is_empty() && head.is_empty() {
+        // (#LOGS-10: the unanchored ones above the first row are rows of
+        // their own, [`Self::chat_card_row`].)
+        let element = if anchored.is_empty() {
             element
         } else {
             v_flex()
                 .w_full()
                 .min_w_0()
                 .gap(px(transcript::GAP_BLOCK))
-                .when(!head.is_empty(), |column| column.child(self.render_conversation_cards(&head, window, cx)))
                 .child(element)
                 .when(!anchored.is_empty(), |column| column.child(self.render_conversation_cards(&anchored, window, cx)))
                 .into_any_element()

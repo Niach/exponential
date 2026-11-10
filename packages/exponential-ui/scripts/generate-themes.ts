@@ -106,6 +106,18 @@ export function composeExponential(): ThemeSource {
   // `border` (#e5e5e5 → neutral-300), as the dark pair steps 10% → 12%.
   dark.borderStrong = hex(design.glass.strokeStrong)
   light.borderStrong = `#d4d4d4`
+  // #EXP-1629: a ghost button's hover (the picker row's value button) is
+  // gpui-component's ghost hover: the accent at half in dark (the glass
+  // active fill's alpha halved), the light accent (neutral-100) in light.
+  const active = hex(design.glass.fillActive)
+  dark.ghostHover = `${active.slice(0, 7)}${Math.round(parseInt(active.slice(7, 9) || `ff`, 16) / 2).toString(16).padStart(2, `0`)}` as `#${string}`
+  light.ghostHover = `#f5f5f5`
+  // A focused box field's stroke (web's FIELD_CHROME_CLASS
+  // `focus-visible:border-glass-stroke-active`, the IDE's `glass_input`
+  // `chrome.stroke_active`): the glass active stroke in dark; light has no
+  // glass ramp, so it takes the light focus colour (`ring`, neutral-400).
+  dark.strokeActive = hex(design.glass.strokeActive)
+  light.strokeActive = light.ring!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -118,7 +130,7 @@ export function composeExponential(): ThemeSource {
   dark.successForeground = `#052e16`
   light.destructiveForeground ??= `#ffffff`
   dark.destructiveForeground ??= light.foreground
-  const shadow = (a: string) => ({
+  const shadow = (a: string, ring: `#${string}`) => ({
     none: [],
     sm: [{ x: 0, y: 1, blur: 2, spread: 0, color: hex(`rgb(0 0 0 / ${a})`) }],
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
@@ -129,9 +141,21 @@ export function composeExponential(): ThemeSource {
       { x: 0, y: 10, blur: 15, spread: -3, color: `#0000001a` as const },
       { x: 0, y: 4, blur: 6, spread: -4, color: `#0000001a` as const },
     ],
+    // #EXP-1760: gpui-component's popover surface (`popover_style`, the IDE's
+    // icon and colour pickers): the foreground at 10 % as a 1 px ring outside
+    // the box, then shadcn's `md` at 10 %.
+    popoverRing: [
+      { x: 0, y: 0, blur: 0, spread: 1, color: ring },
+      { x: 0, y: 4, blur: 6, spread: -1, color: `#0000001a` as const },
+      { x: 0, y: 2, blur: 4, spread: -2, color: `#0000001a` as const },
+    ],
   })
   const s = design.size
-  const mono = `ui-monospace`
+  // #EXP-1629: the IDE's mono face (`theme::terminal::FONT_FAMILY`, bundled
+  // in apps/desktop/assets/fonts). Only the desktop ships it; every other
+  // renderer falls back to its system monospace (web: the stack below;
+  // gpui, Swift, Compose: their `looksMono` rule).
+  const mono = `JetBrains Mono`
   // VAPP-162: the platform's system serif (web `ui-serif, Georgia, serif`).
   const serif = `ui-serif`
   return {
@@ -140,8 +164,8 @@ export function composeExponential(): ThemeSource {
     name: `Exponential`,
     extends: `neutral`,
     modes: {
-      light: { color: light, shadow: shadow(`0.08`) },
-      dark: { color: dark, shadow: shadow(`0.4`) },
+      light: { color: light, shadow: shadow(`0.08`, `${hex(light.foreground!).slice(0, 7)}1a` as `#${string}`) },
+      dark: { color: dark, shadow: shadow(`0.4`, `${hex(dark.foreground!).slice(0, 7)}1a` as `#${string}`) },
     },
     tokens: {
       spacing: { none: 0, ...numbers(design.spacing), xl3: 48 },
@@ -160,7 +184,7 @@ export function composeExponential(): ThemeSource {
         toggle: s.controlMd, switch: 20, checkbox: 16, slider: 16,
         progress: 8, meter: 8,
         avatarSm: 24, avatarMd: 32, avatarLg: 40, avatarXl: 48,
-        iconSm: 16, iconMd: 20, iconLg: 24,
+        iconSm: 16, iconMd: 20, iconLg: 24, iconXl: 28,
         hairline: 1,
         appBar: 48, tabBar: 56, toast: 56,
       },
@@ -175,7 +199,7 @@ export function composeExponential(): ThemeSource {
     },
     fonts: {
       [design.type.fontFamily]: { fallback: `ui-sans-serif, system-ui, sans-serif`, weights: [400, 500, 600, 700], source: `host` },
-      [mono]: { fallback: `SFMono-Regular, Menlo, Consolas, monospace`, source: `system` },
+      [mono]: { fallback: `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`, source: `host` },
       [serif]: { fallback: `Georgia, serif`, source: `system` },
     },
     recipes: exponentialRecipes.recipes as unknown as ThemeSource[`recipes`],
@@ -220,6 +244,9 @@ export function themeSchema(): Record<string, unknown> {
     padding: numOrToken([`spacing`]),
     paddingHorizontal: numOrToken([`spacing`]),
     paddingVertical: numOrToken([`spacing`]),
+    paddingTop: numOrToken([`spacing`]),
+    paddingBottom: numOrToken([`spacing`]),
+    textAlign: { enum: styleKeyEnum(`textAlign`) },
     gap: numOrToken([`spacing`]),
     marginTop: numOrToken([`spacing`]),
     marginBottom: numOrToken([`spacing`]),

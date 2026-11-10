@@ -120,7 +120,7 @@ struct IssueRelationBand<Rows: View>: View {
                     }
                 } trailing: {
                     Text("\(count)")
-                        .font(.caption.monospaced())
+                        .font(.expMono(.caption))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .contentShape(Rectangle())

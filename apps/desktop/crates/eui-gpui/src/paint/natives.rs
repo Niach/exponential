@@ -597,11 +597,13 @@ pub fn icon(cx: &LeafCx, app: &gpui::App) -> AnyElement {
     // 100%}`): the FileUpload dropzone icon is `$control.iconLg`.
     let fills = matches!((cx.node.owner_component.as_deref(), cx.node.part.as_deref()), (Some("FileUpload"), Some("icon")));
     let size = if fills { w.min(h).max(1.0) } else { (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0) };
-    if let Some(own) = cx.host.icon_element(name, size, cx.ink, app) {
+    // #EXP-1764: a mark with its own colour (`brand-claude`) never takes the ink.
+    let ink = eui_core::layout_tree::icon_fill(name).and_then(|hex| color_of(Some(hex))).unwrap_or(cx.ink);
+    if let Some(own) = cx.host.icon_element(name, size, ink, app) {
         return cx.content().flex().items_center().justify_center().child(own).into_any_element();
     }
     let rotate = cx.style.transform.rotate;
-    let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
+    let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
 }
 
@@ -1473,15 +1475,19 @@ pub fn trigger_content(cx: &LeafCx, label: &str, is_placeholder: bool, icon: &st
 /// `placeholder`) and the `chevron`, sized, faded and spaced by their
 /// recipes; a `row` trigger leads with its `label` and ends the value.
 pub fn select_trigger(cx: &LeafCx, text: &str, is_placeholder: bool, icon: &str) -> AnyElement {
-    let row = cx.owner_props.get("triggerVariant").and_then(Value::as_str) == Some("row");
-    let value = cx.part("Select", "value", &[]);
-    let ph = cx.part("Select", "placeholder", &[]);
+    let variant = cx.owner_props.get("triggerVariant").and_then(Value::as_str);
+    let row = variant == Some("row");
+    // #EXP-1765: the trigger's `disabled` reaches its value (a pill's ink dims).
+    let states: Vec<String> = cx.states.iter().filter(|s| s.as_str() == "disabled").cloned().collect();
+    let value = cx.part("Select", "value", &states);
+    let ph = cx.part("Select", "placeholder", &states);
     let color = if is_placeholder { ph.color.or_else(|| cx.theme_color("mutedForeground")).unwrap_or(cx.ink.opacity(0.6)) } else { value.color.unwrap_or(cx.ink) };
     let fade = if is_placeholder { ph.opacity } else { value.opacity };
     let chevron = cx.part_props("Select", "chevron", &[]);
     let size = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0) * cx.scale;
     // The field's glyph keeps its 0.6 when no recipe fades it.
-    let glyph_fade = chevron.get("opacity").and_then(Value::as_f64).map(|o| o as f32).unwrap_or(if row { 1.0 } else { 0.6 });
+    let glyph_fade = chevron.get("opacity").and_then(Value::as_f64).map(|o| o as f32).unwrap_or(if variant.is_some_and(|v| v != "field") { 1.0 } else { 0.6 });
+    let glyph_ink = cx.part("Select", "chevron", &[]).color.unwrap_or(cx.ink);
     let icon = if icon.is_empty() { "ui-chevron-down" } else { icon };
     let gap = if cx.style.gap > 0.0 { cx.style.gap } else { spacing(cx.theme, "sm") * cx.scale };
     let shown = crate::text::transform(text, cx.style.text_transform.as_deref()).into_owned();
@@ -1502,7 +1508,7 @@ pub fn select_trigger(cx: &LeafCx, text: &str, is_placeholder: bool, icon: &str)
             out = out.child(div().flex_none().whitespace_nowrap().font(font).text_size(px(size_px)).line_height(px(lh)).text_color(ls.color.unwrap_or(cx.ink)).when_some(ls.opacity, |d, o| d.opacity(o)).child(SharedString::from(label.to_string())));
         }
     }
-    out.child(text_el).child(div().flex_none().opacity(glyph_fade).child(icons::concept(cx.host, icon, size, cx.ink))).into_any_element()
+    out.child(text_el).child(div().flex_none().opacity(glyph_fade).child(icons::concept(cx.host, icon, size, glyph_ink))).into_any_element()
 }
 
 /// Slider geometry along the track: `(fill_x, fill_w, thumb_x)` (the fill

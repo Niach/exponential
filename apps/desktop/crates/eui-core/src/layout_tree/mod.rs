@@ -81,6 +81,10 @@ pub struct LNode {
     pub own_query: Option<RecipeQuery>,
     /// The macro or native PART recipe (Badge/label, Tabs/tab).
     pub part_query: Option<RecipeQuery>,
+    /// #EXP-1760: a native part of a MACRO ROOT (an IconPicker's Popover
+    /// content) also answers to `<Macro>/<part>`, layered over the native's
+    /// part recipe.
+    pub macro_query: Option<RecipeQuery>,
     /// VAPP-163: the `base_style` keys the author wrote ON the macro node
     /// (`recipe.authored`): they win over the part recipe.
     pub authored_keys: Vec<String>,
@@ -115,6 +119,75 @@ pub struct LNode {
 pub struct SourceRef {
     pub id: String,
     pub template: Option<String>,
+}
+
+/// #LOGS-9: template item instances kept between builds
+/// ([`LocalState::items`]). Per template container, the items of the
+/// current build and of the one before (a build takes an item from either;
+/// what neither took is dropped), so it holds about one window per List.
+/// [`Self::clear`] whenever the surface's templates are replaced.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ItemInstances {
+    build: u64,
+    by_container: HashMap<String, ContainerItems>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ContainerItems {
+    build: u64,
+    current: HashMap<String, std::sync::Arc<ItemInstance>>,
+    previous: HashMap<String, std::sync::Arc<ItemInstance>>,
+}
+
+/// One instanced item: the template it came from (by address, valid until
+/// the templates are replaced), the instance, and the sources it recorded.
+#[derive(Debug)]
+pub(crate) struct ItemInstance {
+    template: usize,
+    node: UiNode,
+    sources: HashMap<String, SourceRef>,
+}
+
+impl ItemInstances {
+    /// The templates were replaced: no instance is valid any more.
+    pub(crate) fn clear(&mut self) {
+        self.by_container.clear();
+    }
+
+    /// A build starts. Containers no build took items from for a while (a
+    /// nested list's rows scrolled away) let go of theirs.
+    fn next_build(&mut self) {
+        self.build += 1;
+        if self.by_container.len() > 64 {
+            let build = self.build;
+            self.by_container.retain(|_, items| build - items.build <= 64);
+        }
+    }
+
+    fn take(&mut self, container: &str, suffix: &str, template: usize) -> Option<std::sync::Arc<ItemInstance>> {
+        let build = self.build;
+        let items = self.by_container.get_mut(container)?;
+        if items.build != build {
+            items.previous = std::mem::take(&mut items.current);
+            items.build = build;
+        }
+        let item = items.current.get(suffix).cloned().or_else(|| items.previous.remove(suffix))?;
+        if item.template != template {
+            return None;
+        }
+        items.current.insert(suffix.to_string(), item.clone());
+        Some(item)
+    }
+
+    fn keep(&mut self, container: &str, suffix: &str, item: std::sync::Arc<ItemInstance>) {
+        let build = self.build;
+        let items = self.by_container.entry(container.to_string()).or_default();
+        if items.build != build {
+            items.previous = std::mem::take(&mut items.current);
+            items.build = build;
+        }
+        items.current.insert(suffix.to_string(), item);
+    }
 }
 
 /// How an overlay layer is placed.
@@ -164,6 +237,10 @@ pub struct LayerSpec {
     /// #EXP-1629: how close to the view's edges it may go when not the
     /// overlay default (`selectRowPopupMargin`).
     pub margin: Option<f32>,
+    /// #EXP-1765: how far the popup's aligned edge sits OUTSIDE its anchor's
+    /// (a `pill` Select's border box starts a hairline before the pill:
+    /// `selectPillPopupInset`, the IDE popover's ring outside its content).
+    pub inset: Option<f32>,
     /// The side is LOGICAL (a submenu opens at the inline end): right in
     /// LTR, left in RTL.
     pub mirror: bool,
@@ -334,6 +411,10 @@ pub struct LocalState {
     /// valid while the data model's version holds: a scroll step over a
     /// 100,000-item list never re-keys it.
     pub key_cache: HashMap<String, (u64, std::sync::Arc<Vec<String>>)>,
+    /// #LOGS-9: the template items the last builds instanced, per template
+    /// container: a re-windowed List takes its staying rows' instances
+    /// back and instances only the rows entering its window.
+    pub(crate) items: ItemInstances,
     /// #EXP-1629: the open Selects whose list has options below its
     /// visible end (the last pass's; its bottom `fade` shows).
     pub select_fade: std::collections::HashSet<String>,
@@ -350,8 +431,9 @@ pub struct BuildContext<'a> {
     pub recipes: &'a RecipeIndex,
     pub data: &'a Value,
     pub local: &'a mut LocalState,
-    /// Reduce a template component by id into a normalized subtree.
-    pub template: &'a dyn Fn(&str) -> Option<UiNode>,
+    /// A template component by id, reduced into a normalized subtree
+    /// (borrowed: an item instantiates it without copying it first).
+    pub template: &'a dyn Fn(&str) -> Option<&'a UiNode>,
     pub viewport_height: f32,
     /// Round 2: the viewport width (horizontal windows).
     pub viewport_width: f32,
@@ -449,6 +531,10 @@ pub(crate) struct Builder<'a, 'b> {
     pub(crate) forms: HashMap<String, (bool, bool)>,
     /// Instance id → its source (filled by [`Builder::instance`]).
     pub(crate) sources: HashMap<String, SourceRef>,
+    /// #LOGS-9: the kept template items this build took, whose sources
+    /// count as [`Self::sources`] ([`Builder::source_of`]) without being
+    /// copied into it.
+    pub(crate) item_sources: Vec<std::sync::Arc<ItemInstance>>,
     /// Template item suffixes per array (and key) for this build.
     pub(crate) suffixes: HashMap<String, std::sync::Arc<Vec<String>>>,
     /// The flex gap of each windowed container (its spacers subtract it).
@@ -502,8 +588,22 @@ pub(crate) fn obj(v: Value) -> Props {
 }
 
 fn with_suffix(node: &UiNode, suffix: &str, template: Option<&str>, sources: &mut HashMap<String, SourceRef>) -> UiNode {
-    let mut out = node.clone();
-    out.id = format!("{}{suffix}", node.id);
+    // #LOGS-7: the node alone (its children and slots are instanced below),
+    // never a deep copy of its subtree at every depth.
+    let mut out = UiNode {
+        id: format!("{}{suffix}", node.id),
+        component: node.component.clone(),
+        props: node.props.clone(),
+        style: node.style.clone(),
+        visible: node.visible.clone(),
+        on: node.on.clone(),
+        accessibility: node.accessibility.clone(),
+        children: Vec::new(),
+        slots: None,
+        template: node.template.clone(),
+        recipe: node.recipe.clone(),
+        metadata: node.metadata.clone(),
+    };
     // An id that is already an instance keeps ITS source (a Table slot
     // inside a template row); an original id is its own source.
     let source = sources.get(&node.id).cloned().unwrap_or_else(|| SourceRef { id: node.id.clone(), template: template.map(str::to_string) });
@@ -593,7 +693,51 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// `template` = the template component the original ids belong to
     /// (`None` = the surface's tree).
     pub(crate) fn instance(&mut self, node: &UiNode, suffix: &str, template: Option<&str>) -> UiNode {
+        self.own_item_sources();
         with_suffix(node, suffix, template, &mut self.sources)
+    }
+
+    /// An instance's source ([`Self::sources`], then the kept items').
+    fn source_of(&self, id: &str) -> Option<&SourceRef> {
+        self.sources.get(id).or_else(|| self.item_sources.iter().rev().find_map(|item| item.sources.get(id)))
+    }
+
+    /// The kept items' sources copied into [`Self::sources`] (an instance
+    /// made from the tree reads and writes it directly).
+    fn own_item_sources(&mut self) {
+        for item in std::mem::take(&mut self.item_sources) {
+            self.sources.extend(item.sources.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+    }
+
+    /// #LOGS-9: template item `suffix` of `container` ([`Self::instance`]),
+    /// taken from the last builds when it was instanced from this template.
+    /// Only while none of the template's ids has a source of its own in this
+    /// build (then its instance and its sources come out the same).
+    fn item_instance(&mut self, container: &str, tpl: &UiNode, suffix: &str, component: &str) -> std::sync::Arc<ItemInstance> {
+        let template = tpl as *const UiNode as usize;
+        if self.ids_unsourced(tpl) {
+            let item = match self.ctx.local.items.take(container, suffix, template) {
+                Some(item) => item,
+                None => {
+                    let mut sources = HashMap::new();
+                    let node = with_suffix(tpl, suffix, Some(component), &mut sources);
+                    let item = std::sync::Arc::new(ItemInstance { template, node, sources });
+                    self.ctx.local.items.keep(container, suffix, item.clone());
+                    item
+                }
+            };
+            self.item_sources.push(item.clone());
+            return item;
+        }
+        let node = self.instance(tpl, suffix, Some(component));
+        std::sync::Arc::new(ItemInstance { template, node, sources: HashMap::new() })
+    }
+
+    /// No node of `tpl` has a source of its own in this build (its
+    /// instances then record the template's ids as their sources).
+    fn ids_unsourced(&self, tpl: &UiNode) -> bool {
+        self.source_of(&tpl.id).is_none() && tpl.children.iter().all(|c| self.ids_unsourced(c)) && tpl.slots.iter().flat_map(|s| s.values()).all(|c| self.ids_unsourced(c))
     }
 
     pub(crate) fn push(&mut self, mut node: LNode) -> u32 {
@@ -632,6 +776,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            macro_query: None,
             authored_keys: Vec::new(),
             hidden,
             lines: None,
@@ -661,6 +806,9 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.props = obj(props);
         let query_props = self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled));
         n.part_query = Some(RecipeQuery::new(owner.component.clone(), part, query_props, Vec::new()));
+        // #EXP-1760: the owner is a macro's root (its own part query names
+        // the macro): the macro styles this native part too.
+        n.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), Vec::new()));
         if let Some(l) = n.props.get("lines").and_then(Value::as_u64) {
             n.lines = Some(l as u32);
         }
@@ -693,7 +841,8 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// Add a state to a node's part query (`selected`, `open`, `checked`…).
     pub(crate) fn add_state(&mut self, index: u32, state: &str) {
-        if let Some(q) = &mut self.nodes[index as usize].part_query {
+        let n = &mut self.nodes[index as usize];
+        for q in [&mut n.part_query, &mut n.macro_query].into_iter().flatten() {
             if !q.states.iter().any(|s| s == state) {
                 q.states.push(state.to_string());
             }
@@ -856,7 +1005,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.lines = props.get("lines").and_then(Value::as_u64).map(|l| l as u32);
         n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold"))) || (matches!(node.component.as_str(), "Box" | "Button" | "Link") && str_prop(&props, "href").is_some_and(|href| !href.is_empty()))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
         n.on = node.on.clone();
-        n.source = self.sources.get(&node.id).cloned();
+        n.source = self.source_of(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));
         // Round 9 §5.1: `accessibility.live` wins over `Text.live`.
         let live = n.accessibility.as_ref().and_then(|a| a.get("live")).and_then(Value::as_str).or(str_prop(&props, "live"));
@@ -1063,7 +1212,7 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// `ops` item): a template inside it ACCUMULATES it (round 2,
     /// `issue.title.ops.1`), so nested items never collide.
     pub(crate) fn enclosing_suffix(&self, node: &UiNode) -> String {
-        match self.sources.get(&node.id) {
+        match self.source_of(&node.id) {
             Some(src) if node.id.len() > src.id.len() && node.id.starts_with(src.id.as_str()) => node.id[src.id.len()..].to_string(),
             _ => String::new(),
         }
@@ -1083,12 +1232,12 @@ impl<'a, 'b> Builder<'a, 'b> {
                 let suffixes = self.item_suffixes(t, &base);
                 let enclosing = self.enclosing_suffix(node);
                 for i in 0..count {
-                    if !self.take_template_item(&t.component, &tpl) {
+                    if !self.take_template_item(&t.component, tpl) {
                         break;
                     }
                     let item_scope = format!("{base}/{i}");
                     let suffix = format!("{enclosing}{}", suffixes[i]);
-                    let item = self.instance(&tpl, &suffix, Some(&t.component));
+                    let item = self.instance(tpl, &suffix, Some(&t.component));
                     out.extend(self.add(&item, Some(parent), layer, &item_scope, hidden));
                 }
             }
@@ -1169,13 +1318,13 @@ impl<'a, 'b> Builder<'a, 'b> {
             return None;
         }
         let tpl = (self.ctx.template)(&t.component)?;
-        if !self.take_template_item(&t.component, &tpl) {
+        if !self.take_template_item(&t.component, tpl) {
             return None;
         }
         let item_scope = format!("{base}/{idx}");
         let suffix = format!("{}{}", self.enclosing_suffix(node), self.item_suffixes(t, &base).get(idx).cloned().unwrap_or_else(|| format!(".{idx}")));
-        let item = self.instance(&tpl, &suffix, Some(&t.component));
-        self.add(&item, Some(parent), layer, &item_scope, hidden)
+        let item = self.item_instance(&node.id, tpl, &suffix, &t.component);
+        self.add(&item.node, Some(parent), layer, &item_scope, hidden)
     }
 
     /// A responsive native prop at the active breakpoint (`Drawer.side`).
@@ -1204,6 +1353,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         root.form = owner.form.clone();
         root.base_style = obj(style);
         root.part_query = Some(RecipeQuery::new(owner.component.clone(), part, self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled)), vec!["open".into()]));
+        root.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), vec!["open".into()]));
         let index = self.push(root);
         (layer, index)
     }
@@ -1237,7 +1387,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
-        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, mirror: false });
+        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, inset: None, mirror: false });
     }
 }
 
@@ -1258,10 +1408,18 @@ pub fn builtin_icon(slot: &str) -> Option<&'static str> {
     crate::generated::catalog::BUILTIN_ICON_NAMES.get(g).copied()
 }
 
+/// #EXP-1764: an icon's OWN colour (`#RRGGBB`, icons.json `imported[].fill`:
+/// `brand-claude` = Anthropic's orange), painted instead of the ink.
+pub fn icon_fill(name: &str) -> Option<&'static str> {
+    let i = crate::generated::catalog::ICON_FILL_NAMES.iter().position(|n| *n == name)?;
+    crate::generated::catalog::ICON_FILL_COLORS.get(i).copied()
+}
+
 /// Build the layout tree for a normalized root. `Unknown` nodes become
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
-    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
+    ctx.local.items.next_build();
+    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
     if b.add(root, None, 0, "", false).is_none() {
         // An invisible root: an empty surface (one hidden Box).
         let mut n = b.blank(&root.id, "Box", None, 0, NodeKind::Container, "");
@@ -1287,7 +1445,8 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     stub.parent = None;
     stub.children.clear();
     let layer = stub.layer;
-    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
+    ctx.local.items.next_build();
+    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), item_sources: Vec::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new(), anchor_links: Vec::new() };
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
     let anchors = b.link_anchors();

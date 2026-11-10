@@ -1945,7 +1945,10 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = a Group row: label, value."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "description": "sm = compact."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -1987,6 +1990,9 @@
         },
         "value": {
           "description": "Text; bind it to a data path."
+        },
+        "variant": {
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2279,14 +2285,26 @@
         "emptyText": {
           "description": "Shown on no match."
         },
+        "searchPlaceholder": {
+          "description": "Hint in the filter field."
+        },
         "triggerVariant": {
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
+        },
+        "triggerIcon": {
+          "description": "`row`: the chosen option's `icon` before the value."
         },
         "align": {
           "description": "Popup alignment (`row`: `end`)."
         },
         "popupWidth": {
           "description": "Px (`row`: 260)."
+        },
+        "popupMinWidth": {
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        "loading": {
+          "description": "Options still loading: skeleton rows in the popup."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2422,6 +2440,59 @@
         "value": [
           "Ctrl",
           "Space"
+        ]
+      }
+    },
+    "IconPicker": {
+      "props": {
+        "value": {
+          "description": "Picked icon name."
+        },
+        "icons": {
+          "description": "Offered icons; default the board set."
+        },
+        "color": {
+          "description": "Hex tint of the pick."
+        },
+        "allowNone": {
+          "description": "Adds a No icon row."
+        },
+        "open": {
+          "description": "Grid shows; bind it."
+        }
+      },
+      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "example": {
+        "value": "rocket",
+        "color": "#3b82f6",
+        "icons": [
+          "code",
+          "rocket",
+          "star",
+          "zap"
+        ]
+      }
+    },
+    "ColorPicker": {
+      "props": {
+        "value": {
+          "description": "Picked hex colour."
+        },
+        "colors": {
+          "description": "Offered hexes; default the label palette."
+        },
+        "open": {
+          "description": "Grid shows; bind it."
+        }
+      },
+      "description": "Colour field: a swatch opens the palette grid.",
+      "example": {
+        "value": "#3b82f6",
+        "colors": [
+          "#ef4444",
+          "#22c55e",
+          "#3b82f6",
+          "#a855f7"
         ]
       }
     },
@@ -3449,6 +3520,12 @@
         },
         "description": {
           "description": "Second line."
+        },
+        "trailing": {
+          "description": "Text after the label (Select popup)."
+        },
+        "mono": {
+          "description": "Label in the mono type (Select popup)."
         },
         "image": {
           "description": "Tile picture."

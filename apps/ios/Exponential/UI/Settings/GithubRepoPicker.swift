@@ -281,7 +281,7 @@ struct GithubRepoPicker: View {
                 } trailing: {
                     EmptyView()
                 }
-                .font(.subheadline.monospaced())
+                .font(.expMono(.subheadline))
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .accessibilityLabel(GithubCopy.lookupAccessibility)

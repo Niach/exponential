@@ -119,6 +119,12 @@
       "lg",
       "xl"
     ],
+    "iconSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -373,11 +379,24 @@
     ],
     "selectTrigger": [
       "field",
-      "row"
+      "row",
+      "pill"
     ],
     "inputVariant": [
       "field",
-      "row"
+      "row",
+      "bare",
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
+    ],
+    "textareaVariant": [
+      "field",
+      "row",
+      "code"
     ]
   },
   "defs": {
@@ -406,6 +425,14 @@
         "description": {
           "type": "string",
           "description": "Second line."
+        },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
+        },
+        "mono": {
+          "type": "boolean",
+          "description": "Label in the mono type (Select popup)."
         },
         "image": {
           "type": "url",
@@ -1391,6 +1418,8 @@
     "Select.search": "search",
     "Select.check": "ui-check",
     "Select.chevron": "ui-chevron-right",
+    "Select.dropdown": "ui-chevron-down",
+    "Select.clear": "ui-clear",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -2403,7 +2432,7 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "iconSize",
           "default": "default",
           "description": "Glyph size."
         },
@@ -3439,6 +3468,7 @@
         "content": {
           "type": "string",
           "required": true,
+          "bindable": true,
           "description": "Hint text."
         },
         "side": {
@@ -4731,7 +4761,13 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = a Group row: label, value."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default",
+          "description": "sm = compact."
         },
         "disabled": {
           "type": "boolean",
@@ -4805,6 +4841,12 @@
           "type": "string",
           "bindable": true,
           "description": "Text; bind it to a data path."
+        },
+        "variant": {
+          "type": "enum",
+          "enum": "textareaVariant",
+          "default": "field",
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
         },
         "disabled": {
           "type": "boolean",
@@ -5312,11 +5354,21 @@
           "default": "$string.noResults",
           "description": "Shown on no match."
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "default": "$string.search",
+          "description": "Hint in the filter field."
+        },
         "triggerVariant": {
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
+        },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
         },
         "align": {
           "type": "enum",
@@ -5326,6 +5378,16 @@
         "popupWidth": {
           "type": "number",
           "description": "Px (`row`: 260)."
+        },
+        "popupMinWidth": {
+          "type": "number",
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Options still loading: skeleton rows in the popup."
         },
         "disabled": {
           "type": "boolean",
@@ -5349,7 +5411,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "example": {
         "label": "Board",
@@ -5559,6 +5622,94 @@
         "value": [
           "Ctrl",
           "Space"
+        ]
+      }
+    },
+    "IconPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "Picked icon name."
+        },
+        "icons": {
+          "type": "array",
+          "items": {
+            "type": "icon"
+          },
+          "description": "Offered icons; default the board set."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex tint of the pick."
+        },
+        "allowNone": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adds a No icon row."
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Grid shows; bind it."
+        }
+      },
+      "events": [
+        "change"
+      ],
+      "example": {
+        "value": "rocket",
+        "color": "#3b82f6",
+        "icons": [
+          "code",
+          "rocket",
+          "star",
+          "zap"
+        ]
+      }
+    },
+    "ColorPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "description": "Colour field: a swatch opens the palette grid.",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "Picked hex colour."
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Offered hexes; default the label palette."
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Grid shows; bind it."
+        }
+      },
+      "events": [
+        "change"
+      ],
+      "example": {
+        "value": "#3b82f6",
+        "colors": [
+          "#ef4444",
+          "#22c55e",
+          "#3b82f6",
+          "#a855f7"
         ]
       }
     },

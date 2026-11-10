@@ -312,7 +312,7 @@ impl LaunchOptions {
 /// env goes through the SAME mapping, so the two can never drift.
 pub fn claude_model_arg(model: &str) -> Option<String> {
     let trimmed = model.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| crate::agent::claude_cli_model(trimmed))
 }
 
 /// `system_append` = [`crate::skill::system_append`]'s text (EXP-1025: the
@@ -578,7 +578,8 @@ mod tests {
             claude,
             vec![
                 "--model".to_string(),
-                "fable".to_string(),
+                // Fable is always 5.2 at the CLI.
+                "claude-fable-5-2".to_string(),
                 "--mcp-config".to_string(),
                 ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),

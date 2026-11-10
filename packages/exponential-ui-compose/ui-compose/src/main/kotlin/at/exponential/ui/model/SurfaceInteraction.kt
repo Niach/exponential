@@ -383,6 +383,9 @@ fun SurfaceModel.press(index: Int) {
     // other pickers) the core opens the owner's popup layer.
     if (n.isPickerTrigger && nativePicker(n)) {
         popup = if (popup == n.id) null else n.id
+        // #EXP-1629: the platform menu opens outside the core's layers; a
+        // Select's `open` still fires through it.
+        if (popup == n.id && (owner.component == "Select" || n.ownerComponent == "Select")) fire(index, "open")
         return
     }
     val target = n.triggerFor
@@ -478,11 +481,17 @@ fun SurfaceModel.hover(id: String, hovered: Boolean) {
         if (hovered && !isDisabled(n.index)) n.owner?.let { setSelectCursor(it, id) }
         return
     }
+    // #EXP-1629: a row Select's value button lends its `hover` to the value/placeholder/chevron inside it; theirs alone is never reported.
+    if (n != null && n.ownerComponent == "Select") {
+        if (n.part in setOf("value", "placeholder", "chevron") && n.parent?.let { node(it) }?.part == "button") return
+        if (n.part == "button") for (c in n.children) node(c)?.let { child -> setInteraction(child.id) { it.copy(hover = hovered) } }
+    }
     setInteraction(id) { it.copy(hover = hovered) }
 }
 
 /** #EXP-1629: move Select [owner]'s popup cursor to item [id] (null = none): the old item loses `hover`, the new one gets it. */
 fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
+    if (id != null) selectCursorless.remove(owner)
     val prev = selectCursors[owner]
     if (prev == id) return
     if (id == null) selectCursors.remove(owner) else selectCursors[owner] = id
@@ -493,25 +502,56 @@ fun SurfaceModel.setSelectCursor(owner: String, id: String?) {
 /**
  * #EXP-1629: an open Select popup (the core's layer, its list at the top)
  * puts its cursor on the FIRST enabled option (a fresh pick, the IDE's
- * picker) and focuses its search field (else, opened from the keyboard,
+ * picker; a `multiple` one's on its first chosen, the IDE's multi picker) and focuses its search field (else, opened from the keyboard,
  * that option); a cursor whose option went (a search) starts over. A
  * closed popup drops its cursor.
  */
 private fun SurfaceModel.syncSelectCursors() {
     val open = layers.filter { it.kind == "Select" }.map { it.owner }.toSet()
     for (o in selectCursors.keys - open) setSelectCursor(o, null)
+    selectCursorless.retainAll(open)
     for (o in open) {
         val cur = selectCursors[o]
         if (cur != null && indexOf(cur) != null) continue
-        val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
-        val target = items.firstOrNull { !isDisabled(it.index) } ?: continue
+        if (o in selectCursorless) continue
         val opening = cur == null
+        // #EXP-1765: a `pill` opened by the POINTER shows no cursor until
+        // the pointer moves over an option or a key goes ([selectWakeCursor]).
+        if (opening && !keyboardDriven && indexOf(o)?.let { node(it) }?.props?.str("triggerVariant") == "pill") {
+            selectCursorless += o
+            nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }?.let { focusRequest = it.id }
+            continue
+        }
+        val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
+        val multiple = opening && indexOf(o)?.let { node(it) }?.props?.flag("multiple") == true
+        val target = (if (multiple) items.firstOrNull { !isDisabled(it.index) && it.selected } else items.firstOrNull { !isDisabled(it.index) }) ?: continue
         setSelectCursor(o, target.id)
         if (!opening) continue
         val search = nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }
         if (search != null) focusRequest = search.id
-        else if (keyboardFocus?.let { interaction[it]?.focusVisible } == true) focusRequest = target.id
+        else if (keyboardDriven) focusRequest = target.id
     }
+}
+
+/** Is the keyboard driving (the focused node shows its focus ring: a Tab / arrow focus, not a tap)? */
+internal val SurfaceModel.keyboardDriven: Boolean get() = keyboardFocus?.let { interaction[it]?.focusVisible } == true
+
+/**
+ * #EXP-1765: a key went while [n] (a Select's trigger, search or option)
+ * has focus: a cursorless pill popup gets its cursor (the first enabled
+ * option; a `multiple` one's first chosen). True when it woke one.
+ */
+fun SurfaceModel.selectWakeCursor(n: NodeInfo): Boolean {
+    // The trigger names its Select through `triggerFor`; the search and the options through their owner.
+    val o = n.triggerFor ?: n.owner ?: return false
+    if (!selectCursorless.remove(o)) return false
+    val items = nodes.filter { it.owner == o && it.ownerComponent == "Select" && it.part == "item" && !it.hidden }
+    val multiple = indexOf(o)?.let { node(it) }?.props?.flag("multiple") == true
+    val target = (if (multiple) items.firstOrNull { !isDisabled(it.index) && it.selected } else null) ?: items.firstOrNull { !isDisabled(it.index) } ?: return true
+    setSelectCursor(o, target.id)
+    // Without a search field the keys go on from the option.
+    if (nodes.none { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }) focusRequest = target.id
+    return true
 }
 
 /**

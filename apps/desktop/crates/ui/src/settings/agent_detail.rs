@@ -1088,7 +1088,7 @@ impl AgentDetailPane {
         )]);
         let voice = self
             .voice
-            .get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::new(cx).assistant_block()))
+            .get_or_insert_with(|| cx.new(|cx| super::voice_prefs::VoicePrefsPane::assistant(window, cx)))
             .clone();
         let mut body = section(cx)
             .gap_4()

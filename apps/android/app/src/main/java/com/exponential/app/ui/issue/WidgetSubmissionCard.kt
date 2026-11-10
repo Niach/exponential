@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -127,7 +128,7 @@ fun WidgetSubmissionCard(
                         Text(
                             customDataJson,
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ExpMono,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             modifier = Modifier
                                 .weight(1f)

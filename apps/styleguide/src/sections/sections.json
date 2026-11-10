@@ -59,6 +59,8 @@
         "settings-row",
         "kbd-group",
         "key-recorder",
+        "genui-icon-picker",
+        "genui-color-picker",
         "embed"
       ]
     },
@@ -164,6 +166,8 @@
     "settings-row": "VAPP-280",
     "kbd-group": "EXP-1629",
     "key-recorder": "EXP-1629",
+    "genui-icon-picker": "EXP-1760",
+    "genui-color-picker": "EXP-1760",
     "embed": "EDE-65",
     "mosaic": "EXP-1495",
     "window": "VAPP-290",

@@ -13,8 +13,8 @@
 //!   status pill while the chat's PR is open, an agent's telephone, THE gear
 //!   (agents and the Assistant: the agent's settings page in the pane) and
 //!   the `…`.
-//! * UNDER IT, THE Segmented ([`screen_tabs`], the app editor's): Chat ·
-//!   Issues · Sessions · Results, each with its muted count.
+//! * ON THE TITLE ROW (#EXP-1762), THE Segmented ([`screen_tabs`], the app
+//!   editor's): Chat · Issues · Sessions · Results, each with its muted count.
 //! * THE BODY (the IDE is WIDE: the beside rule, [`screen_beside`]): the
 //!   Chat tab alone = the chat full width; any other tab, or an opened item,
 //!   = the chat pane (5fr, min 360px) beside the tab pane (7fr), a hairline
@@ -2547,8 +2547,9 @@ pub(crate) struct ScreenHeader {
 }
 
 /// THE session screen header: the Back (a link opened it), the avatar, the
-/// title over its subtitle, the trailing slot, the gear, the `…`; THE
-/// Segmented under the row; the hairline spans the content card.
+/// title over its subtitle, THE Segmented (#EXP-1762: ON the title row,
+/// web `session-screen-frame.tsx`), the trailing slot, the gear, the `…`;
+/// the hairline spans the content card.
 pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
     let gear = header.gear.map(|(on_press, open)| gear_button(on_press, open, cx));
     let theme = cx.theme();
@@ -2568,8 +2569,8 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
             v_flex()
                 .w_full()
                 .px(px(HEADER_INSET))
-                .pt_6()
-                .pb_3()
+                // #EXP-1762: ONE header line (web `py-3`).
+                .py_3()
                 .gap_3()
                 .children(header.back)
                 .child(
@@ -2580,11 +2581,11 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         .items_center()
                         .child(div().flex_shrink_0().child(header.avatar))
                         .child(v_flex().flex_1().min_w_0().child(header.title).children(subtitle))
+                        .child(div().flex_shrink_0().child(header.tabs))
                         .children(header.trailing)
                         .children(gear)
                         .children(header.menu),
-                )
-                .child(header.tabs),
+                ),
         )
         .child(div().w_full().h(px(1.)).bg(theme.border))
         .into_any_element()
@@ -3062,14 +3063,13 @@ pub(crate) fn chat_not_found(ready: bool, has_root: bool, open_for: Duration) ->
 #[derive(Clone)]
 struct ChatModel {
     root: SessionRow,
-    view: SessionChatView,
+    view: Rc<SessionChatView>,
     /// #EXP-1732: every issue of the tree (each session's links, in tree
     /// order, every issue once), by id, and their order.
     issues: HashMap<String, Issue>,
     issue_order: Vec<String>,
     /// The ROOT's own links (the Unlink menu, the NEW ring).
     links: Vec<SessionIssueRow>,
-    messages: HashMap<String, MessageRow>,
     pulls: Vec<PullRequestRow>,
     /// #EXP-1732: the whole tree (the root first): the Sessions tab.
     tree: Vec<SessionRow>,
@@ -3087,10 +3087,9 @@ impl ChatModel {
     }
 }
 
-fn chat_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ChatModel> {
-    // #EXP-1380: the view and the root's messages off ONE scan.
-    let (view, own) =
-        crate::session_data::chat_view_and_messages(root_id, focus, crate::session_data::now_ms(), false, cx)?;
+fn chat_model(root_id: &str, cx: &App) -> Option<ChatModel> {
+    // #LOGS-7: THE root view, shared with the transcript's suggested tasks.
+    let view = crate::session_data::root_chat_view(root_id, crate::session_data::now_ms(), cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
     let collections = store.collections();
@@ -3118,14 +3117,12 @@ fn chat_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ChatModel>
             }
         }
     }
-    let messages = own.into_iter().map(|message| (message.id.clone(), message)).collect();
     Some(ChatModel {
         root,
         view,
         issues,
         issue_order,
         links,
-        messages,
         pulls: crate::session_data::pull_requests_of_root(root_id, cx),
         tree,
     })
@@ -3426,7 +3423,7 @@ impl SessionChatScreenView {
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let model = chat_model(&self.root_id, None, cx);
+        let model = chat_model(&self.root_id, cx);
         // The pane's session: its own origin (the tree's view focused on it).
         self.focus_origin = self.focus.as_ref().and_then(|(id, _)| {
             crate::session_data::chat_view_and_messages(&self.root_id, Some(id), crate::session_data::now_ms(), false, cx)
@@ -4368,6 +4365,10 @@ impl Render for SessionChatScreenView {
 }
 
 #[cfg(test)]
+#[path = "long_chat_bench.rs"]
+mod long_chat_bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -4833,6 +4834,68 @@ mod tests {
         }
         let misfits = cx.update(|_, cx| inner.read(cx).chat_transcript().misfits());
         assert!(misfits.is_empty(), "the new row painted at an unmeasured height: {misfits:?}");
+    }
+
+    /// #LOGS-10: the conversation cards whose calls sit above the loaded
+    /// rows (the head) are rows of the document's window, one each: only the
+    /// ones near the viewport lay out, never all of them inside the first
+    /// row; once settled, each lays out at its measured height (a card's
+    /// surface builds a frame after it first shows, as an anchored one's).
+    #[gpui::test]
+    fn head_cards_are_windowed_rows_above_the_first(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        const CARDS: usize = 120;
+        seed_agent_chat("Hey", cx);
+        cx.update(|cx| {
+            let collections = Store::global(cx).collections().clone();
+            collections.messages.update(cx, |collection, cx| {
+                for n in 0..CARDS {
+                    let message: MessageRow = serde_json::from_value(serde_json::json!({
+                        "id": format!("card{n:02}"), "conversation_id": "c1", "session_id": "r1", "author_kind": "agent", "body": "",
+                        "created_at": format!("2026-11-04T{:02}:{:02}:30.000Z", 10 + n / 60, n % 60),
+                        "card": {"kind": "surface", "title": "Report", "surface": {"version": "1.0",
+                            "root": {"id": "root", "component": "Stack", "children": [{"id": "n", "component": "StatTile", "props": {"label": "New", "value": format!("{n}")}}]}}},
+                    }))
+                    .unwrap();
+                    collection.seed(message.key(), message);
+                }
+                cx.notify();
+            });
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
+        for n in 0..4u64 {
+            events.push(steer::ViewerEvent::Activity(2 * n + 1, steer::ActivityEvent::user_message("Ship the fix")));
+            events.push(steer::ViewerEvent::Activity(2 * n + 2, steer::ActivityEvent::narration("All green.")));
+        }
+        apply_events(&view, events, cx);
+        settle_frames(cx);
+        let card_rows = |cx: &mut gpui::VisualTestContext| {
+            let document = chat_document(&view, cx);
+            cx.update(|_, cx| {
+                let document = document.read(cx);
+                document
+                    .placed_nodes()
+                    .iter()
+                    .filter(|node| node.component == "Embed" && !node.removed && !node.hidden && node.id.starts_with("chat_row_host.card-"))
+                    .filter_map(|node| Some((node.id.clone(), document.frame(node.index)?)))
+                    .collect::<Vec<_>>()
+            })
+        };
+        // At the newest row, the head cards above the window are not laid out.
+        assert!(card_rows(cx).len() < CARDS, "{} of {CARDS} head cards laid out", card_rows(cx).len());
+        // Up to the top: they lay out as rows of their own, a window of them.
+        for _ in 0..80 {
+            wheel_chat(&view, 2_000., cx);
+            settle_frames(cx);
+        }
+        let rows = card_rows(cx);
+        assert!(!rows.is_empty() && rows.len() < CARDS, "a window of the head cards: {}", rows.len());
+        let inner = chat_inner(&view, cx);
+        for (id, frame) in &rows {
+            let measured = cx.update(|_, cx| inner.read(cx).chat_transcript().host_height(id));
+            assert_eq!(measured, Some(frame.h), "{id} at its measured height");
+        }
     }
 
     /// #EDE-65 lane O FOLLOW (the old list's `FollowMode::Tail`): while the

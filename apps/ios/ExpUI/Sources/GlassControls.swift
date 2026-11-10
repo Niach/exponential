@@ -536,7 +536,7 @@ public struct GhostIconLabel: View {
 /// (`.keyboardType`, `.submitLabel`, `.font`, autocapitalization/correction,
 /// `.focused`, `.onSubmit`) are applied by the CALLER — they propagate to the
 /// inner field, which is why there is no `font:` parameter: a prompt box keeps
-/// its `.footnote.monospaced()` with a plain modifier.
+/// its `.expMono(.footnote)` with a plain modifier.
 ///
 /// `bordered: false` drops the chrome and padding for fields living inside an
 /// already-chromed row (a `GlassSection` row, a `Form`, a `GlassComposer`).

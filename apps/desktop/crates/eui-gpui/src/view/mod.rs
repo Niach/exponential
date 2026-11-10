@@ -131,6 +131,10 @@ impl Default for SurfaceViewOptions {
 /// fall through to the surface's focus trap. Run once at bootstrap, after the
 /// host's own bindings.
 pub fn init(cx: &mut App) {
+    // #EXP-1629: one arc. gpui-component's `Spinner` (a loading `Button`'s
+    // glyph) draws genUI's Spinner glyph. Vendored gpui-component only.
+    #[cfg(feature = "vendored-spinner")]
+    gpui_component::spinner::set_spinner_glyph(cx, |size, color, _, _| crate::paint::natives::spinner_glyph("spinner", f32::from(size), color));
     cx.bind_keys([gpui::KeyBinding::new("tab", gpui::NoAction, Some("ExponentialUiModal")), gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("ExponentialUiModal"))]);
 }
 

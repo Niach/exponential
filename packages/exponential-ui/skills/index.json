@@ -24,7 +24,7 @@
     {
       "name": "exponential-genui",
       "description": "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
-      "bytes": 4207,
+      "bytes": 4232,
       "files": [
         "references/functions.md",
         "references/style.md",
@@ -34,7 +34,7 @@
     {
       "name": "exponential-motion",
       "description": "Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.",
-      "bytes": 6014,
+      "bytes": 6033,
       "files": [
         "examples/equalizer.json",
         "examples/error-x.json",

@@ -148,7 +148,7 @@ impl ApiKeysPane {
             button_fill_disabled: premultiplied_hex(theme.input_background().opacity(0.5)),
             button_stroke_disabled: hex(theme.input.opacity(0.5)),
             button_fg_disabled: hex(theme.muted_foreground.opacity(0.5)),
-            terminal: theme::terminal::FONT_FAMILY.to_string(),
+            terminal: "$type.family.mono".to_string(),
         };
         let view = mount("settings-api-keys", document(&Ink::of(cx), &chrome), &binding, window, cx);
         Self {
@@ -610,7 +610,7 @@ struct Chrome {
 /// one: the alpha rounds to its byte and the channels absorb the rounding,
 /// so colour × alpha (what the quad adds over its ground) stays exact; at
 /// a few percent alpha one channel step is a thirtieth of a pixel level.
-fn premultiplied_hex(color: gpui::Hsla) -> String {
+pub(super) fn premultiplied_hex(color: gpui::Hsla) -> String {
     let c = color.to_rgb();
     let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
     let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;

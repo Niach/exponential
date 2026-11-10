@@ -142,7 +142,7 @@ public struct EntityPreviewCard<Icon: View, Facts: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let eyebrow, !eyebrow.isEmpty {
                     Text(eyebrow)
-                        .font(.caption2.monospaced())
+                        .font(.expMono(.caption2))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                 }

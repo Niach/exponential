@@ -31,31 +31,48 @@
 //! EXP-557 per-user sharing: the pane is MEMBER-visible — connecting a repo
 //! shares it with the team, and per-row management (remove, branch pin) is
 //! sharer-or-owner.
+//!
+//! #EXP-1629: the pane is a document on the native binding (projection at
+//! `/pane`): the band with Add repository, the skeleton, the GitHub status
+//! line in each of its states, the failed and empty states, the rows
+//! (glyph, name, static branch chip, Private, remove, the access banner,
+//! the board chips and the sharer) and the Local account's folders. Each
+//! managed row's branch picker stays the IDE's own element, drawn into the
+//! document as a `host_leaf` Embed (`branch_picker`); the dialogs and the
+//! alerts stay native.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{
-    div, px, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
-    h_flex,
-    input::{InputState},
+    button::{Button, ButtonVariant},
+    input::InputState,
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sync::Store;
 
+use eui_gpui::binding::Binding;
+use eui_gpui::controls::{CTL_MD_H, CTL_SM_H};
+use eui_gpui::host::HostPlugin;
+use eui_gpui::view::SurfaceView;
+
 use crate::controls::{search_field, SearchFieldSize};
-use crate::github_connect::{copy, fetch_github_status, GithubInstallation, GithubStatus, Prerequisite};
+use crate::github_connect::{copy, fetch_github_status, GithubStatus, Prerequisite};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
-use super::{open_url, section, settings_skeleton};
+use super::doc::{empty_state, eq, failed_state, hex, mount_with, not, path, IdeToasts, Ink, PillPaint, SM, VALUE_ALPHA, XS};
+use super::open_url;
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -162,7 +179,7 @@ enum Load {
 /// One repo's lazily-fetched branch list for the default-branch picker
 /// (EXP-462). Fetched on first menu open, cached until the pane reloads.
 #[derive(Clone)]
-enum BranchLoad {
+pub(crate) enum BranchLoad {
     Loading,
     /// The fetch failed (a toast said so); the picker reads empty and the
     /// next open fetches again.
@@ -190,17 +207,36 @@ pub struct RepositoriesPane {
     /// Branch lists for the per-row default-branch pickers, keyed by repo id
     /// (EXP-462). Dropped with the repo list so a reload refetches.
     branches: HashMap<String, BranchLoad>,
-    /// Search query of the default-branch pickers (EXP-469 — the searchable
-    /// popover recipe of `crate::pickers`). ONE shared state — only one
-    /// popover is ever open, and every open resets it.
-    branch_query: Entity<InputState>,
     /// FEED-79: the load in flight is the person's Retry press, so its
     /// failure toasts; every other load (on open, on focus, after a write)
     /// fails quietly into the empty state.
     retry_pressed: bool,
     /// #EXP-1727: a Local desktop's linked folders (`None` = not fetched).
     local: Option<Vec<api::repositories::LocalRepository>>,
+    #[cfg(test)]
+    shot: Option<RepoShot>,
+    /// The rows' branch pickers the document's host draws.
+    host: Rc<RefCell<HostState>>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A pinned state for the headless bench (the headless store has no team,
+/// no account and no synced boards).
+#[cfg(test)]
+pub(crate) struct RepoShot {
+    pub team: Option<String>,
+    pub owner: bool,
+    /// The viewer's user id (the sharer-or-owner gate).
+    pub me: Option<String>,
+    /// A Local desktop's account: its linked folders.
+    pub local: Option<Vec<api::repositories::LocalRepository>>,
+    /// The synced boards the chips read their glyph and tint off.
+    pub boards: Vec<domain::rows::Board>,
+    pub busy: bool,
+    /// Branch lists already fetched, by repo id.
+    pub branches: Vec<(String, Vec<String>)>,
 }
 
 impl RepositoriesPane {
@@ -275,6 +311,41 @@ impl RepositoriesPane {
                 }
             }),
         ];
+        // The actions leave the binding for the pane: the dialogs, the
+        // browser hand-offs and the reads.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["add", "link_folder", "status_retry", "retry", "connect", "disconnect", "manage_suspended", "install", "configure", "regrant", "remove"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let host = Rc::new(RefCell::new(HostState { rows: HashMap::new(), pane: Some(pane), query: Some(branch_query.clone()) }));
+        let theme = cx.theme();
+        let tints = Tints {
+            skeleton: hex(theme.muted_foreground.opacity(0.18)),
+            danger: hex(theme.danger),
+            warning: hex(theme::tokens::YELLOW.to_hsla()),
+            live: hex(theme::tokens::GREEN.to_hsla()),
+            link: hex(theme.link),
+            list_hover: hex(theme.list_hover),
+        };
+        let plugin = Rc::new(RepoHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let view = mount_with("settings-repositories", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -284,11 +355,89 @@ impl RepositoriesPane {
             generation: 0,
             busy: false,
             branches: HashMap::new(),
-            branch_query,
             retry_pressed: false,
             local: None,
+            #[cfg(test)]
+            shot: None,
+            host,
+            binding,
+            view,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    /// The pane in a pinned state: `status` = `integrations.github.status`
+    /// (`None` = the probe failed), `repos` = `None` loading, `Some(Err)`
+    /// failed, `Some(Ok)` the `repositories.list` rows (JSON).
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: RepoShot, status: Option<serde_json::Value>, repos: Option<Result<serde_json::Value, String>>, cx: &mut gpui::Context<Self>) {
+        self.loaded_team = shot.team.clone();
+        self.local = shot.local.clone();
+        self.busy = shot.busy;
+        self.branches = shot.branches.iter().map(|(id, names)| (id.clone(), BranchLoad::Ready(names.clone()))).collect();
+        self.load = match repos {
+            None => Load::Loading,
+            Some(repos) => Load::Ready(Loaded {
+                status: status.map(|status| serde_json::from_value(status).expect("a github status")),
+                repos: repos.map(|rows| serde_json::from_value(rows).expect("repository rows")),
+            }),
+        };
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    fn pinned(&self) -> bool {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return true;
+        }
+        false
+    }
+
+    fn pane_local(&self, cx: &gpui::App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.local.is_some();
+        }
+        crate::queries::active_account(cx).is_some_and(|a| a.is_local())
+    }
+
+    fn pane_team(&self, cx: &gpui::App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    fn pane_owner(&self, team_id: &str, cx: &gpui::App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        super::is_owner(cx, team_id)
+    }
+
+    fn pane_me(&self, cx: &gpui::App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.me.clone();
+        }
+        queries::active_account(cx).map(|account| account.user_id)
+    }
+
+    /// The synced board a chip reads its glyph and tint off.
+    fn synced_board(&self, id: &str, cx: &gpui::App) -> Option<domain::rows::Board> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.boards.iter().find(|board| board.id == id).cloned();
+        }
+        Store::global(cx).collections().boards.read(cx).get(id).cloned()
     }
 
     /// Drop the cached list when a board's repo link changed under it — the
@@ -502,6 +651,7 @@ impl RepositoriesPane {
     /// server refuses (CONFLICT) while any board still points at the repo —
     /// including a trashed one, which no chip shows — so its message is
     /// user-presentable and surfaces verbatim.
+    // dialog stays native: the shared native confirm alert.
     fn confirm_remove(
         &mut self,
         repo: &RepoRow,
@@ -564,6 +714,7 @@ impl RepositoriesPane {
     /// the viewer's GitHub account; repositories already added keep working
     /// (their tokens mint off the App installation). The server's refusal
     /// (GitHub login on and no other way in) is user-presentable verbatim.
+    // dialog stays native: the shared native confirm alert (Disconnect as the danger answer).
     fn confirm_disconnect(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let view = cx.entity().downgrade();
         let spec = AlertSpec::new(
@@ -662,42 +813,292 @@ impl RepositoriesPane {
         })
         .detach();
     }
+}
 
-    fn render_local(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        if self.local.is_none() {
-            self.load_local(cx);
+// ---------------------------------------------------------------------------
+// The document (#EXP-1629)
+// ---------------------------------------------------------------------------
+
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// An icon the projection names by its asset path (a board's own glyph).
+const ASSET: &str = "asset:";
+
+/// The row's branch picker (`branch.<key>` once painted).
+const BRANCH_NODE: &str = "branch";
+
+/// What a row's branch picker needs to draw and open.
+struct BranchRow {
+    index: usize,
+    repo: RepoRow,
+    busy: bool,
+}
+
+#[derive(Default)]
+struct HostState {
+    rows: HashMap<String, BranchRow>,
+    pane: Option<WeakEntity<RepositoriesPane>>,
+    /// Search query of the default-branch pickers (EXP-469 — the searchable
+    /// popover recipe of `crate::pickers`). ONE shared state — only one
+    /// popover is ever open, and every open resets it.
+    query: Option<Entity<InputState>>,
+}
+
+/// The pane's host: the IDE's plugin, the boards' glyphs by asset path, and
+/// the rows' branch pickers drawn by the IDE itself.
+struct RepoHost {
+    ide: crate::exponential_ui_host::IdePlugin,
+    state: Rc<RefCell<HostState>>,
+}
+
+impl HostPlugin for RepoHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        match name.strip_prefix(ASSET) {
+            Some(path) => Some(SharedString::from(path.to_string())),
+            None => self.ide.icon(name),
         }
-        let header_actions = crate::surface::glass_pill_button("repos-link-folder", crate::surface::PillSize::Sm, cx)
-            .icon(registry::UI_FOLDER)
-            .label(copy::LINK_FOLDER)
-            .on_click(cx.listener(|this, _, window, cx| this.link_folder(window, cx)))
-            .into_any_element();
-        let mut body = section(cx).child(crate::surface::glass_section_header(copy::SECTION_TITLE, Some(header_actions), cx));
-        let repos = self.local.clone().unwrap_or_default();
-        if repos.is_empty() {
-            body = body.child(crate::controls::empty_state_list(gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES), copy::NO_LOCAL_FOLDERS, cx));
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.ide.on_unknown(node)
+    }
+
+    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
+        let key = component_id.strip_prefix(BRANCH_NODE)?.strip_prefix('.')?;
+        self.state.borrow().rows.contains_key(key).then_some(CTL_SM_H)
+    }
+
+    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        let key = component_id.strip_prefix(BRANCH_NODE)?.strip_prefix('.')?;
+        let state = self.state.borrow();
+        let row = state.rows.get(key)?;
+        let pane = state.pane.as_ref()?.upgrade()?;
+        let query = state.query.clone()?;
+        // The IDE's own text style under the leaf (the surface sets 14 px
+        // on a 20 px line; the popover's rows inherit gpui's defaults in the
+        // IDE): gpui-component's Root family, a rem, `phi` lines.
+        let theme = cx.theme();
+        let ide_text = div()
+            .font(gpui::font(theme.font_family.clone()))
+            .text_size(gpui::rems(1.))
+            .line_height(gpui::phi())
+            .text_color(theme.foreground);
+        Some(ide_text.child(branch_picker(row.index, &row.repo, row.busy, pane, query, cx)).into_any_element())
+    }
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Tints {
+    skeleton: String,
+    danger: String,
+    warning: String,
+    live: String,
+    link: String,
+    list_hover: String,
+}
+
+/// Where a repo's access banner hands off: its installation's page, else
+/// the install page.
+fn repo_manage_url(repo: &RepoRow, status: Option<&GithubStatus>) -> Option<String> {
+    status
+        .and_then(|status| status.installations.iter().find(|inst| Some(inst.installation_id) == repo.installation_id))
+        .map(|inst| inst.manage_url.clone())
+        .filter(|url| !url.is_empty())
+        .or_else(|| status.and_then(|status| status.install_url.clone()))
+}
+
+/// The suspended line's Manage: the first suspended installation's page,
+/// else the install page.
+fn suspended_manage_url(status: &GithubStatus) -> Option<String> {
+    status
+        .installations
+        .iter()
+        .find(|inst| inst.suspended)
+        .map(|inst| inst.manage_url.clone())
+        .filter(|url| !url.is_empty())
+        .or_else(|| status.install_url.clone())
+}
+
+impl RepositoriesPane {
+    fn loaded(&self) -> Option<&Loaded> {
+        match &self.load {
+            Load::Ready(loaded) => Some(loaded),
+            _ => None,
         }
-        for repo in repos {
-            body = body.child(
-                gpui_component::h_flex()
-                    .w_full()
-                    .px_2()
-                    .py_1p5()
-                    .gap_2()
-                    .items_center()
-                    .text_color(cx.theme().foreground)
-                    .child(gpui_component::Icon::new(registry::UI_FOLDER).flex_shrink_0())
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().text_sm().truncate().child(repo.full_name.clone()))
-                            .child(div().text_xs().text_color(cx.theme().muted_foreground).truncate().child(repo.path.clone())),
-                    )
-                    .child(div().flex_shrink_0().text_xs().text_color(cx.theme().muted_foreground).child(repo.default_branch.clone())),
-            );
+    }
+
+    /// A document action (on the row / installation `key` where it names one).
+    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let status = self.loaded().and_then(|loaded| loaded.status.clone());
+        match name {
+            // dialog stays native: `add_repository_dialog` is its own window (the searchable GitHub picker + by-name lookup).
+            "add" => {
+                if let Some(team) = self.pane_team(cx) {
+                    let pane = cx.entity().downgrade();
+                    super::add_repository_dialog::open(window, cx, team, pane);
+                }
+            }
+            // dialog stays native: the system folder picker.
+            "link_folder" => self.link_folder(window, cx),
+            "status_retry" => self.refetch_stale(cx),
+            "retry" => self.retry_load(cx),
+            "connect" if !self.busy => self.connect_github(cx),
+            "disconnect" if !self.busy => self.confirm_disconnect(window, cx),
+            "manage_suspended" => {
+                if let Some(url) = status.as_ref().and_then(suspended_manage_url) {
+                    open_url(cx, url);
+                }
+            }
+            "install" => {
+                if let Some(url) = status.and_then(|status| status.install_url) {
+                    open_url(cx, url);
+                }
+            }
+            "configure" => {
+                let url = status
+                    .and_then(|status| status.installations.into_iter().find(|inst| inst.installation_id.to_string() == key))
+                    .map(|inst| inst.manage_url)
+                    .filter(|url| !url.is_empty());
+                if let Some(url) = url {
+                    open_url(cx, url);
+                }
+            }
+            "regrant" | "remove" => {
+                let Some(repo) = self.loaded().and_then(|loaded| loaded.repos.as_ref().ok()).and_then(|rows| rows.iter().find(|row| row.id == key)).cloned() else {
+                    return;
+                };
+                if name == "regrant" {
+                    if let Some(url) = repo_manage_url(&repo, status.as_ref()) {
+                        open_url(cx, url);
+                    }
+                } else if !self.busy && repo.boards.is_empty() {
+                    self.confirm_remove(&repo, window, cx);
+                }
+            }
+            _ => {}
         }
-        body.into_any_element()
+    }
+
+    /// The pane's state as the document reads it; the rows' branch pickers
+    /// are written into the host's table at the same time.
+    fn project(&self, local: bool, team: Option<&str>, cx: &App) -> Value {
+        let mut pickers = HashMap::new();
+        let mut out = json!({"local": local, "noTeam": !local && team.is_none(), "list": !local && team.is_some(), "busy": self.busy,
+            "localEmpty": false, "localHasRows": false, "localRows": [],
+            "loading": false, "status": "", "failed": false, "empty": false, "hasRows": false, "rows": [],
+            "installations": []});
+        if local {
+            let rows = self.local.clone().unwrap_or_default();
+            out["localEmpty"] = json!(rows.is_empty());
+            out["localHasRows"] = json!(!rows.is_empty());
+            out["localRows"] = rows.iter().map(|row| json!({"key": row.id, "name": row.full_name, "path": row.path, "branch": row.default_branch})).collect();
+        }
+        if let (false, Some(team_id)) = (local, team) {
+            match &self.load {
+                Load::Idle | Load::Loading => out["loading"] = json!(true),
+                Load::Ready(loaded) => {
+                    let status = loaded.status.as_ref();
+                    out["status"] = json!(match status.map(GithubStatus::prerequisite) {
+                        None => "failed",
+                        Some(Prerequisite::NotConfigured) => "notConfigured",
+                        Some(Prerequisite::NotLinked) => "notLinked",
+                        Some(Prerequisite::Expired) => "expired",
+                        Some(Prerequisite::NotInstalled | Prerequisite::Ready) => "linked",
+                    });
+                    if let Some(status) = status {
+                        out["connectedText"] = json!(match status.login.as_deref() {
+                            Some(login) if !login.is_empty() => copy::connected_as(login),
+                            _ => copy::CONNECTED.to_string(),
+                        });
+                        let suspended = status.suspended_labels();
+                        out["hasSuspended"] = json!(!suspended.is_empty());
+                        out["suspendedText"] = json!(copy::suspended_line(&suspended));
+                        out["hasSuspendedManage"] = json!(suspended_manage_url(status).is_some());
+                        let installed = !status.installations.is_empty();
+                        out["notInstalled"] = json!(!installed);
+                        out["hasInstallUrl"] = json!(status.install_url.is_some());
+                        out["hasInstallations"] = json!(installed);
+                        out["installAnother"] = json!(installed && status.install_url.is_some());
+                        out["installations"] = status
+                            .installations
+                            .iter()
+                            .map(|inst| {
+                                let label = inst.label();
+                                json!({"key": inst.installation_id.to_string(), "icon": if inst.is_organization() { "ui-organization" } else { "ui-avatar-placeholder" },
+                                    "label": label, "hasConfigure": !inst.manage_url.is_empty(), "configureTip": copy::configure_title(&label)})
+                            })
+                            .collect();
+                    }
+                    match &loaded.repos {
+                        Err(_) => out["failed"] = json!(true),
+                        Ok(repos) if repos.is_empty() => out["empty"] = json!(true),
+                        Ok(repos) => {
+                            out["hasRows"] = json!(true);
+                            let owner = self.pane_owner(team_id, cx);
+                            let me = self.pane_me(cx);
+                            let muted = hex(cx.theme().muted_foreground);
+                            let rows: Vec<Value> = repos
+                                .iter()
+                                .enumerate()
+                                .map(|(index, repo)| {
+                                    let manage = owner || repo.shared_by.as_ref().is_some_and(|shared| me.as_deref() == Some(shared.id.as_str()));
+                                    if manage {
+                                        pickers.insert(repo.id.clone(), BranchRow { index, repo: repo.clone(), busy: self.busy });
+                                    }
+                                    let linked = repo.boards.len();
+                                    let suspended = status
+                                        .and_then(|status| status.installations.iter().find(|inst| Some(inst.installation_id) == repo.installation_id))
+                                        .is_some_and(|inst| inst.suspended);
+                                    let (banner, action) = if suspended {
+                                        ("GitHub suspended the Exponential app for this repository's account. Unsuspend it on GitHub to code on this repo again.", "Unsuspend")
+                                    } else {
+                                        ("The GitHub App lost access to this repository. Re-grant it on GitHub.", "Re-grant")
+                                    };
+                                    let boards: Vec<Value> = repo
+                                        .boards
+                                        .iter()
+                                        .map(|board| {
+                                            let synced = self.synced_board(&board.id, cx);
+                                            let icon = synced.as_ref().map(|row| format!("{ASSET}{}", gpui_component::IconNamed::path(crate::icons::board_glyph(row))));
+                                            let color = synced.as_ref().and_then(|row| row.color.as_deref()).and_then(super::parse_hex_color).map_or(muted.clone(), hex);
+                                            json!({"key": board.id, "name": board.name, "hasIcon": icon.is_some(), "icon": icon.unwrap_or_default(), "color": color})
+                                        })
+                                        .collect();
+                                    let plural = if linked == 1 { "" } else { "s" };
+                                    let sharer = repo.shared_by.as_ref().and_then(RepoSharedBy::label);
+                                    json!({
+                                        "key": repo.id,
+                                        "name": repo.full_name,
+                                        "manage": manage,
+                                        "branch": repo.default_branch,
+                                        // The picker leaf repaints when what it draws moves.
+                                        "branchSurface": {"root": {"id": "branch", "component": "Box"}, "data": {"busy": self.busy, "branch": repo.default_branch}},
+                                        "private": repo.private,
+                                        "removeOn": manage && linked == 0 && !self.busy,
+                                        "removeLinked": manage && linked > 0,
+                                        "removeBusy": manage && linked == 0 && self.busy,
+                                        "removeTip": format!("In use by {linked} board{plural}. Change their repository first."),
+                                        "banner": repo.inaccessible_at.is_some() || suspended,
+                                        "bannerText": banner,
+                                        "bannerAction": action,
+                                        "bannerManage": repo_manage_url(repo, status).is_some(),
+                                        "noBoards": repo.boards.is_empty(),
+                                        "hasBoards": !repo.boards.is_empty(),
+                                        "boards": boards,
+                                        "hasShared": sharer.is_some(),
+                                        "sharedText": sharer.map(|sharer| format!("\u{b7} Shared by {sharer}")).unwrap_or_default(),
+                                    })
+                                })
+                                .collect();
+                            out["rows"] = Value::Array(rows);
+                        }
+                    }
+                }
+            }
+        }
+        self.host.borrow_mut().rows = pickers;
+        out
     }
 }
 
@@ -706,336 +1107,447 @@ impl Render for RepositoriesPane {
         let _span = tracing::trace_span!("render", view = "RepositoriesPane").entered();
         // #EXP-1727: a Local desktop links folders on this machine; nothing
         // clones and no GitHub install is involved.
-        if crate::queries::active_account(cx).is_some_and(|a| a.is_local()) {
-            return v_flex().child(self.render_local(cx));
+        let local = self.pane_local(cx);
+        if local && self.local.is_none() {
+            self.load_local(cx);
         }
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
+        let team = if local { None } else { self.pane_team(cx) };
+        if let (false, Some(team_id), false) = (local, team.as_deref(), self.pinned()) {
+            self.ensure_loaded(team_id, cx);
+        }
+        let projection = self.project(local, team.as_deref(), cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// An `Icon` node at `size` in `color`.
+fn icon(id: &str, name: Value, size: f32, color: &str) -> Value {
+    json!({"id": id, "component": "Icon", "props": {"name": name}, "style": {"width": size, "height": size, "color": color, "flexShrink": 0}})
+}
+
+/// A text run that takes the row's free space (`flex_1 min_w_0`) and wraps.
+fn grow(mut text: Value) -> Value {
+    text["style"]["flexGrow"] = json!(1);
+    text["style"]["flexShrink"] = json!(1);
+    text["style"]["flexBasis"] = json!(0);
+    text["style"]["minWidth"] = json!(0);
+    text
+}
+
+/// [`grow`] on one ellipsised line.
+fn grow_line(text: Value) -> Value {
+    let mut text = grow(text);
+    text["props"]["lines"] = json!(1);
+    text
+}
+
+/// `h_flex().flex_wrap().gap_2().items_center()` (+ `pl` rems).
+fn wrap_row(ink: &Ink, id: &str, pl: f32, visible: Value, children: Vec<Value>) -> Value {
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "width": "100%", "gap": ink.r(0.5), "paddingLeft": ink.r(pl)}, "children": children})
+}
+
+/// `controls::ghost_icon_button` (32px, the list hover wash) with a
+/// `glyph`-px icon: the live face where `!disabled`, gpui-component's
+/// disabled face (the glyph half-muted, no wash) where `disabled`; the
+/// live face's `tip` (a literal or a binding) where given.
+#[allow(clippy::too_many_arguments)]
+fn ghost(ink: &Ink, tints: &Tints, id: &str, name: &str, glyph: f32, label: &str, event: Value, live: Value, tip: Option<Value>, dim: Value, dim_tip: Option<Value>) -> Vec<Value> {
+    let face = |id: String, on: bool| {
+        let (color, alpha) = if on { (&ink.foreground, VALUE_ALPHA) } else { (&ink.muted, 0.5) };
+        let mut glyph_node = icon(&format!("{id}_icon"), json!(name), glyph, color);
+        glyph_node["style"]["opacity"] = json!(alpha);
+        let mut node = json!({"id": id, "component": "Box", "accessibility": {"label": label},
+            "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": CTL_MD_H, "height": CTL_MD_H, "borderRadius": ink.radius_md},
+            "children": [glyph_node]});
+        if on {
+            node["props"] = json!({"pressable": true});
+            node["on"] = json!({"press": {"event": event.clone()}});
+            node["style"]["cursor"] = json!("pointer");
+            node["style"][":hover"] = json!({"backgroundColor": tints.list_hover});
+        }
+        node
+    };
+    let wrap = |id: &str, node: Value, visible: Value, tip: Option<Value>| match tip {
+        Some(tip) => json!({"id": format!("{id}_tip"), "component": "Tooltip", "visible": visible, "props": {"content": tip}, "children": [node]}),
+        None => {
+            let mut node = node;
+            node["visible"] = visible;
+            node
+        }
+    };
+    vec![wrap(id, face(id.to_string(), true), live, tip), wrap(&format!("{id}_dim"), face(format!("{id}_dim"), false), dim, dim_tip)]
+}
+
+/// The ✕ that unlinks the viewer's GitHub account (`xsmall`: a 12px glyph).
+fn disconnect(ink: &Ink, tints: &Tints, id: &str) -> Vec<Value> {
+    ghost(ink, tints, id, "ui-close", ink.r(0.75), copy::DISCONNECT, json!({"name": "disconnect"}), not(path("/pane/busy")), Some(json!(copy::DISCONNECT)), path("/pane/busy"), None)
+}
+
+/// A glass pill button with a TRAILING 12px glyph (Manage → GitHub).
+fn pill_trailing(ink: &Ink, id: &str, label: &str, glyph: &str, event: Value, visible: Value) -> Value {
+    let [mut pill, _] = ink.pill_button(id, None, json!(label), json!(false), event);
+    let mut node = icon(&format!("{id}_glyph"), json!(glyph), 12., &ink.foreground);
+    node["style"]["opacity"] = json!(VALUE_ALPHA);
+    pill["children"].as_array_mut().expect("the pill's children").push(node);
+    pill["visible"] = visible;
+    pill
+}
+
+/// The one live face of a pill that never disables.
+fn live(face: [Value; 2], visible: Value) -> Value {
+    let [mut face, _] = face;
+    face["visible"] = visible;
+    face
+}
+
+/// The GitHub connection block (SLOP-7, web `GithubStatusLine`, ×4): ONE
+/// precedence-ordered state (see the projection's `status`).
+fn status_block(ink: &Ink, tints: &Tints) -> Vec<Value> {
+    let is = |kind: &str| eq(path("/pane/status"), json!(kind));
+    let xs = |id: &str, text: Value, color: &str| ink.text(id, text, XS, color);
+    let glyph = ink.r(0.75);
+    let github = |id: &str| icon(id, json!("ui-github"), glyph, &ink.muted);
+    let primary = |id: &str, icon: &str, label: &str, disabled: Value| ink.pill_button_with(id, PillPaint::Primary, Some(json!(icon)), None, json!(label), disabled, None, json!({"name": "connect"})).to_vec();
+    let failed = {
+        let mut children = vec![github("failed_icon"), grow(xs("failed_text", json!(copy::STATUS_FAILED), &ink.muted))];
+        children.push(live(ink.pill_button("status_retry", Some("ui-refresh"), json!(copy::RETRY), json!(false), json!({"name": "status_retry"})), json!(true)));
+        wrap_row(ink, "status_failed", 0., is("failed"), children)
+    };
+    let not_configured = wrap_row(ink, "status_not_configured", 0., is("notConfigured"), vec![github("nc_icon"), xs("nc_text", json!(copy::NOT_CONFIGURED), &ink.muted)]);
+    let mut not_linked = vec![github("nl_icon"), grow(xs("nl_text", json!(copy::NOT_LINKED), &ink.muted))];
+    not_linked.extend(primary("connect", "ui-github", copy::CONNECT_GITHUB, path("/pane/busy")));
+    let not_linked = wrap_row(ink, "status_not_linked", 0., is("notLinked"), not_linked);
+    let mut expired = vec![icon("ex_icon", json!("ui-warning"), glyph, &tints.warning), grow(xs("ex_text", json!(copy::RECONNECT_NEEDED), &ink.muted))];
+    expired.extend(primary("reconnect", "ui-refresh", copy::RECONNECT, path("/pane/busy")));
+    expired.extend(disconnect(ink, tints, "ex_disconnect"));
+    let expired = wrap_row(ink, "status_expired", 0., is("expired"), expired);
+
+    // Linked: the live dot + "Connected as" + ✕, the suspended line, then
+    // the installed accounts (or the not-installed line).
+    let mut connection = vec![
+        json!({"id": "dot", "component": "Box", "style": {"width": 8, "height": 8, "borderRadius": 4, "flexShrink": 0, "backgroundColor": tints.live}}),
+        grow_line(xs("connected_text", path("/pane/connectedText"), &ink.muted)),
+    ];
+    connection.extend(disconnect(ink, tints, "linked_disconnect"));
+    let connection = json!({"id": "connection", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.5)}, "children": connection});
+    let suspended = wrap_row(ink, "suspended", 1.25, path("/pane/hasSuspended"), vec![
+        icon("suspended_icon", json!("ui-warning"), glyph, &tints.danger),
+        grow(xs("suspended_text", path("/pane/suspendedText"), &tints.danger)),
+        pill_trailing(ink, "suspended_manage", copy::MANAGE, "ui-external-link", json!({"name": "manage_suspended"}), path("/pane/hasSuspendedManage")),
+    ]);
+    let [install, _] = ink.pill_button_with("install", PillPaint::Primary, Some(json!("ui-add")), None, json!(copy::INSTALL_APP), json!(false), None, json!({"name": "install"}));
+    let mut install = install;
+    install["visible"] = path("/pane/hasInstallUrl");
+    let not_installed = wrap_row(ink, "not_installed", 1.25, path("/pane/notInstalled"), vec![grow(xs("not_installed_text", json!(copy::NOT_INSTALLED), &ink.muted)), install]);
+    let padded = |id: &str, text: &str| json!({"id": id, "component": "Box", "visible": path("/pane/hasInstallations"), "style": {"display": "flex", "flexDirection": "column", "paddingLeft": ink.r(1.25)}, "children": [xs(&format!("{id}_text"), json!(text), &ink.muted)]});
+    let mut configure_text = ink.text("configure_text", json!(copy::CONFIGURE), XS, &tints.link);
+    configure_text["style"]["lineHeight"] = json!(ink.r(XS) * 1.25);
+    configure_text["style"]["textDecoration"] = json!("underline");
+    configure_text["style"]["flexShrink"] = json!(0);
+    // gpui centres the label's line half a point lower than the flex centre.
+    configure_text["style"]["paddingTop"] = json!(1);
+    let configure = json!({"id": "configure", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "configure", "context": {"key": path("key")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "cursor": "pointer"},
+        "children": [configure_text, icon("configure_glyph", json!("ui-external-link"), 12., &tints.link)]});
+    let installation = json!({"id": "inst", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.5)},
+        "children": [
+            icon("inst_icon", path("icon"), glyph, &ink.muted),
+            grow_line(ink.text("inst_label", path("label"), SM, &ink.foreground)),
+            {"id": "configure_tip", "component": "Tooltip", "visible": path("hasConfigure"), "props": {"content": path("configureTip")}, "children": [configure]},
+        ]});
+    let installations = json!({"id": "installations", "component": "List", "visible": path("/pane/hasInstallations"), "props": {"gap": "none"},
+        "style": {"gap": ink.r(0.25), "paddingLeft": ink.r(1.25)},
+        "template": {"component": "inst_wrap", "path": "/pane/installations", "key": "key"},
+        "children": [{"id": "inst_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [installation]}]});
+    let another = wrap_row(ink, "another", 1.25, path("/pane/installAnother"), vec![live(ink.pill_button("install_another", Some("ui-add"), json!(copy::INSTALL_ANOTHER), json!(false), json!({"name": "install"})), json!(true))]);
+    let linked = json!({"id": "linked", "component": "Box", "visible": is("linked"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": ink.r(0.5)},
+        "children": [connection, suspended, not_installed, padded("accounts", copy::ACCOUNTS_HEADER), installations, padded("caption", copy::INSTALLATION_CAPTION), another]});
+    vec![failed, not_configured, not_linked, expired, linked]
+}
+
+/// One repo row (web `RepoRow`, `flat_row` `px_3` / `py_2`, `gap_1p5`):
+/// the head (glyph, name, branch picker or static chip, Private, remove),
+/// the access banner, then the "used by" line.
+fn repo_row(ink: &Ink, tints: &Tints) -> Value {
+    let mut name = grow_line(ink.text("row_name", path("name"), SM, &ink.foreground));
+    name["style"]["fontWeight"] = json!(500);
+    // The picker leaf lies over an invisible twin of its pill that gives the
+    // slot its width (the glass pill button: a 1px stroke, `px 8`, the mono
+    // branch capped at 240, `gap_1`, the `size_3` chevron; 240 at most).
+    let mut sizer_text = ink.text("branch_sizer_text", path("branch"), XS, &ink.foreground);
+    sizer_text["props"]["lines"] = json!(1);
+    sizer_text["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+    sizer_text["style"]["maxWidth"] = json!(240);
+    sizer_text["style"]["minWidth"] = json!(0);
+    let sizer = json!({"id": "branch_sizer", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "height": CTL_SM_H, "maxWidth": 240, "paddingHorizontal": 8, "gap": ink.r(0.25), "borderWidth": 1, "borderColor": "#00000000", "opacity": 0},
+        "children": [sizer_text, {"id": "branch_sizer_chevron", "component": "Box", "style": {"width": ink.r(0.75), "height": ink.r(0.75), "flexShrink": 0}}]});
+    let leaf = json!({"id": BRANCH_NODE, "component": "Embed", "props": {"surface": path("branchSurface")}, "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0}});
+    let branch = json!({"id": "branch_slot", "component": "Box", "visible": path("manage"), "style": {"position": "relative", "flexShrink": 0}, "children": [sizer, leaf]});
+    let mut chip = ink.pill("row_branch_static", path("branch"), true, None);
+    chip["visible"] = not(path("manage"));
+    chip["children"][0]["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+    let mut private = ink.pill("row_private", json!("Private"), false, None);
+    private["visible"] = path("private");
+    let mut lock = icon("row_private_icon", json!("ui-private"), 12., &ink.foreground);
+    lock["style"]["opacity"] = json!(VALUE_ALPHA);
+    private["children"].as_array_mut().expect("the pill's children").insert(0, lock);
+    let mut head = vec![icon("row_icon", json!("ui-github"), ink.r(0.875), &ink.muted), name, branch, chip, private];
+    head.extend(ghost(ink, tints, "row_remove", "ui-delete", ink.r(0.875), "Remove repository", json!({"name": "remove", "context": {"key": path("key")}}), path("removeOn"), None, path("removeLinked"), Some(path("removeTip"))));
+    // `row_remove_dim` stands in for both disabled faces: the busy one has
+    // no tooltip.
+    let mut busy = ghost(ink, tints, "row_remove_busy", "ui-delete", ink.r(0.875), "Remove repository", Value::Null, json!(false), None, path("removeBusy"), None);
+    head.push(busy.remove(1));
+    let head = json!({"id": "row_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.5)}, "children": head});
+    let banner = wrap_row(ink, "row_banner", 1.5, path("banner"), vec![
+        icon("row_banner_icon", json!("ui-warning"), ink.r(0.75), &tints.danger),
+        grow(ink.text("row_banner_text", path("bannerText"), XS, &tints.danger)),
+        live(ink.pill_button("row_regrant", None, path("bannerAction"), json!(false), json!({"name": "regrant", "context": {"key": path("key")}})), path("bannerManage")),
+    ]);
+    let muted = |id: &str, text: Value, visible: Value| {
+        let mut t = ink.text(id, text, XS, &ink.muted);
+        t["visible"] = visible;
+        t
+    };
+    let mut board = ink.pill("board", path("name"), false, None);
+    let mut glyph = icon("board_icon", path("icon"), 12., "#00000000");
+    glyph["style"]["color"] = path("color");
+    glyph["visible"] = path("hasIcon");
+    board["children"].as_array_mut().expect("the pill's children").insert(0, glyph);
+    let boards = json!({"id": "boards", "component": "List", "visible": path("hasBoards"), "props": {"direction": "horizontal", "gap": "none"},
+        "style": {"gap": ink.r(0.375), "alignItems": "center"},
+        "template": {"component": "board", "path": "boards", "key": "key"},
+        "children": [board]});
+    let links = json!({"id": "row_links", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "width": "100%", "gap": ink.r(0.375), "paddingLeft": ink.r(1.5)},
+        "children": [
+            muted("row_unused", json!("Not used by any board"), path("noBoards")),
+            muted("row_used_by", json!("Used by"), path("hasBoards")),
+            boards,
+            muted("row_shared", path("sharedText"), path("hasShared")),
+        ]});
+    json!({"id": "row", "component": "Box",
+        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+        "children": [head, banner, links]})
+}
+
+/// A Local desktop's folder row (`px_2` / `py_1p5`, `gap_2`): the folder
+/// glyph, the name over the path, the branch.
+fn local_row(ink: &Ink) -> Value {
+    let mut branch = ink.text("local_branch", path("branch"), XS, &ink.muted);
+    branch["style"]["flexShrink"] = json!(0);
+    let mut name = ink.text("local_name", path("name"), SM, &ink.foreground);
+    name["props"]["lines"] = json!(1);
+    let mut folder = ink.text("local_path", path("path"), XS, &ink.muted);
+    folder["props"]["lines"] = json!(1);
+    json!({"id": "local_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.375)},
+        "children": [
+            icon("local_icon", json!("ui-folder"), ink.r(1.), &ink.foreground),
+            {"id": "local_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0}, "children": [name, folder]},
+            branch,
+        ]})
+}
+
+/// gpui centres a pill button's label line half a point lower than the
+/// flex centre: every pill button's (`<id>_text` under a pressable or
+/// dimmed capsule) label takes a 1px top inset.
+fn nudge_pills(node: &mut Value) {
+    let capsule = node["style"]["borderRadius"] == json!(9999) && node["style"]["height"] == json!(24) && node["style"]["justifyContent"] == json!("center");
+    if let Some(children) = node.get_mut("children").and_then(Value::as_array_mut) {
+        for child in children.iter_mut() {
+            if capsule && child["component"] == json!("Text") {
+                child["style"]["paddingTop"] = json!(1);
+            }
+            nudge_pills(child);
+        }
+    }
+}
+
+/// The pane's tree: the Local account's folders, or the band (Add
+/// repository) over the skeleton, or the connection block and the failed /
+/// empty states or the rows; no team = its empty state alone.
+fn document(ink: &Ink, tints: &Tints) -> Value {
+    let section = |id: &str, visible: Value, children: Vec<Value>| json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": children});
+    let slot = |id: &str, faces: [Value; 2]| {
+        let face = live(faces, json!(true));
+        json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}, "children": [face]})
+    };
+    let local_rows = json!({"id": "local_rows", "component": "List", "visible": path("/pane/localHasRows"), "props": {"gap": "none"}, "style": {"gap": ink.r(0.5)},
+        "template": {"component": "local_wrap", "path": "/pane/localRows", "key": "key"},
+        "children": [{"id": "local_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [local_row(ink)]}]});
+    let local = section("local", path("/pane/local"), vec![
+        ink.band("local_band", copy::SECTION_TITLE, Some(slot("link_slot", ink.pill_button("link_folder", Some("ui-folder"), json!(copy::LINK_FOLDER), json!(false), json!({"name": "link_folder"}))))),
+        empty_state(ink, "local_empty", "settings-repositories", copy::NO_LOCAL_FOLDERS, path("/pane/localEmpty")),
+        local_rows,
+    ]);
+    let rows = json!({"id": "rows", "component": "List", "visible": path("/pane/hasRows"), "props": {"gap": "none"},
+        "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [repo_row(ink, tints)]}]});
+    let mut list = vec![
+        ink.band("band", copy::SECTION_TITLE, Some(slot("add_slot", ink.pill_button("add", Some("ui-github"), json!(copy::ADD_REPOSITORY), json!(false), json!({"name": "add"}))))),
+        ink.skeleton_rows("skeleton", &tints.skeleton, path("/pane/loading")),
+    ];
+    list.extend(status_block(ink, tints));
+    list.push(failed_state(ink, "failed", "settings-repositories", copy::NO_REPOSITORIES, path("/pane/failed")));
+    list.push(empty_state(ink, "empty", "settings-repositories", copy::NO_REPOSITORIES, path("/pane/empty")));
+    list.push(rows);
+    let mut root = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [local, section("list", path("/pane/list"), list), empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]});
+    nudge_pills(&mut root);
+    root
+}
+
+/// The row's branch chip as a picker (EXP-462, web parity:
+/// `DefaultBranchMenu`): shows the effective default branch; the popover
+/// lists the repo's branches (fetched live from GitHub on first open)
+/// behind a search input (EXP-469 — repos routinely carry more branches
+/// than a scrollable menu can be skimmed for), "default" marks GitHub's
+/// own — picking it clears the pin so the repo follows GitHub again.
+// drop with EXP-1765: the picker stays the IDE's own element (a `host_leaf`
+// Embed) until genUI's searchable picker with a lazy option fetch lands.
+fn branch_picker(
+    index: usize,
+    repo: &RepoRow,
+    busy: bool,
+    pane: Entity<RepositoriesPane>,
+    query: Entity<InputState>,
+    cx: &App,
+) -> AnyElement {
+    let button = branch_trigger(index, &repo.full_name, &repo.default_branch, busy, cx);
+    let repo_id = repo.id.clone();
+    let effective = repo.default_branch.clone();
+    let github_default = repo.github_default_branch.clone();
+    let query_for_open = query.clone();
+    let pane_for_open = pane.clone();
+    let repo_id_for_open = repo_id.clone();
+    Popover::new(("repo-branch-picker", index))
+        .p_1()
+        .w(px(crate::pickers::PICKER_SEARCH_WIDTH))
+        .trigger(button)
+        .on_open_change(move |open, window, cx| {
+            // Fresh search per open; the input takes focus like the web
+            // CommandInput. Opening also kicks the lazy branch fetch —
+            // the popover content re-renders on pane notify, so the list
+            // appears in place once it lands.
+            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+            if *open {
+                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
+                pane_for_open.update(cx, |this, cx| {
+                    this.ensure_branches(&repo_id_for_open, cx);
+                });
+            }
+        })
+        .content(move |_, window, cx| {
+            let popover_state = cx.entity();
+            let load = pane.read(cx).branches.get(&repo_id).cloned();
+            let handle = window.window_handle();
+            let (pane, repo_id) = (pane.clone(), repo_id.clone());
+            let pick: BranchPick = std::rc::Rc::new(move |pick, window, cx| {
+                pane.update(cx, |this, cx| {
+                    this.set_default_branch(repo_id.clone(), pick, handle, cx);
+                });
+                popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+            });
+            branch_picker_column(index, load, &effective, github_default.as_deref(), &query, pick, window, cx)
+        })
+        .into_any_element()
+}
+
+/// What picking a branch row does: `None` = GitHub's default (the pin is
+/// cleared), else the branch to pin.
+pub(crate) type BranchPick = std::rc::Rc<dyn Fn(Option<String>, &mut Window, &mut gpui::App)>;
+
+/// The row's branch chip as a picker (EXP-462, web parity:
+/// `DefaultBranchMenu`): shows the effective default branch; the popover
+/// lists the repo's branches (fetched live from GitHub on first open)
+/// behind a search input (EXP-469 — repos routinely carry more branches
+/// than a scrollable menu can be skimmed for), "default" marks GitHub's
+/// own — picking it clears the pin so the repo follows GitHub again.
+///
+/// Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
+/// chevron-down (the chip opens a dropdown, it is not a picker row).
+pub(crate) fn branch_trigger(index: usize, full_name: &str, branch: &str, busy: bool, cx: &gpui::App) -> Button {
+    crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
+        .accessibility_label(format!("Default branch for {full_name}"))
+        .max_w(px(240.))
+        .font_family(theme::terminal::FONT_FAMILY)
+        .child(crate::surface::picker_value_label(SharedString::from(branch.to_string())))
+        .child(
+            Icon::new(registry::UI_CHEVRON_DOWN)
+                .size_3()
+                .flex_shrink_0()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .disabled(busy)
+}
+
+/// The branch picker's popover column: the search row, a hairline, then
+/// the skeleton rows while the list loads, "No branches found." for an
+/// empty or failed one, else the (filtered) branches, "default" trailing
+/// GitHub's own and a check on the effective one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn branch_picker_column(
+    index: usize,
+    load: Option<BranchLoad>,
+    effective: &str,
+    github_default: Option<&str>,
+    query: &Entity<InputState>,
+    pick: BranchPick,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> gpui::Div {
+    use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
+    let filter = query.read(cx).value().trim().to_lowercase();
+    let column = v_flex()
+        .w_full()
+        .child(search_field(query, SearchFieldSize::Sm, window, cx).appearance(false))
+        .child(
+            div()
+                .h(px(1.))
+                .w_full()
+                .my_1()
+                .bg(cx.theme().border.opacity(0.5)),
+        );
+    let branches = match load {
+        // First load: the picker's rows as placeholders (D8).
+        None | Some(BranchLoad::Loading) => {
+            return column.child(crate::feedback::skeleton_rows(
+                ("repo-branch-skeleton", index),
+                crate::feedback::SKELETON_ROWS,
+                crate::controls::MENU_ROW_H,
                 cx,
             ));
-        };
-        self.ensure_loaded(&team_id, cx);
-
-        let dialog_team = team_id.clone();
-
-        // EXP-862: the Add action rides the BAND's trailing slot — the section
-        // header is the strip, never a hand-built row. FEED-42 (×4): ONE glass
-        // pill, always shown, no count chip.
-        let header_actions = crate::surface::glass_pill_button(
-            "repos-add",
-            crate::surface::PillSize::Sm,
+        }
+        // A failed load is quiet (FEED-79): the empty list.
+        Some(BranchLoad::Failed) => Vec::new(),
+        Some(BranchLoad::Ready(branches)) => branches,
+    };
+    // The effective branch always renders even when GitHub no longer has
+    // it (a pinned branch deleted upstream) — the list must show what the
+    // row is set to.
+    let mut names: Vec<String> = Vec::new();
+    if !branches.iter().any(|b| b == effective) {
+        names.push(effective.to_string());
+    }
+    names.extend(branches);
+    names.retain(|name| filter.is_empty() || name.to_lowercase().contains(&filter));
+    if names.is_empty() {
+        return column.child(crate::pickers::empty_picker_row("No branches found.", cx));
+    }
+    let mut rows = v_flex()
+        .id(("repo-branch-rows", index))
+        .w_full()
+        .max_h(px(240.))
+        .overflow_y_scroll();
+    for name in names {
+        let is_github_default = github_default == Some(name.as_str());
+        let checked = name == effective;
+        let mut row = crate::pickers::picker_row(
+            ElementId::Name(SharedString::from(format!("repo-branch-{index}-{name}"))),
             cx,
         )
-        .icon(registry::UI_GITHUB)
-        .label(copy::ADD_REPOSITORY)
-        .on_click(cx.listener(move |_, _, window, cx| {
-            let pane = cx.entity().downgrade();
-            super::add_repository_dialog::open(window, cx, dialog_team.clone(), pane);
-        }))
-        .into_any_element();
-        let mut body = section(cx)
-            .child(crate::surface::glass_section_header(
-                copy::SECTION_TITLE,
-                Some(header_actions),
-                cx,
-            ));
-
-        match &self.load {
-            Load::Idle | Load::Loading => {
-                // FEED-42: the connect status renders NOTHING while loading
-                // (never a false "not connected"); only the list keeps its
-                // placeholder rows.
-                body = body.child(settings_skeleton("repositories-skeleton", cx));
-            }
-            Load::Ready(loaded) => {
-                // GitHub connect state: live server truth, BEFORE the list.
-                body = body.child(self.github_status_line(loaded.status.as_ref(), cx));
-
-                match &loaded.repos {
-                    // A failed load (FEED-79): the empty state + Retry, no
-                    // toast. Errors never render inline here.
-                    Err(_) => {
-                        body = body.child(crate::action_error::load_failed_state(
-                            "repositories-retry",
-                            gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
-                            copy::NO_REPOSITORIES,
-                            cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                            cx,
-                        ));
-                    }
-                    Ok(repos) if repos.is_empty() => {
-                        // EXP-1076: the empty line sits on the ladder's own
-                        // row rhythm (`flat_row`, the web
-                        // `SETTINGS_LIST_CLASS` twin), not in a bespoke box.
-                        // EXP-1274: the shared list empty state ×4.
-                        body = body.child(crate::controls::empty_state_list(
-                            gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
-                            copy::NO_REPOSITORIES,
-                            cx,
-                        ));
-                    }
-                    Ok(repos) => {
-                        // Sharer-or-owner row gating (EXP-557): everyone
-                        // else gets a read-only row — they can still code on
-                        // the shared repo.
-                        let owner = super::is_owner(cx, &team_id);
-                        let me = queries::active_account(cx).map(|account| account.user_id);
-                        // EXP-994: ONE table — a hairline between rows, no
-                        // gap and no card around them.
-                        let mut list = v_flex().w_full().min_w_0();
-                        for (index, repo) in repos.iter().enumerate() {
-                            let can_manage = owner
-                                || repo.shared_by.as_ref().is_some_and(|shared| {
-                                    me.as_deref() == Some(shared.id.as_str())
-                                });
-                            list = list.child(crate::surface::list_row(
-                                self.render_repo_row(
-                                    index,
-                                    repo,
-                                    can_manage,
-                                    loaded.status.as_ref(),
-                                    cx,
-                                ),
-                            ));
-                        }
-                        body = body.child(list);
-                    }
-                }
-            }
-        }
-
-        v_flex().child(body)
-    }
-}
-
-impl RepositoriesPane {
-    /// The GitHub connection block (SLOP-7, web `GithubStatusLine`, ×4): ONE
-    /// precedence-ordered state — failed (+ Retry), not configured, not
-    /// linked (+ Connect GitHub), expired (+ Reconnect, ✕), or the linked
-    /// block: "Connected as login" with ✕ Disconnect, a suspended line
-    /// (REV2-29), then the accounts where the app is installed (one row per
-    /// account with a Configure link) and Install on another account — or,
-    /// with no installation, Install the app. Loading renders nothing (the
-    /// caller only reaches here once the fetch settled).
-    fn github_status_line(
-        &self,
-        status: Option<&GithubStatus>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let line = || {
-            h_flex()
-                .w_full()
-                .flex_wrap()
-                .gap_2()
-                .items_center()
-                .text_xs()
-                .text_color(muted)
-        };
-
-        let Some(status) = status else {
-            // The probe is best-effort — say nothing definite rather than a
-            // false "not connected", and offer the re-read.
-            return line()
-                .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
-                .child(div().flex_1().min_w_0().child(copy::STATUS_FAILED))
-                .child(
-                    pill("gh-status-retry", cx)
-                        .icon(registry::UI_REFRESH)
-                        .label(copy::RETRY)
-                        .on_click(cx.listener(|this, _, _, cx| this.refetch_stale(cx))),
-                )
-                .into_any_element();
-        };
-
-        match status.prerequisite() {
-            Prerequisite::NotConfigured => line()
-                .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
-                .child(copy::NOT_CONFIGURED)
-                .into_any_element(),
-            Prerequisite::NotLinked => line()
-                .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
-                .child(div().flex_1().min_w_0().child(copy::NOT_LINKED))
-                .child(
-                    primary_pill("gh-connect")
-                        .icon(registry::UI_GITHUB)
-                        .label(copy::CONNECT_GITHUB)
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
-                )
-                .into_any_element(),
-            Prerequisite::Expired => line()
-                .child(
-                    Icon::new(registry::UI_WARNING)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(theme::tokens::YELLOW.to_hsla()),
-                )
-                .child(div().flex_1().min_w_0().child(copy::RECONNECT_NEEDED))
-                .child(
-                    primary_pill("gh-reconnect")
-                        .icon(registry::UI_REFRESH)
-                        .label(copy::RECONNECT)
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
-                )
-                .child(self.disconnect_button(cx))
-                .into_any_element(),
-            Prerequisite::NotInstalled | Prerequisite::Ready => {
-                self.linked_block(status, cx).into_any_element()
-            }
-        }
-    }
-
-    /// The ✕ that unlinks the viewer's GitHub account (confirmed).
-    fn disconnect_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        crate::controls::ghost_icon_button("gh-disconnect", Icon::new(registry::UI_CLOSE), cx)
-            .xsmall()
-            .tooltip(copy::DISCONNECT)
-            .disabled(self.busy)
-            .on_click(cx.listener(|this, _, window, cx| this.confirm_disconnect(window, cx)))
-    }
-
-    /// Linked (web `GithubStatusLine`, linked state): the live dot and
-    /// "Connected as login" with the ✕; a suspended line when GitHub
-    /// suspended the app for an account (REV2-29: unsuspend, never
-    /// reconnect); then the installed accounts — ONE ROW PER ACCOUNT (glyph,
-    /// login, Configure → that installation's GitHub settings page), the
-    /// caption and Install on another account — or, with none, the
-    /// not-installed line with Install the app.
-    fn linked_block(&self, status: &GithubStatus, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let connection = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .child(crate::surface::live_dot(theme::tokens::GREEN.to_hsla(), false))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_color(muted)
-                    .child(SharedString::from(match status.login.as_deref() {
-                        Some(login) if !login.is_empty() => copy::connected_as(login),
-                        _ => copy::CONNECTED.to_string(),
-                    })),
-            )
-            .child(self.disconnect_button(cx));
-
-        let mut column = v_flex().w_full().gap_2().child(connection);
-
-        let suspended = status.suspended_labels();
-        if !suspended.is_empty() {
-            let manage_url = status
-                .installations
-                .iter()
-                .find(|inst| inst.suspended)
-                .map(|inst| inst.manage_url.clone())
-                .filter(|url| !url.is_empty())
-                .or_else(|| status.install_url.clone());
-            column = column.child(
-                h_flex()
-                    .w_full()
-                    .flex_wrap()
-                    .gap_2()
-                    .pl_5()
-                    .items_center()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(SharedString::from(copy::suspended_line(&suspended))),
-                    )
-                    .children(manage_url.map(|url| {
-                        pill("gh-unsuspend", cx)
-                            .label(copy::MANAGE)
-                            .child(external_glyph())
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    })),
-            );
-        }
-
-        if status.installations.is_empty() {
-            return column.child(
-                h_flex()
-                    .w_full()
-                    .flex_wrap()
-                    .gap_2()
-                    .pl_5()
-                    .items_center()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(div().flex_1().min_w_0().child(copy::NOT_INSTALLED))
-                    .children(status.install_url.clone().map(|url| {
-                        primary_pill("gh-install")
-                            .icon(registry::UI_ADD)
-                            .label(copy::INSTALL_APP)
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    })),
-            );
-        }
-
-        let mut rows = v_flex().w_full().gap_1().pl_5();
-        for (index, inst) in status.installations.iter().enumerate() {
-            rows = rows.child(installation_row(index, inst, cx));
-        }
-        column = column
-            .child(
-                div()
-                    .pl_5()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(copy::ACCOUNTS_HEADER),
-            )
-            .child(rows)
-            .child(
-                div()
-                    .pl_5()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(copy::INSTALLATION_CAPTION),
-            );
-        if let Some(url) = status.install_url.clone() {
-            column = column.child(
-                h_flex().w_full().flex_wrap().gap_2().pl_5().items_center().child(
-                    pill("gh-install-another", cx)
-                        .icon(registry::UI_ADD)
-                        .label(copy::INSTALL_ANOTHER)
-                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                ),
-            );
-        }
-        column
-    }
-}
-
-/// One installed account: the organization/person glyph, the login, and the
-/// Configure link to that installation's GitHub settings page.
-fn installation_row(index: usize, inst: &GithubInstallation, cx: &gpui::App) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
-    let glyph = if inst.is_organization() {
-        registry::UI_ORGANIZATION
-    } else {
-        registry::UI_AVATAR_PLACEHOLDER
-    };
-    let label = inst.label();
-    let manage_url = Some(inst.manage_url.clone()).filter(|url| !url.is_empty());
-    let configure_title = copy::configure_title(&label);
-    h_flex()
-        .w_full()
-        .gap_2()
-        .items_center()
-        .text_sm()
-        .child(Icon::new(glyph).xsmall().flex_shrink_0().text_color(muted))
+        .role(gpui::Role::ListItem)
+        .aria_selected(checked)
+        .aria_label(SharedString::from(name.clone()))
         .child(
             div()
                 .flex_1()
@@ -1043,419 +1555,39 @@ fn installation_row(index: usize, inst: &GithubInstallation, cx: &gpui::App) -> 
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_ellipsis()
-                .text_color(cx.theme().foreground)
-                .child(SharedString::from(label)),
-        )
-        .children(manage_url.map(|url| {
-            Button::new(("gh-configure", index))
-                .link()
-                .cursor_pointer()
-                .xsmall()
-                .label(copy::CONFIGURE)
-                .child(external_glyph())
-                .tooltip(SharedString::from(configure_title))
-                .on_click(move |_, _, cx| open_url(cx, url.clone()))
-        }))
-}
-
-/// The ONE primary action of a state (web `Pill mode="action" primary`).
-// a11y: named by the caller (every call site chains `.label(..)`).
-fn primary_pill(id: impl Into<gpui::ElementId>) -> Button {
-    crate::surface::glass_pill_button_primary(id, crate::surface::PillSize::Sm)
-}
-
-/// Every inline action of the connection block is an `sm action` pill
-/// (FEED-42 control vocabulary).
-// a11y: named by the caller (every call site chains `.label(..)`).
-fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
-    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
-}
-
-/// The TRAILING external-link glyph of a hand-off to GitHub (Configure,
-/// Manage) — rendered after the label.
-pub(super) fn external_glyph() -> Icon {
-    Icon::new(registry::UI_EXTERNAL_LINK).with_size(px(crate::surface::PillSize::Sm.glyph()))
-}
-
-impl RepositoriesPane {
-    /// Web `RepoRow`: name + branch/private chips + remove, then the "used by"
-    /// line — one chip per board the repo backs (v4 one-repo-per-board; names
-    /// resolved server-side). The server refuses a remove while any board
-    /// still points here (FK restrict), so a linked repo's button says so up
-    /// front instead of firing a doomed mutation. `can_manage` is the
-    /// sharer-or-owner gate (EXP-557): without it the row is read-only — a
-    /// static branch chip, no remove.
-    fn render_repo_row(
-        &self,
-        index: usize,
-        repo: &RepoRow,
-        can_manage: bool,
-        status: Option<&GithubStatus>,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let mut head = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .child(
-                Icon::new(registry::UI_GITHUB)
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(repo.full_name.clone())),
-            );
-        head = if can_manage {
-            head.child(self.branch_picker(index, repo, cx))
-        } else {
-            head.child(chip(
-                ("repo-branch-static", index),
-                SharedString::from(repo.default_branch.clone()),
-                cx,
-            ))
-        };
-        if repo.private {
-            head = head.child(private_chip(index, cx));
-        }
-
-        if can_manage {
-            // EXP-862: a row's remove is a GHOST glyph — no circle.
-            let remove = crate::controls::ghost_icon_button(
-                ("repo-remove", index),
-                Icon::new(registry::UI_DELETE),
-                cx,
-            )
-            .accessibility_label("Remove repository");
-            let linked = repo.boards.len();
-            head = head.child(if linked > 0 {
-                let plural = if linked == 1 { "" } else { "s" };
-                remove.disabled(true).tooltip(SharedString::from(format!(
-                    "In use by {linked} board{plural}. Change their repository first."
-                )))
-            } else {
-                let repo_for_remove = repo.clone();
-                remove
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_remove(&repo_for_remove, window, cx);
-                    }))
-            });
-        }
-
-        // EXP-774 (web `RepoRow` parity): the per-repo access banner. A
-        // suspension flags every repo of the installation as inaccessible —
-        // the banner must then say "unsuspend", not "re-grant" (REV2-29).
-        // Both buttons hand off to GitHub's installation page.
-        let installation = status.and_then(|status| {
-            status
-                .installations
-                .iter()
-                .find(|inst| Some(inst.installation_id) == repo.installation_id)
-        });
-        let suspended = installation.is_some_and(|inst| inst.suspended);
-        let access_banner = (repo.inaccessible_at.is_some() || suspended).then(|| {
-            let manage_url = installation
-                .map(|inst| inst.manage_url.clone())
-                .filter(|url| !url.is_empty())
-                .or_else(|| status.and_then(|status| status.install_url.clone()));
-            let (message, action) = if suspended {
-                (
-                    "GitHub suspended the Exponential app for this repository's account. \
-                     Unsuspend it on GitHub to code on this repo again.",
-                    "Unsuspend",
-                )
-            } else {
-                (
-                    "The GitHub App lost access to this repository. Re-grant it on GitHub.",
-                    "Re-grant",
-                )
-            };
-            h_flex()
-                .w_full()
-                .flex_wrap()
-                .gap_2()
-                .pl_6()
-                .items_center()
+                .font_family(theme::terminal::FONT_FAMILY)
                 .text_xs()
-                .text_color(cx.theme().danger)
-                .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
-                .child(div().flex_1().min_w_0().child(message))
-                .children(manage_url.map(|url| {
-                    crate::surface::glass_pill_button(("repo-regrant", index), crate::surface::PillSize::Sm, cx)
-                        .label(action)
-                        .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                }))
-        });
-
-        let mut links = h_flex().flex_wrap().gap_1p5().pl_6().items_center();
-        if repo.boards.is_empty() {
-            links = links.child(
+                .child(SharedString::from(name.clone())),
+        );
+        if is_github_default {
+            row = row.child(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Not used by any board"),
-            );
-        } else {
-            // The chips alone read as loose board names — the label says what
-            // the relationship is.
-            links = links.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Used by"),
-            );
-            let synced = Store::global(cx).collections().boards.read(cx);
-            for board in &repo.boards {
-                // EXP-862 (×4): a board chip wears the BOARD's icon, tinted
-                // with the board's colour — the same glyph the nav, the
-                // pickers and the issue header draw. The server row carries
-                // only id + name, so the glyph comes from the synced board
-                // (a board this client cannot see keeps the bare name).
-                let glyph = synced.get(&board.id).map(|row| {
-                    let tint = row
-                        .color
-                        .as_deref()
-                        .and_then(super::parse_hex_color)
-                        .unwrap_or(cx.theme().muted_foreground);
-                    crate::icons::board_icon(row)
-                        .with_size(gpui::px(crate::surface::PillSize::Sm.glyph()))
-                        .text_color(tint)
-                });
-                links = links.child(
-                    crate::surface::glass_pill(
-                        SharedString::from(format!("repo-board-{}", board.id)),
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
-                    )
-                    .children(glyph)
-                    .child(SharedString::from(board.name.clone())),
-                );
-            }
-        }
-        // EXP-557: name the sharer so read-only rows explain themselves.
-        if let Some(sharer) = repo.shared_by.as_ref().and_then(RepoSharedBy::label) {
-            links = links.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format!("\u{b7} Shared by {sharer}"))),
+                    .flex_shrink_0()
+                    .child("default"),
             );
         }
-
-        // EXP-1076: one rung of the hairline LADDER every settings entity
-        // list wears — `list_row` + `flat_row`, a hairline between rows and
-        // no box around them (the web `SETTINGS_LIST_CLASS` twin).
-        crate::surface::flat_row()
-            .flex()
-            .flex_col()
-            .gap_1p5()
-            .px_3()
-            .py_2()
-            .child(head)
-            .children(access_banner)
-            .child(links)
-    }
-
-    /// The row's branch chip as a picker (EXP-462, web parity:
-    /// `DefaultBranchMenu`): shows the effective default branch; the popover
-    /// lists the repo's branches (fetched live from GitHub on first open)
-    /// behind a search input (EXP-469 — repos routinely carry more branches
-    /// than a scrollable menu can be skimmed for), "default" marks GitHub's
-    /// own — picking it clears the pin so the repo follows GitHub again.
-    fn branch_picker(
-        &self,
-        index: usize,
-        repo: &RepoRow,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
-
-        // Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
-        // chevron-down (the chip opens a dropdown, it is not a picker row).
-        let button = crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
-            .accessibility_label(format!("Default branch for {}", repo.full_name))
-            .max_w(px(240.))
-            .font_family(theme::terminal::FONT_FAMILY)
-            .child(crate::surface::picker_value_label(SharedString::from(
-                repo.default_branch.clone(),
-            )))
-            .child(
-                Icon::new(registry::UI_CHEVRON_DOWN)
+        if checked {
+            row = row.child(
+                Icon::new(registry::UI_CHECK)
                     .size_3()
                     .flex_shrink_0()
                     .text_color(cx.theme().muted_foreground),
-            )
-            .disabled(self.busy);
-
-        let pane = cx.entity().clone();
-        let repo_id = repo.id.clone();
-        let effective = repo.default_branch.clone();
-        let github_default = repo.github_default_branch.clone();
-        let query = self.branch_query.clone();
-        let query_for_open = query.clone();
-        let pane_for_open = pane.clone();
-        let repo_id_for_open = repo_id.clone();
-        Popover::new(("repo-branch-picker", index))
-            .p_1()
-            .w(px(crate::pickers::PICKER_SEARCH_WIDTH))
-            .trigger(button)
-            .on_open_change(move |open, window, cx| {
-                // Fresh search per open; the input takes focus like the web
-                // CommandInput. Opening also kicks the lazy branch fetch —
-                // the popover content re-renders on pane notify, so the list
-                // appears in place once it lands.
-                query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
-                if *open {
-                    query_for_open.read(cx).focus_handle(cx).focus(window, cx);
-                    pane_for_open.update(cx, |this, cx| {
-                        this.ensure_branches(&repo_id_for_open, cx);
-                    });
-                }
-            })
-            .content(move |_, window, cx| {
-                let popover_state = cx.entity();
-                let load = pane.read(cx).branches.get(&repo_id).cloned();
-                let filter = query.read(cx).value().trim().to_lowercase();
-
-                let mut column = v_flex()
-                    .w_full()
-                    .child(
-                        search_field(&query, SearchFieldSize::Sm, window, cx).appearance(false),
-                    )
-                    .child(
-                        div()
-                            .h(px(1.))
-                            .w_full()
-                            .my_1()
-                            .bg(cx.theme().border.opacity(0.5)),
-                    );
-                match load {
-                    // First load: the picker's rows as placeholders (D8).
-                    None | Some(BranchLoad::Loading) => {
-                        column = column.child(crate::feedback::skeleton_rows(
-                            ("repo-branch-skeleton", index),
-                            crate::feedback::SKELETON_ROWS,
-                            crate::controls::MENU_ROW_H,
-                            cx,
-                        ));
-                    }
-                    // A failed load is quiet (FEED-79): the empty list.
-                    Some(BranchLoad::Failed) => {
-                        column = column
-                            .child(crate::pickers::empty_picker_row("No branches found.", cx));
-                    }
-                    Some(BranchLoad::Ready(branches)) => {
-                        // The effective branch always renders even when GitHub
-                        // no longer has it (a pinned branch deleted upstream) —
-                        // the list must show what the row is set to.
-                        let mut names: Vec<String> = Vec::new();
-                        if !branches.contains(&effective) {
-                            names.push(effective.clone());
-                        }
-                        names.extend(branches);
-                        names.retain(|name| {
-                            filter.is_empty() || name.to_lowercase().contains(&filter)
-                        });
-                        if names.is_empty() {
-                            return column
-                                .child(crate::pickers::empty_picker_row("No branches found.", cx));
-                        }
-
-                        let handle = window.window_handle();
-                        let mut rows = v_flex()
-                            .id(("repo-branch-rows", index))
-                            .w_full()
-                            .max_h(px(240.))
-                            .overflow_y_scroll();
-                        for name in names {
-                            let is_github_default = github_default.as_deref() == Some(&name);
-                            let checked = name == effective;
-                            let mut row = crate::pickers::picker_row(
-                                ElementId::Name(SharedString::from(format!(
-                                    "repo-branch-{repo_id}-{name}"
-                                ))),
-                                cx,
-                            )
-                            .role(gpui::Role::ListItem)
-                            .aria_selected(checked)
-                            .aria_label(SharedString::from(name.clone()))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .whitespace_nowrap()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .text_xs()
-                                    .child(SharedString::from(name.clone())),
-                            );
-                            if is_github_default {
-                                row = row.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .flex_shrink_0()
-                                        .child("default"),
-                                );
-                            }
-                            if checked {
-                                row = row.child(
-                                    Icon::new(registry::UI_CHECK)
-                                        .size_3()
-                                        .flex_shrink_0()
-                                        .text_color(cx.theme().muted_foreground),
-                                );
-                            } else {
-                                let pane = pane.clone();
-                                let repo_id = repo_id.clone();
-                                let popover_state = popover_state.clone();
-                                row = row.on_click(move |_, window, cx| {
-                                    let pick = if is_github_default {
-                                        None
-                                    } else {
-                                        Some(name.clone())
-                                    };
-                                    pane.update(cx, |this, cx| {
-                                        this.set_default_branch(repo_id.clone(), pick, handle, cx);
-                                    });
-                                    popover_state.update(cx, |state, cx| state.dismiss(window, cx));
-                                });
-                            }
-                            rows = rows.child(row);
-                        }
-                        column = column.child(rows);
-                    }
-                }
-                column
-            })
-            .into_any_element()
+            );
+        } else {
+            let pick = pick.clone();
+            row = row.on_click(move |_, window, cx| {
+                pick(if is_github_default { None } else { Some(name.clone()) }, window, cx);
+            });
+        }
+        rows = rows.child(row);
     }
+    column.child(rows)
 }
 
-/// The "Private" chip — same outline chip with the lock glyph, so private
-/// repos read at a glance instead of by word.
-fn private_chip(index: usize, cx: &gpui::App) -> impl IntoElement {
-    use crate::surface::{PillMode, PillSize};
-    crate::surface::glass_pill(("repo-private", index), PillSize::Sm, PillMode::Readonly, cx)
-        .child(Icon::new(registry::UI_PRIVATE).with_size(gpui::px(PillSize::Sm.glyph())))
-        .child("Private")
-}
-
-/// Outline chip (web `Badge variant="outline"` at compact density).
-fn chip(id: impl Into<gpui::ElementId>, label: SharedString, cx: &gpui::App) -> impl IntoElement {
-    use crate::surface::{PillMode, PillSize};
-    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
-    .font_family(theme::terminal::FONT_FAMILY)
-    .child(label)
+/// The TRAILING external-link glyph of a hand-off to GitHub (the add
+/// dialog's Configure) — rendered after the label.
+pub(super) fn external_glyph() -> Icon {
+    Icon::new(registry::UI_EXTERNAL_LINK).with_size(px(crate::surface::PillSize::Sm.glyph()))
 }

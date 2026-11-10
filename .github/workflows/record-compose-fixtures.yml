@@ -58,6 +58,10 @@ name: record-compose-fixtures
 # laid out at the Embed's width: `Embed/example` at the Approve button's
 # height, not 0).
 # EDE-65 lane R (2026-11-09): re-recorded for the Composer slots (#2503).
+# EXP-1629 (2026-11-09): re-recorded for Icon `size: xl` (28, `$control.iconXl`;
+# the `Icon/size=xl` case of the Compose snapshot `components.json`).
+# EXP-1629 (2026-11-10): re-recorded for Input `variant: box` + `size`
+# (the catalog cases + the Input specimen in `components.json`).
 # EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by
 # seed, half-size regular initials, the picture ring): `Avatar.png`, the
 # kitchen-sink goldens (seeded avatars), the CallSurface avatar.
@@ -82,6 +86,15 @@ name: record-compose-fixtures
 # labels + control columns) and anchored popups fitted into the window.
 # EDE-65 R (2026-11-09): re-recorded for the Composer `leading`/`trailing`
 # slots and the pasted-image `attach` (`Composer.png`, `components.json`).
+# EXP-1629 (2026-11-09): again for the row Select's value button (the IDE's
+# multi picker: chosen rows wash + stroke, no check) and the specimen's Apps row.
+# EXP-1629 (2026-11-09): again after merging #2505 (the value button inside
+# the description row's control column).
+# EXP-1760 (2026-11-09): IconPicker + ColorPicker (`IconPicker.png`,
+# `ColorPicker.png`, `components.json`).
+# EXP-1760 (2026-11-10): again for the No icon row (a pressable Box).
+# EXP-1629 (2026-11-09): re-recorded for Select option `trailing` + `open`
+# (the specimen's Branch row; `InteractionTest.selectTrailingAndOpen`).
 on:
   workflow_dispatch: {}
   push:

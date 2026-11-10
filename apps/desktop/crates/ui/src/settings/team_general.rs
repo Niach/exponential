@@ -10,31 +10,26 @@
 //! `useEffect`: an Electric echo that changes the synced row overwrites the
 //! local draft (which is exactly how the post-save echo clears `dirty`).
 
+use std::rc::Rc;
 use std::time::Instant;
 
+use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
+    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Task, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _,
-};
+use gpui_component::{input::InputState, v_flex, ActiveTheme as _};
+use serde_json::{json, Value};
 use sync::Store;
 
-use crate::controls::{glass_input, web_textarea, WebControl as _};
+use crate::controls::{glass_input, WebControl as _};
 use crate::feedback;
 use crate::toast::{self, Toast};
 use crate::native_dialog::{self, AlertEnter, AlertSpec};
 use crate::navigation::Navigation;
 
-use super::{
-    active_team, danger_zone, is_owner, open_url, section,
-    team_delete_error_message,
-};
-use crate::icons::registry;
+use super::doc::{and, faded, hex, not, path, IdeToasts, Ink, SM, VALUE_ALPHA, XS};
+use super::{active_team, is_owner, open_url, team_delete_error_message};
 
 /// #EXP-1645: why a picked file never goes out (the server's own words,
 /// `team-icon-upload.ts`). The native picker has no type filter, so `upload.accept`
@@ -420,6 +415,12 @@ struct PromptState {
     retry_pressed: bool,
     /// What the server holds (trailing whitespace dropped, like it does).
     saved: String,
+    /// The text the field was last given (the load): the document's bound
+    /// value. A save that lands never moves it, so a slow confirmation can
+    /// never write an older text over the field.
+    shown: String,
+    /// The field's live text (its edits).
+    text: String,
     /// ISO stamp of the last write, for the "Edited …" caption.
     updated_at: Option<String>,
     /// EXP-1275: the autosave debounce — each keystroke replaces it
@@ -435,14 +436,50 @@ struct PromptState {
     generation: u64,
 }
 
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct GeneralShot {
+    /// `None` = no team selected.
+    pub team: Option<domain::rows::Team>,
+    pub owner: bool,
+    /// The team image's PNG bytes (its `icon_url` names it).
+    pub picture: Option<Vec<u8>>,
+    /// The Name field's typed text (differs from the team's = `Unsaved`).
+    pub name_draft: Option<String>,
+    pub saving: bool,
+    pub prompt: PromptShot,
+    pub billing: Option<api::billing::TeamPlanOut>,
+}
+
+#[cfg(test)]
+pub(crate) enum PromptShot {
+    Loading,
+    Failed,
+    /// The text, its last-write stamp, and whether a write is out.
+    Ready(String, Option<String>, bool),
+}
+
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// The `Device time zone` option's value (a Select option needs one; the
+/// write sends `null`).
+const DEVICE_ZONE: &str = "device";
+
+/// #EXP-1629: Settings → General is ONE document on eUI's native host
+/// binding: the pane keeps its state and writes, [`GeneralPane::project`] is
+/// its data model at `/pane`, [`document`] the tree (the Name `row` Input,
+/// the team image row, the Time zone and Merge `row` Selects, the team
+/// prompt's Textarea, Plan & Billing, the Danger zone); every press, pick and
+/// edit comes back to the pane.
 pub struct GeneralPane {
     nav: Entity<Navigation>,
-    name_input: Entity<InputState>,
     delete_input: Entity<InputState>,
+    /// The Name field's live text.
+    name: String,
     /// EXP-1025: the team prompt — a RAW monospace field, never the markdown
     /// WYSIWYG: a prompt is read by a model, so the bytes shown must be the
     /// bytes it gets.
-    prompt_input: Entity<TextareaState>,
     prompt: PromptState,
     snapshot: Option<Snapshot>,
     saving: bool,
@@ -459,6 +496,11 @@ pub struct GeneralPane {
     billing_team: Option<String>,
     billing_account: Option<String>,
     billing_generation: u64,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// The bench's state (headless has no team, membership or server).
+    #[cfg(test)]
+    shot: Option<GeneralShot>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -468,43 +510,14 @@ impl GeneralPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Team name"));
         let delete_input = cx.new(|cx| InputState::new(window, cx));
-        // D8: no "Loading…" placeholder — the field is disabled under the
-        // header's inline `Loading` status until the text lands.
-        let prompt_input = cx.new(|cx| web_textarea(10, 40, window, cx));
 
         let collections = Store::global(cx).collections().clone();
-        let subscriptions = vec![
-            // Resync needs the window (set_value) — window-aware observers.
-            cx.observe_in(&nav, window, |this, _, window, cx| {
-                this.resync(window, cx);
-            }),
-            cx.observe_in(&collections.teams, window, |this, _, window, cx| {
-                this.resync(window, cx);
-            }),
+        let mut subscriptions = vec![
+            cx.observe(&nav, |this, _, cx| this.resync(cx)),
+            cx.observe(&collections.teams, |this, _, cx| this.resync(cx)),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
-            // EXP-818: the name row saves ITSELF — on blur and on Enter, the
-            // Linear way (web `GlassInputRow` twin). No Save button.
-            cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
-                InputEvent::Change => cx.notify(),
-                InputEvent::PressEnter { .. } | InputEvent::Blur => this.save(cx),
-                _ => {}
-            }),
-            // EXP-1275: the prompt AUTOSAVES — `AUTOSAVE_DEBOUNCE` after the
-            // last keystroke and on blur (Enter is a newline in a textarea).
-            cx.subscribe(&prompt_input, |this, _, event: &InputEvent, cx| match event {
-                InputEvent::Change => {
-                    this.schedule_prompt_save(cx);
-                    cx.notify();
-                }
-                InputEvent::Blur => {
-                    this.prompt.debounce = None;
-                    this.save_prompt(cx);
-                }
-                _ => {}
-            }),
         ];
         // Review #8: leaving Settings (or closing the window) drops the pane
         // — an edit still in its debounce is sent on the way out.
@@ -512,14 +525,40 @@ impl GeneralPane {
         // Final review B7: the writes run in the app-wide queue; the pane
         // follows it for `Saving` / `Saved`.
         prompt_saves(cx);
-        let mut subscriptions = subscriptions;
         subscriptions.push(cx.observe_global::<PromptSaves>(|this, cx| this.sync_prompt_saves(cx)));
+
+        // Every action leaves the binding for the pane (the pickers, the
+        // delete confirm and the file picker open on its window).
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["zone", "merge", "upload", "removeImage", "retryPrompt", "manageBilling", "deleteTeam"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let value = event.payload.as_ref().and_then(|p| p.get("value")).cloned().unwrap_or(Value::Null);
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, value, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        // The two text fields' edits (live and committed) reach the pane
+        // through its plugin: the binding takes only commits.
+        let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin(), media: crate::plan_card::CardSurfaceHost::new(cx) });
+        let view = super::doc::mount_with("settings-general", document(&Ink::of(cx), &Chrome::of(cx)), &binding, plugin, true, window, cx);
 
         let mut this = Self {
             nav,
-            name_input,
             delete_input,
-            prompt_input,
+            name: String::new(),
             prompt: PromptState::default(),
             snapshot: None,
             saving: false,
@@ -530,16 +569,85 @@ impl GeneralPane {
             billing_team: None,
             billing_account: None,
             billing_generation: 0,
+            binding,
+            view,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         };
-        this.resync(window, cx);
+        this.resync(cx);
         this
+    }
+
+    /// The pane's team (the bench's, under test).
+    fn team(&self, cx: &App) -> Option<domain::rows::Team> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team(cx, &self.nav)
+    }
+
+    fn owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        is_owner(cx, team_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: GeneralShot, _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use base64::Engine as _;
+        let mut shot = shot;
+        // The picture rides a data URL (headless has no transport).
+        if let (Some(team), Some(bytes)) = (shot.team.as_mut(), &shot.picture) {
+            if team.icon_url.is_some() {
+                team.icon_url = Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)));
+            }
+        }
+        if let Some(team) = &shot.team {
+            self.snapshot = Some(Snapshot { team_id: team.id.clone(), name: team.name.clone() });
+            self.name = shot.name_draft.clone().unwrap_or_else(|| team.name.clone());
+            self.prompt.team_id = Some(team.id.clone());
+            self.billing_team = Some(team.id.clone());
+        }
+        self.saving = shot.saving;
+        self.billing = match &shot.billing {
+            Some(plan) => BillingLoad::Ready(plan.clone()),
+            None => BillingLoad::Failed,
+        };
+        match &shot.prompt {
+            PromptShot::Loading => self.prompt.loading = true,
+            PromptShot::Failed => self.prompt.load_failed = true,
+            PromptShot::Ready(text, stamp, busy) => {
+                self.prompt.saved = text.trim_end().to_string();
+                self.prompt.shown = text.clone();
+                self.prompt.text = text.clone();
+                self.prompt.updated_at = stamp.clone();
+                if let (true, Some(team)) = (*busy, &shot.team) {
+                    prompt_saves(cx).teams.entry(team.id.clone()).or_default().queue.in_flight = Some(1);
+                }
+            }
+        }
+        self.shot = Some(shot);
+        self.push(cx);
+        cx.notify();
     }
 
     /// Kick the `billing.teamPlan` fetch when the pane is shown or the
     /// team/account changed (render-time — a hidden pane never fetches;
     /// generation-guarded like the boards repo cache).
     fn ensure_billing(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -585,8 +693,8 @@ impl GeneralPane {
 
     /// Mirror the web `useEffect`: whenever the synced row (or the active
     /// team) changes, replace the local draft.
-    fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(team) = active_team(cx, &self.nav) else {
+    fn resync(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(team) = self.team(cx) else {
             return;
         };
         let snapshot = Snapshot {
@@ -596,13 +704,11 @@ impl GeneralPane {
         if self.snapshot.as_ref() == Some(&snapshot) {
             return;
         }
-        self.name_input.update(cx, |state, cx| {
-            state.set_value(snapshot.name.clone(), window, cx);
-        });
+        self.name = snapshot.name.clone();
         let team_changed = self.snapshot.as_ref().map(|held| &held.team_id) != Some(&snapshot.team_id);
         self.snapshot = Some(snapshot);
         if team_changed {
-            self.fetch_prompt(window, cx);
+            self.fetch_prompt(cx);
         }
         cx.notify();
     }
@@ -610,7 +716,7 @@ impl GeneralPane {
     /// EXP-1025: the ONE read path for the team prompt (`teams.getAgentPrompt`;
     /// the shape excludes it). Clears the field first so the previous team's
     /// text never shows under the new team's name.
-    fn fetch_prompt(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn fetch_prompt(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = self.snapshot.as_ref().map(|snapshot| snapshot.team_id.clone()) else {
             return;
         };
@@ -630,23 +736,21 @@ impl GeneralPane {
         self.prompt.loading = true;
         self.prompt.load_failed = false;
         self.prompt.saved.clear();
+        self.prompt.shown.clear();
+        self.prompt.text.clear();
         self.prompt.updated_at = None;
         self.prompt.saved_at = None;
-        self.prompt_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-            state.set_placeholder("", window, cx);
-        });
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             self.prompt.loading = false;
             self.prompt.load_failed = true;
             return;
         };
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
+        cx.spawn(async move |this, cx| {
+            let result = cx
                 .background_executor()
                 .spawn(async move { api::teams::teams_get_agent_prompt(&trpc, &team_id) })
                 .await;
-            let _ = this.update_in(window, |view, window, cx| {
+            let _ = this.update(cx, |view, cx| {
                 if view.prompt.generation != generation {
                     return;
                 }
@@ -656,10 +760,8 @@ impl GeneralPane {
                     Ok(prompt) => {
                         view.prompt.saved = prompt.agent_prompt.clone();
                         view.prompt.updated_at = prompt.agent_prompt_updated_at;
-                        view.prompt_input.update(cx, |state, cx| {
-                            state.set_value(prompt.agent_prompt, window, cx);
-                            state.set_placeholder(TEAM_PROMPT_PLACEHOLDER, window, cx);
-                        });
+                        view.prompt.shown = prompt.agent_prompt.clone();
+                        view.prompt.text = prompt.agent_prompt;
                     }
                     Err(err) => {
                         // FEED-79: the load on open fails quietly: the
@@ -681,26 +783,26 @@ impl GeneralPane {
     }
 
     /// The failed prompt's Retry: the same load, attended.
-    fn retry_prompt(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn retry_prompt(&mut self, cx: &mut gpui::Context<Self>) {
         self.prompt.retry_pressed = true;
-        self.fetch_prompt(window, cx);
+        self.fetch_prompt(cx);
         cx.notify();
     }
 
-    fn prompt_bytes(&self, cx: &App) -> usize {
-        self.prompt_input.read(cx).value().len()
+    fn prompt_bytes(&self) -> usize {
+        self.prompt.text.len()
     }
 
-    fn prompt_dirty(&self, cx: &App) -> bool {
+    fn prompt_dirty(&self) -> bool {
         !self.prompt.loading
             && !self.prompt.load_failed
-            && self.prompt_input.read(cx).value().trim_end() != self.prompt.saved
+            && self.prompt.text.trim_end() != self.prompt.saved
     }
 
     /// EXP-1275: (re)start the autosave debounce: the save fires
     /// `AUTOSAVE_DEBOUNCE` after the LAST keystroke.
     fn schedule_prompt_save(&mut self, cx: &mut gpui::Context<Self>) {
-        if !self.prompt_dirty(cx) {
+        if !self.prompt_dirty() {
             self.prompt.debounce = None;
             return;
         }
@@ -717,17 +819,17 @@ impl GeneralPane {
     /// to send: no team, still loading, equal to the last saved text, or
     /// over the cap (the inline line says so and the server would refuse
     /// it anyway).
-    fn pending_prompt_save(&self, cx: &App) -> Option<PromptSave> {
+    fn pending_prompt_save(&self, _cx: &App) -> Option<PromptSave> {
         let team_id = self.prompt.team_id.clone()?;
-        if !self.prompt_dirty(cx) {
+        if !self.prompt_dirty() {
             return None;
         }
-        if self.prompt_bytes(cx) > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES {
+        if self.prompt_bytes() > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES {
             return None;
         }
         Some(PromptSave {
             team_id,
-            text: self.prompt_input.read(cx).value().to_string(),
+            text: self.prompt.text.clone(),
         })
     }
 
@@ -802,108 +904,82 @@ impl GeneralPane {
         }
     }
 
-    /// EXP-1025: the team prompt section — header with the save caption, the
-    /// raw monospace field in its own glass block, the help line and the
-    /// byte/token counter under it. Owner-only, and HIDDEN from everyone
-    /// else like every owner control (the web route hides the whole
-    /// section too): a non-owner gets nothing here, not a disabled field.
-    fn render_prompt_section(&self, owner: bool, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        if !owner {
-            return div();
+    /// A text field's edit (the plugin's): `name` saves on commit (blur /
+    /// Enter, EXP-818: no Save button); the prompt AUTOSAVES
+    /// `AUTOSAVE_DEBOUNCE` after the last keystroke and on blur (EXP-1275).
+    fn edited(&mut self, name: &str, value: String, commit: bool, cx: &mut gpui::Context<Self>) {
+        match name {
+            "name" => {
+                self.name = value;
+                if commit {
+                    self.save(cx);
+                }
+                cx.notify();
+            }
+            "prompt" => {
+                self.prompt.text = value;
+                if commit {
+                    self.prompt.debounce = None;
+                    self.save_prompt(cx);
+                } else {
+                    self.schedule_prompt_save(cx);
+                }
+                cx.notify();
+            }
+            _ => {}
         }
-        let bytes = self.prompt_bytes(cx);
-        let over = bytes > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
-        // EXP-1275: `Saving` (spinner) → `Saved` for the hold → `Edited
-        // {ago}`; there is no Unsaved state.
-        let just_saved = self
-            .prompt
-            .saved_at
-            .is_some_and(|at| at.elapsed() < feedback::AUTOSAVE_SAVED_HOLD);
-        // D8: the load = the header's inline `Loading` status (the field
-        // stays disabled), never a "Loading…" placeholder.
-        let trailing = if self.prompt.loading {
-            Some(feedback::inline_status(feedback::WORD_LOADING, true, cx))
-        } else if self.prompt_saving(cx) {
-            Some(feedback::inline_status(feedback::AUTOSAVE_SAVING, true, cx))
-        } else if just_saved {
-            Some(feedback::inline_status(feedback::AUTOSAVE_SAVED, false, cx))
-        } else {
-            self.prompt.updated_at.as_deref().map(|stamp| {
-                feedback::inline_status(
-                    feedback::autosave_edited(&crate::inbox::relative_time(stamp)),
-                    false,
-                    cx,
-                )
-            })
-        }
-        .map(IntoElement::into_any_element);
-        let field = Textarea::new(&self.prompt_input)
-            .appearance(false)
-            .w_full()
-            .px_4()
-            .py_3()
-            .font_family(theme::terminal::FONT_FAMILY)
-            .text_xs()
-            .disabled(self.prompt.loading || self.prompt.load_failed);
-        let footer = h_flex()
-            .w_full()
-            .items_start()
-            .justify_end()
-            .gap_4()
-            .px_4()
-            .py_2()
-            .border_t_1()
-            .border_color(super::row_stroke(cx))
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .when(over, |counter| counter.text_color(cx.theme().danger))
-                    .child(prompt_counter(bytes)),
-            );
-        // A failed load (FEED-79): the field's empty state + Retry.
-        if self.prompt.load_failed && !self.prompt.loading {
-            return section(cx)
-                .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, None, cx))
-                .child(crate::surface::glass_group().child(
-                    crate::action_error::load_failed_state(
-                        "team-prompt-retry",
-                        gpui_component::Icon::new(registry::SETTINGS_GENERAL),
-                        PROMPT_UNAVAILABLE,
-                        cx.listener(|this, _, window, cx| this.retry_prompt(window, cx)),
-                        cx,
-                    ),
-                ));
-        }
-        section(cx)
-            .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, trailing, cx))
-            .child(crate::surface::glass_group().child(field).child(footer))
-            // FEED-79: a byte cap is INVALID INPUT — inline under the field.
-            .when(over, |body| {
-                body.child(crate::action_error::field_error(prompt_too_long(bytes), cx))
-            })
     }
 
-    fn dirty(&self, cx: &App) -> bool {
+    /// A document action.
+    fn action(&mut self, name: &str, value: Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(team) = self.team(cx) else { return };
+        let owner = self.owner(&team.id, cx);
+        match name {
+            "zone" if owner => {
+                let current = team.time_zone.clone().unwrap_or_default();
+                let picked = value.as_str().unwrap_or_default();
+                let zone = if picked == DEVICE_ZONE { String::new() } else { picked.to_string() };
+                if !picked.is_empty() && zone != current {
+                    self.set_time_zone(team.id.clone(), zone, cx);
+                }
+            }
+            "merge" if owner => {
+                if let Some(mode) = value.as_str().filter(|mode| !mode.is_empty() && *mode != team.merge_mode()) {
+                    self.set_merge_mode(team.id.clone(), mode.to_string(), cx);
+                }
+            }
+            "upload" if owner => self.pick_team_image(team.id.clone(), window, cx),
+            "removeImage" if owner => self.remove_team_image(team.id.clone(), cx),
+            "retryPrompt" => self.retry_prompt(cx),
+            "manageBilling" => {
+                if let Some(url) = billing_url(&team, cx) {
+                    open_url(cx, url);
+                }
+            }
+            "deleteTeam" if owner => self.open_delete_dialog(team.id.clone(), team.name.clone(), window, cx),
+            _ => {}
+        }
+    }
+
+    fn dirty(&self) -> bool {
         let Some(snapshot) = &self.snapshot else {
             return false;
         };
-        self.name_input.read(cx).value().as_ref() != snapshot.name
+        self.name != snapshot.name
     }
 
     fn save(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(snapshot) = self.snapshot.clone() else {
             return;
         };
-        if !self.dirty(cx) || self.saving {
+        if !self.dirty() || self.saving {
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
 
-        let typed = self.name_input.read(cx).value().trim().to_string();
+        let typed = self.name.trim().to_string();
         // Web: `name.trim() || team.name` — an emptied field falls back.
         let name = if typed.is_empty() {
             snapshot.name.clone()
@@ -944,48 +1020,6 @@ impl GeneralPane {
         .detach();
     }
 
-    /// VAPP-201 (team-zone.json): the General group's Time zone row = THE
-    /// schedule zone picker (`schedule_fields::time_zone_items`) with
-    /// `Device time zone` (= none) first; owners pick, saved at once.
-    fn time_zone_row(&self, team: &domain::rows::Team, owner: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let copy = &domain::team_zone::TEAM_ZONE.copy;
-        let current = team.time_zone.clone().unwrap_or_default();
-        let label = if current.is_empty() { copy.device.clone() } else { current.clone() };
-        let trigger = Button::new(SharedString::from(domain::team_zone::TEAM_ZONE.test_ids.row.clone()))
-            .accessibility_label(copy.row.clone())
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_0()
-            .py_0()
-            .text_color(cx.theme().foreground.opacity(0.7))
-            .child(crate::surface::picker_value_label(label))
-            .child(crate::surface::picker_row_chevron(cx));
-        let mut items = vec![crate::picker::PickerItem::new(String::new(), copy.device.clone())
-            .keywords(vec![SharedString::from(copy.device.clone())])];
-        items.extend(crate::schedule_fields::time_zone_items(&current));
-        let team_id = team.id.clone();
-        let view = cx.entity().downgrade();
-        let control = crate::picker::Picker::single(
-            items,
-            Some(current.clone()),
-            trigger.into_any_element(),
-            std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
-                let Some(zone) = next.into_iter().next() else { return };
-                if zone == current {
-                    return;
-                }
-                let team_id = team_id.clone();
-                let _ = view.update(cx, |this, cx| this.set_time_zone(team_id, zone, cx));
-            }),
-        )
-        .search(true)
-        .disabled(!owner || self.zone_busy)
-        .id(SharedString::from(format!("{}-picker", domain::team_zone::TEAM_ZONE.test_ids.row)))
-        .render(window, cx);
-        crate::surface::glass_picker_row(copy.row.clone(), None, control, cx)
-    }
-
     /// VAPP-201: write the team zone (`""` = none, the device's) through
     /// `teams.update`; the Electric echo moves the row, a failure toasts.
     fn set_time_zone(&mut self, team_id: String, zone: String, cx: &mut gpui::Context<Self>) {
@@ -1018,27 +1052,11 @@ impl GeneralPane {
         .detach();
     }
 
-    /// #EXP-1645 (team-image.json): the General group's Team image row.
-    fn team_image_row(&self, team: &domain::rows::Team, owner: bool, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let upload_team = team.id.clone();
-        let remove_team = team.id.clone();
-        let on_upload = cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
-            this.pick_team_image(upload_team.clone(), window, cx);
-        });
-        let on_remove = cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-            this.remove_team_image(remove_team.clone(), cx);
-        });
-        crate::user_avatar::team_image_row(
-            team.icon_url.as_deref(),
-            !owner || self.image_busy,
-            on_upload,
-            on_remove,
-            cx,
-        )
-    }
-
     /// The Upload pill: the native picker, one file.
     fn pick_team_image(&mut self, team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.image_busy {
+            return;
+        }
         let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
@@ -1146,48 +1164,6 @@ impl GeneralPane {
         .detach();
     }
 
-    /// #EXP-1710 (merge-train.json `copy.settings`): the yolo switch is ONE
-    /// `Merge` select row over the synced `teams.merge_mode` (Automatic |
-    /// After approval), THE select row the Time zone row wears; owners pick,
-    /// saved at once.
-    fn merge_mode_row(&self, team: &domain::rows::Team, owner: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        use domain::merge_train::{merge_mode_label, MERGE_TRAIN};
-        let current = team.merge_mode().to_string();
-        let trigger = Button::new(SharedString::from(MERGE_TRAIN.test_ids.settings_row.clone()))
-            .accessibility_label(MERGE_TRAIN.copy.settings.label.clone())
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_0()
-            .py_0()
-            .text_color(cx.theme().foreground.opacity(0.7))
-            .child(crate::surface::picker_value_label(merge_mode_label(&current).to_string()))
-            .child(crate::surface::picker_row_chevron(cx));
-        let items = domain::contract::TEAM_MERGE_MODE_VALUES
-            .iter()
-            .map(|mode| crate::picker::PickerItem::new(mode.to_string(), merge_mode_label(mode).to_string()))
-            .collect();
-        let team_id = team.id.clone();
-        let view = cx.entity().downgrade();
-        let control = crate::picker::Picker::single(
-            items,
-            Some(current.clone()),
-            trigger.into_any_element(),
-            std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
-                let Some(mode) = next.into_iter().next() else { return };
-                if mode == current {
-                    return;
-                }
-                let team_id = team_id.clone();
-                let _ = view.update(cx, |this, cx| this.set_merge_mode(team_id, mode, cx));
-            }),
-        )
-        .disabled(!owner || self.merge_busy)
-        .id(SharedString::from(format!("{}-picker", MERGE_TRAIN.test_ids.settings_row)))
-        .render(window, cx);
-        crate::surface::glass_picker_row(MERGE_TRAIN.copy.settings.label.clone(), None, control, cx)
-    }
-
     /// #EXP-1710: write the team's `merge_mode` through `teams.update`
     /// (owner-only server-side). No optimistic flip: the Electric echo moves
     /// the row; a failure toasts with Retry.
@@ -1231,113 +1207,6 @@ impl GeneralPane {
             });
         })
         .detach();
-    }
-
-    /// The EXP-288 read-only billing summary: plan chip + usage bars + a
-    /// "Manage on the web" hand-off. Returns `None` while loading/failed,
-    /// on self-hosted (`unlimited`), or without a synced team slug.
-    fn render_billing_section(
-        &self,
-        team: &domain::rows::Team,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::Div> {
-        let BillingLoad::Ready(plan) = &self.billing else {
-            return None;
-        };
-        if plan.plan == "unlimited" {
-            return None; // self-hosted: no billing surface at all (web parity)
-        }
-        // Web `PLAN_LABELS` (billing-section.tsx). EXP-771: this still named
-        // the retired `pro`/`business` tiers, so the ONE paid tier fell to the
-        // fallback arm and the chip read a raw lowercase "team".
-        let plan_label: SharedString = match plan.plan.as_str() {
-            "free" => "Free".into(),
-            "team" => "Team".into(),
-            "unlimited" => "Unlimited".into(),
-            other => other.to_string().into(),
-        };
-        let plan_chip = div()
-            .px_2()
-            .py_0p5()
-            .rounded_full()
-            .border_1()
-            .border_color(cx.theme().primary.opacity(0.4))
-            .bg(cx.theme().primary.opacity(0.1))
-            .text_xs()
-            .child(plan_label);
-
-        let fraction = |current: f64, limit: Option<f64>| {
-            limit.filter(|limit| *limit > 0.).map(|limit| current / limit)
-        };
-        let seats = super::usage_bar(
-            "Seats",
-            format!("{}", plan.usage.members.round() as i64),
-            plan.limits
-                .seats
-                .map(|seats| format!("{}", seats.round() as i64)),
-            fraction(plan.usage.members, plan.limits.seats),
-            cx,
-        );
-        let storage = super::usage_bar(
-            "Attachment storage",
-            super::format_storage(plan.usage.storage_mb),
-            plan.limits.storage_mb.map(super::format_storage),
-            fraction(plan.usage.storage_mb, plan.limits.storage_mb),
-            cx,
-        );
-        let widgets = super::usage_bar(
-            "Feedback widgets",
-            format!("{}", plan.usage.widget_configs.round() as i64),
-            plan.limits
-                .widget_configs
-                .map(|widgets| format!("{}", widgets.round() as i64)),
-            fraction(plan.usage.widget_configs, plan.limits.widget_configs),
-            cx,
-        );
-
-        let mut body = section(cx)
-            .child(
-                crate::surface::glass_section_header(
-                    "Plan & Billing",
-                    Some(plan_chip.into_any_element()),
-                    cx,
-                ),
-            )
-            .child(
-                // EXP-862: the usage meters sit in the section's own glass
-                // block, not in a bordered card inside a card.
-                crate::surface::glass_group()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .child(seats)
-                    .child(storage)
-                    .child(widgets),
-            );
-
-        // Checkout/portal/seat changes are web flows (Creem runs in the
-        // browser) — hand off to the team's billing settings page.
-        if let Some(slug) = team.slug.clone() {
-            if let Some(account) = crate::queries::active_account(cx) {
-                let url = format!(
-                    "{}/t/{slug}/settings/billing",
-                    account.instance_url.trim_end_matches('/')
-                );
-                body = body.child(
-                    h_flex().child(
-                        Button::new("billing-manage")
-                            .outline()
-                            .web_sm()
-                            .icon(registry::UI_EXTERNAL_LINK)
-                            .label("Manage billing on the web")
-                            .on_click(cx.listener(move |_, _, _, cx| {
-                                open_url(cx, url.clone());
-                            })),
-                    ),
-                );
-            }
-        }
-        Some(body)
     }
 
     fn open_delete_dialog(
@@ -1417,108 +1286,507 @@ impl GeneralPane {
         });
         native_dialog::open_alert(window, cx, spec);
     }
-}
 
-impl Render for GeneralPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "GeneralPane").entered();
-        let Some(team) = active_team(cx, &self.nav) else {
-            return v_flex().child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
-                crate::empty_state_copy::NO_TEAM_SELECTED,
-                cx,
-            ));
+    /// EXP-1025: the team prompt section's state — the header's caption
+    /// (`Loading` while it loads, D8; `Saving` (spinner) → `Saved` for the
+    /// hold → `Edited {ago}`, EXP-1275: no Unsaved state), the field, its
+    /// byte/token counter and the cap's inline line (FEED-79: invalid input).
+    fn project_prompt(&self, cx: &App) -> Value {
+        let bytes = self.prompt_bytes();
+        let over = bytes > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
+        let just_saved = self.prompt.saved_at.is_some_and(|at| at.elapsed() < feedback::AUTOSAVE_SAVED_HOLD);
+        let (status, spinning) = if self.prompt.loading {
+            (Some(feedback::WORD_LOADING.to_string()), true)
+        } else if self.prompt_saving(cx) {
+            (Some(feedback::AUTOSAVE_SAVING.to_string()), true)
+        } else if just_saved {
+            (Some(feedback::AUTOSAVE_SAVED.to_string()), false)
+        } else {
+            (self.prompt.updated_at.as_deref().map(|stamp| feedback::autosave_edited(&crate::inbox::relative_time(stamp)).to_string()), false)
         };
-        // Team visibility is deliberately not configurable (v6) — the pane
-        // is just the name card, billing summary and Danger Zone.
-        let owner = is_owner(cx, &team.id);
-        let dirty = self.dirty(cx);
-        let saving = self.saving;
-
-        // EXP-818: label left, value right, saves on blur/Enter — the row
-        // vocabulary the device editor's Name row wears; a "Saving…" caption
-        // trails while the write is out.
-        let name_row = crate::surface::glass_input_row(
-            "Name",
-            crate::surface::glass_row_input(
-                glass_input(&self.name_input, window, cx).disabled(!owner),
-            )
-            .into_any_element(),
-            cx,
-        )
-        .when(saving || dirty, |row| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(if saving { "Saving…" } else { "Unsaved" }),
-            )
-        });
-        let image_row = self.team_image_row(&team, owner, cx);
-        let zone_row = self.time_zone_row(&team, owner, window, cx);
-        let mut general = section(cx)
-            .child(crate::surface::glass_section_header("General", None, cx))
-            .child(crate::surface::glass_group_rows(vec![name_row, image_row, zone_row]));
-        // #EXP-1710: the Merge row (the yolo switch's place) — owner-only
-        // and HIDDEN from everyone else, like every owner control in this
-        // pane. Its OWN group under Name (web general-section's second
-        // GlassGroup).
-        if owner {
-            let merge_row = self.merge_mode_row(&team, owner, window, cx);
-            general = general.child(crate::surface::glass_group_rows(vec![merge_row]));
-        }
-
-
-        let mut pane = v_flex().gap_4().child(general);
-
-        // EXP-1025: the team prompt, right under the name (web parity).
-        pane = pane.child(self.render_prompt_section(owner, cx));
-
-        // EXP-288: read-only Plan & Billing between the name card and the
-        // Danger Zone (fetch kicked at render like the boards repo cache).
-        self.ensure_billing(&team.id, cx);
-        if let Some(billing) = self.render_billing_section(&team, cx) {
-            pane = pane.child(billing);
-        }
-
-        // Danger zone (web settings/general.tsx): owner-only. EXP-720: the
-        // shared `danger_zone` recipe, same as Tools' "Reset IDE data".
-        if owner {
-            let team_id = team.id.clone();
-            let team_name = team.name.clone();
-            pane = pane.child(
-                danger_zone(
-                    "Permanently delete this team and all its data.",
-                    Button::new("team-delete")
-                        .danger()
-                        .web_xs()
-                        .icon(registry::UI_DELETE)
-                        .label("Delete team")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_delete_dialog(
-                                team_id.clone(),
-                                team_name.clone(),
-                                window,
-                                cx,
-                            );
-                        })),
-                    cx,
-                ),
-            );
-        }
-
-        pane.when(!owner, |pane| {
-            pane.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Only team owners can change these settings."),
-            )
+        let failed = self.prompt.load_failed && !self.prompt.loading;
+        let loaded = !self.prompt.loading && !self.prompt.load_failed;
+        json!({
+            "failed": failed,
+            "ready": !failed,
+            "value": if loaded { self.prompt.shown.as_str() } else { "" },
+            "placeholder": if loaded { TEAM_PROMPT_PLACEHOLDER } else { "" },
+            "disabled": !loaded,
+            "hasStatus": status.is_some(),
+            "spinning": spinning,
+            "status": status.unwrap_or_default(),
+            "counter": prompt_counter(bytes),
+            "over": over,
+            "under": !over,
+            "error": if over { prompt_too_long(bytes) } else { String::new() },
         })
+    }
+
+    /// The EXP-288 read-only billing summary: plan chip + usage bars + a
+    /// "Manage on the web" hand-off. Hidden while loading/failed and on
+    /// self-hosted (`unlimited`).
+    fn project_billing(&self, team: &domain::rows::Team, cx: &App) -> Value {
+        let BillingLoad::Ready(plan) = &self.billing else {
+            return json!({"show": false});
+        };
+        if plan.plan == "unlimited" {
+            return json!({"show": false}); // self-hosted: no billing surface at all (web parity)
+        }
+        // Web `PLAN_LABELS` (billing-section.tsx). EXP-771: the ONE paid
+        // tier is `team`.
+        let label = match plan.plan.as_str() {
+            "free" => "Free".to_string(),
+            "team" => "Team".to_string(),
+            other => other.to_string(),
+        };
+        let usage = |current: String, limit: Option<String>, fraction: Option<f64>| {
+            let amount = match limit {
+                Some(limit) => format!("{current} / {limit}"),
+                None => format!("{current} / unlimited"),
+            };
+            json!({"amount": amount, "track": fraction.is_some(), "width": format!("{}%", fraction.unwrap_or(0.).clamp(0., 1.) * 100.)})
+        };
+        let fraction = |current: f64, limit: Option<f64>| limit.filter(|limit| *limit > 0.).map(|limit| current / limit);
+        let count = |value: f64| format!("{}", value.round() as i64);
+        json!({
+            "show": true,
+            "plan": label,
+            "seats": usage(count(plan.usage.members), plan.limits.seats.map(count), fraction(plan.usage.members, plan.limits.seats)),
+            "storage": usage(super::format_storage(plan.usage.storage_mb), plan.limits.storage_mb.map(super::format_storage), fraction(plan.usage.storage_mb, plan.limits.storage_mb)),
+            "widgets": usage(count(plan.usage.widget_configs), plan.limits.widget_configs.map(count), fraction(plan.usage.widget_configs, plan.limits.widget_configs)),
+            // Checkout/portal/seat changes are web flows (Creem runs in the
+            // browser) — hand off to the team's billing settings page.
+            "manage": billing_url(team, cx).is_some(),
+        })
+    }
+
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let Some(team) = self.team(cx) else {
+            return json!({"hasTeam": false});
+        };
+        let owner = self.owner(&team.id, cx);
+        let caption = if self.saving { Some("Saving…") } else { self.dirty().then_some("Unsaved") };
+        let zone_copy = &domain::team_zone::TEAM_ZONE.copy;
+        let zone = team.time_zone.clone().unwrap_or_default();
+        let mut zones = vec![json!({"label": zone_copy.device, "value": DEVICE_ZONE})];
+        zones.extend(crate::schedule_fields::time_zone_items(&zone).into_iter().map(|item| json!({"label": item.label.to_string(), "value": item.value})));
+        let modes: Vec<Value> = domain::contract::TEAM_MERGE_MODE_VALUES
+            .iter()
+            .map(|mode| json!({"label": domain::merge_train::merge_mode_label(mode), "value": mode}))
+            .collect();
+        let image = match domain::team_image::team_mark(team.icon_url.as_deref()) {
+            domain::team_image::TeamMark::Image { src } => Some(src),
+            domain::team_image::TeamMark::Glyph => None,
+        };
+        json!({
+            "hasTeam": true,
+            "owner": owner,
+            "member": !owner,
+            "name": self.shown_name(),
+                        "hasCaption": caption.is_some(),
+            "caption": caption.unwrap_or_default(),
+            "image": {"has": image.is_some(), "none": image.is_none(), "src": image.unwrap_or_default(), "disabled": !owner || self.image_busy},
+            "zone": {"label": if zone.is_empty() { zone_copy.device.clone() } else { zone.clone() }, "value": if zone.is_empty() { DEVICE_ZONE.to_string() } else { zone }, "options": zones, "disabled": !owner || self.zone_busy},
+            "merge": {"label": domain::merge_train::merge_mode_label(team.merge_mode()), "value": team.merge_mode(), "options": modes, "disabled": !owner || self.merge_busy},
+            "prompt": self.project_prompt(cx),
+            "billing": self.project_billing(&team, cx),
+        })
+    }
+
+    /// The Name field's bound value: the synced name (the bench's typed
+    /// draft, under test).
+    fn shown_name(&self) -> String {
+        #[cfg(test)]
+        if let Some(draft) = self.shot.as_ref().and_then(|shot| shot.name_draft.clone()) {
+            return draft;
+        }
+        self.snapshot.as_ref().map(|snapshot| snapshot.name.clone()).unwrap_or_default()
+    }
+
+    /// Write the projection now (the bench's state lands before a frame).
+    fn push(&mut self, cx: &mut gpui::Context<Self>) {
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
     }
 }
 
+/// The team's billing settings page on the web.
+fn billing_url(team: &domain::rows::Team, cx: &App) -> Option<String> {
+    let slug = team.slug.clone()?;
+    let account = crate::queries::active_account(cx)?;
+    Some(format!("{}/t/{slug}/settings/billing", account.instance_url.trim_end_matches('/')))
+}
+
+impl Render for GeneralPane {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "GeneralPane").entered();
+        // EXP-288: the plan read is kicked at render like the boards repo cache.
+        if let Some(team) = self.team(cx) {
+            self.ensure_billing(&team.id, cx);
+        }
+        self.push(cx);
+        // An ordinary section pane — `SettingsView` owns the scroll
+        // container and the shared `detail_column` grid.
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The pane's plugin: the IDE's, the team image through the card host's
+/// media rule (the instance's `/api/attachments/*` with the account's
+/// bearer, or https), and the two text fields' edits for the pane.
+struct PanePlugin {
+    pane: gpui::WeakEntity<GeneralPane>,
+    inner: crate::exponential_ui_host::IdePlugin,
+    media: crate::plan_card::CardSurfaceHost,
+}
+
+impl HostPlugin for PanePlugin {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.inner.icon(name)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.inner.on_unknown(node)
+    }
+
+    fn media_allowed(&self, src: &str) -> bool {
+        crate::plan_card::card_media_allowed(src) || cfg!(test) && src.starts_with("data:image/png;base64,")
+    }
+
+    fn media_options(&self) -> eui_core::host::MediaOptions {
+        // The bench's picture is a data URL (headless has no transport).
+        #[cfg(test)]
+        return Default::default();
+        #[cfg(not(test))]
+        self.media.media_options()
+    }
+
+    fn media_request(&self, src: &str) -> Option<eui_core::host::MediaRequest> {
+        #[cfg(test)]
+        if src.starts_with("data:image/png;base64,") {
+            return eui_core::host::media_request(src, &Default::default());
+        }
+        self.media.media_request(src)
+    }
+
+    fn on_input(&self, event: &eui_gpui::host::InputEvent, cx: &mut App) {
+        let (name, commit) = (event.name.clone(), event.kind == eui_gpui::host::InputKind::Commit);
+        let value = event.value.as_str().unwrap_or_default().to_string();
+        let pane = self.pane.clone();
+        cx.defer(move |cx| {
+            let _ = pane.update(cx, |pane, cx| pane.edited(&name, value, commit, cx));
+        });
+    }
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Chrome {
+    radius: f32,
+    danger: String,
+    danger_button: String,
+    danger_button_fg: String,
+    danger_button_hover: String,
+    /// The usage meters' track (`muted` at 35%).
+    track: String,
+    /// The plan chip: a 40% primary stroke over a 10% primary wash.
+    chip_stroke: String,
+    chip_fill: String,
+    /// The outline `Button` (the input wash and stroke).
+    button_fg: String,
+    button_fill: String,
+    button_stroke: String,
+    /// The Remove ghost's glyph.
+    muted: String,
+    list_hover: String,
+}
+
+impl Chrome {
+    fn of(cx: &App) -> Self {
+        let theme = cx.theme();
+        Self {
+            radius: f32::from(theme.radius),
+            danger: hex(theme.danger),
+            danger_button: hex(theme.button_danger),
+            danger_button_fg: hex(theme.button_danger_foreground),
+            danger_button_hover: hex(theme.button_danger_hover),
+            track: hex(theme.muted.opacity(0.35)),
+            chip_stroke: premultiplied_hex(theme.primary.opacity(0.4)),
+            // The 10% wash on the byte gpui lands on (25, not 25.5 rounded up).
+            chip_fill: hex(theme.primary.opacity(25. / 255.)),
+            button_fg: hex(theme.button_foreground),
+            button_fill: premultiplied_hex(theme.input_background()),
+            button_stroke: hex(theme.input),
+            muted: hex(theme.muted_foreground),
+            list_hover: hex(theme.list_hover),
+        }
+    }
+}
+
+/// `#rrggbbaa` of a faint translucent colour that paints like the exact one
+/// (the alpha rounds to its byte, the channels absorb the rounding).
+fn premultiplied_hex(color: gpui::Hsla) -> String {
+    let c = color.to_rgb();
+    let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
+    let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;
+    format!("#{:02x}{:02x}{:02x}{:02x}", channel(c.r), channel(c.g), channel(c.b), alpha as u8)
+}
+
+/// A column (`section`: `gap_2`).
+fn column(id: &str, gap: f32, visible: Value, children: Vec<Value>) -> Value {
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "gap": gap, "width": "100%", "minWidth": 0}, "children": children})
+}
+
+/// EXP-818: the Name row: label left, value right, saved on blur / Enter
+/// (the `row` Input), a `Saving…` / `Unsaved` caption trailing while the
+/// write is out or the text differs.
+fn name_row(ink: &Ink) -> Value {
+    let input = json!({"id": "name", "component": "Input", "props": {"variant": "row", "label": "Name", "name": "name", "placeholder": "Team name", "value": path("/pane/name")},
+        "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "width": 0, "minWidth": 0}});
+    // The field's own 14 px end padding stays; the caption sits `gap_3`
+    // after the value, the row's `px_4` after it.
+    let mut caption = ink.text("name_caption", path("/pane/caption"), XS, &ink.muted);
+    caption["visible"] = and(path("/pane/owner"), path("/pane/hasCaption"));
+    caption["style"]["flexShrink"] = json!(0);
+    caption["style"]["marginLeft"] = json!(ink.r(0.75) - ink.r(1.));
+    caption["style"]["marginRight"] = json!(ink.r(1.));
+    let field = json!({"id": "name_row", "component": "Box", "visible": path("/pane/owner"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0}, "children": [input, caption]});
+    // A member's field is the same row Input, disabled (today's is a
+    // disabled Input too); a disabled field dims whole, so its label is
+    // drawn beside it at full ink (today's label never dims).
+    let mut label = ink.text("name_member_label", json!("Name"), SM, &ink.foreground);
+    label["style"]["flexShrink"] = json!(0);
+    label["style"]["paddingLeft"] = json!(ink.r(1.));
+    let disabled = json!({"id": "name_member", "component": "Input", "props": {"variant": "row", "label": "", "name": "name_member", "value": path("/pane/name"), "disabled": true},
+        "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "width": 0, "minWidth": 0}});
+    let member = json!({"id": "name_member_row", "component": "Box", "visible": path("/pane/member"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0}, "children": [label, disabled]});
+    json!({"id": "name_rows", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [field, member]})
+}
+
+/// A disabled picker row: the label at full ink, the value and its chevron
+/// at half the value's 70% (the picker's ghost `Button` run: `text_sm` on
+/// its 1.25 rem line).
+fn read_only_row(ink: &Ink, id: &str, label: &str, value: Value, visible: Value) -> Value {
+    let mut text = faded(ink.text(&format!("{id}_value"), value, SM, &ink.value), VALUE_ALPHA * 0.5);
+    text["props"]["lines"] = json!(1);
+    text["style"]["minWidth"] = json!(0);
+    text["style"]["flexShrink"] = json!(1);
+    text["style"]["lineHeight"] = json!(ink.r(1.25));
+    let glyph = ink.r(1.);
+    let chevron = json!({"id": format!("{id}_chevron"), "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA * 0.5, "flexShrink": 0}});
+    let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "flexGrow": 1, "minWidth": 0}, "children": [text, chevron]});
+    let label = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground)]});
+    ink.shell(id, false, visible, vec![label, control])
+}
+
+/// #EXP-1645 (team-image.json): the label, the 28 px mark, the Upload pill,
+/// then, only with an image, the icon-only Remove ghost.
+fn image_row(ink: &Ink, chrome: &Chrome) -> Value {
+    let spec = &*domain::team_image::TEAM_IMAGE;
+    let side = spec.row.mark_size;
+    let mut label = ink.text("image_label", json!(spec.copy.row), SM, &ink.foreground);
+    label["style"]["flexGrow"] = json!(1);
+    label["style"]["flexShrink"] = json!(1);
+    label["style"]["minWidth"] = json!(0);
+    let mark = json!({"id": "image_mark", "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": side, "height": side, "overflow": "hidden"},
+        "children": [
+            {"id": "image_picture", "component": "Image", "visible": path("/pane/image/has"), "props": {"src": path("/pane/image/src"), "alt": "", "fit": "cover", "fallback": spec.mark.glyph},
+                "style": {"width": side, "height": side, "borderRadius": side * spec.mark.radius_fraction}},
+            {"id": "image_glyph", "component": "Icon", "visible": path("/pane/image/none"), "props": {"name": spec.mark.glyph, "size": "xl"}, "style": {"width": side, "height": side, "color": ink.foreground}},
+        ]});
+    let mut upload = ink.pill_button("image_upload", None, json!(spec.copy.upload), path("/pane/image/disabled"), json!({"name": "upload"}));
+    // gpui centres the label's line half a point lower than the flex centre.
+    for pill in upload.iter_mut() {
+        pill["children"][0]["style"]["paddingTop"] = json!(1);
+    }
+    let remove = |dim: bool| {
+        let id = if dim { "image_remove_dim" } else { "image_remove" };
+        let visible = if dim { and(path("/pane/image/has"), path("/pane/image/disabled")) } else { and(path("/pane/image/has"), not(path("/pane/image/disabled"))) };
+        let mut button = json!({"id": id, "component": "Box", "visible": visible, "accessibility": {"label": spec.copy.remove},
+            "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": side, "height": side, "borderRadius": chrome.radius},
+            "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": 12, "height": 12, "color": chrome.muted}}]});
+        if !dim {
+            button["props"] = json!({"pressable": true});
+            button["on"] = json!({"press": {"event": {"name": "removeImage"}}});
+            button["style"]["cursor"] = json!("pointer");
+            button["style"][":hover"] = json!({"backgroundColor": chrome.list_hover});
+            return json!({"id": "image_remove_tip", "component": "Tooltip", "visible": and(path("/pane/image/has"), not(path("/pane/image/disabled"))), "props": {"content": spec.copy.remove}, "children": [button]});
+        }
+        button
+    };
+    let mut children = vec![label, mark];
+    children.extend(upload);
+    children.push(remove(false));
+    children.push(remove(true));
+    ink.shell("image_row", false, json!(true), children)
+}
+
+/// VAPP-201 / #EXP-1710: a `row` Select (the Time zone with `Device time
+/// zone` first, searchable; the Merge mode).
+fn select_row(ink: &Ink, id: &str, label: &str, searchable: bool, action: &str) -> Value {
+    let disabled = path(&format!("/pane/{id}/disabled"));
+    let select = json!({"id": id, "component": "Select", "visible": not(disabled.clone()), "props": {"label": label, "name": id, "triggerVariant": "row", "searchable": searchable,
+            "value": path(&format!("/pane/{id}/value")), "options": path(&format!("/pane/{id}/options"))},
+        "on": {"change": {"event": {"name": action}}}});
+    // Not an owner, or the write is out: the picker reads its value, dimmed.
+    let read_only = read_only_row(ink, &format!("{id}_read"), label, path(&format!("/pane/{id}/label")), disabled);
+    json!({"id": format!("{id}_rows"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [select, read_only]})
+}
+
+/// The General band over its group (Name, Team image, Time zone), then the
+/// owner's Merge row in its own group (web general-section's second
+/// GlassGroup).
+fn general(ink: &Ink, chrome: &Chrome) -> Value {
+    let rows = ink.group("general_group", vec![
+        name_row(ink),
+        ink.divider("image_divider", json!(true)),
+        image_row(ink, chrome),
+        ink.divider("zone_divider", json!(true)),
+        select_row(ink, "zone", &domain::team_zone::TEAM_ZONE.copy.row, true, "zone"),
+    ]);
+    let mut merge = ink.group("merge_group", vec![select_row(ink, "merge", &domain::merge_train::MERGE_TRAIN.copy.settings.label, false, "merge")]);
+    merge["visible"] = path("/pane/owner");
+    column("general", ink.r(0.5), json!(true), vec![ink.band("general_band", "General", None), rows, merge])
+}
+
+/// EXP-1025: the team prompt section (owners only): the band with the
+/// save caption, the raw monospace field and its counter footer in one
+/// glass block, the cap's line under it; a failed load = the empty state +
+/// Retry.
+fn prompt(ink: &Ink, chrome: &Chrome) -> Value {
+    // `feedback::inline_status`: the spinner + the muted `text_xs` word.
+    let mut word = ink.text("prompt_status_word", path("/pane/prompt/status"), XS, &ink.muted);
+    word["style"]["flexShrink"] = json!(0);
+    let spinner = eui_gpui::controls::INLINE_SPINNER_PX;
+    let status = json!({"id": "prompt_status", "component": "Box", "visible": path("/pane/prompt/hasStatus"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "gap": crate::feedback::INLINE_GAP_PX},
+        "children": [
+            {"id": "prompt_status_spinner", "component": "Spinner", "visible": path("/pane/prompt/spinning"), "style": {"width": spinner, "height": spinner, "color": ink.muted, "flexShrink": 0}},
+            word,
+        ]});
+    // The raw monospace field (`variant: code`: chromeless in the group,
+    // the code type), 10 rows growing to 40.
+    let field = json!({"id": "prompt", "component": "Textarea", "props": {"label": TEAM_PROMPT_TITLE, "name": "prompt", "variant": "code", "rows": 10, "autosize": true, "maxRows": 40,
+            "value": path("/pane/prompt/value"), "placeholder": path("/pane/prompt/placeholder"), "disabled": path("/pane/prompt/disabled")},
+        "style": {"width": "100%"}});
+    let counter = |id: &str, color: &str, visible: Value| {
+        let mut text = ink.text(id, path("/pane/prompt/counter"), XS, color);
+        text["visible"] = visible;
+        text["style"]["flexShrink"] = json!(0);
+        text
+    };
+    let footer = json!({"id": "prompt_footer", "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "justifyContent": "flex-end", "width": "100%", "gap": ink.r(1.), "paddingHorizontal": ink.r(1.), "paddingVertical": ink.r(0.5), "borderTopWidth": 1, "borderColor": ink.stroke_row},
+        "children": [counter("prompt_counter", &ink.muted, path("/pane/prompt/under")), counter("prompt_counter_over", &chrome.danger, path("/pane/prompt/over"))]});
+    // FEED-79: `action_error::field_error`, 13 px on a 20 px line.
+    let error = json!({"id": "prompt_error", "component": "Text", "visible": path("/pane/prompt/over"), "props": {"text": path("/pane/prompt/error")},
+        "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}});
+    let ready = column("prompt_ready", ink.r(0.5), path("/pane/prompt/ready"), vec![
+        ink.band(&"prompt_band".to_string(), TEAM_PROMPT_TITLE, Some(status)),
+        ink.group("prompt_group", vec![field, footer]),
+        error,
+    ]);
+    let failed = column("prompt_failed", ink.r(0.5), path("/pane/prompt/failed"), vec![
+        ink.band("prompt_failed_band", TEAM_PROMPT_TITLE, None),
+        ink.group("prompt_failed_group", vec![super::doc::failed_state(ink, "prompt_retry", "settings-general", PROMPT_UNAVAILABLE, json!(true))]),
+    ]);
+    // The failed state's Retry is the pane's own action.
+    let mut failed = failed;
+    rename_event(&mut failed, "retry", "retryPrompt");
+    column("prompt_section", 0., path("/pane/owner"), vec![ready, failed])
+}
+
+/// Rename every `{"event": {"name": from}}` under `node` to `to`.
+fn rename_event(node: &mut Value, from: &str, to: &str) {
+    match node {
+        Value::Object(map) => {
+            if map.get("name").and_then(Value::as_str) == Some(from) && map.len() <= 2 {
+                map.insert("name".into(), json!(to));
+            }
+            for value in map.values_mut() {
+                rename_event(value, from, to);
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(|item| rename_event(item, from, to)),
+        _ => {}
+    }
+}
+
+/// One usage row (`settings::usage_bar`, web `UsageBar`): label left,
+/// "current / limit" right, the 6 px capsule track under it (`gap_1`; no
+/// track for unlimited).
+fn usage(ink: &Ink, chrome: &Chrome, id: &str, label: &str) -> Value {
+    let at = |key: &str| path(&format!("/pane/billing/{id}/{key}"));
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25)},
+        "children": [
+            {"id": format!("{id}_head"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between"},
+                "children": [ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground), ink.text(&format!("{id}_amount"), at("amount"), XS, &ink.muted)]},
+            {"id": format!("{id}_track"), "component": "Box", "visible": at("track"), "style": {"height": 6, "width": "100%", "borderRadius": 9999, "backgroundColor": chrome.track},
+                "children": [{"id": format!("{id}_fill"), "component": "Box", "style": {"height": "100%", "width": at("width"), "borderRadius": 9999, "backgroundColor": ink.primary}}]},
+        ]})
+}
+
+/// EXP-288: Plan & Billing: the band with the plan chip, the three usage
+/// meters in the section's own glass block (EXP-862), then the outline
+/// `Manage billing on the web` hand-off.
+fn billing(ink: &Ink, chrome: &Chrome) -> Value {
+    let chip = json!({"id": "plan_chip", "component": "Box", "style": {"flexShrink": 0, "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.125), "borderRadius": 9999, "borderWidth": 1, "borderColor": chrome.chip_stroke, "backgroundColor": chrome.chip_fill},
+        "children": [ink.text("plan_chip_text", path("/pane/billing/plan"), XS, &ink.foreground)]});
+    let mut meters = ink.group("billing_group", vec![
+        usage(ink, chrome, "seats", "Seats"),
+        usage(ink, chrome, "storage", "Attachment storage"),
+        usage(ink, chrome, "widgets", "Feedback widgets"),
+    ]);
+    meters["style"]["gap"] = json!(ink.r(0.75));
+    meters["style"]["paddingHorizontal"] = json!(ink.r(1.));
+    meters["style"]["paddingVertical"] = json!(ink.r(0.75));
+    // `Button::outline().web_sm()` with its glyph: 32 px, `px 12`, the
+    // input wash and stroke, the `size_4` glyph `gap_1` before the label.
+    let size = ink.r(SM);
+    let manage = json!({"id": "billing_manage", "component": "Box", "visible": path("/pane/billing/manage"), "style": {"display": "flex", "flexDirection": "row"},
+        "children": [{"id": "billing_manage_button", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Manage billing on the web"}, "on": {"press": {"event": {"name": "manageBilling"}}},
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.button_stroke, "backgroundColor": chrome.button_fill, "cursor": "pointer"},
+            "children": [
+                {"id": "billing_manage_icon", "component": "Icon", "props": {"name": "ui-external-link"}, "style": {"width": ink.r(1.), "height": ink.r(1.), "color": chrome.button_fg, "flexShrink": 0}},
+                {"id": "billing_manage_text", "component": "Text", "props": {"text": "Manage billing on the web"}, "style": {"fontSize": size, "lineHeight": size, "paddingTop": 1, "color": chrome.button_fg, "flexShrink": 0}},
+            ]}]});
+    column("billing", ink.r(0.5), path("/pane/billing/show"), vec![ink.band("billing_band", "Plan & Billing", Some(chip)), meters, manage])
+}
+
+/// Web settings/general.tsx's Danger zone (`settings::danger_zone`): the
+/// danger-tinted band label, then one row: the muted sentence and the
+/// danger `Button` at `web_xs` (24 px, `px 8`, the `size_3` glyph).
+fn danger_zone(ink: &Ink, chrome: &Chrome) -> Value {
+    let mut label = ink.text("danger_band_label", json!("Danger zone"), SM, &chrome.danger);
+    label["style"]["fontWeight"] = json!(500);
+    let mut sentence = ink.text("danger_text", json!("Permanently delete this team and all its data."), SM, &ink.muted);
+    sentence["style"]["flexGrow"] = json!(1);
+    sentence["style"]["flexShrink"] = json!(1);
+    sentence["style"]["minWidth"] = json!(0);
+    let size = ink.r(XS);
+    let button = json!({"id": "danger_delete", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Delete team"}, "on": {"press": {"event": {"name": "deleteTeam"}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": chrome.radius, "backgroundColor": chrome.danger_button, "cursor": "pointer", ":hover": {"backgroundColor": chrome.danger_button_hover}},
+        "children": [
+            {"id": "danger_delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": chrome.danger_button_fg, "flexShrink": 0}},
+            {"id": "danger_delete_text", "component": "Text", "props": {"text": "Delete team"}, "style": {"fontSize": size, "lineHeight": size, "paddingTop": 1, "color": chrome.danger_button_fg, "flexShrink": 0}},
+        ]});
+    let mut row = ink.shell("danger_row", false, json!(true), vec![sentence, button]);
+    row["style"]["justifyContent"] = json!("space-between");
+    json!({"id": "danger", "component": "Box", "visible": path("/pane/owner"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.band_with("danger_band", Some(label), "", None, None), ink.group("danger_group", vec![row])]})
+}
+
+/// The pane's tree: `gap_4` between General, the team prompt, Plan &
+/// Billing and the Danger zone; a member's note at the end. No team = the
+/// empty state.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let mut note = ink.text("member_note", json!("Only team owners can change these settings."), XS, &ink.muted);
+    note["visible"] = path("/pane/member");
+    // A member's pane keeps the prompt's (empty) place in the stack.
+    let spacer = json!({"id": "prompt_place", "component": "Box", "visible": path("/pane/member"), "style": {"height": 0}});
+    let team = column("team", ink.r(1.), path("/pane/hasTeam"), vec![general(ink, chrome), prompt(ink, chrome), spacer, billing(ink, chrome), danger_zone(ink, chrome), note]);
+    let empty = super::doc::empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, not(path("/pane/hasTeam")));
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [empty, team]})
+}
 #[cfg(test)]
 mod tests {
     use super::*;

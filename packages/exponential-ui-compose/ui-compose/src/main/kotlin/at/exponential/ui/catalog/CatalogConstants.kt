@@ -39,11 +39,19 @@ object CatalogConstants {
     /** #EXP-1629: how far under its value a `row` Select's popup hangs, and how close to the window's edges it may go (dp). */
     val SELECT_ROW_POPUP_OFFSET: Float = named("selectRowPopupOffset")
     val SELECT_ROW_POPUP_MARGIN: Float = named("selectRowPopupMargin")
+    /** #EXP-1765: the Skeleton rows a `loading` Select's popup shows in place of its options. */
+    val SELECT_LOADING_ROWS: Int = named("selectLoadingRows").toInt()
+    /** #EXP-1765: how far under a `pill` Select its popup's border box hangs, and how far before the pill's aligned edge it starts (dp). */
+    val SELECT_PILL_POPUP_OFFSET: Float = named("selectPillPopupOffset")
+    val SELECT_PILL_POPUP_INSET: Float = named("selectPillPopupInset")
     /** EXP-1259: the bottom fade over a list while more rows sit below (dp; #EXP-1629: a Select's popup too). */
     val SEARCH_LIST_FADE: Float = named("searchListFade")
 
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons
+
+    /** #EXP-1764: the icons painted in their OWN colour (`#RRGGBB`, `brand-claude` = Anthropic's orange), never the ink. */
+    val iconFills: Map<String, Long> = ExponentialUICatalog.iconFillNames.zip(ExponentialUICatalog.iconFillColors.map { 0xFF000000L or it.removePrefix("#").toLong(16) }).toMap()
 
     /** `style.json` `animations` names (round 2 §2). */
     val animationNames: List<String> = ExponentialUICatalog.animationNames

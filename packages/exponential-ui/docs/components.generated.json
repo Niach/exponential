@@ -1712,7 +1712,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -3390,7 +3390,7 @@
           "name": "content",
           "type": "string",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Hint text."
         },
@@ -5479,12 +5479,21 @@
         },
         {
           "name": "variant",
-          "type": "field | row",
+          "type": "field | row | bare | code | box",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "sm = compact."
         },
         {
           "name": "disabled",
@@ -5605,6 +5614,15 @@
           "bindable": true,
           "responsive": false,
           "description": "Text; bind it to a data path."
+        },
+        {
+          "name": "variant",
+          "type": "field | row | code",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "field",
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
         },
         {
           "name": "disabled",
@@ -6333,7 +6351,8 @@
       "slots": [],
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "basic": [
         "ChoicePicker (filterable, multipleSelection)"
@@ -6423,13 +6442,31 @@
           "description": "Shown on no match."
         },
         {
+          "name": "searchPlaceholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.search",
+          "description": "Hint in the filter field."
+        },
+        {
           "name": "triggerVariant",
-          "type": "field | row",
+          "type": "field | row | pill",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
+        },
+        {
+          "name": "triggerIcon",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
         },
         {
           "name": "align",
@@ -6446,6 +6483,23 @@
           "bindable": false,
           "responsive": false,
           "description": "Px (`row`: 260)."
+        },
+        {
+          "name": "popupMinWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        {
+          "name": "loading",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Options still loading: skeleton rows in the popup."
         },
         {
           "name": "disabled",
@@ -6799,6 +6853,145 @@
         ]
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe KeyRecorder/<part>."
+    },
+    {
+      "name": "IconPicker",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-icon-picker",
+      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picked icon name."
+        },
+        {
+          "name": "icons",
+          "type": "[icon]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Offered icons; default the board set."
+        },
+        {
+          "name": "color",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Hex tint of the pick."
+        },
+        {
+          "name": "allowNone",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Adds a No icon row."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Grid shows; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "button",
+        "notes": "trigger = button named by the pick (`Icon: rocket`, else `Pick an icon`) opening a dialog; each cell a toggle button named by its icon, aria-pressed on the pick",
+        "keys": [
+          "Enter, Space: open; Tab moves through the cells",
+          "Enter, Space on a cell: pick it and close; Escape: close"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "IconPicker",
+        "value": "rocket",
+        "color": "#3b82f6",
+        "icons": [
+          "code",
+          "rocket",
+          "star",
+          "zap"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe IconPicker/<part>."
+    },
+    {
+      "name": "ColorPicker",
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "specimenId": "exponential-ui-color-picker",
+      "description": "Colour field: a swatch opens the palette grid.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Picked hex colour."
+        },
+        {
+          "name": "colors",
+          "type": "[string]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Offered hexes; default the label palette."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Grid shows; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "button",
+        "notes": "as IconPicker: the trigger is named `Color: #hex`, each swatch a toggle button named by its hex",
+        "keys": [
+          "As IconPicker"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "ColorPicker",
+        "value": "#3b82f6",
+        "colors": [
+          "#ef4444",
+          "#22c55e",
+          "#3b82f6",
+          "#a855f7"
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe ColorPicker/<part>."
     },
     {
       "name": "DatePicker",

@@ -24,12 +24,21 @@ enum BuiltinIcons {
         "FileUpload.icon": "upload", "FileUpload.file": "ui-file", "FileUpload.remove": "ui-close",
         "Image.fallback": "ui-icon-placeholder", "NumberField.decrement": "ui-minus", "NumberField.increment": "ui-add",
         "Select.trigger": "ui-selector", "Select.search": "search", "Select.check": "ui-check", "Select.chevron": "ui-chevron-right",
+        "Select.dropdown": "ui-chevron-down", "Select.clear": "ui-clear",
         "SearchList.search": "search", "SearchList.check": "ui-check", "Tabs.close": "ui-close", "Tabs.new": "ui-add",
         "Table.sortIcon.asc": "ui-chevron-up", "Table.sortIcon.desc": "ui-chevron-down", "TimePicker.trigger": "ui-clock",
         "Toast.close": "ui-close", "Toast.icon.info": "ui-info", "Toast.icon.success": "ui-success",
         "Toast.icon.warning": "ui-warning", "Toast.icon.error": "ui-error", "Unknown.root": "ui-warning",
         "ZoomableImage.zoomOut": "ui-minus", "ZoomableImage.zoomIn": "ui-add", "ZoomableImage.fit": "ui-fullscreen",
     ]
+
+    /// #EXP-1764: `iconFillNames` → `iconFillColors` (generated, mirrored
+    /// like `slots`): the marks painted in their OWN colour (`brand-claude` =
+    /// Anthropic's orange), never in the ink.
+    static let fills: [String: String] = ["brand-claude": "#D97757"]
+
+    /// The colour a name paints in: its own fill, else `ink`.
+    static func color(_ name: String, ink: Color) -> Color { fills[name].flatMap { Color(hex: $0) } ?? ink }
 
     /// The icon name of a built-in slot (`Table.sortIcon.asc`).
     static func name(_ slot: String) -> String { slots[slot] ?? "ui-icon-placeholder" }
@@ -63,7 +72,7 @@ enum BuiltinIcons {
         case "ui-info", "info": "info"
         case "ui-success", "circle-check", "trace-task-done": "circle-check"
         case "ui-warning", "triangle-alert": "triangle-alert"
-        case "ui-error", "circle-x", "trace-failed": "circle-x"
+        case "ui-error", "ui-clear", "circle-x", "trace-failed": "circle-x"
         case "ui-back", "arrow-left": "arrow-left"
         case "ui-arrow-right", "arrow-right": "arrow-right"
         case "ui-star", "star": "star"
@@ -138,12 +147,12 @@ struct ConceptIcon: View {
     var body: some View {
         Group {
             if let view = model.host.icon(name, size: size) {
-                view.frame(width: size, height: size).foregroundStyle(color)
+                view.frame(width: size, height: size).foregroundStyle(BuiltinIcons.color(name, ink: color))
             } else {
                 // The built-in Lucide glyph, else the `circle-dashed`
                 // placeholder (web's `IconGlyph` fallback), full colour.
                 LucideGlyph(paths: BuiltinIcons.paths(name), size: size)
-                    .foregroundStyle(color)
+                    .foregroundStyle(BuiltinIcons.color(name, ink: color))
             }
         }
         .mirroredForRTL(!mirroredOutside && RTLGlyphs.mirrors(name, rtl: rtl))

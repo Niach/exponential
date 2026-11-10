@@ -3203,6 +3203,17 @@
       }
     },
     {
+      "name": "Icon/size=xl",
+      "node": {
+        "id": "icon",
+        "component": "Icon",
+        "props": {
+          "name": "ui-check",
+          "size": "xl"
+        }
+      }
+    },
+    {
       "name": "Icon/tone=neutral",
       "node": {
         "id": "icon",
@@ -10222,6 +10233,76 @@
       }
     },
     {
+      "name": "Input/variant=bare",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "bare"
+        }
+      }
+    },
+    {
+      "name": "Input/variant=code",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "code"
+        }
+      }
+    },
+    {
+      "name": "Input/variant=box",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "box"
+        }
+      }
+    },
+    {
+      "name": "Input/size=default",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "size": "default"
+        }
+      }
+    },
+    {
+      "name": "Input/size=sm",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "size": "sm"
+        }
+      }
+    },
+    {
       "name": "Input/disabled=true",
       "node": {
         "id": "input",
@@ -10326,6 +10407,45 @@
           "name": "notes",
           "rows": 4,
           "autosize": false
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=field",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "field"
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=row",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "row"
+        }
+      }
+    },
+    {
+      "name": "Textarea/variant=code",
+      "node": {
+        "id": "textarea",
+        "component": "Textarea",
+        "props": {
+          "label": "Notes",
+          "name": "notes",
+          "rows": 4,
+          "variant": "code"
         }
       }
     },
@@ -11142,6 +11262,75 @@
       }
     },
     {
+      "name": "Select/triggerVariant=pill",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "pill"
+        }
+      }
+    },
+    {
+      "name": "Select/triggerIcon=true",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": true
+        }
+      }
+    },
+    {
+      "name": "Select/triggerIcon=false",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": false
+        }
+      }
+    },
+    {
       "name": "Select/align=start",
       "node": {
         "id": "select",
@@ -11207,6 +11396,52 @@
           ],
           "value": "sprint",
           "align": "end"
+        }
+      }
+    },
+    {
+      "name": "Select/loading=true",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "loading": true
+        }
+      }
+    },
+    {
+      "name": "Select/loading=false",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "loading": false
         }
       }
     },
@@ -11487,6 +11722,145 @@
             "Space"
           ],
           "recording": false
+        }
+      }
+    },
+    {
+      "name": "IconPicker/example",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ]
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=true",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": true
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=false",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": false
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=true",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=false",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": false
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/example",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=true",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=false",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": false
         }
       }
     },

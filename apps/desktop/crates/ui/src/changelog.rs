@@ -46,6 +46,52 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-smoother-scrolling",
+    date: "2026-11-10",
+    title: "Smoother scrolling through chats and lists",
+    summary: "Scrolling a long chat or list in the desktop app redraws only what moves, and Exponential Desktop 0.2.14 brings Fable 5.2 and the wider chat.",
+    body: r#"- **Smoother scrolling**: a long chat's first cards and a scrolled list in the desktop app redraw only what moves into view.
+- **Exponential Desktop 0.2.14**: Fable 5.2 and the wider chat with the one-line composer, like the desktop app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_244: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-fable-5-2",
+    date: "2026-11-10",
+    title: "Fable is always Fable 5.2",
+    summary: "Picking Fable, from a model picker or with /model fable, always runs Fable 5.2.",
+    body: r#"- **Fable 5.2**: every Fable pick, /model fable and a saved Fable 5.1 setting run on Fable 5.2, never an older Fable. Opus stays the default."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_243: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-wide-chat",
+    date: "2026-11-10",
+    title: "A wider chat and a one-line composer",
+    summary: "The chat uses the width of the window, the composer is one flat line that grows as you type, and the tabs sit on the header line.",
+    body: r#"- **Wider chat**: the conversation spreads across the window like a messenger, with the agent's messages on the left and yours on the right.
+- **One-line composer**: the reply box starts as one flat line with + on the left and the context ring and send on the right, and grows as you type.
+- **One header line**: on a wide screen the Chat, Issues, Sessions and Results tabs sit on the same line as the title, the status and the menu."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_242: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-09-smooth-chats-reliable-updates",
+    date: "2026-11-09",
+    title: "Smooth long chats, updates without GitHub's limit",
+    summary: "A long chat in the desktop app stays smooth while you type and scroll, and the desktop app and the CLI find updates through Exponential instead of GitHub's rate-limited API.",
+    body: r#"- **Long chats stay smooth**: typing, scrolling and an idle long chat in the desktop app no longer redo their work every frame.
+- **The chat transcript**: the desktop app's Chat tab draws its messages the same way as the rest of the app.
+- **Updates always show up**: the desktop app and `exponential update` learn about new versions from Exponential itself and download straight from the release, so a busy network that has used up GitHub's request limit no longer hides an update.
+- **Exponential Desktop 0.2.13**: a chat with no agent set up offers to set up Claude Code right there."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_241: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-one-session-screen",
     date: "2026-11-09",
     title: "One screen for every chat",
