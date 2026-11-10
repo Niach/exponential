@@ -102,6 +102,7 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   "ui-success": CircleCheck,
   "ui-warning": TriangleAlert,
   "ui-error": CircleX,
+  "ui-clear": CircleX,
   "ui-stop": CircleStop,
   "ui-attach": Paperclip,
   "ui-send": Send,

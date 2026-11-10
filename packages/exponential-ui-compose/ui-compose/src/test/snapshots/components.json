@@ -30434,6 +30434,86 @@
       }
     ]
   },
+  "Select\/loading=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/loading=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
   "Select\/multiple=false" : {
     "height" : 60,
     "nodes" : [
@@ -30631,6 +30711,35 @@
         "id" : "select.trigger",
         "part" : "trigger",
         "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerVariant=pill" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "select"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          160,
+          24
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 9999
       }
     ]
   },
