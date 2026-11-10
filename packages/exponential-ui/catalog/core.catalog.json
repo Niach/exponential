@@ -3456,6 +3456,7 @@
         "content": {
           "type": "string",
           "required": true,
+          "bindable": true,
           "description": "Hint text."
         },
         "side": {

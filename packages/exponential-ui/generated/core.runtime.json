@@ -2743,7 +2743,8 @@
       "props": {
         "content": {
           "type": "string",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "side": {
           "type": "enum",

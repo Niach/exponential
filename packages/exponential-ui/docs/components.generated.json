@@ -3390,7 +3390,7 @@
           "name": "content",
           "type": "string",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Hint text."
         },
