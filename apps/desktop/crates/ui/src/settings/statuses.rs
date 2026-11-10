@@ -12,6 +12,12 @@
 //! the full labels treatment: inline rename on blur/Enter, a swatch popover on
 //! the glyph, move, and delete.
 //!
+//! #EXP-1629: the pane is an eUI document on the native binding. A custom
+//! row's glyph is genUI's `ColorPicker` with the glyph as its child trigger
+//! (the 24 px round ghost button, `STATUS_COLORS`); the create form's grid
+//! is the same picker `inline`. The row's name is a `bare` Input whose edits
+//! arrive as `rename` actions and persist on blur / Enter.
+//!
 //! Deleting a custom status ALWAYS opens one confirm dialog (EXP-320, web
 //! parity with `ReassignDialog`): it confirms the deletion AND picks the
 //! destination status (Backlog builtin preselected, duplicate + the deletee
@@ -20,76 +26,75 @@
 //! undershoot and a "0-count" status may still hold issues. The dialog shows
 //! the server-authoritative `statuses.referencingCount` once it arrives, and
 //! always sends `reassignToId`, so the delete can never bounce
-//! `PRECONDITION_FAILED`.
+//! `PRECONDITION_FAILED`. The dialog stays native (`DeleteStatusContent`).
 //!
 //! Writes are member-level (`mutate_resources`, like labels — NOT owner-only).
 //! Reads come from the synced `issue_statuses` collection.
 
-use crate::controls::PointerMenuButtonExt as _;
 use std::collections::HashMap;
+use std::rc::Rc;
 
+use eui_gpui::{binding::Binding, view::SurfaceView};
 use gpui::{
-    div, App, AppContext as _, ElementId, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState},
-    popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    button::{Button, ButtonVariant},
+    h_flex, v_flex, ActiveTheme as _,
 };
+use serde_json::{json, Value};
 use sync::Store;
 
 use domain::contract::ISSUE_STATUS_STARTED_MAX;
 use domain::rows::IssueStatusRow;
-use domain::statuses::{
-    resolve_row, resolve_status_sorted, IssueStatusCategory,
-    ResolvedStatus,
-};
+use domain::statuses::{resolve_row, resolve_status_sorted, IssueStatusCategory, ResolvedStatus};
 
-use crate::controls::{WebControl as _, CTL_SM_H};
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
-use super::labels::{swatch_grid, LABEL_COLORS, STATUS_COLORS};
-use super::section;
-use crate::icons::registry;
-use crate::controls::glass_input;
+use super::doc::{empty_state, hex, mount, not, path, IdeToasts, Ink, PillPaint, SM, XS};
+use super::labels::{LABEL_COLORS, STATUS_COLORS};
 
 /// Web parity with the labels pane's duplicate message (the server's unique is
 /// `(team_id, lower(name))` across ALL statuses, builtins included).
 const DUPLICATE_NAME_MESSAGE: &str = "A status with this name already exists.";
 
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// A custom row's rename as typed: the field's text, the synced name it
+/// started from (what "unchanged" compares against: a teammate's rename
+/// must not be undone by a click in and out), and whether its
+/// `statuses.update` is in flight.
+struct Draft {
+    typed: String,
+    base: String,
+    sent: bool,
+}
+
 pub struct StatusesPane {
     nav: Entity<Navigation>,
-    /// CUSTOM status id → its name input (builtins render plain text).
-    name_inputs: HashMap<String, Entity<InputState>>,
-    input_subs: HashMap<String, Subscription>,
-    /// CUSTOM status id → the synced name last pushed into its input. The
-    /// per-row twin of `team_general`'s `Snapshot`: it tells an untouched
-    /// input (which we may refresh from a teammate's rename) apart from a
-    /// half-typed one (which we must leave alone), and it is what
-    /// `persist_name` compares the typed text against — comparing against the
-    /// LIVE row would let a stale input write a remote rename back.
-    synced_names: HashMap<String, String>,
+    /// CUSTOM status id → its rename while the field differs from the row.
+    drafts: HashMap<String, Draft>,
     /// The category whose inline create form is open.
     creating: Option<IssueStatusCategory>,
-    new_name: Entity<InputState>,
+    new_name: String,
     new_color: String,
     submitting: bool,
-    /// Inline error under the create form (duplicate name / server reject).
+    /// Inline error under the create form (server reject).
     create_error: Option<String>,
     /// (status id, message) — inline error under a row.
     row_error: Option<(String, String)>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     /// The bench's state (headless has no team, statuses or issues).
     #[cfg(test)]
     shot: Option<StatusesShot>,
-    /// The bench's create-form text, applied at the next render (it needs
-    /// the window).
+    /// The bench's node presses still to make, and the frames to wait first.
     #[cfg(test)]
-    shot_name: Option<String>,
+    shot_presses: (std::collections::VecDeque<String>, u8),
     _subscriptions: Vec<Subscription>,
 }
 
@@ -106,62 +111,75 @@ pub(crate) struct StatusesShot {
     pub creating: Option<(IssueStatusCategory, String)>,
     /// (status id, message) under a row.
     pub row_error: Option<(String, String)>,
+    /// Node ids the bench presses in turn once laid out (`|` = the first
+    /// of these that exists).
+    pub press: Vec<String>,
 }
+
+/// A pane's handler of a document action: its name, context and payload.
+type Act = fn(&mut StatusesPane, &str, &Value, &Value, &mut Window, &mut gpui::Context<StatusesPane>);
 
 impl StatusesPane {
     pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let new_name = cx.new(|cx| InputState::new(window, cx).placeholder("Status name"));
-
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            cx.observe_in(&nav, window, |this, _, window, cx| {
-                // Team switch: per-row inputs (and any inline state) belong to
-                // the old scope.
+            cx.observe(&nav, |this, _, cx| {
+                // Team switch: the inline state belongs to the old scope.
                 this.creating = None;
                 this.create_error = None;
                 this.row_error = None;
-                this.sync_inputs(window, cx);
+                this.drafts.clear();
                 cx.notify();
             }),
-            cx.observe_in(&collections.issue_statuses, window, |this, _, window, cx| {
-                this.sync_inputs(window, cx);
-                cx.notify();
-            }),
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             // The live per-status issue counts move with the issues.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             // EXP-319's pin notice in the delete dialog reads the synced teams row.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
-            cx.subscribe_in(&new_name, window, |this, _, event: &InputEvent, _, cx| {
-                match event {
-                    InputEvent::PressEnter { .. } => this.create(cx),
-                    InputEvent::Change => {
-                        this.create_error = None;
-                        cx.notify();
-                    }
-                    _ => {}
-                }
-            }),
         ];
-
-        let mut this = Self {
+        // Every action leaves the binding for the pane, deferred (the
+        // binding is mid-update and the pane writes it; Delete needs the
+        // window).
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            let act: Act = |pane, name, context, payload, window, cx| pane.action(name, context, payload, window, cx);
+            for name in ["add", "newName", "newColor", "create", "cancel", "rename", "commit", "color", "menu"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = event.context.clone();
+                    let payload = event.payload.clone().unwrap_or(Value::Null);
+                    let pane = pane.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| act(pane, name, &context, &payload, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let view = mount("settings-statuses", document(&Ink::of(cx), &Chrome::of(cx)), &binding, window, cx);
+        Self {
             nav,
-            name_inputs: HashMap::new(),
-            input_subs: HashMap::new(),
-            synced_names: HashMap::new(),
+            drafts: HashMap::new(),
             creating: None,
-            new_name,
+            new_name: String::new(),
             new_color: LABEL_COLORS[6].to_string(),
             submitting: false,
             create_error: None,
             row_error: None,
+            binding,
+            view,
             #[cfg(test)]
             shot: None,
             #[cfg(test)]
-            shot_name: None,
+            shot_presses: Default::default(),
             _subscriptions: subscriptions,
-        };
-        this.sync_inputs(window, cx);
-        this
+        }
     }
 
     #[cfg(test)]
@@ -173,9 +191,39 @@ impl StatusesPane {
     #[cfg(test)]
     pub(crate) fn show(&mut self, shot: StatusesShot, cx: &mut gpui::Context<Self>) {
         self.creating = shot.creating.as_ref().map(|(category, _)| *category);
-        self.shot_name = Some(shot.creating.as_ref().map(|(_, name)| name.clone()).unwrap_or_default());
+        self.new_name = shot.creating.as_ref().map(|(_, name)| name.clone()).unwrap_or_default();
         self.row_error = shot.row_error.clone();
+        self.shot_presses = (shot.press.iter().cloned().collect(), 2);
         self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The bench's next press once its target is laid out (two painted
+    /// frames in); the headless clock stands still, so an open popup's
+    /// enter fade is run out by hand (as `BoardDetailPane`'s).
+    #[cfg(test)]
+    fn shot_press(&mut self, cx: &mut gpui::Context<Self>) {
+        let (queue, wait) = &mut self.shot_presses;
+        if queue.is_empty() {
+            if !self.view.read(cx).layers().is_empty() {
+                self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            }
+            return;
+        }
+        if *wait > 0 {
+            *wait -= 1;
+            cx.notify();
+            return;
+        }
+        let ids = queue.pop_front().unwrap_or_default();
+        *wait = 2;
+        self.view.update(cx, |view, cx| {
+            if let Some(index) = ids.split('|').find_map(|id| view.index_of(id)) {
+                view.fire(index, "press", None, cx);
+            } else {
+                eprintln!("[statuses bench] no node {ids}");
+            }
+        });
         cx.notify();
     }
 
@@ -230,7 +278,7 @@ impl StatusesPane {
         let Some(team_id) = self.team_id(cx) else {
             return counts;
         };
-        let sorted = crate::queries::team_statuses(cx, &team_id);
+        let sorted = self.sorted_rows(&team_id, cx);
         for issue in Store::global(cx).collections().issues_in_team(&team_id, cx) {
             *counts
                 .entry(resolve_status_sorted(&issue, &sorted).group_key)
@@ -249,95 +297,128 @@ impl StatusesPane {
         })
     }
 
-    /// One `InputState` per CUSTOM status; builtins never get one (their name
-    /// renders as plain text). An existing input tracks a teammate's rename as
-    /// long as it still holds the last synced name; once the user has typed
-    /// something else it is theirs until blur.
-    fn sync_inputs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let statuses = self.scoped_statuses(cx);
-        let live: std::collections::HashSet<&str> = statuses
-            .iter()
-            .filter(|(row, _)| row.builtin_key.is_none())
-            .map(|(row, _)| row.id.as_str())
-            .collect();
-        self.name_inputs.retain(|id, _| live.contains(id.as_str()));
-        self.input_subs.retain(|id, _| live.contains(id.as_str()));
-        self.synced_names.retain(|id, _| live.contains(id.as_str()));
-
-        for (row, _) in statuses.iter().filter(|(row, _)| row.builtin_key.is_none()) {
-            if let Some(input) = self.name_inputs.get(&row.id).cloned() {
-                let untouched = self
-                    .synced_names
-                    .get(&row.id)
-                    .is_some_and(|synced| input.read(cx).value().as_ref() == synced);
-                if untouched && self.synced_names.get(&row.id) != Some(&row.name) {
-                    let name = row.name.clone();
-                    input.update(cx, |state, cx| state.set_value(name, window, cx));
+    /// A document action.
+    fn action(&mut self, name: &str, context: &Value, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        let value = payload.get("value").and_then(Value::as_str).map(str::to_string);
+        match name {
+            // A category band's "+": its create form, empty (web: the
+            // placeholder names the category).
+            "add" => {
+                let category = context.get("category").and_then(Value::as_str).map(IssueStatusCategory::from_wire);
+                if let Some(category) = category {
+                    self.creating = Some(category);
+                    self.create_error = None;
+                    self.new_name.clear();
                 }
-                self.synced_names.insert(row.id.clone(), row.name.clone());
-                continue;
             }
-            let input =
-                cx.new(|cx| InputState::new(window, cx).default_value(row.name.clone()));
-            let status_id = row.id.clone();
-            let sub = cx.subscribe_in(
-                &input,
-                window,
-                move |this, _, event: &InputEvent, window, cx| match event {
-                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                        this.persist_name(&status_id, window, cx);
+            "newName" => {
+                self.new_name = value.unwrap_or_default();
+                self.create_error = None;
+            }
+            "newColor" => {
+                if let Some(color) = value {
+                    self.new_color = color;
+                }
+            }
+            // The Create button, or Enter in the name field.
+            "create" => {
+                if let Some(typed) = value.filter(|_| payload.get("value").is_some()) {
+                    self.new_name = typed;
+                }
+                self.create(cx);
+            }
+            "cancel" => {
+                self.creating = None;
+                self.new_name.clear();
+                self.reset_form();
+            }
+            // A row's name as typed.
+            "rename" if !key.is_empty() => {
+                let typed = value.unwrap_or_default();
+                let base = self.scoped_statuses(cx).into_iter().find(|(row, _)| row.id == key).map(|(row, _)| row.name);
+                let Some(base) = base else { return };
+                let draft = self.drafts.entry(key.clone()).or_insert(Draft { typed: String::new(), base, sent: false });
+                draft.typed = typed;
+                draft.sent = false;
+                if self.row_error.as_ref().is_some_and(|(id, _)| id == &key) {
+                    self.row_error = None;
+                }
+            }
+            // Blur (`final`) or Enter: the rename persists.
+            "commit" if !key.is_empty() => {
+                if let (Some(typed), Some(draft)) = (value, self.drafts.get_mut(&key)) {
+                    if draft.typed != typed {
+                        draft.typed = typed;
+                        draft.sent = false;
                     }
-                    InputEvent::Change => {
-                        if this
-                            .row_error
-                            .as_ref()
-                            .is_some_and(|(id, _)| id == &status_id)
-                        {
-                            this.row_error = None;
-                            cx.notify();
-                        }
+                }
+                let blur = context.get("blur").and_then(Value::as_bool).unwrap_or(false);
+                self.persist_name(&key, blur, cx);
+            }
+            "color" if !key.is_empty() => {
+                if let Some(color) = value {
+                    self.set_color(key, color, cx);
+                }
+            }
+            "menu" if !key.is_empty() => {
+                let statuses = self.scoped_statuses(cx);
+                let Some((row, resolved)) = statuses.iter().find(|(row, _)| row.id == key).cloned() else { return };
+                match payload.get("value").and_then(Value::as_str) {
+                    Some("up") => self.move_status(&row, api::statuses::MoveDirection::Up, cx),
+                    Some("down") => self.move_status(&row, api::statuses::MoveDirection::Down, cx),
+                    Some("delete") if row.builtin_key.is_none() => {
+                        // Delete ALWAYS opens the one confirm-and-reassign
+                        // dialog (EXP-320). EXP-1045: the RESOLVED rows
+                        // travel, so the target picker draws each status by
+                        // its own glyph and tint.
+                        let candidates: Vec<ResolvedStatus> = statuses
+                            .iter()
+                            .filter(|(candidate, resolved)| candidate.id != row.id && resolved.category != IssueStatusCategory::Duplicate)
+                            .map(|(_, resolved)| resolved.clone())
+                            .collect();
+                        let preselected = statuses
+                            .iter()
+                            .find(|(candidate, _)| candidate.builtin_key.as_deref() == Some("backlog"))
+                            .map(|(candidate, _)| candidate.id.clone())
+                            .or_else(|| candidates.first().map(|status| status.group_key.clone()));
+                        let Some(preselected) = preselected else { return };
+                        let count = self.issue_counts(cx).get(&resolved.group_key).copied().unwrap_or(0);
+                        self.open_delete_dialog(row.id.clone(), row.name.clone(), count, candidates, preselected, window, cx);
                     }
                     _ => {}
-                },
-            );
-            self.name_inputs.insert(row.id.clone(), input);
-            self.input_subs.insert(row.id.clone(), sub);
-            self.synced_names.insert(row.id.clone(), row.name.clone());
+                }
+            }
+            _ => {}
         }
+        cx.notify();
     }
 
     /// Labels-pane `persistName`: trim; empty or unchanged resets to the
-    /// synced name, otherwise `statuses.update`. "Unchanged" means unchanged
-    /// against the name we last put IN the input, not against the live row: a
-    /// teammate's rename must not be undone by a click in and out.
-    fn persist_name(&mut self, status_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(input) = self.name_inputs.get(status_id).cloned() else {
+    /// synced name (on blur: a focused field keeps its text), otherwise
+    /// `statuses.update`. "Unchanged" means unchanged against the name the
+    /// edit started from, not against the live row: a teammate's rename
+    /// must not be undone by a click in and out.
+    fn persist_name(&mut self, status_id: &str, blur: bool, cx: &mut gpui::Context<Self>) {
+        let Some((row, _)) = self.scoped_statuses(cx).into_iter().find(|(row, _)| row.id == status_id) else {
             return;
         };
-        let Some((row, _)) = self
-            .scoped_statuses(cx)
-            .into_iter()
-            .find(|(row, _)| row.id == status_id)
-        else {
+        let Some(draft) = self.drafts.get(status_id) else {
             return;
         };
-        let typed = input.read(cx).value().trim().to_string();
-        let synced = self
-            .synced_names
-            .get(status_id)
-            .cloned()
-            .unwrap_or_else(|| row.name.clone());
-        if typed.is_empty() || typed == synced {
-            let name = row.name.clone();
-            self.synced_names.insert(status_id.to_string(), name.clone());
-            input.update(cx, |state, cx| state.set_value(name, window, cx));
+        if draft.sent {
+            return;
+        }
+        let typed = draft.typed.trim().to_string();
+        if typed.is_empty() || typed == draft.base {
+            if blur {
+                self.drafts.remove(status_id);
+            }
             self.row_error = None;
-            cx.notify();
             return;
         }
         if self.is_duplicate_name(&typed, Some(status_id), cx) {
             self.row_error = Some((status_id.to_string(), DUPLICATE_NAME_MESSAGE.to_string()));
-            cx.notify();
             return;
         }
         self.row_error = None;
@@ -346,6 +427,9 @@ impl StatusesPane {
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
+        if let Some(draft) = self.drafts.get_mut(&status_id) {
+            draft.sent = true;
+        }
         // Web `RenameRow`: a rejected rename says so under the row instead of
         // vanishing into the log.
         cx.spawn(async move |this, cx| {
@@ -353,18 +437,15 @@ impl StatusesPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::statuses::statuses_update(
-                        &trpc,
-                        &team_id,
-                        &call_id,
-                        Some(&typed),
-                        None,
-                    )
+                    api::statuses::statuses_update(&trpc, &team_id, &call_id, Some(&typed), None)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.update(name) failed: {err}");
+                    if let Some(draft) = this.drafts.get_mut(&status_id) {
+                        draft.sent = false;
+                    }
                     // FEED-79: a name already taken is INVALID INPUT (under
                     // the row); anything else is the error toast.
                     if crate::action_error::is_name_conflict(err) {
@@ -382,6 +463,29 @@ impl StatusesPane {
         .detach();
     }
 
+    /// A custom row's colour pick (`statuses.update`); a rejection toasts.
+    fn set_color(&mut self, status_id: String, color: String, cx: &mut gpui::Context<Self>) {
+        let Some(team_id) = self.team_id(cx) else {
+            return;
+        };
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let call_id = status_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::statuses::statuses_update(&trpc, &team_id, &call_id, None, Some(&color))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.set_row_error(&status_id, result, "update", cx);
+            });
+        })
+        .detach();
+    }
+
     fn create(&mut self, cx: &mut gpui::Context<Self>) {
         if self.submitting {
             return;
@@ -392,7 +496,7 @@ impl StatusesPane {
         let Some(wire) = category.as_wire() else {
             return;
         };
-        let name = self.new_name.read(cx).value().trim().to_string();
+        let name = self.new_name.trim().to_string();
         if name.is_empty() || self.is_duplicate_name(&name, None, cx) {
             return;
         }
@@ -428,6 +532,7 @@ impl StatusesPane {
                     }
                 } else {
                     this.creating = None;
+                    this.new_name.clear();
                     this.reset_form();
                 }
                 cx.notify();
@@ -482,11 +587,6 @@ impl StatusesPane {
         .detach();
     }
 
-    /// Web `prPinNotice`: EXP-319's pins live on the synced teams row and their
-    /// FK is ON DELETE SET NULL, so deleting a pinned status silently reverts
-    /// that automation to the builtin default. Correct, but invisible — say it
-    /// out loud in the delete dialog. An automation switched off ("do nothing")
-    /// is unaffected, so it stays quiet.
     fn pr_pin_notice(&self, status_id: &str, cx: &App) -> Option<SharedString> {
         let team = super::active_team(cx, &self.nav)?;
         let rows = self.scoped_statuses(cx);
@@ -550,11 +650,6 @@ impl StatusesPane {
         })
     }
 
-    /// The ONE delete flow (EXP-320): a native confirm dialog that also picks
-    /// the destination status — always, regardless of the visible count (a
-    /// "0-count" status can still hold issues on trashed boards). The dialog
-    /// fetches the server-authoritative referencing count async and always
-    /// sends `reassignToId`.
     #[allow(clippy::too_many_arguments)]
     fn open_delete_dialog(
         &mut self,
@@ -646,7 +741,7 @@ impl StatusesPane {
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
-        // EXP-774 (web parity): a rejected move says so under the row.
+        // EXP-774 (web parity): a rejected move says so.
         cx.spawn(async move |this, cx| {
             let call_id = status_id.clone();
             let result = cx
@@ -677,518 +772,283 @@ impl StatusesPane {
         }
     }
 
-
-    fn render_status_row(
-        &self,
-        row: &IssueStatusRow,
-        resolved: &ResolvedStatus,
-        count: usize,
-        first_in_category: bool,
-        last_in_category: bool,
-        siblings: &[(IssueStatusRow, ResolvedStatus)],
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let builtin = row.builtin_key.clone();
-        let status_id = row.id.clone();
-        let team_id = row.team_id.clone();
-        let tint = crate::icons::status_tint_color(&resolved.tint, cx);
-        let glyph = crate::icons::glyph_icon(resolved.glyph).text_color(tint);
-
-        // EXP-1076: one rung of the category's hairline LADDER — `list_row`
-        // + `flat_row`, a hairline between rows and no box around them (the
-        // web `SETTINGS_LIST_CLASS` twin).
-        let mut line = crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .gap_3()
-            .items_center()
-            .px_3()
-            .py_1p5();
-
-        // Leading glyph. A CUSTOM status' glyph doubles as its color swatch
-        // trigger (the labels pane's dot popover, one control lighter). A
-        // builtin's is inert — but it takes the SAME 24px slot, or the two
-        // kinds of row would step out of line by the button's padding.
-        line = if builtin.is_some() {
-            line.child(
-                div()
-                    .size(gpui::px(CTL_SM_H))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(glyph.clone().small()),
-            )
-        } else {
-            let current = row.color.clone().unwrap_or_default();
-            let swatch_status = status_id.clone();
-            let swatch_team = team_id.clone();
-            let swatch_pane = cx.entity().downgrade();
-            line.child(
-                Popover::new(row_id("status-color", &status_id))
-                    .trigger(
-                        Button::new(row_id("status-color-trigger", &status_id))
-                            .accessibility_label(format!("Change color of {}", row.name))
-                            .ghost()
-                            .web_icon_xs()
-                            .child(glyph.clone().small()),
-                    )
-                    .content(move |_, _, cx| {
-                        let popover = cx.entity();
-                        let status_id = swatch_status.clone();
-                        let team_id = swatch_team.clone();
-                        let pane = swatch_pane.clone();
-                        swatch_grid(
-                            &format!("status-swatch-{status_id}"),
-                            &STATUS_COLORS,
-                            Some(current.as_str()),
-                            move |picked, window, cx| {
-                                let team_id = team_id.clone();
-                                let status_id = status_id.clone();
-                                let picked = picked.to_string();
-                                let pane = pane.clone();
-                                popover.update(cx, |state, cx| state.dismiss(window, cx));
-                                // EXP-774 (web parity): a rejected color pick
-                                // says so under the row.
-                                let Some(trpc) = crate::queries::trpc_client(cx) else {
-                                    return;
-                                };
-                                cx.spawn(async move |cx| {
-                                    let call_id = status_id.clone();
-                                    let result = cx
-                                        .background_executor()
-                                        .spawn(async move {
-                                            api::statuses::statuses_update(
-                                                &trpc,
-                                                &team_id,
-                                                &call_id,
-                                                None,
-                                                Some(&picked),
-                                            )
-                                        })
-                                        .await;
-                                    let _ = pane.update(cx, |this, cx| {
-                                        this.set_row_error(&status_id, result, "update", cx);
-                                    });
-                                })
-                                .detach();
-                            },
-                            cx,
-                        )
-                    }),
-            )
-        };
-
-        // Name: locked plain text for builtins, an inline input for customs.
-        line = match self.name_inputs.get(&status_id) {
-            Some(input) => {
-                line.child(
-                    glass_input(input, window, cx).web_input_sm().appearance(false).flex_1().min_w_0(),
-                )
-            }
-            None => line.child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .child(SharedString::from(row.name.clone())),
-            ),
-        };
-
-        // The backlog builtin is where new issues land — web parity badge.
-        if builtin.as_deref() == Some("backlog") {
-            // EXP-698: the shared non-interactive glass chip, not a bespoke
-            // bordered-but-unfilled badge.
-            line = line.child(crate::surface::glass_pill(
-                gpui::SharedString::from(format!("status-default-{}", row.id)),
-                crate::surface::PillSize::Sm,
-                crate::surface::PillMode::Readonly,
-                cx,
-            )
-            .child("Default"));
-        }
-
-        line = line.child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(format!(
-                    "{count} issue{}",
-                    if count == 1 { "" } else { "s" }
-                ))),
-        );
-
-        // The lock slot (web parity): a builtin wears the lock glyph, a
-        // custom row reserves the same width so the counts, the Default
-        // badge and the name column line up across the category.
-        line = line.child(
-            div()
-                .id(row_id("status-lock", &status_id))
-                .size(gpui::px(CTL_SM_H))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(builtin.is_some(), |slot| {
-                    slot.child(
-                        Icon::new(registry::UI_PRIVATE)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .tooltip(|window, cx| {
-                        gpui_component::tooltip::Tooltip::new(
-                            "Built-in status: reorderable, but not renamable, \
-                             recolorable or deletable.",
-                        )
-                        .build(window, cx)
-                    })
-                }),
-        );
-
-        // ONE "..." menu (THE Menu): Move up / Move down — available on
-        // BUILTINS too (only name/color and delete are locked), disabled at
-        // the category edges — then Delete on custom rows.
-        let delete = builtin.is_none().then(|| {
-            // Delete ALWAYS opens the one confirm-and-reassign dialog
-            // (EXP-320) — candidates and the Backlog preselect are computed
-            // here, where the resolved siblings are at hand.
-            // EXP-1045: the RESOLVED rows travel, not (id, name) pairs — the
-            // dialog's target picker draws each status by its own glyph and
-            // tint, like every other status surface.
-            let candidates: Vec<ResolvedStatus> = siblings
-                .iter()
-                .filter(|(candidate, resolved)| {
-                    candidate.id != status_id
-                        && resolved.category != IssueStatusCategory::Duplicate
-                })
-                .map(|(_, resolved)| resolved.clone())
-                .collect();
-            let preselected = siblings
-                .iter()
-                .find(|(candidate, _)| candidate.builtin_key.as_deref() == Some("backlog"))
-                .map(|(candidate, _)| candidate.id.clone())
-                .or_else(|| candidates.first().map(|status| status.group_key.clone()));
-            (status_id.clone(), row.name.clone(), candidates, preselected)
-        });
-        let pane = cx.entity().downgrade();
-        let menu_row = row.clone();
-        line = line.child(
-            crate::controls::ghost_icon_button(
-                row_id("status-actions", &status_id),
-                Icon::new(registry::UI_MORE),
-                cx,
-            )
-            .tooltip(SharedString::from(format!("Status actions for {}", row.name)))
-            .pointer_menu(move |mut menu, _, cx| {
-                for (label, icon, direction, disabled) in [
-                    (
-                        "Move up",
-                        registry::UI_CHEVRON_UP,
-                        api::statuses::MoveDirection::Up,
-                        first_in_category,
-                    ),
-                    (
-                        "Move down",
-                        registry::UI_CHEVRON_DOWN,
-                        api::statuses::MoveDirection::Down,
-                        last_in_category,
-                    ),
-                ] {
-                    let pane = pane.clone();
-                    let row = menu_row.clone();
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(label, disabled)
-                            .icon(Icon::new(icon))
-                            .on_click(move |_, _, cx| {
-                                let _ = pane.update(cx, |this, cx| {
-                                    this.move_status(&row, direction, cx);
-                                });
-                            }),
-                    );
-                }
-                if let Some((del_id, del_name, candidates, preselected)) = delete.clone() {
-                    let pane = pane.clone();
-                    menu = menu.item(
-                        crate::controls::danger_menu_item(
-                            "Delete",
-                            Icon::new(registry::UI_DELETE),
-                            cx,
-                        )
-                        .on_click(move |_, window, cx| {
-                            let Some(preselected) = preselected.clone() else {
-                                return;
-                            };
-                            let _ = pane.update(cx, |this, cx| {
-                                this.open_delete_dialog(
-                                    del_id.clone(),
-                                    del_name.clone(),
-                                    count,
-                                    candidates.clone(),
-                                    preselected,
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                    );
-                }
-                menu
-            }),
-        );
-
-        let error = self
-            .row_error
-            .as_ref()
-            .filter(|(id, _)| id == &status_id)
-            .map(|(_, message)| message.clone());
-
-        v_flex()
-            .gap_1()
-            .child(line)
-            .when_some(error, |col, message| {
-                col.child(crate::action_error::field_error(message, cx).px_1())
-            })
-    }
-
-    /// The inline create form (the labels pane's, verbatim) for one category.
-    fn render_create_form(
-        &self,
-        category: IssueStatusCategory,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let name = self.new_name.read(cx).value().trim().to_string();
-        let duplicate = !name.is_empty() && self.is_duplicate_name(&name, None, cx);
-        let form_error = if duplicate {
-            Some(DUPLICATE_NAME_MESSAGE.to_string())
-        } else {
-            self.create_error.clone()
-        };
-        let entity = cx.entity();
-        // EXP-1076: the inline form closes the category's hairline ladder —
-        // the same `flat_row` rhythm as the rows above it (the web
-        // `SETTINGS_LIST_CLASS` twin), not a card floating beside them.
-        crate::surface::flat_row()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_3()
-            .child(glass_input(&self.new_name, window, cx).web_input_sm())
-            .when_some(form_error, |col, message| {
-                col.child(crate::action_error::field_error(message, cx))
-            })
-            .child(
-                v_flex()
-                    .gap_1p5()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Color"),
-                    )
-                    .child(swatch_grid(
-                        "new-status-swatch",
-                        &STATUS_COLORS,
-                        Some(self.new_color.as_str()),
-                        move |picked, _, cx| {
-                            let picked = picked.to_string();
-                            entity.update(cx, |this, cx| {
-                                this.new_color = picked;
-                                cx.notify();
-                            });
-                        },
-                        cx,
-                    )),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new(category_id("status-create", category))
-                            .primary()
-                            .web_xs()
-                            .label(if self.submitting {
-                                "Creating…"
-                            } else {
-                                "Create status"
-                            })
-                            .disabled(name.is_empty() || self.submitting || duplicate)
-                            .loading(self.submitting)
-                            .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
-                    )
-                    .child(
-                        crate::surface::glass_pill_button(category_id("status-create-cancel", category), crate::surface::PillSize::Sm, cx)
-                            .label("Cancel")
-                            .disabled(self.submitting)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.creating = None;
-                                this.new_name
-                                    .update(cx, |state, cx| state.set_value("", window, cx));
-                                this.reset_form();
-                                cx.notify();
-                            })),
-                    ),
-            )
-    }
-}
-
-impl Render for StatusesPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "StatusesPane").entered();
-        #[cfg(test)]
-        if let Some(name) = self.shot_name.take() {
-            self.sync_inputs(window, cx);
-            let placeholder = self.creating.map(create_placeholder);
-            self.new_name.update(cx, |state, cx| {
-                state.set_value(name, window, cx);
-                if let Some(placeholder) = placeholder {
-                    state.set_placeholder(placeholder, window, cx);
-                }
-            });
-        }
+    /// The state as the document binds it.
+    fn project(&mut self, cx: &App) -> Value {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
-
-        // EXP-1076: NO pane-level band. The web statuses page has none
-        // either (`components/team/statuses-section.tsx`): every CATEGORY
-        // carries its own band, and a second "Statuses" strip over them
-        // would only repeat the nav row that got you here. The categories
-        // stand the web's `space-y-6` apart.
-        let mut body = section(cx).gap_6();
-
-        if statuses.is_empty() {
-            // The loading/empty state has no category bands to name the
-            // pane, so it keeps the header — the web branch does the same.
-            let ready = self.statuses_ready(cx);
-            let state = if ready {
-                crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_STATUSES),
-                    crate::empty_state_copy::STATUSES,
-                    cx,
-                )
-            } else {
-                v_flex().child(super::settings_skeleton("statuses-skeleton", cx))
-            };
-            return v_flex().child(
-                body.child(crate::surface::glass_section_header("Statuses", None, cx))
-                    .child(state),
-            );
-        }
-
+        // A rename the synced row caught up with (or a row that went) is
+        // no longer a draft.
+        self.drafts.retain(|id, draft| {
+            statuses.iter().any(|(row, _)| &row.id == id && !(draft.sent && row.name.trim() == draft.typed.trim()))
+        });
+        let ready = self.statuses_ready(cx);
+        let mut cats = serde_json::Map::new();
         for category in IssueStatusCategory::DISPLAY_ORDER {
-            let rows: Vec<(IssueStatusRow, ResolvedStatus)> = statuses
-                .iter()
-                .filter(|(_, resolved)| resolved.category == category)
-                .cloned()
-                .collect();
-
+            let rows: Vec<&(IssueStatusRow, ResolvedStatus)> = statuses.iter().filter(|(_, resolved)| resolved.category == category).collect();
+            let last = rows.len().saturating_sub(1);
             // The Duplicate category is fixed at exactly one status — no "+".
             // The pie-clock fill tables are defined only up to
             // ISSUE_STATUS_STARTED_MAX started statuses, so Started caps out.
             let can_add = category != IssueStatusCategory::Duplicate;
-            let capped = category == IssueStatusCategory::Started
-                && rows.len() >= ISSUE_STATUS_STARTED_MAX;
-            // EXP-1076: the category's add control rides the BAND's trailing
-            // slot (web `GlassSectionHeader trailing`), not a row under the
-            // list, and it is the ICON-ONLY GHOST "+" (the filled circle is
-            // reserved for primary actions) — a labelled pill in
-            // a band a category name already explains is the same word
-            // twice. The web's `aria-label` is this tooltip; when the
-            // category is capped it carries the REASON instead, the web's
-            // `IconTooltip` on its disabled button.
-            let add = (can_add && self.creating != Some(category)).then(|| {
-                crate::controls::ghost_icon_button(
-                    category_id("status-new", category),
-                    Icon::new(registry::UI_ADD),
-                    cx,
-                )
-                .tooltip(if capped {
-                    SharedString::from(format!(
-                        "A team can have at most \
-                         {ISSUE_STATUS_STARTED_MAX} started statuses."
-                    ))
-                } else {
-                    SharedString::from(format!("Add {} status", category.label()))
+            let capped = category == IssueStatusCategory::Started && rows.len() >= ISSUE_STATUS_STARTED_MAX;
+            let creating = can_add && self.creating == Some(category);
+            let rows: Vec<Value> = rows
+                .iter()
+                .enumerate()
+                .map(|(index, (row, resolved))| {
+                    let custom = row.builtin_key.is_none();
+                    let count = counts.get(&resolved.group_key).copied().unwrap_or(0);
+                    let error = self.row_error.as_ref().filter(|(id, _)| id == &row.id).map(|(_, message)| message.clone());
+                    // ONE "..." menu: Move up / Move down — on BUILTINS too
+                    // (only name/color and delete are locked), disabled at
+                    // the category edges — then Delete on custom rows.
+                    let mut items = vec![
+                        json!({"label": "Move up", "value": "up", "icon": "ui-chevron-up", "disabled": index == 0}),
+                        json!({"label": "Move down", "value": "down", "icon": "ui-chevron-down", "disabled": index == last}),
+                    ];
+                    if custom {
+                        items.push(json!({"label": "Delete", "value": "delete", "icon": "ui-delete", "destructive": true}));
+                    }
+                    json!({
+                        "key": row.id,
+                        "custom": custom,
+                        "builtin": !custom,
+                        "name": self.drafts.get(&row.id).map(|draft| draft.typed.clone()).unwrap_or_else(|| row.name.clone()),
+                        "label": row.name,
+                        "glyph": resolved.glyph.file_name(),
+                        "tint": hex(crate::icons::status_tint_color(&resolved.tint, cx)),
+                        "color": row.color.clone().unwrap_or_default(),
+                        // The backlog builtin is where new issues land.
+                        "isDefault": row.builtin_key.as_deref() == Some("backlog"),
+                        "count": format!("{count} issue{}", if count == 1 { "" } else { "s" }),
+                        "hasError": error.is_some(),
+                        "error": error.unwrap_or_default(),
+                        "menuLabel": format!("Status actions for {}", row.name),
+                        "items": items,
+                    })
                 })
-                .disabled(capped)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.creating = Some(category);
-                    this.create_error = None;
-                    this.new_name.update(cx, |state, cx| {
-                        state.set_value("", window, cx);
-                        // Web: the placeholder names the category being
-                        // added to.
-                        state.set_placeholder(create_placeholder(category), window, cx);
-                    });
-                    cx.notify();
-                }))
-                .into_any_element()
-            });
-            // EXP-1076: a BAND per category sitting directly over that
-            // category's gapless hairline ladder — the web statuses page
-            // draws the same pair.
-            let mut group = v_flex().w_full().min_w_0().gap_2().child(
-                crate::surface::glass_section_band(None, category.label(), add, cx),
-            );
-            // A category can be EMPTY — since EXP-685 retired the builtin
-            // Todo, `unstarted` starts out with no rows at all. Say so
-            // instead of leaving the band hanging over the "Add status".
-            if rows.is_empty() {
-                group = group.child(crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_STATUSES),
-                    crate::empty_state_copy::STATUSES,
-                    cx,
-                ));
-            }
-            // EXP-994: the category's rows are ONE table — a hairline
-            // between them, no gap and no card around them.
-            let mut list = v_flex().w_full().min_w_0();
-            for (index, (row, resolved)) in rows.iter().enumerate() {
-                list = list.child(crate::surface::list_row(
-                    self.render_status_row(
-                        row,
-                        resolved,
-                        counts.get(&resolved.group_key).copied().unwrap_or(0),
-                        index == 0,
-                        index + 1 == rows.len(),
-                        &statuses,
-                        window,
-                        cx,
-                    ),
-                ));
-            }
-            if !rows.is_empty() {
-                group = group.child(list);
-            }
-
-            if can_add {
-                if self.creating == Some(category) {
-                    group = group.child(self.render_create_form(category, window, cx));
-                } else if capped {
-                    // The band's disabled "+" carries the reason as its
-                    // tooltip (like the web's), but a cap you can only find
-                    // by hovering a dead control is a cap nobody finds — so
-                    // the sentence also stands under the list.
-                    group = group.child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(format!(
-                                "A team can have at most \
-                                 {ISSUE_STATUS_STARTED_MAX} started statuses."
-                            ))),
-                    );
-                }
-            }
-
-            body = body.child(group);
+                .collect();
+            let wire = category.as_wire().unwrap_or("unknown");
+            cats.insert(wire.to_string(), json!({
+                // A category can be EMPTY (since EXP-685 retired the builtin
+                // Todo, `unstarted` starts out with no rows at all).
+                "empty": rows.is_empty(),
+                "hasRows": !rows.is_empty(),
+                "rows": rows,
+                "add": can_add && !creating && !capped,
+                "capped": can_add && !creating && capped,
+                "creating": creating,
+            }));
         }
-
-        // EXP-630: the PR automation card moved to Settings → Issues.
-        v_flex().gap_6().child(body)
+        let name = self.new_name.trim();
+        let duplicate = !name.is_empty() && self.is_duplicate_name(name, None, cx);
+        let form_error = if duplicate { Some(DUPLICATE_NAME_MESSAGE.to_string()) } else { self.create_error.clone() };
+        json!({
+            "list": !statuses.is_empty(),
+            "loading": statuses.is_empty() && !ready,
+            "empty": statuses.is_empty() && ready,
+            "cats": cats,
+            "form": {
+                "name": self.new_name,
+                // Web `CreateStatusForm`: "New {category} status".
+                "placeholder": self.creating.map(create_placeholder).unwrap_or_default(),
+                "color": self.new_color,
+                "hasError": form_error.is_some(),
+                "error": form_error.unwrap_or_default(),
+                "disabled": name.is_empty() || self.submitting || duplicate,
+                "submitting": self.submitting,
+                "label": if self.submitting { "Creating…" } else { "Create status" },
+            },
+        })
     }
+}
+
+impl Render for StatusesPane {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "StatusesPane").entered();
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        #[cfg(test)]
+        self.shot_press(cx);
+        // EXP-630: the PR automation card moved to Settings → Issues.
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Chrome {
+    /// The list hover wash (the ghost buttons').
+    list_hover: String,
+    /// `feedback::skeleton_fill`.
+    skeleton: String,
+    /// `action_error::field_error`'s ink.
+    danger: String,
+    /// A gpui-component Button's corner (the primary Create).
+    radius: f32,
+}
+
+impl Chrome {
+    fn of(cx: &App) -> Self {
+        let theme = cx.theme();
+        Self {
+            list_hover: hex(theme.list_hover),
+            skeleton: hex(theme.muted_foreground.opacity(0.18)),
+            danger: hex(theme.danger),
+            radius: f32::from(theme.radius),
+        }
+    }
+}
+
+/// `action_error::field_error`: the 13 px line in the danger ink, `px`
+/// inset.
+fn field_error(chrome: &Chrome, id: &str, text: Value, visible: Value, px: f32) -> Value {
+    let line = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": text}, "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}});
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": px}, "children": [line]})
+}
+
+/// A 24 px square that centres its child (the glyph and lock slots).
+fn slot(id: &str, visible: Value, child: Value) -> Value {
+    json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 24, "height": 24, "flexShrink": 0}, "children": [child]})
+}
+
+/// One status row (`flat_row`: `px_3` / `py_1p5`, `gap_3`): the glyph
+/// (a custom's is the ColorPicker's child trigger; a builtin's is inert in
+/// the same 24 px slot), the name (a custom's types in place), the Default
+/// pill, the count, the lock slot and the ⋯ menu; the row's error under it.
+fn row(ink: &Ink, chrome: &Chrome, id: &str) -> Value {
+    let glyph = |id: String| json!({"id": id, "component": "Icon", "props": {"name": path("glyph")}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": path("tint"), "flexShrink": 0}});
+    let inert = slot(&format!("{id}_glyph"), path("builtin"), glyph(format!("{id}_glyph_icon")));
+    let picker = json!({"id": format!("{id}_color"), "component": "ColorPicker", "visible": path("custom"),
+        "props": {"value": path("color"), "colors": STATUS_COLORS},
+        "on": {"change": {"event": {"name": "color", "context": {"key": path("key")}}}},
+        "children": [glyph(format!("{id}_color_icon"))]});
+    let mut label = ink.text(&format!("{id}_label"), path("label"), SM, &ink.foreground);
+    label["visible"] = path("builtin");
+    label["style"]["flexGrow"] = json!(1);
+    label["style"]["flexShrink"] = json!(1);
+    label["style"]["flexBasis"] = json!(0);
+    label["style"]["minWidth"] = json!(0);
+    // `glass_input` at `web_input_sm` without its chrome: the 32 px field,
+    // its text 10 px in (gpui-component's Medium input padding).
+    let input = json!({"id": format!("{id}_input"), "component": "Input",
+        "props": {"variant": "bare", "label": "Name", "name": "name", "value": path("name")},
+        "on": {
+            "change": {"event": {"name": "rename", "context": {"key": path("key")}}},
+            "blur": {"event": {"name": "commit", "context": {"key": path("key"), "blur": true}}},
+            "submit": {"event": {"name": "commit", "context": {"key": path("key"), "blur": false}}},
+        },
+        "style": {"width": "100%"}});
+    let field = json!({"id": format!("{id}_field"), "component": "Box", "visible": path("custom"),
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "height": 32, "paddingHorizontal": 10, "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
+        "children": [input]});
+    let mut pill = ink.pill(&format!("{id}_default"), json!("Default"), false, None);
+    pill["visible"] = path("isDefault");
+    let count = ink.text(&format!("{id}_count"), path("count"), XS, &ink.muted);
+    // The lock slot: a builtin wears the lock glyph, a custom row keeps the
+    // width so the counts, the Default pill and the names line up.
+    let lock = json!({"id": format!("{id}_lock_tip"), "component": "Tooltip", "visible": path("builtin"),
+        "props": {"content": "Built-in status: reorderable, but not renamable, recolorable or deletable."},
+        "children": [{"id": format!("{id}_lock_icon"), "component": "Icon", "props": {"name": "ui-private"}, "style": {"width": ink.r(XS), "height": ink.r(XS), "color": ink.muted, "flexShrink": 0}}]});
+    let lock = json!({"id": format!("{id}_lock"), "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 24, "height": 24, "flexShrink": 0}, "children": [lock]});
+    let mut more = ink.ghost_icon_button(&format!("{id}_more"), "ui-more", path("menuLabel"), Value::Null, &chrome.list_hover);
+    more.as_object_mut().expect("the trigger").remove("on");
+    let menu = json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": path("items"), "align": "start"},
+        "on": {"select": {"event": {"name": "menu", "context": {"key": path("key")}}}}, "children": [more]});
+    let line = json!({"id": format!("{id}_line"), "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.375), "borderRadius": ink.radius_md},
+        "children": [inert, picker, label, field, pill, count, lock, menu]});
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+        "children": [line, field_error(chrome, &format!("{id}_error"), path("error"), path("hasError"), ink.r(0.25))]})
+}
+
+/// The inline create form (the labels pane's) under `category`'s rows: the
+/// boxed name field, its error, "Color" over the inline ColorPicker, then
+/// Create status (primary) and Cancel. `flat_row`: `p_3`, `gap_3`.
+fn create_form(ink: &Ink, chrome: &Chrome, id: &str, visible: Value) -> Value {
+    let input = json!({"id": format!("{id}_name"), "component": "Input",
+        "props": {"variant": "box", "size": "sm", "label": "Status name", "name": "newName", "placeholder": path("/pane/form/placeholder"), "value": path("/pane/form/name")},
+        "on": {"change": {"event": {"name": "newName"}}, "submit": {"event": {"name": "create"}}},
+        "style": {"width": "100%"}});
+    let color_label = ink.text(&format!("{id}_color_label"), json!("Color"), XS, &ink.muted);
+    let grid = json!({"id": format!("{id}_grid"), "component": "ColorPicker", "props": {"value": path("/pane/form/color"), "colors": STATUS_COLORS, "inline": true},
+        "on": {"change": {"event": {"name": "newColor"}}}});
+    let color = json!({"id": format!("{id}_color"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.375)}, "children": [color_label, grid]});
+    let [mut submit, mut submit_dim] = ink.pill_button_with(&format!("{id}_submit"), PillPaint::Primary, None, None, path("/pane/form/label"), path("/pane/form/disabled"), None, json!({"name": "create"}));
+    // A gpui-component Button keeps the theme's corner (not the capsule).
+    for face in [&mut submit, &mut submit_dim] {
+        face["style"]["borderRadius"] = json!(chrome.radius);
+        for child in face["children"].as_array_mut().expect("the button's children") {
+            if child["style"]["position"] == "absolute" {
+                child["style"]["borderRadius"] = json!(chrome.radius);
+            }
+        }
+    }
+    // `loading`: the spinner leads the label on the disabled face.
+    let glyph = ink.r(0.75);
+    let spin = json!({"id": format!("{id}_submit_spin"), "component": "Spinner", "visible": path("/pane/form/submitting"), "style": {"width": glyph, "height": glyph, "color": ink.primary_button_fg, "flexShrink": 0}});
+    let children = submit_dim["children"].as_array_mut().expect("the button's children");
+    children.insert(children.len() - 1, spin);
+    let [cancel, cancel_dim] = ink.pill_button(&format!("{id}_cancel"), None, json!("Cancel"), path("/pane/form/submitting"), json!({"name": "cancel"}));
+    let buttons = json!({"id": format!("{id}_buttons"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5)}, "children": [submit, submit_dim, cancel, cancel_dim]});
+    json!({"id": id, "component": "Box", "visible": visible,
+        "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "padding": ink.r(0.75), "borderRadius": ink.radius_md},
+        "children": [input, field_error(chrome, &format!("{id}_error"), path("/pane/form/error"), path("/pane/form/hasError"), 0.), color, buttons]})
+}
+
+/// One category: its band (the ghost "+" trailing, disabled with the
+/// reason at the started cap), the empty state, the gapless rows, then the
+/// create form or the cap line (`gap_2`).
+fn category(ink: &Ink, chrome: &Chrome, category: IssueStatusCategory) -> Value {
+    let wire = category.as_wire().unwrap_or("unknown");
+    let at = |key: &str| path(&format!("/pane/cats/{wire}/{key}"));
+    let cap = format!("A team can have at most {ISSUE_STATUS_STARTED_MAX} started statuses.");
+    let trailing = (category != IssueStatusCategory::Duplicate).then(|| {
+        let add = ink.ghost_icon_button(&format!("{wire}_add"), "ui-add", json!(format!("Add {} status", category.label())), json!({"name": "add", "context": {"category": wire}}), &chrome.list_hover);
+        let add = json!({"id": format!("{wire}_add_tip"), "component": "Tooltip", "visible": at("add"), "props": {"content": format!("Add {} status", category.label())}, "children": [add]});
+        // gpui-component's disabled ghost: no wash, the glyph muted at half.
+        let mut capped = ink.ghost_icon_button(&format!("{wire}_capped"), "ui-add", json!(cap), Value::Null, &chrome.list_hover);
+        for key in ["on", "props"] {
+            capped.as_object_mut().expect("the button").remove(key);
+        }
+        for key in [":hover", "cursor"] {
+            capped["style"].as_object_mut().expect("the button's style").remove(key);
+        }
+        capped["children"][0]["style"]["color"] = json!(ink.muted);
+        capped["children"][0]["style"]["opacity"] = json!(0.5);
+        let capped = json!({"id": format!("{wire}_capped_tip"), "component": "Tooltip", "visible": at("capped"), "props": {"content": cap}, "children": [capped]});
+        json!({"id": format!("{wire}_trailing"), "component": "Box", "style": {"display": "flex", "flexShrink": 0}, "children": [add, capped]})
+    });
+    let band = ink.band(&format!("{wire}_band"), category.label(), trailing);
+    let rows = json!({"id": format!("{wire}_rows"), "component": "List", "visible": at("hasRows"), "props": {"gap": "none"},
+        "template": {"component": format!("{wire}_row"), "path": format!("/pane/cats/{wire}/rows"), "key": "key"},
+        "children": [row(ink, chrome, &format!("{wire}_row"))]});
+    let mut cap_line = ink.text(&format!("{wire}_cap"), json!(cap), XS, &ink.muted);
+    cap_line["visible"] = at("capped");
+    json!({"id": wire, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.5)},
+        "children": [
+            band,
+            empty_state(ink, &format!("{wire}_empty"), "settings-statuses", crate::empty_state_copy::STATUSES, at("empty")),
+            rows,
+            create_form(ink, chrome, &format!("{wire}_form"), at("creating")),
+            cap_line,
+        ]})
+}
+
+/// The pane's tree: one category after another (`gap_6`, no pane band:
+/// every category carries its own); with no statuses yet, the "Statuses"
+/// band over the skeleton or the empty state.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let column = |id: &str, visible: Value, children: Vec<Value>| {
+        json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(1.5)}, "children": children})
+    };
+    let categories = IssueStatusCategory::DISPLAY_ORDER.iter().map(|c| category(ink, chrome, *c)).collect();
+    let none = column("none", not(path("/pane/list")), vec![
+        ink.band("none_band", "Statuses", None),
+        ink.skeleton_rows("skeleton", &chrome.skeleton, path("/pane/loading")),
+        empty_state(ink, "empty", "settings-statuses", crate::empty_state_copy::STATUSES, path("/pane/empty")),
+    ]);
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [column("categories", path("/pane/list"), categories), none]})
 }
 
 /// The delete dialog's body (EXP-320): the live referencing count + the
@@ -1337,13 +1197,49 @@ fn create_placeholder(category: IssueStatusCategory) -> String {
     format!("New {} status", category.label().to_lowercase())
 }
 
-fn row_id(kind: &str, id: &str) -> ElementId {
-    ElementId::Name(SharedString::from(format!("{kind}-{id}")))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn category_id(kind: &str, category: IssueStatusCategory) -> ElementId {
-    ElementId::Name(SharedString::from(format!(
-        "{kind}-{}",
-        category.as_wire().unwrap_or("unknown")
-    )))
+    /// The document raises no issue a debug build's mount check refuses.
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        };
+        let chrome = Chrome { list_hover: "#ffffff10".into(), skeleton: "#a1a1aa2e".into(), danger: "#fb7185ff".into(), radius: 10. };
+        let tree = document(&ink, &chrome);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-statuses", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    #[test]
+    fn the_create_placeholder_names_the_category() {
+        assert_eq!(create_placeholder(IssueStatusCategory::Started), "New started status");
+    }
 }

@@ -2083,17 +2083,13 @@ fn status_counts() -> HashMap<String, usize> {
 }
 
 fn statuses_shot(rows: Vec<domain::rows::IssueStatusRow>) -> StatusesShot {
-    StatusesShot { counts: status_counts(), ready: true, creating: None, row_error: None, rows }
+    StatusesShot { counts: status_counts(), ready: true, creating: None, row_error: None, press: Vec::new(), rows }
 }
 
 fn statuses(name: &str, shot: StatusesShot, clicks: &'static [(f32, f32)]) {
     shoot_pane_clicked(name, StatusesPane::for_shots, move |pane, cx| pane.show(shot, cx), None, clicks);
 }
 
-/// The Blocked row's glyph and its ⋯ (window points; one layout before
-/// and after).
-const STATUS_GLYPH: (f32, f32) = (46., 415.);
-const STATUS_MORE: (f32, f32) = (709., 415.);
 
 #[test]
 #[ignore]
@@ -2104,13 +2100,18 @@ fn settings_statuses_rows() {
 #[test]
 #[ignore]
 fn settings_statuses_color_open() {
-    statuses("statuses-color-open", statuses_shot(status_rows()), &[STATUS_GLYPH]);
+    // Before: a click at the Blocked row's glyph (46, 415) opened today's popover.
+    let press = vec!["started_row_color.s-blocked.customTrigger|started_row_color.customTrigger.s-blocked".into()];
+    statuses("statuses-color-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
 }
 
 #[test]
 #[ignore]
 fn settings_statuses_menu_open() {
-    statuses("statuses-menu-open", statuses_shot(status_rows()), &[STATUS_MORE]);
+    // Before: a click at the Blocked row's ⋯ (709, 415) only hovered it (the
+    // pointer menu does not open headless).
+    let press = vec!["started_row_more.s-blocked".into()];
+    statuses("statuses-menu-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
 }
 
 #[test]
