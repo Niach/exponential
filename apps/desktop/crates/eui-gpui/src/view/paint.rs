@@ -1541,8 +1541,18 @@ impl SurfaceView {
             let att = if lcx.bool("attachments") { eui_core::measure::COMPOSER_ATTACH_W + gap } else { 0.0 };
             let fw = (w - lead - slot("trailing") - att - send - gap).max(0.0);
             let line = px_prop(&field_props, "lineHeight").unwrap_or(lcx.text_style.line_height);
-            let fh = if h > send + 0.5 { h } else { line.min(h) };
-            (if lcx.rtl { w - lead - fw } else { lead }, (h - fh) / 2.0, fw, fh)
+            let x = if lcx.rtl { w - lead - fw } else { lead };
+            if h > send + 0.5 {
+                (x, 0.0, fw, h)
+            } else {
+                // A one-line draft's TEXT is centred on the disc: gpui-component's
+                // Textarea draws its text its own editor inset (`Size::Medium`
+                // `input_py`) below its top, so the widget sits that inset
+                // above the line's box (the IDE's flat card: #EDE-65 lane T).
+                let fh = line.min(h);
+                let ey = f32::from(gpui_component::Size::Medium.input_py());
+                (x, (h - fh) / 2.0 - ey, fw, fh + 2.0 * ey)
+            }
         } else {
             (0.0, 0.0, w, (h - send - gap).max(0.0))
         };

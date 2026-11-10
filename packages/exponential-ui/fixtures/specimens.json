@@ -13476,19 +13476,82 @@
                 "id": "specimen_color_picker_case_2_label",
                 "component": "Text",
                 "props": {
+                  "text": "child · a status glyph",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_color_glyph",
+                "component": "ColorPicker",
+                "props": {
+                  "value": "#22c55e"
+                },
+                "children": [
+                  {
+                    "id": "c2_color_glyph_icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "circle-dashed",
+                      "size": "sm"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "inline",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_color_inline",
+                "component": "ColorPicker",
+                "props": {
+                  "value": "#22c55e",
+                  "inline": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_4_label",
+                "component": "Text",
+                "props": {
                   "text": "open · the label palette",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c2_color_open_box",
+                "id": "c4_color_open_box",
                 "component": "Box",
                 "style": {
-                  "height": 160
+                  "height": 180
                 },
                 "children": [
                   {
-                    "id": "c2_color_open",
+                    "id": "c4_color_open",
                     "component": "ColorPicker",
                     "props": {
                       "value": "#3b82f6",
