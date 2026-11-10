@@ -49,7 +49,7 @@ struct IssueListView: View {
     // EXP-1031: transient start feedback (no desktop online, relay off) is
     // the shared toast now.
     @Environment(\.toaster) private var toaster
-    /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
+    /// Identifier column floor — fits "EXP-999" in .expMono(.caption) at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
     /// Row content height floor. Pins the row so its height never depends on
@@ -428,7 +428,7 @@ struct IssueListView: View {
                 // typical identifiers (EXP-24), while longer prefixes / 4+
                 // digit numbers grow instead of ellipsizing into ambiguity.
                 Text(issue.identifier ?? "")
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)

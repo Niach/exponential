@@ -239,7 +239,7 @@
       },
       "family": {
         "sans": "Inter",
-        "mono": "ui-monospace",
+        "mono": "JetBrains Mono",
         "serif": "ui-serif"
       }
     },
@@ -268,6 +268,7 @@
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
+      "iconXl": 28,
       "hairline": 1,
       "appBar": 48,
       "tabBar": 56,
@@ -326,9 +327,9 @@
       ],
       "source": "host"
     },
-    "ui-monospace": {
-      "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-      "source": "system"
+    "JetBrains Mono": {
+      "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      "source": "host"
     },
     "ui-serif": {
       "fallback": "Georgia, serif",

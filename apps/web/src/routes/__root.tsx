@@ -85,6 +85,16 @@ export const Route = createRootRoute({
         rel: `stylesheet`,
         href: `https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap`,
       },
+      // #EXP-1629: the mono face is self-hosted (public/fonts, OFL-1.1), the
+      // same JetBrains Mono the desktop app bundles; the @font-face rules
+      // live in @exp/ui's styles.css. Only the regular weight is preloaded.
+      {
+        rel: `preload`,
+        href: `/fonts/JetBrainsMono-Regular.woff2`,
+        as: `font`,
+        type: `font/woff2`,
+        crossOrigin: `anonymous`,
+      },
       {
         rel: `manifest`,
         href: `/manifest.json`,

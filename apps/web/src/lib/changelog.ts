@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-smoother-scrolling`,
+    date: `2026-11-10`,
+    title: `Smoother scrolling through chats and lists`,
+    summary: `Scrolling a long chat or list in the desktop app redraws only what moves, and Exponential Desktop 0.2.14 brings Fable 5.2 and the wider chat.`,
+    body: `- **Smoother scrolling**: a long chat's first cards and a scrolled list in the desktop app redraw only what moves into view.
+- **Exponential Desktop 0.2.14**: Fable 5.2 and the wider chat with the one-line composer, like the desktop app.`,
+  },
+  {
+    id: `2026-11-10-fable-5-2`,
+    date: `2026-11-10`,
+    title: `Fable is always Fable 5.2`,
+    summary: `Picking Fable, from a model picker or with /model fable, always runs Fable 5.2.`,
+    body: `- **Fable 5.2**: every Fable pick, /model fable and a saved Fable 5.1 setting run on Fable 5.2, never an older Fable. Opus stays the default.`,
+  },
+  {
     id: `2026-11-10-wide-chat`,
     date: `2026-11-10`,
     title: `A wider chat and a one-line composer`,

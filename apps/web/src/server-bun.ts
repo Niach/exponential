@@ -66,7 +66,7 @@ import {
   captureReturnVisit,
 } from "@/lib/conversion/capture"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
-import { buildSecurityHeaders } from "@/lib/security-headers"
+import { buildSecurityHeaders, fontAssetHeaders } from "@/lib/security-headers"
 import {
   classifyRequestPath,
   recordRequest,
@@ -234,6 +234,15 @@ function withWidgetAssetHeaders(req: Request, response: Response): Response {
   return response
 }
 
+// #EXP-1766: the MCP Apps views load the self-hosted mono face from another
+// origin (`fontAssetHeaders`, unit-tested in lib/security-headers.ts).
+function withFontAssetHeaders(req: Request, response: Response): Response {
+  const headers = fontAssetHeaders(new URL(req.url).pathname)
+  if (!headers) return response
+  for (const [key, value] of Object.entries(headers)) response.headers.set(key, value)
+  return response
+}
+
 // The reporter magic-link page: the /support/<token> URL IS the credential,
 // so the page must never leak it through the Referer header (the SPA also
 // sets a same-named meta tag; this covers direct navigations before hydration
@@ -278,7 +287,10 @@ async function handleRequest(req: Request): Promise<Response> {
           req,
           withWidgetAssetHeaders(
             req,
-            ensureNativeResponse(await nitroApp.fetch(req))
+            withFontAssetHeaders(
+              req,
+              ensureNativeResponse(await nitroApp.fetch(req))
+            )
           )
         )
       )

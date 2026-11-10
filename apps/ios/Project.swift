@@ -359,6 +359,14 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // #EXP-1639: a running session on the Lock Screen (push-to-start).
     "NSSupportsLiveActivities": .boolean(true),
     "ITSAppUsesNonExemptEncryption": .boolean(false),
+    // #EXP-1629: JetBrains Mono (OFL-1.1, Exponential/Resources), every mono
+    // run's face (`ExpMono`) and genUI's `type.family.mono`.
+    "UIAppFonts": .array([
+        .string("JetBrainsMono-Regular.ttf"),
+        .string("JetBrainsMono-Bold.ttf"),
+        .string("JetBrainsMono-Italic.ttf"),
+        .string("JetBrainsMono-BoldItalic.ttf"),
+    ]),
     // NEW-69: a call with an agent streams the microphone to the member's
     // voice device.
     "NSMicrophoneUsageDescription": .string("Exponential uses the microphone for calls with your agents."),

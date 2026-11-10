@@ -794,14 +794,18 @@ describe(`notice sections`, () => {
   })
 
   it(`fonts reproduce the OFL wherever font binaries ship`, () => {
-    for (const client of [`desktop`, `site`] as const) {
+    for (const client of [`desktop`, `site`, `web`, `ios`, `android`] as const) {
       const fonts = section(notices[client], `Bundled fonts`)
       expect(fonts, `${client} ships font binaries`).toBeDefined()
       expect(fonts).toContain(`SIL OPEN FONT LICENSE Version 1.1`)
     }
-    // The web app links Google Fonts at runtime and distributes no font binary,
-    // so it has no OFL obligation and must not claim one.
-    expect(section(notices.web, `Bundled fonts`)).toBeUndefined()
+    // #EXP-1629: the apps all ship JetBrains Mono (the theme's mono family).
+    // The web app links Inter from Google Fonts at runtime and distributes no
+    // Inter binary, so it must not claim Inter's OFL.
+    for (const client of [`desktop`, `web`, `ios`, `android`] as const) {
+      expect(section(notices[client], `Bundled fonts`), client).toContain(`JetBrains Mono`)
+    }
+    expect(section(notices.web, `Bundled fonts`)).not.toContain(`The Inter Project Authors`)
   })
 
   it(`every client attributes Lucide`, () => {

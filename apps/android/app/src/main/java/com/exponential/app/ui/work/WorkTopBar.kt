@@ -1,6 +1,7 @@
 package com.exponential.app.ui.work
 
 import androidx.compose.animation.AnimatedVisibility
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -125,7 +126,7 @@ fun WorkTopBar(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = if (showCollapsed) {
-                                MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+                                MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono)
                             } else {
                                 LocalTextStyle.current
                             },

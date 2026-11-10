@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -265,7 +266,7 @@ internal fun LoginResultCaption(
                     Text(
                         code,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {

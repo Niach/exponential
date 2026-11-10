@@ -132,6 +132,11 @@ html {
      `--default-font-family` preflight now resolve to the stack the base
      layer below sets on `body`, instead of to the generic ui-sans-serif. */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* #EXP-1629: the mono face is JetBrains Mono on every platform (the desktop
+     bundles the TTFs, the web app self-hosts the woff2 in public/fonts, the
+     natives bundle them too); `font-mono` and Tailwind's code/kbd/pre preflight
+     resolve here. The stack after it only covers the load window. */
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 :root,
