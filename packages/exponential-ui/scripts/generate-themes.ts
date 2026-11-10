@@ -124,7 +124,7 @@ export function composeExponential(): ThemeSource {
   dark.successForeground = `#052e16`
   light.destructiveForeground ??= `#ffffff`
   dark.destructiveForeground ??= light.foreground
-  const shadow = (a: string, ring: string) => ({
+  const shadow = (a: string, ring: `#${string}`) => ({
     none: [],
     sm: [{ x: 0, y: 1, blur: 2, spread: 0, color: hex(`rgb(0 0 0 / ${a})`) }],
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
@@ -158,8 +158,8 @@ export function composeExponential(): ThemeSource {
     name: `Exponential`,
     extends: `neutral`,
     modes: {
-      light: { color: light, shadow: shadow(`0.08`, `${hex(light.foreground!).slice(0, 7)}1a`) },
-      dark: { color: dark, shadow: shadow(`0.4`, `${hex(dark.foreground!).slice(0, 7)}1a`) },
+      light: { color: light, shadow: shadow(`0.08`, `${hex(light.foreground!).slice(0, 7)}1a` as `#${string}`) },
+      dark: { color: dark, shadow: shadow(`0.4`, `${hex(dark.foreground!).slice(0, 7)}1a` as `#${string}`) },
     },
     tokens: {
       spacing: { none: 0, ...numbers(design.spacing), xl3: 48 },
