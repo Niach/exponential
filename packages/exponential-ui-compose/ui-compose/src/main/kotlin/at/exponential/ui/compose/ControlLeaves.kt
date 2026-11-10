@@ -288,7 +288,8 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholderInk: Color?) {
-    val pill = selectPillVariant(cx.props, cx.ownerProps)
+    // #EXP-1778: a `button` trigger paints as a pill does (its own recipe).
+    val pill = selectPillVariant(cx.props, cx.ownerProps) || selectButtonVariant(cx.props, cx.ownerProps)
     val states = if (cx.model.isDisabled(cx.index)) listOf("disabled") else emptyList()
     val value = cx.part("Select", "value", states)
     val chevron = cx.part("Select", "chevron")
@@ -319,6 +320,10 @@ internal fun selectRowVariant(props: Props, ownerProps: Props = emptyMap()): Boo
 /** #EXP-1765: is this Select a `pill` trigger (the trigger's props, else the owner's)? */
 internal fun selectPillVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
     props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "pill"
+
+/** #EXP-1778: is this Select a `button` trigger (the trigger's props, else the owner's)? */
+internal fun selectButtonVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
+    props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "button"
 
 /** The gap between a Select trigger's text and glyph (the recipe's, at least `$spacing.sm`; the measurer's rule). */
 internal fun selectTriggerGap(recipeGap: Float, sm: Float): Float = max(recipeGap, max(sm, 0f))

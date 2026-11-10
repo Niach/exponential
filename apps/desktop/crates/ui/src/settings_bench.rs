@@ -1799,6 +1799,7 @@ impl Render for BlockShot {
 /// `settings_app_mcp_eui` with `EXP_SETTINGS_BEFORE` at the first.
 mod app_mcp_twins {
     use super::*;
+    use gpui_component::Selectable as _;
     use serde_json::json;
 
     const URL: &str = "https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push";
@@ -1812,18 +1813,55 @@ mod app_mcp_twins {
         vec![("none".into(), "Not set up".into()), ("s1".into(), "GitHub".into()), ("s2".into(), "GitHub (work account)".into()), ("s3".into(), "Linear".into())]
     }
 
-    pub(super) struct Ide;
+    /// The IDE twin; `open` draws the trigger's menu (`upstream_menu`) in
+    /// place where its popover hangs it (a headless frame never paints the
+    /// trigger's popover): under the trigger by the popover's offset (a
+    /// quarter rem), start-aligned, at the menu's 16 px rem, no row selected
+    /// (a pointer open).
+    pub(super) struct Ide {
+        open: bool,
+        menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
+    }
+
+    impl Ide {
+        fn new(open: bool) -> Self {
+            Self { open, menu: None }
+        }
+    }
 
     impl Render for Ide {
-        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            use gpui::Focusable as _;
             let picker = domain::apps::UpstreamPicker { value: "s1".into(), options: options() };
             let mono = cx.theme().mono_font_family.clone();
             let muted = cx.theme().muted_foreground;
+            let menu = if self.open {
+                Some(match self.menu.clone() {
+                    Some(menu) => menu,
+                    None => {
+                        let p = picker.clone();
+                        let menu = gpui_component::menu::PopupMenu::build(window, cx, move |menu, _, _| crate::settings::app_mcp::upstream_menu(menu, &p, std::rc::Rc::new(|_, _| {})));
+                        menu.focus_handle(cx).focus(window, cx);
+                        self.menu = Some(menu.clone());
+                        menu
+                    }
+                })
+            } else {
+                None
+            };
+            let offset = window.rem_size() * 0.25;
             gpui_component::v_flex()
+                .relative()
                 .gap(px(16.))
-                .child(div().flex().child(crate::settings::app_mcp::upstream_select("bench-upstream".into(), "github".into(), picker, false, |_, _| {}, cx)))
+                .child(div().flex().child(if self.open {
+                    // Open: the trigger as its popover selects it.
+                    crate::settings::app_mcp::upstream_trigger("bench-upstream".into(), "github".into(), &picker, false, cx).selected(true).into_any_element()
+                } else {
+                    crate::settings::app_mcp::upstream_select("bench-upstream".into(), "github".into(), picker, false, |_, _| {}, cx).into_any_element()
+                }))
                 .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(URL, mono.clone()).text_xs().text_color(muted)))
                 .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(SECRET, mono).text_sm()))
+                .children(menu.map(|menu| div().absolute().left_0().top(px(32.) + offset).child(crate::controls::with_pointer_layer(menu))))
         }
     }
 
@@ -1841,10 +1879,10 @@ mod app_mcp_twins {
                     {"id": "upstream", "component": "Select", "props": {"label": "github", "name": "upstream", "triggerVariant": "button", "value": "s1", "options": options}, "style": {"width": SELECT_W}},
                 ]},
                 {"id": "url_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                    {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 12, "lineHeight": 16, "color": ink.3}},
+                    {"id": "url", "component": "Text", "props": {"text": URL, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 10.5, "lineHeight": 14, "color": ink.3}},
                 ]},
                 {"id": "secret_col", "component": "Stack", "style": {"width": NARROW}, "children": [
-                    {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 14, "lineHeight": 20}},
+                    {"id": "secret", "component": "Text", "props": {"text": SECRET, "truncate": "middle"}, "style": {"fontFamily": "$type.family.mono", "fontSize": 12.25, "lineHeight": 17.5}},
                 ]},
             ]});
             let view = crate::settings::doc_mount_lifted("bench-app-mcp", tree, &binding, window, cx);
@@ -1869,8 +1907,8 @@ mod app_mcp_twins {
     #[test]
     #[ignore]
     fn settings_app_mcp_ide() {
-        shoot_pane("app-mcp", |_, _| Ide, |_, _| {});
-        shoot_pane_clicked("app-mcp-open", |_, _| Ide, |_, _| {}, Some(std::time::Duration::from_millis(1200)), &[PRESS]);
+        shoot_pane("app-mcp", |_, _| Ide::new(false), |_, _| {});
+        shoot_pane("app-mcp-open", |_, _| Ide::new(true), |_, _| {});
     }
 
     #[test]

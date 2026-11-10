@@ -517,7 +517,7 @@ private fun SurfaceModel.syncSelectCursors() {
         val opening = cur == null
         // #EXP-1765: a `pill` opened by the POINTER shows no cursor until
         // the pointer moves over an option or a key goes ([selectWakeCursor]).
-        if (opening && !keyboardDriven && indexOf(o)?.let { node(it) }?.props?.str("triggerVariant") == "pill") {
+        if (opening && !keyboardDriven && indexOf(o)?.let { node(it) }?.props?.str("triggerVariant").let { it == "pill" || it == "button" }) {
             selectCursorless += o
             nodes.firstOrNull { it.owner == o && it.ownerComponent == "Select" && it.part == "search" && !it.hidden }?.let { focusRequest = it.id }
             continue

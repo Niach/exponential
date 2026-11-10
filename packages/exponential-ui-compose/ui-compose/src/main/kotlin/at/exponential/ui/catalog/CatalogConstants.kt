@@ -44,6 +44,10 @@ object CatalogConstants {
     /** #EXP-1765: how far under a `pill` Select its popup's border box hangs, and how far before the pill's aligned edge it starts (dp). */
     val SELECT_PILL_POPUP_OFFSET: Float = named("selectPillPopupOffset")
     val SELECT_PILL_POPUP_INSET: Float = named("selectPillPopupInset")
+    /** #EXP-1778: a `button` Select popup's border box under the trigger (dp). */
+    val SELECT_BUTTON_POPUP_OFFSET: Float = named("selectButtonPopupOffset")
+    /** #EXP-1778: the narrowest a `button` Select popup gets (dp). */
+    val SELECT_BUTTON_POPUP_MIN_WIDTH: Float = named("selectButtonPopupMinWidth")
     /** EXP-1259: the bottom fade over a list while more rows sit below (dp; #EXP-1629: a Select's popup too). */
     val SEARCH_LIST_FADE: Float = named("searchListFade")
 

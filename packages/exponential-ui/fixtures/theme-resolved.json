@@ -12382,7 +12382,7 @@
                 "borderRadius": "$radius.md",
                 "borderWidth": 1,
                 "borderColor": "$color.border",
-                "backgroundColor": "$color.secondary",
+                "backgroundColor": "#ffffff08",
                 "color": "$color.foreground",
                 "fontSize": 12.25,
                 "lineHeight": 17.5
@@ -12394,7 +12394,16 @@
                 "state": "hover"
               },
               "style": {
-                "backgroundColor": "$color.accent"
+                "backgroundColor": "#ffffff0e"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "button",
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff0e"
               }
             }
           ],
@@ -12639,8 +12648,8 @@
                 "paddingHorizontal": 8,
                 "gap": 4,
                 "borderRadius": "$radius.sm",
-                "fontSize": 12.25,
-                "lineHeight": 17.5
+                "fontSize": 14,
+                "lineHeight": 20
               }
             }
           ],
@@ -30833,7 +30842,7 @@
                 "borderRadius": "$radius.md",
                 "borderWidth": 1,
                 "borderColor": "$color.border",
-                "backgroundColor": "$color.secondary",
+                "backgroundColor": "#ffffff08",
                 "color": "$color.foreground",
                 "fontSize": 12.25,
                 "lineHeight": 17.5
@@ -30845,7 +30854,16 @@
                 "state": "hover"
               },
               "style": {
-                "backgroundColor": "$color.accent"
+                "backgroundColor": "#ffffff0e"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "button",
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff0e"
               }
             }
           ],
@@ -31090,8 +31108,8 @@
                 "paddingHorizontal": 8,
                 "gap": 4,
                 "borderRadius": "$radius.sm",
-                "fontSize": 12.25,
-                "lineHeight": 17.5
+                "fontSize": 14,
+                "lineHeight": 20
               }
             }
           ],

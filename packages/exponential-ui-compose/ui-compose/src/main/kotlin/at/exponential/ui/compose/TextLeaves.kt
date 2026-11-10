@@ -138,11 +138,23 @@ internal fun TextLeaf(cx: LeafContext) {
     }
     // EXP-1324 `shimmer`: the glyphs filled with the moving gradient.
     val shimmer = textShimmerBrush(cx)
+    // #EXP-1778: `truncate: middle` = start…end in the content box (the core
+    // keeps it one line); the cut is the shared per-character rule.
+    val style = cx.composeTextStyle(align = align)
+    val middle = cx.props["truncate"]?.string == "middle"
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val shown = cx.shown(text).let { full ->
+        if (!middle) full else androidx.compose.runtime.remember(full, style, cx.inner.width, density) {
+            val cache = HashMap<String, Double>()
+            at.exponential.ui.measure.middleTruncateWidth(full, cx.inner.width.toDouble()) { ch -> cache.getOrPut(ch) { measurer.measure(ch, style, softWrap = false, maxLines = 1).size.width / density.toDouble() } }
+        }
+    }
     InnerBox(cx) {
         BasicText(
-            cx.shown(text),
+            shown,
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
-            style = cx.composeTextStyle(align = align).let { if (shimmer != null) it.copy(brush = shimmer) else it },
+            style = style.let { if (shimmer != null) it.copy(brush = shimmer) else it },
             softWrap = lines != 1,
             maxLines = lines ?: Int.MAX_VALUE,
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,

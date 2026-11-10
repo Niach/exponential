@@ -431,6 +431,9 @@ impl Builder<'_, '_> {
         // `popupMinWidth`: the popup fits its options, at least that wide
         // (the IDE's non-searchable picker: content-fit, 168 px minimum).
         let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
+        // #EXP-1778: a `button`'s pointer menu fits its options, at least the
+        // layout's `selectButtonPopupMinWidth`.
+        let min_width = min_width.or_else(|| button.then_some(crate::layout::SELECT_BUTTON_POPUP_MIN_WIDTH as f64));
         let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| ((row || pill) && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
@@ -459,7 +462,7 @@ impl Builder<'_, '_> {
             let skeleton = self.part_in(list, &owner, "skeleton", "Skeleton", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"rows": crate::layout::SELECT_LOADING_ROWS}), "");
             self.skeleton_rows(skeleton);
             self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
-            self.place_select_popup(pill, value_node.is_some());
+            self.place_select_popup(pill, button, value_node.is_some());
             return;
         }
         let needle = query.to_lowercase();
@@ -548,14 +551,19 @@ impl Builder<'_, '_> {
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
         self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
-        self.place_select_popup(pill, value_node.is_some());
+        self.place_select_popup(pill, button, value_node.is_some());
     }
 
     /// The just-pushed Select popup's placement: a `row`'s hangs off its
     /// value (#EXP-1629), a `pill`'s a hairline outside the pill (#EXP-1765).
-    fn place_select_popup(&mut self, pill: bool, row: bool) {
+    fn place_select_popup(&mut self, pill: bool, button: bool, row: bool) {
         let Some(spec) = self.layers.last_mut() else { return };
-        if row {
+        if button {
+            // #EXP-1778: the IDE pointer menu's popover, its ring outside.
+            spec.offset = Some(crate::layout::SELECT_BUTTON_POPUP_OFFSET);
+            spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
+            spec.inset = Some(crate::layout::SELECT_PILL_POPUP_INSET);
+        } else if row {
             spec.offset = Some(crate::layout::SELECT_ROW_POPUP_OFFSET);
             spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
         } else if pill {

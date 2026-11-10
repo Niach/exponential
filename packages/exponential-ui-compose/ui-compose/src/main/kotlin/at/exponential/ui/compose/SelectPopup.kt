@@ -129,14 +129,16 @@ internal fun selectPopupAlign(owner: Props): String = owner.str("align").ifEmpty
  * (dp): a row's hangs off its value; #EXP-1765: a pill's border box
  * `selectPillPopupOffset` under it.
  */
-internal fun selectPopupSpacing(row: Boolean, pill: Boolean = false): Pair<Float, Float> = when {
+internal fun selectPopupSpacing(row: Boolean, pill: Boolean = false, button: Boolean = false): Pair<Float, Float> = when {
     row -> CatalogConstants.SELECT_ROW_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
+    // #EXP-1778: a `button`'s (the IDE pointer menu) border box under the trigger.
+    button -> CatalogConstants.SELECT_BUTTON_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
     pill -> CatalogConstants.SELECT_PILL_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
     else -> POPUP_OFFSET to POPUP_MARGIN
 }
 
 /** #EXP-1765: how far OUTSIDE the anchor's aligned edge the popup starts (dp): a pill's `selectPillPopupInset`, else 0. */
-internal fun selectPopupInset(pill: Boolean): Float = if (pill) CatalogConstants.SELECT_PILL_POPUP_INSET else 0f
+internal fun selectPopupInset(pill: Boolean, button: Boolean = false): Float = if (pill || button) CatalogConstants.SELECT_PILL_POPUP_INSET else 0f
 
 /**
  * #EXP-1765: the popup's border-box x (px) for [align] along the anchor
@@ -158,6 +160,8 @@ internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
 
 /** #EXP-1629: `popupMinWidth`: the popup fits its options, at least this wide (the IDE's non-searchable picker). */
 internal fun selectPopupMinWidth(owner: Props): Float? = owner.num("popupMinWidth")?.toFloat()?.takeIf { it > 0f }
+    // #EXP-1778: a `button`'s pointer menu: at least `selectButtonPopupMinWidth`.
+    ?: if (owner.str("triggerVariant") == "button") CatalogConstants.SELECT_BUTTON_POPUP_MIN_WIDTH else null
 
 /**
  * Under the anchor (above when it does not fit), aligned along it by
@@ -212,10 +216,12 @@ internal fun SelectPopup(cx: LeafContext) {
     val searchable = owner.flag("searchable")
     val row = selectRowVariant(cx.props, owner)
     val pill = selectPillVariant(cx.props, owner)
+    // #EXP-1778: a `button` popup is the IDE's pointer menu.
+    val button = selectButtonVariant(cx.props, owner)
     val loading = owner.flag("loading")
     var query by remember(cx.node.id) { mutableStateOf("") }
     // #EXP-1765: a pointer-opened pill starts without a cursor.
-    var cursorless by remember(cx.node.id) { mutableStateOf(pill && !model.keyboardDriven) }
+    var cursorless by remember(cx.node.id) { mutableStateOf((pill || button) && !model.keyboardDriven) }
     val q = query.trim().lowercase()
     val options = remember(owner, q) { if (loading) emptyList() else selectOptions(owner, q) }
     var cursor by remember(q) { mutableIntStateOf(if (cursorless) -1 else selectInitialCursor(options, if (multiple && q.isEmpty()) chosen else null)) }
@@ -266,9 +272,9 @@ internal fun SelectPopup(cx: LeafContext) {
 
     // The shadow paints into transparent room around the box.
     val bleed = cs.shadows.maxOfOrNull { abs(it.x) + abs(it.y) + it.blur + it.spread }?.coerceAtLeast(0f) ?: 0f
-    val position = remember(row, pill, owner, cx.rtl, density, bleed) {
-        val (offset, margin) = selectPopupSpacing(row, pill)
-        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill).dp.roundToPx() })
+    val position = remember(row, pill, button, owner, cx.rtl, density, bleed) {
+        val (offset, margin) = selectPopupSpacing(row, pill, button)
+        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill, button).dp.roundToPx() })
     }
     val fill = cs.copy(background = cs.background ?: cx.themeColor("popover"))
     val fadeInk = cx.part("Select", "fade").style.background ?: fill.background

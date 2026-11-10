@@ -1096,6 +1096,19 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
       ],
     },
+  }, {
+    // #EXP-1778: App detail's Accounts picker: an outline small button (the
+    // label names it) opening the pointer menu, the shown option checked.
+    label: `triggerVariant · button`,
+    node: {
+      id: `accounts`,
+      component: `Stack`,
+      props: { direction: `horizontal`, gap: `sm`, align: `center` },
+      children: [
+        { id: `upstream`, component: `Select`, props: { label: `github`, name: `upstream`, triggerVariant: `button`, value: `s1`, options: [{ label: `Not set up`, value: `none` }, { label: `GitHub`, value: `s1` }, { label: `GitHub (work account)`, value: `s2` }] }, style: { width: 144 } },
+        { id: `upstream_busy`, component: `Select`, props: { label: `linear`, name: `upstreamBusy`, triggerVariant: `button`, value: `none`, disabled: true, options: [{ label: `Not set up`, value: `none` }] }, style: { width: 144 } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
@@ -1257,6 +1270,21 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Text: [{
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
+  }, {
+    // #EXP-1778: App detail's webhook URL and shown-once secret: one mono
+    // line each, the middle cut (start…end) at the box's width.
+    label: `truncate · middle`,
+    node: {
+      id: `hook`,
+      component: `Stack`,
+      props: { gap: `xs` },
+      style: { maxWidth: 240 },
+      children: [
+        { id: `hook_url`, component: `Text`, props: { text: `https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push`, variant: `caption`, truncate: `middle` }, style: { fontFamily: `$type.family.mono` } },
+        { id: `hook_secret`, component: `Text`, props: { text: `whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa`, truncate: `middle` }, style: { fontFamily: `$type.family.mono` } },
+        { id: `hook_end`, component: `Text`, props: { text: `truncate · end keeps the start of a long line and cuts its end`, truncate: `end` } },
+      ],
+    },
   }],
   // EXP-1548: a table wider than the page scrolls sideways; cells wrap.
   Table: [{

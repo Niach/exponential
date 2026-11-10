@@ -47,21 +47,28 @@ export function typeaheadStep(buffer: TypeaheadBuffer, key: string, now: number,
  *  hangs `selectPillPopupOffset` under the pill, starting
  *  `selectPillPopupInset` OUTSIDE its aligned edge (`alignOffset`, the
  *  popper's: negative = outward for `start` and `end`, none centred), the
- *  same margin; a field's off the trigger by the overlay defaults. */
+ *  same margin; #EXP-1778: a `button`'s (the IDE pointer menu) fits its
+ *  options, at least `selectButtonPopupMinWidth` (or `popupMinWidth`), its
+ *  border box `selectButtonPopupOffset` under the trigger and the pill's
+ *  inset outside its edge; a field's off the trigger by the overlay defaults. */
 export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; alignOffset: number; collisionPadding: number } {
   const row = props.triggerVariant === `row`
   const pill = props.triggerVariant === `pill`
+  const button = props.triggerVariant === `button`
   const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : `start`
-  const set = typeof props.popupWidth === `number` && Number.isFinite(props.popupWidth) && props.popupWidth > 0 ? props.popupWidth : undefined
-  const width = set ?? (row || pill ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
+  const px = (v: unknown) => (typeof v === `number` && Number.isFinite(v) && v > 0 ? v : undefined)
+  // `popupMinWidth`: the popup fits its options, at least that wide (the
+  // core's rule); #EXP-1778: a `button`'s at least `selectButtonPopupMinWidth`.
+  const min = px(props.popupMinWidth) ?? (button ? LAYOUT_CONSTANTS.selectButtonPopupMinWidth : undefined)
+  const width = px(props.popupWidth) ?? ((row || pill) && min === undefined ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
   return {
     align,
-    minWidth: width === undefined ? `var(${triggerWidthVar})` : undefined,
+    minWidth: width !== undefined ? undefined : min !== undefined ? `${min}px` : `var(${triggerWidthVar})`,
     width: width === undefined ? undefined : `${width}px`,
     anchorValue: row,
-    sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : pill ? LAYOUT_CONSTANTS.selectPillPopupOffset! : OVERLAY_OFFSET,
-    alignOffset: pill && align !== `center` ? -LAYOUT_CONSTANTS.selectPillPopupInset! : 0,
-    collisionPadding: row || pill ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
+    sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : pill ? LAYOUT_CONSTANTS.selectPillPopupOffset! : button ? LAYOUT_CONSTANTS.selectButtonPopupOffset! : OVERLAY_OFFSET,
+    alignOffset: (pill || button) && align !== `center` ? -LAYOUT_CONSTANTS.selectPillPopupInset! : 0,
+    collisionPadding: row || pill || button ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
   }
 }
 
@@ -83,7 +90,7 @@ export function selectClearSize(searchIconWidth: unknown): { glyph: number; box:
 /** #EXP-1765: does a pill Select opened this way open WITHOUT a cursor (a
  *  pointer opening; the keyboard keeps the first enabled / chosen one)? */
 export function selectOpensWithoutCursor(props: Record<string, unknown>, byPointer: boolean): boolean {
-  return byPointer && props.triggerVariant === `pill`
+  return byPointer && (props.triggerVariant === `pill` || props.triggerVariant === `button`)
 }
 
 /** #EXP-1629: a popper anchored on the TRIGGER placed as if anchored on
