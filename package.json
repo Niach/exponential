@@ -62,7 +62,7 @@
     "shots:readme-hero": "bun run --filter @exp/shots readme-hero",
     "shots:index": "bun run --filter @exp/shots index",
     "shots:affected": "bun run --filter @exp/shots affected",
-    "shots:check": "bun --filter @exp/styleguide build -- --check",
+    "shots:check": "bun packages/shots/src/check-store.ts",
     "test:shots": "bun --filter @exp/view-catalog test && bun --filter @exp/shots test && bun --filter @exp/styleguide test",
     "dev:styleguide": "bun --filter @exp/styleguide dev",
     "build:styleguide": "bun --filter @exp/styleguide build",
