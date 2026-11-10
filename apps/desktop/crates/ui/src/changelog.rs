@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-fable-5-2",
+    date: "2026-11-10",
+    title: "Fable is always Fable 5.2",
+    summary: "Picking Fable, from a model picker or with /model fable, always runs Fable 5.2.",
+    body: r#"- **Fable 5.2**: every Fable pick, /model fable and a saved Fable 5.1 setting run on Fable 5.2, never an older Fable. Opus stays the default."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_243: ChangelogEntry = ChangelogEntry {
     id: "2026-11-10-wide-chat",
     date: "2026-11-10",
     title: "A wider chat and a one-line composer",
