@@ -460,7 +460,7 @@ jobs:
   # so a busy single Mac runner never blocks a merge; release-suite.yml runs
   # it as a release blocker before every ios-v* build.
   # Repo variable PR_MAC_LEGS=off skips the informational Mac legs (ios-core,
-  # ios-app, ios-runner, and eui-swift when it isn't required) so a release
+  # ios-app, ios-runner, eui-swift-info: eui-swift when it isn't required) so a release
   # suite gets both Macs; the release shepherd sets it while a
   # release-suite.yml run waits on a Mac. A REQUIRED eui-swift still runs.
   ios-core:
@@ -585,10 +585,22 @@ jobs:
   # package, eui-core, the FFI, the generated catalog), and then it runs even
   # with PR_MAC_LEGS=off: it queues for a Mac rather than skipping, since a
   # skipped leg let a Swift compile break reach master (`labelStyle`, #2506).
-  # For other eUI PRs it stays informational and PR_MAC_LEGS=off skips it.
+  # Only that case runs here, so `gate` (which needs this job) never waits on a
+  # Mac for a PR Swift doesn't compile (an eui-gpui or Cargo.toml edit).
   eui-swift:
     needs: [pick, changes]
-    if: needs.changes.outputs.eui == 'true' && (vars.PR_MAC_LEGS != 'off' || needs.changes.outputs.swift == 'true')
+    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift == 'true'
+    uses: ./.github/workflows/exponential-ui.yml
+    with:
+      conformance_only: true
+      swift_only: true
+    secrets: inherit
+
+  # The same pass, INFORMATIONAL, for the other eUI PRs: not in `gate`'s
+  # needs, and PR_MAC_LEGS=off skips it.
+  eui-swift-info:
+    needs: [pick, changes]
+    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift != 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
