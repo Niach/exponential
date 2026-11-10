@@ -119,6 +119,24 @@ class GeometryTest {
         assertEquals(900f, m.viewportHeight, 0.001f)
     }
 
+    /** #EXP-1765: overlay-geometry.json `inset` (the pill popup: the inset, the clamp, then whole dp from the pill), replayed at density 2 in px. */
+    @Test
+    fun insetOverlayPlacement() {
+        val cases = Fixtures.json("overlay-geometry.json")["inset"]?.array ?: emptyList()
+        assertTrue(cases.size >= 5)
+        val d = 2f
+        for (c in cases) {
+            val px = { v: JsonValue?, k: String -> (v!![k]!!.number!! * d).toInt() }
+            val a = c["anchor"]
+            val anchor = androidx.compose.ui.unit.IntRect(px(a, "x"), px(a, "y"), px(a, "x") + px(a, "width"), px(a, "y") + px(a, "height"))
+            val window = androidx.compose.ui.unit.IntSize(px(c["viewport"], "width"), px(c["viewport"], "height"))
+            val p = at.exponential.ui.compose.selectPopupOrigin(c["align"]!!.string!!, false, px(c, "offset"), px(c, "padding"), px(c, "inset"), d, anchor, window, px(c["size"], "width"), px(c["size"], "height"))
+            val name = c["name"]?.string ?: ""
+            assertEquals(name, px(c["expected"], "x"), p.x)
+            assertEquals(name, px(c["expected"], "y"), p.y)
+        }
+    }
+
     @Test
     fun overlayPlacement() {
         val cases = Fixtures.json("overlay-geometry.json")["cases"]?.array ?: emptyList()
@@ -182,6 +200,43 @@ class GeometryTest {
         assertEquals(m.frame(m.nodes.first { it.id == "start" && !it.removed }.index), menu.anchorFrame)
         m.press("start")
         assertTrue("the anchor toggles it closed", m.layers.none { it.owner == "startMenu" })
+    }
+
+    /** Popover `matchAnchorWidth` (overlay-geometry.json's `matchAnchorWidth`
+     *  cases through the core's layer manager): the content is painted at
+     *  `contentWidth`, the panel is EXACTLY the anchor's (a trigger, or an
+     *  `anchor` by id) and lands where the fixture records. */
+    @Test
+    fun matchAnchorWidthCasesPlaceThePanelAtTheAnchorsWidth() {
+        val cases = (Fixtures.json("overlay-geometry.json")["cases"]?.array ?: emptyList()).filter { it["matchAnchorWidth"]?.bool == true }
+        assertTrue(cases.size > 1)
+        for (c in cases) {
+            val name = c["name"]?.string ?: ""
+            val a = c["anchor"]!!
+            val s = c["size"]!!
+            val v = c["viewport"]!!
+            val e = c["expected"]!!
+            val (ax, ay, aw, ah) = listOf(a["x"]!!.number!!, a["y"]!!.number!!, a["width"]!!.number!!, a["height"]!!.number!!)
+            val vw = v["width"]!!.number!!
+            val vh = v["height"]!!.number!!
+            val side = c["side"]!!.string!!
+            val align = c["align"]?.string ?: "center"
+            val content = """[{"id": "content", "component": "Box", "style": {"width": ${c["contentWidth"]!!.number!!}, "height": ${s["height"]!!.number!!}}}]"""
+            val at = """{"position": "absolute", "left": $ax, "top": $ay, "width": $aw, "height": $ah}"""
+            val children = if (c["byId"]?.bool == true) {
+                """[{"id": "panelButton", "component": "Box", "style": $at}, {"id": "pop", "component": "Popover", "props": {"open": true, "side": "$side", "align": "$align", "anchor": "panelButton", "matchAnchorWidth": true}, "children": $content}]"""
+            } else {
+                """[{"id": "pop", "component": "Popover", "props": {"open": true, "side": "$side", "align": "$align", "matchAnchorWidth": true}, "style": $at, "slots": {"trigger": {"id": "anchor", "component": "Box", "style": {"width": $aw, "height": $ah}}}, "children": $content}]"""
+            }
+            val m = makeModel("match", theme = null, fixed = true, width = vw.toFloat())
+            m.setViewport(vw.toFloat(), vh.toFloat())
+            m.setNested("""{"id": "root", "component": "Box", "style": {"position": "relative", "width": $vw, "height": $vh, "overflow": "hidden"}, "children": $children}""")
+            val layer = m.layers.first { it.owner == "pop" }
+            assertEquals(name, e["side"]!!.string!!, layer.placementSide)
+            assertEquals("$name: the anchor", aw.toFloat(), layer.anchorFrame!!.width, 0.01f)
+            assertEquals("$name: the anchor's width", aw.toFloat(), layer.frame.width, 0.01f)
+            assertEquals("$name: x", e["x"]!!.number!!.toFloat(), layer.frame.left, 0.01f)
+        }
     }
 
     @Test

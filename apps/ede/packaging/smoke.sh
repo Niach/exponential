@@ -20,7 +20,7 @@ case " ${ID:-} ${ID_LIKE:-} " in
     mkdir -p /var/lib/AccountsService/users && printf '[User]\nSession=ede\n' > /var/lib/AccountsService/users/person
     ;;
   *" fedora "*) dnf install -y -q curl gnupg2 >/dev/null ;;
-  *" arch "*) pacman-key --init >/dev/null 2>&1; pacman -Sy --noconfirm --needed curl gnupg >/dev/null ;;
+  *" arch "*) pacman-key --init >/dev/null 2>&1; pacman -Syu --noconfirm --needed curl gnupg >/dev/null ;;
 esac
 # The rendered script the repositories serve (the host and key filled in).
 curl -fsSL "$EXPONENTIAL_PKG_URL/setup.sh" | sh

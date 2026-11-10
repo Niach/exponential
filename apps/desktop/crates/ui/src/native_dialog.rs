@@ -474,8 +474,6 @@ impl Focusable for DialogShell {
 }
 
 /// The web `DialogContent` panel frame: the glass card over the scrim.
-/// Shared with [`alert_specimen`], so the styleguide pictures the product's
-/// panel.
 fn panel_frame(cx: &App) -> gpui::Div {
     v_flex()
         .flex_shrink_0()
@@ -997,29 +995,6 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     });
 }
 
-/// An alert OUTSIDE the scrim, for the styleguide's dialog specimens: the
-/// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, in the
-/// product's panel ([`panel_frame`] + [`panel_header`]) at the alert's own
-/// width, hugging its content like the product. `key` keeps the view across frames
-/// (`window.use_keyed_state`).
-pub(crate) fn alert_specimen(
-    key: &'static str,
-    spec: AlertSpec,
-    window: &mut Window,
-    cx: &mut App,
-) -> gpui::Div {
-    let title = spec.title.clone();
-    let width = spec.width;
-    let view = window.use_keyed_state(key, cx, |_, _| AlertView::new(spec));
-    panel_frame(cx).w(width).child(
-        v_flex()
-            .w_full()
-            .bg(t::glass::FILL_PANEL.to_hsla())
-            .child(panel_header(title, None, Some(close_button("native-alert-specimen-close", true, cx))))
-            .child(view),
-    )
-}
-
 /// #EXP-1553: an alert drawn as web's prompt CARD (no window-title band):
 /// the question leads inside the card, then the body and the footer, on
 /// the dialog panel's rounded glass. For styleguide specimens whose web twin
@@ -1304,6 +1279,7 @@ mod hug_tests {
     /// collapsed to its header): header + the block + the padding, nothing
     /// more, nothing less.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_alert_hugs_its_content(cx: &mut gpui::TestAppContext) {
         let (panel, probe, ok, _) = layout(
             |cx| {
@@ -1325,6 +1301,7 @@ mod hug_tests {
     /// A plain confirm: as tall as its words and footer, far under the old
     /// fixed 220.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_confirm_hugs_its_footer(cx: &mut gpui::TestAppContext) {
         let (panel, _, ok, _) = layout(|_| AlertSpec::new("Delete", "Gone for good.", "Delete"), cx);
         let ok = ok.expect("the footer draws");
@@ -1335,6 +1312,7 @@ mod hug_tests {
     /// Past the window the panel caps at the viewport less the gutters;
     /// the body scrolls and the footer stays on the panel.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_tall_alert_caps_and_keeps_its_footer(cx: &mut gpui::TestAppContext) {
         let (panel, _, ok, viewport_h) = layout(
             |cx| {

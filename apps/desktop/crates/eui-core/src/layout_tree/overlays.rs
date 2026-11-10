@@ -196,10 +196,12 @@ impl Builder<'_, '_> {
         }
         let modal = kind == "Dialog" || kind == "Drawer";
         self.push_layer(layer, root, &owner_now, placement, modal, dismissible, false, scroll_body);
-        if logical {
-            if let Some(spec) = self.layers.last_mut() {
-                spec.mirror = true;
-            }
+        // `matchAnchorWidth`: a Popover's panel is exactly its anchor's width
+        // (the `anchor` node, else its trigger).
+        let exact = kind == "Popover" && owner.props.get("matchAnchorWidth").and_then(Value::as_bool) == Some(true);
+        if let Some(spec) = self.layers.last_mut() {
+            spec.mirror |= logical;
+            spec.exact_anchor_width = exact;
         }
         if let Some(target) = anchor_id {
             self.anchor_links.push(super::AnchorLink { target, owner: owner.id.clone(), root: Some(root), open: true, hover: open_on_hover });

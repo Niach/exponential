@@ -1378,11 +1378,9 @@ struct ChatComposer: View {
                 Color.clear.frame(height: 1)
             }
         }
-        // The reading column, the bottom edge fade behind the whole bar
-        // (never behind an open card, which is opaque).
+        // The reading column; #EXP-1782: no edge fade behind the bar.
         .frame(maxWidth: DesignTokens.Transcript.maxWidth)
         .frame(maxWidth: .infinity)
-        .floatingBarEdge(!composerOpen)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ChatCopy.composerTestId)
         // The composed session can move (a resumed child): a new draft.
