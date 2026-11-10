@@ -2116,8 +2116,8 @@
         "file": "shots/ede-needs-you/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 10802,
-        "sha256": "4b8871a34e91d9154362fde5a6d5939d607231adfbeb638a362578ed894b24dc"
+        "bytes": 10652,
+        "sha256": "1fc758a0c7047d24ad703dfe8f00382f1ecd0092679a61efe437b6a24b28916e"
       }
     },
     "ede-notification-center": {
@@ -2161,8 +2161,8 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21794,
-        "sha256": "efd3ae0e46918d78657a7daa8626c3e8901a508100899679b73b170801203bbd"
+        "bytes": 21462,
+        "sha256": "3b898a44f82dba15988908f9296cf3725f37a00d2c3307c1472d99171cdf1e22"
       }
     },
     "ede-scale": {
