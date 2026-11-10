@@ -32,8 +32,8 @@ The orchestrator (`packages/shots/src/capture-all.ts`) preflights everything it
 needs, seeds the demo team, starts the steer-relay stub, then runs the capture
 LANES IN PARALLEL (`lanes.ts`): a lane waits only on a resource it shares
 (the screen, one emulator, the device fleet a desktop run joins), each wait
-named in `shots:plan`. iOS store and styleguide own their simulators and
-DerivedData, after ONE `tuist generate`. It imports the native outputs, writes
+named in `shots:plan`. The iOS store and `sg_*` lanes share one simulator
+and DerivedData (one after the other), after ONE `tuist generate`. It imports the native outputs, writes
 the store + index, and exits non-zero if any in-scope view failed, after
 finishing everything else; the summary ends with one rerun line per platform
 for just the failed views.
