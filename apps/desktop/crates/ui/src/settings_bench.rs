@@ -1028,7 +1028,7 @@ mod select_variants {
                 o
             }).collect();
             let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [
-                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "options": options}},
+                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "popupWidth": 170, "options": options}},
             ]});
             let view = crate::settings::doc_mount_lifted("bench-select", tree, &binding, window, cx);
             Self { view, open: open.then_some(2) }
@@ -1049,6 +1049,11 @@ mod select_variants {
                 Some(n) => {
                     self.open = Some(n - 1);
                     cx.notify();
+                }
+                // The headless clock stands still: the popup's enter fade
+                // runs out on the frames after the press.
+                None if self.view.read(cx).layers().iter().any(|layer| layer.owner == "device") => {
+                    self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
                 }
                 None => {}
             }
