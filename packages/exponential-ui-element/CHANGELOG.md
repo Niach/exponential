@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover `matchAnchorWidth` (through the Solid renderer); the harness's overlay view passes the fixture's `matchAnchorWidth` / `contentWidth`.
 - Select `triggerIcon` + the `brand-claude` / `brand-codex` marks (#EXP-1764): through the React renderer.
 - `IconPicker` + `ColorPicker` (#EXP-1760) through the Solid painter.
 - Input `variant: "box"` + `size` (#EXP-1629): through the React renderer.

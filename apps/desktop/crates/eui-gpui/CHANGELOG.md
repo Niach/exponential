@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover `matchAnchorWidth` (the core's exact layer width): the overlay suite paints the fixture's `matchAnchorWidth` cases and checks the panel's width against the anchor's.
 - Text wrap (#EXP-1773): a word fits by gpui's `LineWrapper` rule. The spaces after it count, and there is no slack, so a word ending within a space-width of the edge moves down, as in the IDE's own text. A line's last word (nothing after it) still fits on its ink, with 0.5 px of float slack. Change email's address step (a `text_sm` description in a 712 px column) wraps "…your old | address stops…" like the gpui dialog (its text 0 px, was 18,372 px / 151 levels). Every benched `settings_bench` state is unchanged (0 px). The painter still draws the measured lines verbatim (`white-space: nowrap`, no gpui re-wrap), so drawn and measured lines cannot disagree. A line can overhang its box only by that ≤ 0.5 px slack.
 
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): an Icon leaf whose name has its own fill (`eui_core::layout_tree::icon_fill`, `brand-claude`) paints in it, never in the ink; the `row` trigger's `valueIcon` comes from the core. Bench `settings_account_row_*`: the IDE Account row (the Medium picker trigger: a 14 px mark, 7 to the email, 7 to the chevron) vs the genUI row, 0 px; the IDE's agent marks are the `brand-claude` / `brand-codex` concepts and `theme::CLAUDE_BRAND` is exactly `#D97757`.

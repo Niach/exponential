@@ -6331,6 +6331,94 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_popover_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_popover_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "matchAnchorWidth",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_chat",
+                "component": "Box",
+                "style": {
+                  "position": "relative",
+                  "width": "100%",
+                  "height": 260,
+                  "borderRadius": "$radius.lg",
+                  "backgroundColor": "$color.muted",
+                  "overflow": "hidden"
+                },
+                "children": [
+                  {
+                    "id": "c2_composer_card",
+                    "component": "Box",
+                    "style": {
+                      "position": "absolute",
+                      "left": 16,
+                      "right": 16,
+                      "bottom": 16,
+                      "height": 72,
+                      "padding": "$spacing.md",
+                      "borderRadius": "$radius.lg",
+                      "borderWidth": "$border.hairline",
+                      "borderColor": "$color.border",
+                      "backgroundColor": "$color.card"
+                    },
+                    "children": [
+                      {
+                        "id": "c2_draft",
+                        "component": "Text",
+                        "props": {
+                          "text": "/rev",
+                          "variant": "body"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c2_commands",
+                    "component": "Popover",
+                    "props": {
+                      "anchor": "c2_composer_card",
+                      "side": "top",
+                      "align": "start",
+                      "matchAnchorWidth": true,
+                      "open": true
+                    },
+                    "children": [
+                      {
+                        "id": "c2_review",
+                        "component": "Text",
+                        "props": {
+                          "text": "/review",
+                          "variant": "body"
+                        }
+                      },
+                      {
+                        "id": "c2_revert",
+                        "component": "Text",
+                        "props": {
+                          "text": "/revert",
+                          "variant": "body"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

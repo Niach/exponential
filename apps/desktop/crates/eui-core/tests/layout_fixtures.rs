@@ -487,9 +487,15 @@ fn kitchen_sink_lays_out_with_the_default_theme_in_three_upcalls_or_fewer() {
 /// the content at its size.
 fn placement_surface(c: &Value) -> Surface {
     let (a, s, vp) = (&c["anchor"], &c["size"], &c["viewport"]);
-    let content = json!([{"id": "content", "component": "Box", "style": {"width": s["width"], "height": s["height"]}}]);
+    // `matchAnchorWidth` cases paint the content at `contentWidth` (the
+    // panel is the anchor's width).
+    let content_width = c.get("contentWidth").cloned().unwrap_or_else(|| s["width"].clone());
+    let content = json!([{"id": "content", "component": "Box", "style": {"width": content_width, "height": s["height"]}}]);
     let at = json!({"position": "absolute", "left": a["x"], "top": a["y"], "width": a["width"], "height": a["height"]});
     let mut props = json!({"open": true, "side": c["side"], "align": c["align"]});
+    if c["matchAnchorWidth"].as_bool() == Some(true) {
+        props["matchAnchorWidth"] = json!(true);
+    }
     let children = if c["byId"].as_bool() == Some(true) {
         props["anchor"] = json!("panelButton");
         json!([
@@ -536,7 +542,48 @@ fn overlay_geometry_placements_and_anchors_by_id_land_through_the_layer_manager(
             &PlaceOptions::placement(OverlaySide::parse(c["side"].as_str().unwrap()).unwrap(), OverlayAlign::parse(c["align"].as_str().unwrap()).unwrap()),
         );
         assert!((root.x as f64 - want.x).abs() < 0.01 && (root.y as f64 - want.y).abs() < 0.01, "{name}: frame ({},{}) vs ({},{})", root.x, root.y, want.x, want.y);
+        if c["matchAnchorWidth"].as_bool() == Some(true) {
+            assert_eq!(root.w, a.w, "{name}: matchAnchorWidth = the anchor's width");
+            assert_eq!(root.x as f64, c["expected"]["x"].as_f64().unwrap(), "{name}: the recorded x");
+        }
     }
+}
+
+/// Popover `matchAnchorWidth`: the panel follows its anchor when the anchor
+/// resizes (the IDE's typeahead at the composer card's width as the window
+/// narrows), and stays its content's width without the prop.
+#[test]
+fn match_anchor_width_follows_the_anchor_when_it_resizes() {
+    let tree = |matched: bool| -> NestedNode {
+        serde_json::from_value(json!({
+            "id": "root", "component": "Box", "style": {"position": "relative", "width": "100%", "height": 600},
+            "children": [
+                {"id": "card", "component": "Box", "style": {"position": "absolute", "left": 24, "right": 24, "bottom": 24, "height": 96}},
+                {"id": "typeahead", "component": "Popover", "props": {"anchor": "card", "side": "top", "align": "start", "open": true, "matchAnchorWidth": matched},
+                 "children": [{"id": "row", "component": "Box", "style": {"width": 120, "height": 32}}]}
+            ]
+        }))
+        .unwrap()
+    };
+    let mut measure = FixedMeasure::default();
+    let mut s = Surface::new("typeahead", SurfaceOptions { theme: None, ..SurfaceOptions::default() });
+    assert!(s.set_nested(tree(true)).issues.is_empty());
+    for width in [800.0f32, 520.0, 1024.0] {
+        s.set_viewport(width, 600.0, None);
+        let out = s.layout(&mut measure);
+        let layer = out.layers.iter().find(|l| l.owner == "typeahead").expect("open");
+        let a = layer.anchor_frame.unwrap();
+        assert_eq!(a.w, width - 48.0, "{width}: the card");
+        let root = layer.frames[0];
+        assert_eq!((root.x, root.w), (a.x, a.w), "{width}: top-start at the card's full width");
+        assert!((root.y + root.h + OVERLAY_OFFSET as f32 - a.y).abs() < 0.01, "{width}: above the card");
+    }
+    let mut off = Surface::new("typeahead", SurfaceOptions { theme: None, ..SurfaceOptions::default() });
+    assert!(off.set_nested(tree(false)).issues.is_empty());
+    off.set_viewport(800.0, 600.0, None);
+    let out = off.layout(&mut measure);
+    let root = out.layers.iter().find(|l| l.owner == "typeahead").unwrap().frames[0];
+    assert!(root.w < 752.0, "default = the content's width: {}", root.w);
 }
 
 #[test]

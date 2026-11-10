@@ -592,7 +592,11 @@ impl Surface {
                 } else {
                     side
                 };
-                let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
+                let size = if spec.exact_anchor_width {
+                    self.exact_width(root, a.w, guesses)
+                } else {
+                    self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses)
+                };
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
                 let mut p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
@@ -699,6 +703,20 @@ impl Surface {
         if natural > max {
             self.compute(root, Size { width: AvailableSpace::Definite(max), height: AvailableSpace::MaxContent }, guesses);
         }
+        let size = self.engine.layout(root).size;
+        OSize { width: size.width as f64, height: size.height as f64 }
+    }
+
+    /// Popover `matchAnchorWidth`: the layer root laid out at EXACTLY `width`
+    /// (its anchor's), whatever its content's own width.
+    fn exact_width(&mut self, root: u32, width: f32, guesses: &RefCell<Vec<HeightRequest>>) -> OSize {
+        let width = width.max(0.0);
+        self.layer_root_style(root, [0.0; 4], |s| {
+            s.min_size.width = length(width);
+            s.max_size.width = length(width);
+            s.size.width = length(width);
+        });
+        self.compute(root, Size { width: AvailableSpace::Definite(width), height: AvailableSpace::MaxContent }, guesses);
         let size = self.engine.layout(root).size;
         OSize { width: size.width as f64, height: size.height as f64 }
     }

@@ -3356,6 +3356,15 @@
           "responsive": false,
           "default": "press",
           "description": "Press, or hover (press on touch)."
+        },
+        {
+          "name": "matchAnchorWidth",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Panel exactly as wide as its anchor/trigger."
         }
       ],
       "accessibility": {

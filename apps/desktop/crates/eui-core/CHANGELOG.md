@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover `matchAnchorWidth`: the layer (`LayerSpec::exact_anchor_width`) is laid out at EXACTLY its anchor's frame width every pass (min = max = the anchor's), so it follows the anchor when it resizes; `overlay-geometry.json`'s `matchAnchorWidth` cases replay through the layer manager, + a resize test.
 - Colour token `strokeActive` (`derive_colors`: a chain that sets none takes `ring`) and the generated themes' focused box Input stroke (`Input.field` `variant: box` + `focus`).
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` Select with `triggerIcon: true` leads its value with the chosen option's `icon` as the `valueIcon` part (an Icon leaf in the `button`, before the `value`; one chosen value only, off by default, never on a field trigger). `layout_tree::icon_fill(name)` = an icon's OWN colour from the generated `ICON_FILL_NAMES` / `ICON_FILL_COLORS` (`brand-claude` = `#D97757`); `brand-claude` / `brand-codex` join `ICON_NAMES`.
 - `IconPicker` + `ColorPicker` (#EXP-1760): a `press` on a picker's cell, swatch or No icon row closes its root Popover after the pick (`picker_root`); a macro template's `$each` may be a literal array (the default icon set and palette).

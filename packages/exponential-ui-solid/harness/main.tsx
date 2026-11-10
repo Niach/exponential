@@ -132,7 +132,7 @@ function Geometry(): JSX.Element {
 
 function Overlay(): JSX.Element {
   const i = Number(params.get(`case`) ?? 0)
-  const c = (overlays.cases as { anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: string; align?: string; byId?: boolean }[])[i]
+  const c = (overlays.cases as { anchor: { x: number; y: number; width: number; height: number }; size: { width: number; height: number }; viewport: { width: number; height: number }; side: string; align?: string; byId?: boolean; matchAnchorWidth?: boolean; contentWidth?: number }[])[i]
   const tree: NestedNode = {
     id: `root`,
     component: `Box`,
@@ -142,16 +142,16 @@ function Overlay(): JSX.Element {
     children: c.byId
       ? [
           { id: `anchor`, component: `Box`, style: { position: `absolute`, left: c.anchor.x, top: c.anchor.y, width: c.anchor.width, height: c.anchor.height, backgroundColor: `$color.primary` } },
-          { id: `pop`, component: `Popover`, props: { open: true, side: c.side, align: c.align ?? `center`, anchor: `anchor` }, children: [{ id: `content`, component: `Box`, style: { width: c.size.width, height: c.size.height, backgroundColor: `$color.success` } }] },
+          { id: `pop`, component: `Popover`, props: { open: true, side: c.side, align: c.align ?? `center`, anchor: `anchor`, ...(c.matchAnchorWidth ? { matchAnchorWidth: true } : {}) }, children: [{ id: `content`, component: `Box`, style: { width: c.contentWidth ?? c.size.width, height: c.size.height, backgroundColor: `$color.success` } }] },
         ]
       : [
           {
             id: `pop`,
             component: `Popover`,
-            props: { open: true, side: c.side, align: c.align ?? `center` },
+            props: { open: true, side: c.side, align: c.align ?? `center`, ...(c.matchAnchorWidth ? { matchAnchorWidth: true } : {}) },
             style: { position: `absolute`, left: c.anchor.x, top: c.anchor.y, width: c.anchor.width, height: c.anchor.height },
             slots: { trigger: { id: `anchor`, component: `Box`, style: { width: c.anchor.width, height: c.anchor.height, backgroundColor: `$color.primary` } } },
-            children: [{ id: `content`, component: `Box`, style: { width: c.size.width, height: c.size.height, backgroundColor: `$color.success` } }],
+            children: [{ id: `content`, component: `Box`, style: { width: c.contentWidth ?? c.size.width, height: c.size.height, backgroundColor: `$color.success` } }],
           },
         ],
   }

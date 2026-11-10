@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 737,
+      "cases": 739,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -99,7 +99,7 @@
         "fixtures/overlay-geometry.json"
       ],
       "unit": "case",
-      "cases": 22,
+      "cases": 24,
       "check": "Place the overlay: side, flip and frame equal the fixture within `tolerancePx`."
     },
     {
