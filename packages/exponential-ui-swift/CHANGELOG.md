@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Skeleton `rows` (#EXP-1629, from eui-core): no hairline between rows. Snapshot `components.json` (`RecordTable/loading=true`) needs a re-record on a Mac.
+- Popover `matchAnchorWidth` (the core's exact layer width; the overlay paints `layer.frame`): `GeometryTests` replays the fixture's `matchAnchorWidth` cases through the model (width = the anchor's, x as recorded). Snapshots: + `Popover/matchAnchorWidth=true|false` (to record on a Mac).
 - Composer `layout: "flat"` (#EXP-1762): `ComposerLeaf` places the field between the core-laid `leading` slot and the controls (centred on the disc while one line, full height once it grows); the measurer wraps it at the width left of the disc and the attach control. Snapshots + `Composer/layout=flat|stacked`.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data the core expands; snapshot `components.json` re-recorded for the ColorPicker cases.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `ConceptIcon` paints a mark with its own fill (`BuiltinIcons.fills`, mirrored from the generated `iconFillNames` / `iconFillColors` and checked against them: `brand-claude`) in it, never in the ink.

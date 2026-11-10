@@ -2740,6 +2740,10 @@
           "type": "enum",
           "enum": "openOn",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [

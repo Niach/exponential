@@ -5228,35 +5228,6 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
-/// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
-/// tone (`session-card.json`): the styleguide's `run-status-row` (N-11: the
-/// session view no longer draws it over the transcript).
-pub(crate) fn session_status_row(
-    id: impl Into<gpui::ElementId>,
-    agent: Option<coding::CodingAgent>,
-    state: domain::session_tree::SessionState,
-    word: &str,
-    cx: &App,
-) -> AnyElement {
-    h_flex()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .items_start()
-        .gap_2()
-        .child(crate::run_rows::run_mark(agent, state, cx))
-        .child(
-            v_flex().flex_1().min_w_0().child(
-                div()
-                    .text_sm()
-                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(word.to_string())),
-            ),
-        )
-        .into_any_element()
-}
-
 impl SteerSessionView {
     fn render_feed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
