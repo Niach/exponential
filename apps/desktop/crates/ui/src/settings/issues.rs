@@ -65,7 +65,20 @@ fn estimation_label(value: &str) -> String {
 
 pub struct IssuesPane {
     nav: Entity<Navigation>,
+    /// The bench's state (headless has no team, membership or statuses).
+    #[cfg(test)]
+    shot: Option<IssuesShot>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct IssuesShot {
+    pub team: domain::rows::Team,
+    pub owner: bool,
+    pub statuses: Vec<IssueStatusRow>,
+    /// The PR-automation picker shown open (0 = opens, 1 = merges).
+    pub open: Option<usize>,
 }
 
 impl IssuesPane {
@@ -81,11 +94,46 @@ impl IssuesPane {
         ];
         Self {
             nav,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: IssuesShot, cx: &mut gpui::Context<Self>) {
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The pane's team (the bench's, under test).
+    fn team(&self, cx: &App) -> Option<domain::rows::Team> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return Some(shot.team.clone());
+        }
+        super::active_team(cx, &self.nav)
+    }
+
+    fn owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        is_owner(cx, team_id)
+    }
+
     fn scoped_statuses(&self, cx: &App) -> Vec<(IssueStatusRow, ResolvedStatus)> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            let sorted = domain::statuses::sort_team_statuses(&shot.statuses);
+            return (0..sorted.len()).map(|index| (sorted[index].clone(), resolve_row(&sorted, index))).collect();
+        }
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return Vec::new();
         };
@@ -98,8 +146,8 @@ impl IssuesPane {
     /// EXP-630 — the Estimates card: one row, the scale picker on the right
     /// (owners) or the current scale as text (members).
     fn render_estimates(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
-        let team = super::active_team(cx, &self.nav)?;
-        let owner = is_owner(cx, &team.id);
+        let team = self.team(cx)?;
+        let owner = self.owner(&team.id, cx);
         let current = team.estimation().to_string();
         let trigger_label: SharedString = estimation_label(&current).into();
 
@@ -222,7 +270,9 @@ impl IssuesPane {
         statuses: &[(IssueStatusRow, ResolvedStatus)],
         cx: &mut gpui::Context<Self>,
     ) -> Option<gpui::Div> {
-        let team = super::active_team(cx, &self.nav)?;
+        let team = self.team(cx)?;
+        #[cfg(test)]
+        let open = self.shot.as_ref().and_then(|shot| shot.open);
         let rows: Vec<IssueStatusRow> =
             statuses.iter().map(|(row, _)| row.clone()).collect();
 
@@ -259,7 +309,9 @@ impl IssuesPane {
             ),
         ];
 
-        for (id, label, event, status_id, automation, default_builtin) in events {
+        for (_ix, (id, label, event, status_id, automation, default_builtin)) in events.into_iter().enumerate() {
+            #[cfg(test)]
+            let opened = open == Some(_ix);
             let current =
                 resolve_pr_target(&rows, status_id.as_deref(), automation, default_builtin);
             let trigger_label: SharedString = current
@@ -351,7 +403,7 @@ impl IssuesPane {
             let pane = pane.clone();
             let picker_id = SharedString::from(format!("{id}-picker"));
             let control = crate::picker::deferred(move |window, cx| {
-                crate::picker::Picker::single(
+                let picker = crate::picker::Picker::single(
                     items,
                     Some(current_key),
                     trigger.into_any_element(),
@@ -368,8 +420,10 @@ impl IssuesPane {
                         set_pr_automation(pane.clone(), team_id.clone(), event, target, cx);
                     }),
                 )
-                .id(picker_id)
-                .render(window, cx)
+                .id(picker_id);
+                #[cfg(test)]
+                let picker = if opened { picker.open(std::rc::Rc::new(|_: &mut Window, _: &mut App| {})) } else { picker };
+                picker.render(window, cx)
             });
 
             group_rows.push(

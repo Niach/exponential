@@ -28,6 +28,7 @@ use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::statuses::{DeleteStatusContent, StatusesPane, StatusesShot};
+use crate::settings::issues::{IssuesPane, IssuesShot};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -2437,4 +2438,60 @@ mod members {
 
     /// The second row's ⋯ (window points), read off `members-owner`.
     const MENU: (f32, f32) = (700., 140.);
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1629: Settings → Issues (the estimate scale, PR automation)
+// ---------------------------------------------------------------------------
+
+fn issues_team(estimation: &str, opened: Option<&str>, merged_automation: Option<bool>) -> domain::rows::Team {
+    serde_json::from_value(serde_json::json!({
+        "id": "team-acme", "name": "Acme", "slug": "acme", "merge_mode": "auto",
+        "estimation_type": estimation, "pr_opened_status_id": opened, "pr_merged_automation": merged_automation,
+    }))
+    .expect("a team")
+}
+
+fn issues_shot(team: domain::rows::Team) -> IssuesShot {
+    IssuesShot { team, owner: true, statuses: status_rows(), open: None }
+}
+
+fn issues(name: &str, shot: IssuesShot) {
+    shoot_pane(name, IssuesPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_issues_owner() {
+    issues("issues-owner", issues_shot(issues_team("none", None, None)));
+}
+
+#[test]
+#[ignore]
+fn settings_issues_owner_set() {
+    issues("issues-owner-set", issues_shot(issues_team("tshirt", Some("s-blocked"), Some(false))));
+}
+
+#[test]
+#[ignore]
+fn settings_issues_member() {
+    issues("issues-member", IssuesShot { owner: false, ..issues_shot(issues_team("fibonacci", None, None)) });
+}
+
+#[test]
+#[ignore]
+fn settings_issues_no_statuses() {
+    issues("issues-no-statuses", IssuesShot { statuses: Vec::new(), ..issues_shot(issues_team("exponential", None, None)) });
+}
+
+#[test]
+#[ignore]
+fn settings_issues_opened_open() {
+    issues("issues-opened-open", IssuesShot { open: Some(0), ..issues_shot(issues_team("none", None, None)) });
+}
+
+#[test]
+#[ignore]
+fn settings_issues_merged_open() {
+    issues("issues-merged-open", IssuesShot { open: Some(1), ..issues_shot(issues_team("linear", Some("s-blocked"), Some(false))) });
 }
