@@ -12,6 +12,10 @@
 //! its own builder chain with one of [`NAMES`]. The vendored Button resolves
 //! the name as `accessibility_label`, else `label`, else the tooltip text.
 //!
+//! The `ui` crate compiles this same file as a lib test module
+//! (`ui/src/lib.rs`), so the desktop job's `gate` runs it whenever the IDE
+//! changes, not only on eUI PRs; the roots are absolute for that reason.
+//!
 //! A recipe that returns an unnamed button for its CALLER to name says so on
 //! the line above the construction: `// a11y: named by the caller`.
 //!
@@ -267,7 +271,7 @@ fn every_button_has_an_accessible_name() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let crates = manifest.parent().expect("crates/");
     let mut offenders = Vec::new();
-    for root in [manifest.join("src"), crates.join("ui").join("src")] {
+    for root in [crates.join("eui-gpui").join("src"), crates.join("ui").join("src")] {
         let mut files = Vec::new();
         sources(&root, &mut files);
         for path in files {
@@ -292,7 +296,7 @@ fn every_clickable_container_has_a_role() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let crates = manifest.parent().expect("crates/");
     let mut offenders = Vec::new();
-    for root in [manifest.join("src"), crates.join("ui").join("src")] {
+    for root in [crates.join("eui-gpui").join("src"), crates.join("ui").join("src")] {
         let mut files = Vec::new();
         sources(&root, &mut files);
         for path in files {
