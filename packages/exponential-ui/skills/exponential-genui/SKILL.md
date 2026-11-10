@@ -33,7 +33,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave
 - data: Table, Chart, Sparkline, StatTile, Calendar, Timeline, RecordForm, RecordTable
 - action: Button, Link, Toggle
-- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
+- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, IconPicker, ColorPicker, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
 
 ## References (read on demand)
 

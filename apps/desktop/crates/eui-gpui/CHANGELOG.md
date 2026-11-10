@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760): against the IDE's `board_form::icon_picker` / `color_picker` in `ui/src/picker_bench.rs` (closed and open).
 - Select `pill` (#EXP-1765): the trigger's glyph takes the `chevron` part's colour (opacity 1 unless its recipe fades it; `field` keeps 0.6) and its `value`/`placeholder` resolve with the trigger's `disabled`; a mono option paints its `trailing` as a muted sans run before the check; a Select search's glyph takes the `searchIcon` part's width; a `pill` search shows a clear button while it holds text (`Select.clear`, 0.75× the search glyph in a 1.25× box, "Clear search") that empties the field and keeps the focus; a pointer-opened `pill` popup shows no cursor until the pointer moves or a key is pressed. Bench: the IDE Repositories branch picker vs a genUI pill Select (`settings_bench` `settings_repo_branch_*`): trigger 0 px, disabled 8 px (1 level), ready 7,049 px / empty 6,857 px (≤ 5 levels, the popup's shadow ring).
 - `controls::spinner` draws THE Spinner's arc (#EXP-1629): `paint::natives::spinner_glyph` (Lucide `loader-circle`, one linear turn per 0.8 s, stepped), the glyph genUI `Spinner` paints, so the IDE's spinners match web, iOS and Android (0 px vs genUI `Spinner` headless). `ChromeIcons.refresh` is gone (it only fed the spinner).
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).

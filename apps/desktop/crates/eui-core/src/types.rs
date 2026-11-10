@@ -390,7 +390,7 @@ pub struct MacroTemplate {
     #[serde(default, rename = "$any", skip_serializing_if = "Option::is_none")]
     pub any: Option<Vec<Value>>,
     #[serde(default, rename = "$each", skip_serializing_if = "Option::is_none")]
-    pub each: Option<String>,
+    pub each: Option<Value>,
     #[serde(default, rename = "$as", skip_serializing_if = "Option::is_none")]
     pub as_: Option<String>,
     #[serde(default, rename = "$on", skip_serializing_if = "Option::is_none")]
@@ -435,6 +435,10 @@ pub struct MacroDef {
     /// root part keeps the author's id. The conditions see `{childCount}`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternatives: Vec<MacroAlternative>,
+    /// #EXP-1760: parts of the ROOT native the macro styles too (an
+    /// IconPicker's Popover `content`), `<Macro>/<part>` over `<Native>/<part>`.
+    #[serde(default, rename = "rootParts", skip_serializing_if = "Vec::is_empty")]
+    pub root_parts: Vec<String>,
 }
 
 /// #VAPP-277: one `$pass` entry: when `$if` holds (literal, in the macro's

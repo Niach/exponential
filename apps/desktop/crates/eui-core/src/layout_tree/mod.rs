@@ -81,6 +81,10 @@ pub struct LNode {
     pub own_query: Option<RecipeQuery>,
     /// The macro or native PART recipe (Badge/label, Tabs/tab).
     pub part_query: Option<RecipeQuery>,
+    /// #EXP-1760: a native part of a MACRO ROOT (an IconPicker's Popover
+    /// content) also answers to `<Macro>/<part>`, layered over the native's
+    /// part recipe.
+    pub macro_query: Option<RecipeQuery>,
     /// VAPP-163: the `base_style` keys the author wrote ON the macro node
     /// (`recipe.authored`): they win over the part recipe.
     pub authored_keys: Vec<String>,
@@ -772,6 +776,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            macro_query: None,
             authored_keys: Vec::new(),
             hidden,
             lines: None,
@@ -801,6 +806,9 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.props = obj(props);
         let query_props = self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled));
         n.part_query = Some(RecipeQuery::new(owner.component.clone(), part, query_props, Vec::new()));
+        // #EXP-1760: the owner is a macro's root (its own part query names
+        // the macro): the macro styles this native part too.
+        n.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), Vec::new()));
         if let Some(l) = n.props.get("lines").and_then(Value::as_u64) {
             n.lines = Some(l as u32);
         }
@@ -833,7 +841,8 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// Add a state to a node's part query (`selected`, `open`, `checked`…).
     pub(crate) fn add_state(&mut self, index: u32, state: &str) {
-        if let Some(q) = &mut self.nodes[index as usize].part_query {
+        let n = &mut self.nodes[index as usize];
+        for q in [&mut n.part_query, &mut n.macro_query].into_iter().flatten() {
             if !q.states.iter().any(|s| s == state) {
                 q.states.push(state.to_string());
             }
@@ -1344,6 +1353,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         root.form = owner.form.clone();
         root.base_style = obj(style);
         root.part_query = Some(RecipeQuery::new(owner.component.clone(), part, self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled)), vec!["open".into()]));
+        root.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), vec!["open".into()]));
         let index = self.push(root);
         (layer, index)
     }
