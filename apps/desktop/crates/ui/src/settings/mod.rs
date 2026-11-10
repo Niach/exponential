@@ -72,7 +72,7 @@ pub(crate) mod mcp_servers;
 mod mcp_server_dialog;
 mod statuses;
 mod local_repos;
-mod members;
+pub(crate) mod members;
 pub(crate) mod all_boards;
 mod change_email_dialog;
 pub(crate) mod sign_in_methods;

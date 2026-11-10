@@ -14,15 +14,13 @@
 //! fields then KEEP their values (the dialog closes on
 //! [`InviteDelivered`] instead).
 //!
-//! FEED-108: the Members pane's form (`allow_add_without_invite`) also wears
-//! the OUTLINE "Add without inviting" beside "Send invite" — the same
-//! placeholder member, but nothing is mailed and no seat is spent
-//! (`teamMembers.addPlaceholder`, what the Linear import does for the people it
-//! finds). The row reads "Not invited" until Send invite. Web parity:
-//! `invite-member-form.tsx` `allowAddWithoutInvite`.
+//! #EXP-1629: the Members pane draws its own form as document nodes (with
+//! FEED-108's OUTLINE "Add without inviting"); this gpui view is the
+//! "Resend invite" dialog's (web `layout="stack"`). Both read a send's
+//! answer through [`invite_outcome`].
 
 use gpui::{
-    div, px, App, AppContext as _, ElementId, Entity, FontWeight, IntoElement, ParentElement,
+    div, App, AppContext as _, ElementId, Entity, FontWeight, IntoElement, ParentElement,
     Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -50,21 +48,14 @@ const EMAIL_FALLBACK_MESSAGE: &str = "Copy the link below and share it instead."
 /// never shows pricing, §4.9). Title + body byte-identical to the web.
 /// feedback-states.json's invalid-email input case: the field's line when
 /// the server refused the address without a sentence of its own.
-const INVALID_EMAIL: &str = "Enter a full email address";
+pub(super) const INVALID_EMAIL: &str = "Enter a full email address";
 
-const OUT_OF_SEATS_TITLE: &str = "Out of seats";
-const OUT_OF_SEATS_MESSAGE: &str =
+pub(super) const OUT_OF_SEATS_TITLE: &str = "Out of seats";
+pub(super) const OUT_OF_SEATS_MESSAGE: &str =
     "Everyone on your plan's seats is already in this team. Add seats to \
      invite more teammates.";
-
-/// How the three controls lay out (web `layout`): `Row` is the wide settings
-/// section (name · address · button on one line), `Stack` a dialog's narrow
-/// column (one field per line, the button trailing).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum InviteFormLayout {
-    Row,
-    Stack,
-}
+/// The desktop's one billing hand-off under the notice (§4.9).
+pub(super) const OUT_OF_SEATS_NOTE: &str = "Add seats on the web.";
 
 /// The mail went out — the "Resend invite" dialog closes on it (web
 /// `onInvited` + `emailDelivered`).
@@ -93,12 +84,6 @@ pub struct InviteForm {
     sending: bool,
     /// EXP-1259 D8: the Send button's pending face ("Inviting").
     pending: crate::feedback::Pending,
-    /// FEED-108: the outline "Add without inviting" is offered (Members pane
-    /// only — a resend dialog re-invites, it never adds).
-    allow_add_without_invite: bool,
-    /// FEED-108: `teamMembers.addPlaceholder` is in flight — the Add button
-    /// spins (`.loading`), no word (web parity: no `pendingLabel`).
-    adding: bool,
     /// FEED-79: the address the server refused — INVALID INPUT, so it stays
     /// under the field (13px rose) until the address changes; every other
     /// failure is a toast.
@@ -107,7 +92,6 @@ pub struct InviteForm {
     out_of_seats: bool,
     /// The minted link: the manual fallback when delivery failed.
     invite_url: Option<SharedString>,
-    layout: InviteFormLayout,
     /// Web `autoFocus="email"` — a resend opens ON the address. Consumed by
     /// the first render.
     focus_email: bool,
@@ -120,8 +104,6 @@ impl InviteForm {
     pub(super) fn new(
         team_id: String,
         resend: Option<ResendTarget>,
-        layout: InviteFormLayout,
-        allow_add_without_invite: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -163,103 +145,17 @@ impl InviteForm {
             email_input,
             sending: false,
             pending: crate::feedback::Pending::default(),
-            allow_add_without_invite,
-            adding: false,
             email_error: None,
             out_of_seats: false,
             invite_url: None,
-            layout,
             focus_email: resend.is_some(),
             _subscriptions: subscriptions,
         }
     }
 
-    /// A request is in flight (send or add) — the pane's own controls go with
-    /// it, and the dialog refuses to close mid-request.
+    /// A send is in flight — the dialog refuses to close mid-request.
     pub(super) fn sending(&self) -> bool {
-        self.sending || self.adding
-    }
-
-    /// FEED-108: `teamMembers.addPlaceholder` — the roster row WITHOUT a link.
-    /// Nothing is mailed, so there is no link to fall back to; a refused
-    /// address (already a member, or an account that must be invited) stays
-    /// under the field like the invite's, everything else toasts. Web
-    /// `handleAdd`.
-    fn add(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.sending || self.adding {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let email = self.email_input.read(cx).value().trim().to_string();
-        if email.is_empty() {
-            return;
-        }
-        let name = self.name_input.read(cx).value().trim().to_string();
-        let team_id = self.team_id.clone();
-
-        self.adding = true;
-        self.email_error = None;
-        self.out_of_seats = false;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, window| {
-            let request = (email, name);
-            let result = window
-                .background_executor()
-                .spawn(async move {
-                    let (email, name) = request;
-                    api::teams::team_members_add_placeholder(
-                        &trpc,
-                        &team_id,
-                        &email,
-                        Some(name.as_str()),
-                    )
-                })
-                .await;
-            let _ = this.update_in(window, |this, window, cx| {
-                this.adding = false;
-                match result {
-                    Ok(member) => {
-                        // Web: `Added <name> to the team`, then an empty form
-                        // for the next person. The roster row arrives over
-                        // sync and reads "Not invited".
-                        let added = format!("Added {} to the team", member.name);
-                        crate::navigation::defer_in_result_window(window, cx, move |w, cx| {
-                            crate::toast::success(added, w, cx);
-                        });
-                        this.name_input.update(cx, |state, cx| {
-                            state.set_value("", window, cx);
-                        });
-                        this.email_input.update(cx, |state, cx| {
-                            state.set_value("", window, cx);
-                        });
-                        this.invite_url = None;
-                    }
-                    // The refusal stays under its field (feedback-states.json's
-                    // invalid-input rule), exactly like a refused invite address.
-                    Err(api::ApiError::Http { status: 400, message }) => {
-                        let message = crate::action_error::description_of(&message)
-                            .unwrap_or_else(|| INVALID_EMAIL.to_string());
-                        this.email_error = Some(message.into());
-                    }
-                    Err(err) => crate::action_error::failed_action_err("add", "the member", &err, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Team switch (the pane's nav observer): the minted link and every notice
-    /// belong to the team that was on screen.
-    pub(super) fn reset_for_team(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
-        self.team_id = team_id;
-        self.invite_url = None;
-        self.email_error = None;
-        self.out_of_seats = false;
-        cx.notify();
+        self.sending
     }
 
     /// `teamInvites.create` with an address: the server mails the link, puts
@@ -267,7 +163,7 @@ impl InviteForm {
     /// Delivery is best-effort — with no transport configured (or on a failed
     /// send) the link is shown so the owner can share it by hand.
     fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.sending || self.adding {
+        if self.sending {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -312,60 +208,79 @@ impl InviteForm {
             let _ = this.update_in(window, |this, window, cx| {
                 this.sending = false;
                 this.pending.finish();
-                match result {
-                    Ok(out) => {
-                        this.invite_url = Some(format!("{base}/invite/{}", out.token).into());
-                        if out.email_delivered == Some(true) {
-                            // Delivered — confirm it; the link stays available
-                            // as a manual fallback.
-                            // EXP-1031: a toast, landing in the window that
-                            // outlives a resend dialog closing on this.
-                            let sent = format!("Invite sent to {email}");
-                            crate::navigation::defer_in_result_window(window, cx, move |w, cx| {
-                                crate::toast::success(sent, w, cx);
-                            });
-                            // A resend keeps its prefilled row (the dialog it
-                            // sits in closes on the event below); the pane's
-                            // form empties for the next invite.
-                            if this.placeholder_user_id.is_none() {
-                                this.name_input.update(cx, |state, cx| {
-                                    state.set_value("", window, cx);
-                                });
-                                this.email_input.update(cx, |state, cx| {
-                                    state.set_value("", window, cx);
-                                });
-                            }
-                            cx.emit(InviteDelivered);
-                        } else {
-                            // Requested but not delivered (transport down or
-                            // unconfigured) — fall back to the link.
-                            crate::toast::show(
-                                crate::action_error::failed_toast(
-                                    "email",
-                                    "the invite",
-                                    Some(EMAIL_FALLBACK_MESSAGE.into()),
-                                ),
-                                window,
-                                cx,
-                            );
+                match invite_outcome(result, &base, &email, window, cx) {
+                    InviteOutcome::Delivered(url) => {
+                        this.invite_url = Some(url.into());
+                        // A resend keeps its prefilled row (the dialog it
+                        // sits in closes on the event below).
+                        if this.placeholder_user_id.is_none() {
+                            this.name_input.update(cx, |state, cx| state.set_value("", window, cx));
+                            this.email_input.update(cx, |state, cx| state.set_value("", window, cx));
                         }
+                        cx.emit(InviteDelivered);
                     }
-                    Err(err) if super::is_plan_limit(&err) => {
-                        this.out_of_seats = true;
-                    }
-                    // The address the server refused stays under its field
-                    // (feedback-states.json's invalid-email case).
-                    Err(api::ApiError::Http { status: 400, message }) => {
-                        let message = crate::action_error::description_of(&message)
-                            .unwrap_or_else(|| INVALID_EMAIL.to_string());
-                        this.email_error = Some(message.into());
-                    }
-                    Err(err) => crate::action_error::failed_action_err("send", "the invite", &err, cx),
+                    InviteOutcome::Undelivered(url) => this.invite_url = Some(url.into()),
+                    InviteOutcome::OutOfSeats => this.out_of_seats = true,
+                    InviteOutcome::Refused(message) => this.email_error = Some(message.into()),
+                    InviteOutcome::Failed => {}
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+}
+
+/// What `teamInvites.create` with an address came to — the form and the
+/// Members pane read the same answer, each into its own fields.
+pub(super) enum InviteOutcome {
+    /// The mail went out; the link (`{base}/invite/{token}`) stays as a
+    /// manual fallback.
+    Delivered(String),
+    /// The invite exists but its mail did not go out: the link to share.
+    Undelivered(String),
+    /// The seat cap refused it — the web's "Out of seats" notice.
+    OutOfSeats,
+    /// The address the server refused: the line under the field
+    /// (feedback-states.json's invalid-email case).
+    Refused(String),
+    /// Anything else (already toasted).
+    Failed,
+}
+
+/// Reads a send's `result` and raises its toasts: "Invite sent to …"
+/// (EXP-1031: landing in the window that outlives a resend dialog closing on
+/// it), the failed-delivery toast pointing at the link (FEED-79), the
+/// failed-action toast for anything but a seat cap or a refused address.
+pub(super) fn invite_outcome(result: Result<api::teams::InviteCreateOutput, api::ApiError>, base: &str, email: &str, window: &mut Window, cx: &mut App) -> InviteOutcome {
+    match result {
+        Ok(out) => {
+            let url = format!("{base}/invite/{}", out.token);
+            if out.email_delivered == Some(true) {
+                let sent = format!("Invite sent to {email}");
+                crate::navigation::defer_in_result_window(window, cx, move |w, cx| {
+                    crate::toast::success(sent, w, cx);
+                });
+                InviteOutcome::Delivered(url)
+            } else {
+                // Requested but not delivered (transport down or
+                // unconfigured) — fall back to the link.
+                crate::toast::show(
+                    crate::action_error::failed_toast("email", "the invite", Some(EMAIL_FALLBACK_MESSAGE.into())),
+                    window,
+                    cx,
+                );
+                InviteOutcome::Undelivered(url)
+            }
+        }
+        Err(err) if super::is_plan_limit(&err) => InviteOutcome::OutOfSeats,
+        Err(api::ApiError::Http { status: 400, message }) => {
+            InviteOutcome::Refused(crate::action_error::description_of(&message).unwrap_or_else(|| INVALID_EMAIL.to_string()))
+        }
+        Err(err) => {
+            crate::action_error::failed_action_err("send", "the invite", &err, cx);
+            InviteOutcome::Failed
+        }
     }
 }
 
@@ -386,47 +301,19 @@ impl Render for InviteForm {
                 .web_sm()
                 .label("Send invite")
                 .icon(registry::UI_MAIL)
-                .disabled(email_empty || self.adding)
+                .disabled(email_empty)
                 .on_click(cx.listener(|this, _, window, cx| this.send(window, cx))),
             crate::feedback::PENDING_INVITE,
             cx,
         );
-        // FEED-108: the OUTLINE twin — a spinner while adding, no word (web
-        // parity: that button carries no pendingLabel).
-        let add_button = self.allow_add_without_invite.then(|| {
-            Button::new("invite-add-without-inviting")
-                .outline()
-                .web_sm()
-                .label("Add without inviting")
-                .icon(registry::UI_INVITE)
-                .loading(self.adding)
-                .disabled(email_empty || self.sending)
-                .on_click(cx.listener(|this, _, window, cx| this.add(window, cx)))
-        });
-        let buttons = h_flex()
+        // A dialog column is too narrow for the fields and the button
+        // abreast: one field per line, the button trailing (web
+        // `layout="stack"`).
+        let controls = v_flex()
             .gap_2()
-            .items_center()
-            .child(send_button)
-            .children(add_button);
-
-        let controls = match self.layout {
-            // Web `sm:w-44`: the optional name is the NARROW half of the pair —
-            // the address is the field that needs the room.
-            InviteFormLayout::Row => h_flex()
-                .gap_2()
-                .items_center()
-                .child(div().w(px(176.)).flex_shrink_0().child(name_field))
-                .child(div().flex_1().min_w_0().child(email_field))
-                .child(buttons),
-            // A dialog column is too narrow for the fields and the buttons
-            // abreast: one field per line, the buttons trailing (web
-            // `layout="stack"`).
-            InviteFormLayout::Stack => v_flex()
-                .gap_2()
-                .child(name_field)
-                .child(email_field)
-                .child(h_flex().justify_end().child(buttons)),
-        };
+            .child(name_field)
+            .child(email_field)
+            .child(h_flex().justify_end().child(send_button));
 
         let mut form = v_flex()
             .w_full()
@@ -504,6 +391,6 @@ pub(super) fn out_of_seats_notice(cx: &App) -> impl IntoElement {
             div()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .child("Add seats on the web."),
+                .child(OUT_OF_SEATS_NOTE),
         )
 }
