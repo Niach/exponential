@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` disabled (#EXP-1629): generated themes; `tests/select_row_disabled.rs` (value + chevron 0.35, label + description unchanged).
 - Composer `layout: "flat"` (#EXP-1762): a flat, slotted Composer's measure gets the content width minus its slot wrappers (each + the bar's gap), the slots' width added back to the answer, so its field wraps where it is painted; `COMPOSER_ATTACH_W` (32) for the painters.
 - `ColorPicker` (#EXP-1775): the macro's 28 px cells, the `inline` root (`grid`; its swatches pick without a popover to close) and the `customTrigger` alternative (a child); generated catalog + themes.
 - Colour token `strokeActive` (`derive_colors`: a chain that sets none takes `ring`) and the generated themes' focused box Input stroke (`Input.field` `variant: box` + `focus`).

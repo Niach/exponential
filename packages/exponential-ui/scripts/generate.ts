@@ -1145,6 +1145,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: a locked row (the IDE's Effort row under ultracode): the
+    // value and the chevron at 0.35 (the 0.7 value tone halved).
+    label: `triggerVariant · row + description, disabled`,
+    node: {
+      id: `agent_effort`,
+      component: `Group`,
+      children: [
+        { id: `effort_locked`, component: `Select`, props: { label: `Effort`, name: `effort`, triggerVariant: `row`, description: `ultracode sets effort`, disabled: true, value: `max`, options: [{ label: `High`, value: `high` }, { label: `Max`, value: `max` }] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
