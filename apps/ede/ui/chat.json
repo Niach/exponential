@@ -2188,7 +2188,7 @@
               "display": "flex",
               "flexDirection": "column",
               "alignItems": "stretch",
-              "gap": 8,
+              "gap": 7,
               "width": "100%",
               "maxWidth": 996,
               "alignSelf": "center",
@@ -2426,7 +2426,6 @@
                     "props": {
                       "direction": "horizontal",
                       "wrap": true,
-                      "gap": "sm",
                       "style": {
                         "gap": 5.25
                       }
@@ -2625,7 +2624,7 @@
                     "style": {
                       "width": 24,
                       "height": 24,
-                      "marginRight": 3.5
+                      "marginRight": 2.5
                     },
                     "visible": {
                       "@call": "cond",
