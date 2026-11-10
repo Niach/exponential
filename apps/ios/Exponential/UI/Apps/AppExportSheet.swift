@@ -188,7 +188,7 @@ struct AppImportStep: View {
                         lines: 6...12,
                         accessibilityIdentifier: AppExport.TestIds.importText
                     )
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(.expMono(.footnote))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.asciiCapable)
@@ -216,7 +216,7 @@ struct AppImportStep: View {
                                 Text(more)
                             }
                         }
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.expMono(.caption))
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityElement(children: .contain)

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -146,7 +147,7 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
             Column(Modifier.weight(1f)) {
                 Text(
                     status.shape,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Row(
@@ -181,7 +182,7 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
                         Text(
                             "${status.lastPollKind} ${status.lastPollMs}ms",
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ExpMono,
                             ),
                             color = tertiary,
                         )
@@ -191,7 +192,7 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     "${status.rowsApplied} rows",
-                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 )
                 // Show a count only while the shape is CURRENTLY failing. A genuinely
@@ -199,13 +200,13 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
                 if (isUnauthorized) {
                     Text(
                         "unauthorized",
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                         color = MaterialTheme.colorScheme.error,
                     )
                 } else if (status.consecutiveErrors > 0) {
                     Text(
                         "${status.consecutiveErrors} errors",
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -215,7 +216,7 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
         status.lastError?.let { message ->
             Text(
                 message,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                 color = MaterialTheme.colorScheme.error,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

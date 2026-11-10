@@ -190,7 +190,7 @@ struct DeviceSetup: View {
     private func commandBox(origin: String) -> some View {
         ZStack(alignment: .topTrailing) {
             Text(Self.breakAnywhere(ServerInstallCommand.displayed(origin: origin, token: installToken)))
-                .font(.caption.monospaced())
+                .font(.expMono(.caption))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -237,7 +237,7 @@ struct DeviceSetup: View {
                     ),
                     accessibilityIdentifier: "device-code-field"
                 )
-                .font(.subheadline.monospaced())
+                .font(.expMono(.subheadline))
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .onSubmit { approveCode() }

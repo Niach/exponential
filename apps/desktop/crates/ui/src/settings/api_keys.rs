@@ -148,7 +148,7 @@ impl ApiKeysPane {
             button_fill_disabled: premultiplied_hex(theme.input_background().opacity(0.5)),
             button_stroke_disabled: hex(theme.input.opacity(0.5)),
             button_fg_disabled: hex(theme.muted_foreground.opacity(0.5)),
-            terminal: theme::terminal::FONT_FAMILY.to_string(),
+            terminal: "$type.family.mono".to_string(),
         };
         let view = mount("settings-api-keys", document(&Ink::of(cx), &chrome), &binding, window, cx);
         Self {

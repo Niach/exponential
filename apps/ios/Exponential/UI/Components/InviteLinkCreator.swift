@@ -85,7 +85,7 @@ struct InviteLinkCreator: View {
         VStack(alignment: .leading, spacing: 12) {
             if let inviteURL {
                 Text(inviteURL.absoluteString)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .textSelection(.enabled)
                     .lineLimit(2)

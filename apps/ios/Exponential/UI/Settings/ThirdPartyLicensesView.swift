@@ -72,7 +72,7 @@ struct ThirdPartyLicensesView: View {
                     .foregroundStyle(.white)
             }
             Text(section.body)
-                .font(.caption2.monospaced())
+                .font(.expMono(.caption2))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .textSelection(.enabled)
         }

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -211,7 +212,7 @@ internal fun SkillPageContent(
                 Text(
                     skill?.name.orEmpty(),
                     modifier = Modifier.weight(1f).testTag("skill-name"),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
@@ -244,7 +245,7 @@ internal fun SkillPageContent(
                 else -> Text(
                     body.orEmpty(),
                     modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("skill-body"),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
