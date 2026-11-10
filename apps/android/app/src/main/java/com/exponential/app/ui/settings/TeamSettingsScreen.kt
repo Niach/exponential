@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.ColorSwatchGrid
 import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.TeamImage
@@ -1382,32 +1383,7 @@ private fun LabelEditorDialog(
                 placeholder = "Label name",
                 modifier = Modifier.fillMaxWidth(),
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LabelPalette.colors.forEach { swatch ->
-                    val selected = swatch.equals(color, ignoreCase = true)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .background(parseColor(swatch), CircleShape)
-                            .then(
-                                if (selected) {
-                                    Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                } else Modifier,
-                            )
-                            .clickable { color = swatch },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (selected) {
-                            Icon(
-                                ExpIcons.uiCheck,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
-            }
+            ColorSwatchGrid(selected = color, onSelect = { color = it })
         }
     }
 }

@@ -55399,6 +55399,142 @@
     },
     {
       "component": "Select",
+      "part": "valueIcon",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "field"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Select",
+      "part": "valueIcon",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "row"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 14,
+              "height": 14
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Select",
       "part": "searchIcon",
       "props": {
         "multiple": false,
