@@ -3483,8 +3483,8 @@
         "file": "shots/exponential-ui-input/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 33216,
-        "sha256": "da709fc93d4432c8e430743c21878ce375248d4483762d31ce2ae6066d82184f"
+        "bytes": 33590,
+        "sha256": "d98c0fd8706f60ac2a29ed94b058be06bbe4ba02657a20ab10d020f2821d10c2"
       },
       "web": {
         "file": "shots/exponential-ui-input/web.webp",
