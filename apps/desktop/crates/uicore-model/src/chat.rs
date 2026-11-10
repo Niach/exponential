@@ -53,6 +53,9 @@ pub enum ChatRowInput {
     Host { id: String },
     Pill { id: String, icon: String, label: String },
     Line { id: String, icon: String, text: String },
+    /// #EXP-1772: THE inline marker (an event line, a system note): a
+    /// centred muted label between two hairlines.
+    Marker { id: String, label: String },
     /// `surface` = the genUI card the document draws in an Embed (Round 9
     /// §19 `{root, data, version?}`), absent = none.
     Card {
@@ -83,7 +86,7 @@ pub enum ChatRowInput {
 /// viewer's own; absent = `out` for `user`, else `in`), the sender's
 /// `avatar` icon beside a group's first `in` bubble, `indent` = an `in` row
 /// right of the avatar column (the avatar or its spacer), `link` = the
-/// session a press opens (the host's URL for it), `gap` = the space above
+/// session the relay's name line opens (#EXP-1772: set = a relay), `gap` = the space above
 /// it in px (0, 3, 8, 12, 16). Without one a row sits 16 below the row
 /// before it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +123,7 @@ pub enum ChatRowKind {
     User,
     Agent,
     Line,
+    Marker,
     Pill,
     Card,
     Question,
@@ -153,6 +157,9 @@ pub struct ChatRow {
     /// or `out`, the sender's name over an `in` bubble, its time.
     pub side: String,
     pub author: String,
+    /// #EXP-1772: a relay's name line ABOVE the bubble (the name +
+    /// `copy.linkChevron`), the press that opens `link`; blank otherwise.
+    pub relay: String,
     pub time: String,
     /// [`ChatGroup`]'s, passed through (every message).
     pub avatar: String,
@@ -235,6 +242,7 @@ fn blank(id: &str, kind: ChatRowKind) -> ChatRow {
         surface: None,
         side: String::new(),
         author: String::new(),
+        relay: String::new(),
         time: String::new(),
         avatar: String::new(),
         indent: false,
@@ -252,10 +260,13 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
     match input {
         ChatRowInput::Message { id, author, body, name, time, queued, group } => {
             let group = group.clone().unwrap_or_default();
+            let relay = group.link.as_deref().is_some_and(|link| !link.is_empty());
             let grouped = |kind| {
                 let side = group.side.clone().filter(|s| s == "in" || s == "out").unwrap_or_else(|| if author == "user" { "out" } else { "in" }.to_string());
+                let name = if bubbles && side == "in" { name.clone().unwrap_or_default() } else { String::new() };
                 ChatRow {
-                    author: if bubbles && side == "in" { name.clone().unwrap_or_default() } else { String::new() },
+                    relay: if relay && !name.trim().is_empty() { format!("{} {}", name.trim(), copy("linkChevron")) } else { String::new() },
+                    author: if relay { String::new() } else { name },
                     time: if bubbles { time.trim().to_string() } else { String::new() },
                     side: if bubbles { side } else { String::new() },
                     avatar: group.avatar.clone().unwrap_or_default(),
@@ -279,12 +290,13 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
                     caption: if bubbles { caption(&[Some(time)]) } else { String::new() },
                     ..grouped(ChatRowKind::Agent)
                 },
-                _ => ChatRow { icon: copy("systemIcon"), text: body.clone(), ..blank(id, ChatRowKind::Line) },
+                _ => ChatRow { text: body.clone(), ..blank(id, ChatRowKind::Marker) },
             }
         }
         ChatRowInput::Host { id } => blank(id, ChatRowKind::Host),
         ChatRowInput::Pill { id, icon, label } => ChatRow { icon: icon.clone(), text: label.clone(), ..blank(id, ChatRowKind::Pill) },
         ChatRowInput::Line { id, icon, text } => ChatRow { icon: icon.clone(), text: text.clone(), ..blank(id, ChatRowKind::Line) },
+        ChatRowInput::Marker { id, label } => ChatRow { text: label.clone(), ..blank(id, ChatRowKind::Marker) },
         ChatRowInput::Card { id, icon, title, text, target, surface } => ChatRow {
             icon: icon.clone(),
             title: title.clone(),

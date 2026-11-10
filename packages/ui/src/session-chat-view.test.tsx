@@ -175,7 +175,12 @@ describe(`ChatConversation`, () => {
     expect(own.querySelector(`[data-slot="user-message-time"]`)!.textContent).toBe(`09:02`)
     expect(own.querySelector(`[data-slot="message-bubble-author"]`)).toBeNull()
     const names = [...document.querySelectorAll(`[data-slot="message-bubble-author"]`)].map((el) => el.textContent)
-    expect(names).toEqual([`Dana Reyes`, `Cold start`, `Fix it ›`])
+    expect(names).toEqual([`Dana Reyes`, `Cold start`])
+    // #EXP-1772: a relay names its session ABOVE the bubble, only the name opens it.
+    const relay = document.querySelector(`[data-slot="message-bubble-relay"]`)!
+    expect(relay.textContent).toBe(`Fix it ›`)
+    expect(relay.closest(`[data-slot="message-bubble-link"]`)).toBeNull()
+    expect(document.querySelector(`[data-slot="message-bubble-link"]`)).toBeNull()
     const rows = [...document.querySelectorAll(`[data-slot="transcript-row"]`)] as HTMLElement[]
     expect(rows.map((row) => row.dataset.side)).toEqual([`own`, `other`, `other`, `other`, `other`])
     expect(rows.map((row) => row.style.paddingTop)).toEqual([``, `12px`, `12px`, `3px`, `12px`])
@@ -269,10 +274,12 @@ describe(`ChatConversation`, () => {
       ],
       { rootId: `r`, onOpenXref }
     )
-    fireEvent.click(screen.getByTestId(`chat-event`))
+    // #EXP-1772: every event is THE inline marker.
+    expect(screen.getAllByTestId(`transcript-marker`)).toHaveLength(2)
+    fireEvent.click(within(screen.getByTestId(`chat-event`)).getByRole(`button`))
     expect(onOpenXref).toHaveBeenCalledWith(`s3`)
     expect(screen.getByText(`Session ended`).closest(`button`)).toBeNull()
-    // #EXP-1736: a report is its child's bubble, the whole bubble opens it.
+    // #EXP-1772: a report is its child's bubble; its name above opens it.
     fireEvent.click(screen.getByRole(`button`, { name: `Ship ›` }))
     expect(onOpenXref).toHaveBeenCalledWith(`s4`)
   })
@@ -572,10 +579,11 @@ describe(`ChatConversation EXP-1323`, () => {
     expect(conversation.lastElementChild?.getAttribute(`data-testid`)).toBe(`live-tail`)
   })
 
-  it(`#EXP-1736: a report is the child's bubble (its summary), named with a ›, opening the child`, () => {
+  it(`#EXP-1772: a report is the child's bubble (its summary), its name + › above it opening the child`, () => {
     const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
     const report = screen.getByRole(`button`, { name: `Lazy-load product images ›` })
-    expect(report.textContent).toContain(`Lazy-loading is in; PR #12 is open.`)
+    expect(report.dataset.slot).toBe(`message-bubble-relay`)
+    expect(report.parentElement!.textContent).toContain(`Lazy-loading is in; PR #12 is open.`)
     fireEvent.click(report)
     expect(onOpenSession).toHaveBeenCalledWith(`c2`)
   })
@@ -875,11 +883,12 @@ describe(`ChatConversation S-3 xrefs`, () => {
     )
     // No link rows any more: the bubbles carry the sender.
     expect(screen.queryAllByTestId(`chat-xref`)).toHaveLength(0)
-    const links = screen.getAllByRole(`button`).filter((el) => el.dataset.slot === `message-bubble-link`)
-    expect(links.map((link) => link.getAttribute(`aria-label`))).toContain(`Batch 2 ›`)
+    // #EXP-1772: the relay's name above its bubble is the link.
+    const links = screen.getAllByRole(`button`).filter((el) => el.dataset.slot === `message-bubble-relay`)
+    expect(links.map((link) => link.textContent)).toContain(`Batch 2 ›`)
     // The agent's mark leads an agent sender's group.
     expect(document.querySelector(`[data-slot="agent-avatar"]`)).not.toBeNull()
-    const child = links.find((link) => link.getAttribute(`aria-label`) === `Batch 2 ›`)!
+    const child = links.find((link) => link.textContent === `Batch 2 ›`)!
     fireEvent.click(child)
     expect(onOpenXref).toHaveBeenCalledWith(`c1`)
     expect(onOpenSession).not.toHaveBeenCalled()
