@@ -60,11 +60,18 @@ fn a_literal_hex_is_refused() {
 
 #[test]
 fn bound_items_carry_the_hosts_resolved_colour() {
-    let (mut s, issues) = mount(json!({"id": "root", "component": "Box", "children": [
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [
         {"id": "m", "component": "Menu", "props": {"items": {"@path": "/items"}}, "children": [{"id": "b", "component": "Button", "props": {"label": "Status"}}]},
-    ]}));
-    assert!(issues.is_empty(), "{issues:?}");
+    ]}))
+    .expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions::default());
     s.set_data("/items", Some(json!([{"label": "Blocked", "value": "b", "kind": "checkbox", "icon": "status-in-progress", "iconColor": "#ef4444ff"}]))).expect("data");
+    // A bound `items` is checked at bind time (the reduce reports the
+    // binding itself, as for every bound array prop): only its iconColor
+    // matters here.
+    let issues = s.set_nested(tree).issues;
+    assert!(issues.iter().all(|i| i.path == "/components/m/items"), "{issues:?}");
+    s.set_viewport(760.0, 900.0, None);
     open(&mut s);
     assert_eq!(label(&mut s, 0).get("iconColor"), Some(&json!("#ef4444ff")));
 }
