@@ -77,7 +77,7 @@ const SKELETON_BARS: readonly [number, number][] = [
 
 /** Skeleton: one pulsing block, or (EXP-1259, feedback-states.json
  *  `placeholder`) `rows` placeholder rows in the row geometry: each a `dot`
- *  (unless `dot: false`) and two `bar`s, hairline-divided; the root paints
+ *  (unless `dot: false`) and two `bar`s, borderless (no hairline between rows); the root paints
  *  nothing itself, the pieces pulse (base CSS). */
 export function SkeletonNative(props: NativeProps): JSX.Element {
   const part = parts(props)

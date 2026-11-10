@@ -12,6 +12,7 @@ import { BASE_CSS } from "@exponential_app/eui/web"
 import { compileTheme } from "@exponential_app/eui/web"
 import { builtinTheme } from "@exponential_app/eui"
 import type { SurfaceActionEvent } from "./host"
+import skeletonRows from "@exponential_app/eui/fixtures/skeleton-rows.json"
 
 afterEach(() => {
   cleanup()
@@ -147,6 +148,27 @@ describe(`Skeleton rows`, () => {
     expect(BASE_CSS).toContain(`@keyframes xui-skeleton{0%,100%{opacity:0.45}50%{opacity:0.9}}`)
     expect(BASE_CSS).toContain(`animation:xui-skeleton 1600ms ease-in-out infinite`)
     expect(BASE_CSS).toMatch(/xui-Skeleton-bar\{animation:none !important;opacity:0\.6 !important\}/)
+  })
+  it(`fixtures/skeleton-rows.json: the row height, the bar widths, borderless rows (#EXP-1629)`, () => {
+    expect(skeletonRows.row.hairline).toBe(false)
+    expect(BASE_CSS).not.toMatch(/xui-Skeleton-row\+\.xui-Skeleton-row/)
+    expect(BASE_CSS).not.toMatch(/\.xui-Skeleton-row\{[^}]*border/)
+    for (const c of skeletonRows.cases) {
+      cleanup()
+      const root = tree({ id: `sk`, component: `Skeleton`, props: c.skeleton } as unknown as NestedNode)
+      const { container } = render(<ExponentialSurface root={root} theme="exponential" id="sk" />)
+      for (const [id, [, , w, h]] of Object.entries(c.frames)) {
+        const el = container.querySelector(`[data-xui-id="${id}"]`) as HTMLElement | null
+        expect(el, `${c.name}: ${id}`).not.toBeNull()
+        if (/\.row\.\d+$/.test(id)) expect(el!.style.height, `${c.name}: ${id}`).toBe(`${h}px`)
+        // A bar's authored width (the title's is its basis: it shrinks in a narrow row).
+        if (/\.bar\.\d+\.\d+$/.test(id)) {
+          const [r, k] = id.split(`.`).slice(-2).map(Number)
+          expect(el!.style.width, `${c.name}: ${id}`).toBe(`${skeletonRows.bars[r! % skeletonRows.bars.length]![k!]}px`)
+        }
+      }
+      expect(container.querySelectorAll(`[data-xui-id^="sk.dot."]`)).toHaveLength(c.skeleton.dot === false ? 0 : c.skeleton.rows)
+    }
   })
 })
 

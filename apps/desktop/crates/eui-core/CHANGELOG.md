@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Skeleton `rows` are borderless (#EXP-1629, `fixtures/skeleton-rows.json`): no `borderTopWidth` hairline between rows, so rows after the first centre their dot and bars in the full row height again (+0.5 px off before). `tests/skeleton_rows.rs` replays the fixture.
 - Select `triggerVariant: "pill"`, `loading`, option `mono`, `searchPlaceholder` (#EXP-1765): a `pill` trigger is the field trigger content-sized (`alignSelf: flex-start`) with the `Select.dropdown` glyph and no `label` part (the label is its accessibility `label`); its popup is `layout::SELECT_ROW_POPUP_WIDTH` wide by default, its border box `SELECT_PILL_POPUP_OFFSET` (3) under the pill and `SELECT_PILL_POPUP_INSET` (1) outside its aligned edge (`LayerSpec::inset`, still bounded by the margin). A `loading` Select's list holds `SELECT_LOADING_ROWS` Skeleton rows (node `<id>.skeleton`, the Skeleton's own recipes) and stays live (`is_inert` exempts Select from `loading`). A `mono` option's item gets `fontFamily: $type.family.mono` and keeps its `trailing` as its own prop (not appended). `searchPlaceholder` replaces the search's built-in placeholder. Recipe keys gain `paddingTop`, `paddingBottom` and `textAlign`.
 - Icon `size: xl` (#EXP-1629): the `iconSize` enum and the `iconXl` control token (28) in the generated catalog and themes.
 - Input `variant: "box"` + `size` (#EXP-1629): no `label` part (the field's accessibility `label` carries it); the catalog's `inputSize`.
