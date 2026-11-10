@@ -1057,7 +1057,7 @@ mod tests {
         assert_eq!(popover["props"]["open"], json!({"@path": "/chatMenu/open"}));
         assert!(node(popover, "chat_slash").is_some());
         let replies = node(&tree, "chat_reply_list").expect("the replies");
-        assert_eq!(replies["component"], "Stack");
-        assert_eq!(replies["props"]["wrap"], true);
+        assert_eq!(replies["style"]["flexWrap"], "wrap");
+        assert_eq!(replies["style"]["gap"], 5.25);
     }
 }

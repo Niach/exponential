@@ -2422,14 +2422,7 @@
                 "children": [
                   {
                     "id": "chat_reply_list",
-                    "component": "Stack",
-                    "props": {
-                      "direction": "horizontal",
-                      "wrap": true,
-                      "style": {
-                        "gap": 5.25
-                      }
-                    },
+                    "component": "Box",
                     "template": {
                       "component": "chat_reply",
                       "path": "/chatting/composer/replies",
@@ -2462,7 +2455,14 @@
                           }
                         }
                       }
-                    ]
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "flexWrap": "wrap",
+                      "alignItems": "center",
+                      "gap": 5.25
+                    }
                   },
                   {
                     "id": "chat_replies_dismiss",
