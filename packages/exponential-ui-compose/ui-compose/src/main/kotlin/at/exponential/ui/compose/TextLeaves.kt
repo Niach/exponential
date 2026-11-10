@@ -252,6 +252,9 @@ internal fun MenuItemLeaf(cx: LeafContext) {
  * A Select option (the core's popup): icon + label + the check slot (the
  * `check` glyph while selected, the `check` part's size and colour,
  * #EXP-1629); `hover` = the popup's cursor ([at.exponential.ui.model.setSelectCursor]).
+ * #EXP-1765: a `mono` option (the core sets its type) carries its
+ * `trailing` as its own muted run in the surface's sans type, right after
+ * the label ([selectTrailingGap] apart).
  */
 @Composable
 internal fun SelectItemLeaf(cx: LeafContext) {
@@ -259,10 +262,15 @@ internal fun SelectItemLeaf(cx: LeafContext) {
     val check = cx.props.str("check").ifEmpty { "ui-check" }
     val part = cx.part("Select", "check", cx.node.partStates)
     val size = part.width ?: 16f
+    val trailing = cx.props["trailing"]?.displayText.orEmpty()
     InnerBox(cx) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(max(cx.style.gap, 8f).dp), verticalAlignment = Alignment.CenterVertically) {
             cx.props["icon"]?.string?.let { IconView(it, 16f, cx.ink, cx.model, rtl = cx.rtl) }
-            LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f))
+            if (trailing.isEmpty()) LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f))
+            else Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(selectTrailingGap(cx.style.gap).dp), verticalAlignment = Alignment.CenterVertically) {
+                LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f, fill = false))
+                LeafLine(cx, trailing, color = cx.themeColor("mutedForeground") ?: cx.ink, ts = cx.textStyle.copy(fontFamily = null))
+            }
             Box(Modifier.size(size.dp)) { if (selected) IconOrGlyph(check, Glyph.Check, size, cx, part.color ?: cx.ink) }
         }
     }
