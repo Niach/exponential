@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(parts["Row"].props, ["selected", "density", "surface", "depth", "open"]); // #VAPP-284: the foldIcon's `open`
         assert_eq!(parts["Section"].props, ["tint", "tree", "open", "collapsible"]);
         assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label", "badge"]);
-        assert_eq!(parts["Menu"].props, ["openOn"]);
+        assert_eq!(parts["Menu"].props, ["openOn", "destructive"]); // #EXP-1629: the item row's painter-supplied `destructive`
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
         // EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave;
