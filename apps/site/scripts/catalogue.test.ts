@@ -38,3 +38,10 @@ describe(`the genUI catalogue`, () => {
     expect(missing).toEqual([])
   })
 })
+
+test(`withSamples leaves no example.com media in any specimen`, async () => {
+  const { withSamples } = await import(`../src/components/eui/components/specimen.ts`)
+  const all = JSON.stringify(COMPONENT_DOCS.map((d) => withSamples(specimenFor(d))))
+  expect(all.match(/https:\/\/example\.com\/[^"]+\.(png|jpe?g|mp3|mp4|wav|webm)/g) ?? []).toEqual([])
+  expect(all).toContain(`data:image/png;base64,`)
+})

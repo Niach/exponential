@@ -4,7 +4,7 @@
    time (zero JS) from its specimen, each linked to its reference page where
    the variants gallery shows every variant and state. */
 import Eui from "./Eui.astro"
-import { CATALOGUE, specimenFor } from "./components/specimen.ts"
+import { CATALOGUE, specimenFor, withSamples } from "./components/specimen.ts"
 import { euiComponentPath, euiComponentSlug } from "../../lib/eui-components.ts"
 ---
 
@@ -22,7 +22,7 @@ import { euiComponentPath, euiComponentSlug } from "../../lib/eui-components.ts"
                 {doc.name}
               </a>
               <div class="eui-specimen">
-                <Eui id={`catalogue-${euiComponentSlug(doc)}`} tree={tree} inlineOverlays />
+                <Eui id={`catalogue-${euiComponentSlug(doc)}`} tree={withSamples(tree)} inlineOverlays />
               </div>
             </article>
           )
