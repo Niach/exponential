@@ -20,7 +20,10 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -624,6 +627,22 @@ fn settings_prompts_no_team() {
     prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
 }
 
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened
+/// (the IDE's by its dev open, as a click would; genUI's by a trigger
+/// press), today's IDE row vs the genUI row: run each into its own dir, the
+/// second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_branch_menu_ide() {
+    shoot_pane("branch-menu", IdeBranchRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_branch_menu_eui() {
+    shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
 /// #EXP-1629: the IDE's chromeless group fields vs genUI Textarea
 /// `row`/`code` and Input `code`/`bare`: the agent instructions (`row`, 4–16
 /// rows), the skill description (`row`, empty, 2–6), the SKILL.md / prompt
@@ -734,6 +753,435 @@ mod field_variants {
     fn settings_fields_eui() {
         shoot_pane("fields", Eui::new, |_, _| {});
     }
+}
+
+/// #EXP-1629: the IDE's spinner (`feedback::spinner`, muted) vs genUI
+/// `Spinner` at the same sizes (xs = the 10 px inline one, sm, default, lg)
+/// and phase (Reduce motion freezes both at their start frame). Shoot
+/// `settings_spinner_ide`, then `settings_spinner_eui` with
+/// `EXP_SETTINGS_BEFORE` at the first: 0 px.
+mod spinner_parity {
+    use super::*;
+    use serde_json::json;
+
+    const SIZES: [(&str, f32); 4] = [("xs", 10.), ("sm", 16.), ("default", 20.), ("lg", 24.)];
+
+    pub(super) struct Ide;
+
+    impl Render for Ide {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            SIZES.iter().fold(gpui_component::h_flex().items_start().gap(px(16.)), |row, (_, side)| row.child(crate::feedback::spinner(*side, cx)))
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+    }
+
+    impl Eui {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
+            let children: Vec<serde_json::Value> = SIZES.iter().map(|(size, _)| json!({"id": format!("spin_{size}"), "component": "Spinner", "props": {"size": size}})).collect();
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": 16, "width": "100%"}, "children": children});
+            let view = crate::settings::doc_mount("bench-spinner", tree, &binding, window, cx);
+            Self { view }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_spinner_ide() {
+        shoot_pane("spinner", |_, cx| {
+            cx.set_reduce_motion(true);
+            Ide
+        }, |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_spinner_eui() {
+        shoot_pane("spinner", |window, cx| {
+            cx.set_reduce_motion(true);
+            Eui::new(window, cx)
+        }, |_, _| {});
+    }
+}
+
+fn skill_row(id: &str, name: &str, description: &str, enabled_by_default: bool, builtin: bool) -> domain::rows::SkillRow {
+    serde_json::from_value(serde_json::json!({"id": id, "team_id": "team-shots", "name": name, "description": description, "enabled_by_default": enabled_by_default, "builtin": builtin})).expect("a skill row")
+}
+
+fn skill_rows() -> Vec<domain::rows::SkillRow> {
+    vec![
+        skill_row("s1", "exponential-pr", "Open, update and land pull requests the Exponential way.", false, true),
+        skill_row("s2", "review", "Run the checks, then summarise the diff for the reviewer.", true, false),
+        skill_row("s3", "release-notes", "Draft the changelog entry from the merged pull requests since the last tag, grouped by area, in the house style.", false, false),
+        skill_row("s4", "triage", "", false, false),
+    ]
+}
+
+fn skills_list(name: &str, team: bool, ready: bool, owner: bool, rows: Vec<domain::rows::SkillRow>) {
+    shoot_pane(name, SkillsPane::for_shots, move |pane, cx| pane.show(SkillsListShot { team, ready, owner, rows }, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skills_rows() {
+    skills_list("skills-rows", true, true, true, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_member() {
+    skills_list("skills-member", true, true, false, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_empty() {
+    skills_list("skills-empty", true, true, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_loading() {
+    skills_list("skills-loading", true, false, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_no_team() {
+    skills_list("skills-no-team", false, true, true, Vec::new());
+}
+
+fn skill(builtin: bool) -> api::skills::Skill {
+    serde_json::from_value(serde_json::json!({"id": "s2", "teamId": "team-shots", "name": "review", "description": "Run the checks, then summarise the diff for the reviewer.", "enabledByDefault": true, "builtin": builtin})).expect("a skill")
+}
+
+const SKILL_BODY: &str = "---\nname: review\ndescription: Run the checks, then summarise the diff.\n---\n\n# Review\n\n1. Run `bun run typecheck` and the tests.\n2. Read the diff file by file.\n3. Summarise what changed and what to look at.";
+
+fn skill_page(name: &str, skill: Option<api::skills::Skill>, owner: bool, body: Option<Result<String, ()>>, touched: bool, taken: bool) {
+    shoot_pane_acted(name, move |window, cx| SkillPage::new("team-shots".into(), skill, window, cx), |_, _| {}, None, &[], move |page, window, cx| page.show(owner, body, touched, taken, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skill_page() {
+    skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_loading() {
+    skill_page("skill-loading", Some(skill(false)), true, None, false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_failed() {
+    skill_page("skill-failed", Some(skill(false)), true, Some(Err(())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_builtin() {
+    skill_page("skill-builtin", Some(skill(true)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_member() {
+    skill_page("skill-member", Some(skill(false)), false, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new() {
+    skill_page("skill-new", None, true, Some(Ok(String::new())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new_touched() {
+    skill_page("skill-new-touched", None, true, Some(Ok(String::new())), true, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_name_taken() {
+    skill_page("skill-name-taken", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, true);
+}
+
+/// #EXP-1629: Settings → Repositories in every state (owner rows with the
+/// branch picker, chips, sharer and both access banners; a member's
+/// read-only rows; busy; loading; failed; empty; no team; each GitHub
+/// status line; the Local account's folders; the branch picker open).
+mod repositories {
+    use super::*;
+    use crate::settings::repositories::{RepoShot, RepositoriesPane};
+    use serde_json::{json, Value};
+
+    const INSTALL: &str = "https://github.com/apps/exponential/installations/new";
+
+    fn installation(id: i64, login: &str, org: bool, suspended: bool) -> Value {
+        json!({"installationId": id, "accountLogin": login, "accountType": if org { "Organization" } else { "User" }, "manageUrl": format!("https://github.com/settings/installations/{id}"), "suspended": suspended})
+    }
+
+    fn linked(installations: Vec<Value>) -> Value {
+        json!({"configured": true, "connectConfigured": true, "linked": true, "login": "dana-scully", "installed": !installations.is_empty(), "installUrl": INSTALL, "installations": installations})
+    }
+
+    fn suspended() -> Value {
+        linked(vec![installation(1, "acme", true, false), installation(2, "dana-scully", false, true)])
+    }
+
+    fn rows() -> Value {
+        json!([
+            {"id": "r1", "fullName": "acme/web", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true, "installationId": 1,
+                "sharedBy": {"id": "u-me", "name": "Dana Scully"}, "boards": [{"id": "b1", "name": "Web"}, {"id": "b2", "name": "Design"}, {"id": "b3", "name": "Ops"}]},
+            {"id": "r2", "fullName": "dana-scully/dotfiles", "defaultBranch": "release/2026-11", "githubDefaultBranch": "main", "private": false, "installationId": 2,
+                "sharedBy": {"id": "u-sam", "email": "sam@acme.dev"}, "boards": []},
+            {"id": "r3", "fullName": "acme/legacy-monolith-with-a-rather-long-repository-name", "defaultBranch": "develop", "private": true, "installationId": 1,
+                "inaccessibleAt": "2026-11-01T10:00:00Z", "boards": [{"id": "b1", "name": "Web"}]},
+        ])
+    }
+
+    fn boards() -> Vec<domain::rows::Board> {
+        let board = |id: &str, name: &str, color: Option<&str>, icon: Option<&str>| {
+            let mut board = domain::rows::Board::seeded(id, "t", name);
+            board.color = color.map(str::to_string);
+            board.icon = icon.map(str::to_string);
+            board
+        };
+        vec![board("b1", "Web", Some("#3b82f6"), Some("rocket")), board("b2", "Design", None, Some("bug"))]
+    }
+
+    fn shot(team: bool, owner: bool, busy: bool) -> RepoShot {
+        RepoShot { team: team.then(|| "t".to_string()), owner, me: Some("u-me".into()), local: None, boards: boards(), busy, branches: Vec::new() }
+    }
+
+    fn repos(name: &str, shot: RepoShot, status: Option<Value>, list: Option<Result<Value, String>>, clicks: &'static [(f32, f32)]) {
+        shoot_pane_clicked(name, RepositoriesPane::for_shots, move |pane, cx| pane.show(shot, status, list, cx), None, clicks);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_owner() {
+        repos("repositories-owner", shot(true, true, false), Some(suspended()), Some(Ok(rows())), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_member() {
+        repos("repositories-member", shot(true, false, false), Some(suspended()), Some(Ok(rows())), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_busy() {
+        repos("repositories-busy", shot(true, true, true), Some(suspended()), Some(Ok(rows())), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_loading() {
+        repos("repositories-loading", shot(true, true, false), None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_failed() {
+        repos("repositories-failed", shot(true, true, false), Some(linked(vec![installation(1, "acme", true, false)])), Some(Err("offline".into())), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_empty() {
+        repos("repositories-empty", shot(true, true, false), Some(linked(vec![installation(1, "acme", true, false)])), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_no_team() {
+        repos("repositories-no-team", shot(false, true, false), None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_failed() {
+        repos("repositories-status-failed", shot(true, true, false), None, Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_not_configured() {
+        repos("repositories-status-not-configured", shot(true, true, false), Some(json!({"configured": false})), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_not_linked() {
+        repos("repositories-status-not-linked", shot(true, true, false), Some(json!({"configured": true, "connectConfigured": true})), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_expired() {
+        repos("repositories-status-expired", shot(true, true, false), Some(json!({"configured": true, "linked": true, "needsReconnect": true, "login": "dana-scully"})), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_linked() {
+        repos("repositories-status-linked", shot(true, true, false), Some(linked(vec![installation(1, "acme", true, false), installation(3, "dana-scully", false, false)])), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_not_installed() {
+        repos("repositories-status-not-installed", shot(true, true, false), Some(linked(vec![])), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_suspended() {
+        repos("repositories-status-suspended", shot(true, true, false), Some(suspended()), Some(Ok(json!([]))), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_status_busy() {
+        repos("repositories-status-busy", shot(true, true, true), Some(json!({"configured": true, "linked": true, "needsReconnect": true})), Some(Ok(json!([]))), &[]);
+    }
+
+    fn local(rows: Vec<api::repositories::LocalRepository>) -> RepoShot {
+        RepoShot { local: Some(rows), ..shot(false, true, false) }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_local() {
+        let folder = |id: &str, name: &str, branch: &str, path: &str| api::repositories::LocalRepository { id: id.into(), full_name: name.into(), default_branch: branch.into(), path: path.into() };
+        let rows = vec![folder("l1", "web", "main", "/home/dana/code/web"), folder("l2", "a-folder-with-a-rather-long-name-to-see-it-truncate", "develop", "/home/dana/code/clients/acme/a-folder-with-a-rather-long-name-to-see-it-truncate")];
+        repos("repositories-local", local(rows), None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_local_empty() {
+        repos("repositories-local-empty", local(Vec::new()), None, None, &[]);
+    }
+
+    /// A click at the first row's branch pill: `EXP_REPOS_CLICK=x,y`
+    /// overrides [`BRANCH`].
+    fn branch_click() -> &'static [(f32, f32)] {
+        let point = std::env::var("EXP_REPOS_CLICK").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(BRANCH);
+        Box::leak(Box::new([point]))
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_branch_open() {
+        let shot = RepoShot { branches: vec![("r1".into(), vec!["main".into(), "develop".into(), "feature/branch-picker".into(), "release/2026-11".into()])], ..shot(true, true, false) };
+        repos("repositories-branch-open", shot, Some(suspended()), Some(Ok(rows())), branch_click());
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_repositories_branch_loading() {
+        repos("repositories-branch-loading", shot(true, true, false), Some(suspended()), Some(Ok(rows())), branch_click());
+    }
+
+    /// The first row's branch pill (window points), read off `repositories-owner`.
+    const BRANCH: (f32, f32) = (580., 291.);
+}
+
+/// #EXP-1629: a pending pill (`Button::loading(true)`: the spinner in the
+/// icon slot) at 2× — the settings panes' Reconnect / Connect / Set key
+/// while their write is in flight.
+mod pending_pill {
+    use super::*;
+
+    pub(super) struct Pills;
+
+    impl Render for Pills {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            use gpui_component::Disableable as _;
+            use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
+            gpui_component::h_flex().gap_2()
+                .child(glass_pill_button("reconnect", PillSize::Sm, cx).icon(crate::icons::registry::UI_WARNING).label("Reconnect").loading(true).disabled(true))
+                .child(glass_pill_button_primary("connect", PillSize::Sm).icon(crate::icons::registry::UI_SIGN_IN).label("Connect").loading(true).disabled(true))
+                .child(glass_pill_button("add", PillSize::Md, cx).icon(crate::icons::registry::UI_ADD).label("Add server").loading(true))
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_pending_pill() {
+        shoot_pane("pending-pill", |_, _| Pills, |_, _| {});
+    }
+}
+
+fn board(repository: Option<&str>, branch: Option<&str>) -> domain::rows::Board {
+    serde_json::from_value(serde_json::json!({
+        "id": "board-web", "team_id": "team-acme", "name": "Web app", "prefix": "WEB", "color": "#3b82f6", "icon": "rocket",
+        "repository_id": repository, "default_branch": branch,
+    }))
+    .expect("a board")
+}
+
+fn board_repos() -> serde_json::Value {
+    serde_json::json!([
+        {"id": "r1", "fullName": "acme/web", "defaultBranch": "main", "githubDefaultBranch": "main", "private": true},
+        {"id": "r2", "fullName": "acme/api", "defaultBranch": "develop", "private": false},
+    ])
+}
+
+fn board_detail(name: &str, shot: BoardShot) {
+    shoot_pane(name, BoardDetailPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_board_unlinked() {
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_linked() {
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_pinned() {
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_loading() {
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_unavailable() {
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+}
+
+#[test]
+#[ignore]
+fn settings_board_failed_plain() {
+    let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
 }
 
 /// #EXP-1629: Settings → MCP › Servers in every state (owner, member, a

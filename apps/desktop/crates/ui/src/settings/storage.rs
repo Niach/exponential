@@ -688,6 +688,44 @@ fn sweep_result_message(deleted: i64, freed_bytes: i64, skipped_recent: i64) -> 
 mod tests {
     use super::*;
 
+    /// #EXP-1767: the document raises no issue a debug build's mount check
+    /// refuses (it panicked on the meter's bound `width` and the issue
+    /// pill's literal `fontFamily`).
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        };
+        let tree = document(&ink, "#ffffff10", "#ffffff0a");
+        let bound = super::super::doc::bound_styles(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-storage", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?} (all: {:?})", outcome.issues.iter().filter(|i| !i.message.ends_with("expected $color.<name>")).collect::<Vec<_>>());
+    }
+
     #[test]
     fn media_is_never_labelled_file() {
         assert_eq!(attachment_status(false, "video/mp4", true), "In use");

@@ -233,7 +233,7 @@ struct PromptSettingsPage: View {
                         bordered: false,
                         accessibilityIdentifier: "prompt-body"
                     )
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(.expMono(.footnote))
                     .disabled(!isOwner)
                 }
                 if let bodyTooLong {

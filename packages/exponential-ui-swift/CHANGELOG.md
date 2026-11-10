@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- iOS popup window (#EXP-1629): anchored popups fit into the surface's hosting `UIWindow` (its bounds), not `UIScreen.main.bounds`; a window larger than the screen (the conformance suite's 800×600) no longer clamps the `overlay` cases, and an iPad split-view window clamps to itself.
+- Icon `size: xl` (#EXP-1629): 28 pt from the recipe (`$control.iconXl`). Snapshot `components.json` gains `Icon/size=xl`.
+- An autosize Textarea and the Composer are measured at their laid-out width (#EXP-1629, from eui-core) instead of a guessed 160 px / 320 px; CoreText wraps a word wider than the row by character, so a 12k-char URL or hash grows rows 10 to maxRows 40.
+- Select option `trailing` + event `open` (#EXP-1629): both come from the core (the popup item's text, `open` through `set_open`); snapshots re-recorded for the specimen's Branch row.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): painted from the core's parts (no label part; the field's accessibility label is the owner's `label`). Snapshot `components.json` gains the five cases.
 - Select `description` (#EXP-1629): painted from the core's parts (the row's `labels` and `control` columns, the field's hint). Anchored popups now fit into the WINDOW around the surface (iOS: the surface's global frame + the screen, `SurfaceModel.setPopupWindow` → the core's `set_popup_bounds`), as web and the IDE do; a row Select's popup no longer stays inside a short surface.
 - Composer slots + paste (#EDE-65 R): `ComposerLeaf` keeps the core-laid `trailing` slot's width free before the send disc (the attach control sits before it; the slots paint over the leaf); a paste (UIKit `paste(_:)`, also offered for an image-only pasteboard; AppKit `paste(_:)`) reads `ComposerPasteboard.files()` and `SurfaceModel.composerPaste` fires `attach` {files} for the images and calls `onUpload` (`name` = the Composer's id); files without an image insert nothing.

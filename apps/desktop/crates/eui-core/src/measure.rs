@@ -8,7 +8,7 @@
 //! (gpui) may answer per request through [`DirectMeasure`]; nothing crosses
 //! an FFI there.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -406,6 +406,23 @@ pub struct MeasureMemo {
     /// forgetting a leaf costs its own entries, not every leaf's (a
     /// 10,000-item rebind forgot 10,000 leaves one full scan each).
     heights: HashMap<u32, Vec<(i64, f32)>>,
+    /// Leaves whose height follows the width they are laid out at even
+    /// though their intrinsic widths say otherwise ([`follows_width`]): the
+    /// memo never answers them from the max-content height.
+    pub width_dependent: HashSet<u32>,
+}
+
+/// Whether a leaf's height follows its laid-out width although its
+/// intrinsic width is fixed: an autosize Textarea's field and the Composer
+/// grow with their text WRAPPED at the width they get (a long URL or hash
+/// wraps by character), so they are measured at that width, never at a
+/// guessed one.
+pub fn follows_width(component: &str, part: Option<&str>, props: &Map<String, Value>) -> bool {
+    match (component, part) {
+        ("Textarea", Some("field")) => props.get("autosize").and_then(Value::as_bool) == Some(true),
+        ("Composer", None) => true,
+        _ => false,
+    }
 }
 
 impl MeasureMemo {
@@ -416,11 +433,13 @@ impl MeasureMemo {
     pub fn clear(&mut self) {
         self.intrinsics.clear();
         self.heights.clear();
+        self.width_dependent.clear();
     }
 
     pub fn forget(&mut self, index: u32) {
         self.intrinsics.remove(&index);
         self.heights.remove(&index);
+        self.width_dependent.remove(&index);
     }
 
     pub fn height_at(&self, index: u32, width: f32) -> Option<f32> {
@@ -475,8 +494,10 @@ impl MeasureMemo {
             return (taffy::geometry::Size { width, height: h }, false, i.baseline);
         }
         // No line-break opportunity (min == max) = the height never changes
-        // with the width: no second phase.
-        if width + 0.01 >= i.max_content_width || (i.max_content_width - i.min_content_width).abs() < 0.01 {
+        // with the width: no second phase (unless the leaf follows its
+        // width regardless, [`follows_width`]).
+        let follows = self.width_dependent.contains(&req.index);
+        if !follows && (width + 0.01 >= i.max_content_width || (i.max_content_width - i.min_content_width).abs() < 0.01) {
             return (taffy::geometry::Size { width, height: i.height_at_max_content }, false, i.baseline);
         }
         match self.height_at(req.index, width) {

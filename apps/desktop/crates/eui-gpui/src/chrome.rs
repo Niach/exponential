@@ -42,8 +42,6 @@ pub struct ChromeIcons {
     pub check: SharedString,
     /// An indeterminate checkbox (`ui-minus`).
     pub minus: SharedString,
-    /// The group band's reload spinner glyph (`ui-refresh`, EXP-1274).
-    pub refresh: SharedString,
 }
 
 impl Default for ChromeIcons {
@@ -55,7 +53,6 @@ impl Default for ChromeIcons {
             chevron_down: IconName::ChevronDown.path(),
             check: IconName::Check.path(),
             minus: IconName::Minus.path(),
-            refresh: IconName::LoaderCircle.path(),
         }
     }
 }

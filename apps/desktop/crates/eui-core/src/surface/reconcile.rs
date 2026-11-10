@@ -447,6 +447,9 @@ impl Surface {
                 if let Some(c) = self.archive.get(&n.id) {
                     if c.props == n.props && c.lines == n.lines {
                         self.memo.intrinsics.insert(slot, c.intrinsics);
+                        if crate::measure::follows_width(&n.component, n.part.as_deref(), &n.props) {
+                            self.memo.width_dependent.insert(slot);
+                        }
                         for (w, h) in &c.heights {
                             self.memo.insert_height(slot, *w, *h);
                         }

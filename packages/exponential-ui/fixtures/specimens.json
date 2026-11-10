@@ -3256,7 +3256,7 @@
                 "id": "specimen_icon_case_3_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · neutral",
+                  "text": "size · xl",
                   "variant": "caption"
                 }
               },
@@ -3265,8 +3265,7 @@
                 "component": "Icon",
                 "props": {
                   "name": "ui-check",
-                  "size": "default",
-                  "tone": "neutral"
+                  "size": "xl"
                 }
               }
             ]
@@ -3284,7 +3283,7 @@
                 "id": "specimen_icon_case_4_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · primary",
+                  "text": "tone · neutral",
                   "variant": "caption"
                 }
               },
@@ -3294,7 +3293,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "primary"
+                  "tone": "neutral"
                 }
               }
             ]
@@ -3312,7 +3311,7 @@
                 "id": "specimen_icon_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · success",
+                  "text": "tone · primary",
                   "variant": "caption"
                 }
               },
@@ -3322,7 +3321,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "success"
+                  "tone": "primary"
                 }
               }
             ]
@@ -3340,7 +3339,7 @@
                 "id": "specimen_icon_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · warning",
+                  "text": "tone · success",
                   "variant": "caption"
                 }
               },
@@ -3350,7 +3349,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "warning"
+                  "tone": "success"
                 }
               }
             ]
@@ -3368,7 +3367,7 @@
                 "id": "specimen_icon_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "tone · danger",
+                  "text": "tone · warning",
                   "variant": "caption"
                 }
               },
@@ -3378,7 +3377,7 @@
                 "props": {
                   "name": "ui-check",
                   "size": "default",
-                  "tone": "danger"
+                  "tone": "warning"
                 }
               }
             ]
@@ -12569,6 +12568,59 @@
                           "value": "de"
                         }
                       ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + option trailing",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_board_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c4_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Branch",
+                      "name": "branch",
+                      "triggerVariant": "row",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "trailing": "· default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop"
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
                     }
                   }
                 ]

@@ -175,7 +175,7 @@ struct MyIssuesListContent: View {
                 // exactly the cross-board disambiguator this view needs
                 // (EXP-250: a min width, longer ones grow).
                 Text(issue.identifier ?? "")
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)

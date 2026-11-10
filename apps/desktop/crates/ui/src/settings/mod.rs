@@ -37,6 +37,9 @@
 pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
+// #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
+#[cfg(test)]
+pub(crate) mod branch_row_shots;
 pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -74,7 +77,7 @@ pub(crate) mod voice_prefs;
 pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
-mod board_detail;
+pub(crate) mod board_detail;
 pub(crate) mod repositories;
 pub(crate) mod sessions;
 pub(crate) mod storage;
@@ -771,7 +774,7 @@ impl SettingsView {
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
-        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
+        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), window, cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));

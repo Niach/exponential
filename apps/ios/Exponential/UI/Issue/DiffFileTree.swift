@@ -63,7 +63,7 @@ struct DiffFileTree: View {
                 AppIcon(open ? AppIcons.uiFolderOpen : AppIcons.uiFolder, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(row.node.name)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -94,7 +94,7 @@ struct DiffFileTree: View {
                     DiffStatusLetter(status: status)
                 }
                 Text(row.node.name)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)

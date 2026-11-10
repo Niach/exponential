@@ -79,7 +79,7 @@ public struct RepositoryPickerRowBody: View {
     public var body: some View {
         HStack(spacing: 8) {
             Text(row.fullName)
-                .font(.subheadline.monospaced())
+                .font(.expMono(.subheadline))
                 .foregroundStyle(.white.opacity(TextOpacity.primary))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -359,7 +359,7 @@ public struct BranchPicker<Trigger: View>: View {
                 AnyView(
                     HStack(spacing: 8) {
                         Text(item.label)
-                            .font(.subheadline.monospaced())
+                            .font(.expMono(.subheadline))
                             .foregroundStyle(.white.opacity(TextOpacity.primary))
                             .lineLimit(1)
                             .truncationMode(.middle)

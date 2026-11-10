@@ -35,7 +35,7 @@ public struct ScriptCardView: View {
             if open, let source {
                 ScrollView {
                     Text(source)
-                        .font(.caption2.monospaced())
+                        .font(.expMono(.caption2))
                         .foregroundStyle(muted)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

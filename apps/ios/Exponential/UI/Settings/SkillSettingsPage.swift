@@ -62,7 +62,7 @@ struct SkillSettingsPage: View {
                         AppIcon(AppIcons.uiDocs, size: 16)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         Text(skill?.name ?? "")
-                            .font(.subheadline.monospaced())
+                            .font(.expMono(.subheadline))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .accessibilityIdentifier("skill-name")
@@ -118,7 +118,7 @@ struct SkillSettingsPage: View {
             .padding(.vertical, 12)
         } else {
             Text(bodyText ?? "")
-                .font(.system(.footnote, design: .monospaced))
+                .font(.expMono(.footnote))
                 .foregroundStyle(.white)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("skill-body")

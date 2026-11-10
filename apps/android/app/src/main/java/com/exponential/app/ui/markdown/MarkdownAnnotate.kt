@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.runtime.compositionLocalOf
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -135,7 +136,7 @@ internal fun annotateLine(
                     addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
                 InlineKind.InlineCode -> addStyle(
                     SpanStyle(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = inlineCode.inlineCodeColor ?: Color.Unspecified,
                         background = inlineCode.inlineCodeBg,
                     ),
@@ -206,7 +207,7 @@ internal fun annotateLine(
             // (the glyph cell included: it wears the hidden `#`'s treatment).
             addStyle(SpanStyle(color = MdStyle.Text), chipStart, chipEnd)
             addStyle(
-                SpanStyle(fontFamily = FontFamily.Monospace, color = MdStyle.ChipToken),
+                SpanStyle(fontFamily = ExpMono, color = MdStyle.ChipToken),
                 chipStart,
                 tokenEnd,
             )

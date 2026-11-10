@@ -119,6 +119,12 @@
       "lg",
       "xl"
     ],
+    "iconSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -413,6 +419,10 @@
         "description": {
           "type": "string",
           "description": "Second line."
+        },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
         },
         "image": {
           "type": "url",
@@ -2410,7 +2420,7 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "iconSize",
           "default": "default",
           "description": "Glyph size."
         },
@@ -3446,6 +3456,7 @@
         "content": {
           "type": "string",
           "required": true,
+          "bindable": true,
           "description": "Hint text."
         },
         "side": {
@@ -5362,7 +5373,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "example": {
         "label": "Board",
