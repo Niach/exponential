@@ -1427,6 +1427,8 @@ public enum SessionTree {
             "pr_checks": "CI on PR {pr}",
             // EXP-1709: the merge train's line (#EXP-1710 renders it by mergeOutcome).
             "pr_merge": "Auto-merge of PR {pr}",
+            // #EXP-1772: a schedule's firing (no name) as the marker.
+            "trigger_schedule": "Schedule",
         ]
         /// S-3: the lead of a `SessionXref` header, per kind.
         public static let xref: [String: String] = [
@@ -1784,6 +1786,7 @@ public enum SessionTree {
         var messagesById: [String: TreeMessage] = [:]
         for message in messages { messagesById[message.id] = message }
         var escalated = Set<String>()
+        var fires = Set<String>()
         for message in conversation {
             if let reason = message.locked {
                 let author = message.authorKind == "user" || message.authorKind == "agent" ? message.authorKind : "system"
@@ -1849,6 +1852,18 @@ public enum SessionTree {
                     rows.append(row)
                 }
             case "event":
+                // #EXP-1772: a firing draws nothing of its own; one the agent
+                // answered is THE marker above that reply (`fires`, below).
+                if card.event == DomainContract.messageEventKindTriggerFired {
+                    let named = !(card.eventName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let text = named
+                        ? eventText(card, issues: issueMap, pullRequests: prMap)
+                        : ChatCopy.events["trigger_schedule"]
+                    guard let text else { break }
+                    fires.insert(message.id)
+                    rows.append(.event(id: message.id, event: DomainContract.messageEventKindTriggerFired, text: text, sessionId: nil))
+                    break
+                }
                 let text = eventText(card, issues: issueMap, pullRequests: prMap) { id in
                     byId[id].map { sessionCard($0, title: titles[$0.id] ?? "", now: now).name }
                 }
@@ -1886,6 +1901,16 @@ public enum SessionTree {
             default:
                 break
             }
+        }
+
+        // #EXP-1772: a firing stays only right above the chat's own agent reply.
+        if !fires.isEmpty {
+            rows = rows.enumerated().filter { index, row in
+                guard fires.contains(row.id) else { return true }
+                guard index + 1 < rows.count,
+                      case let .message(_, author, _, _, _, _, xref) = rows[index + 1] else { return false }
+                return author == "agent" && xref == nil
+            }.map(\.element)
         }
 
         let live = tree.filter { $0.status != "ended" }

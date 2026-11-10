@@ -55,8 +55,10 @@ public enum MessageBubbleSide: Equatable, Sendable {
 /// text: `own` = the viewer's (right, the active glass fill inside the
 /// strong hairline, neither avatar nor name); `other` = anyone else's
 /// (left, THE card surface), its sender's NAME on the group's first bubble
-/// (`author`, 12pt medium secondary; a cross-session sender's ends in ` ›`)
-/// and, set `onPress`, the whole bubble opens that sender's session. The
+/// (`author`, 12pt medium secondary). #EXP-1772: set `onPress` = a RELAY
+/// (another session's message, a child's report): its name (ending in ` ›`)
+/// sits ABOVE the bubble, outside it, and only that line opens the
+/// sender's session; the bubble itself is never a link. The
 /// footer line (the `HH:mm`, a queued row's caption) sits bottom-right
 /// inside. The avatar column is `TranscriptRow`'s.
 public struct MessageBubble<Content: View, Footer: View>: View {
@@ -89,16 +91,22 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         return author
     }
 
+    private var relay: Bool { onPress != nil && !own }
+
+    private func nameLine(_ name: String) -> some View {
+        Text(name)
+            .font(.system(size: TranscriptGrouping.Layout.nameSize, weight: .medium))
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .accessibilityIdentifier("message-bubble-author")
+    }
+
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: ChatBubbleMetrics.radius)
         let bubble = BubbleColumn(spacing: 4, trailingLast: hasFooter) {
-            if let name {
-                Text(name)
-                    .font(.system(size: TranscriptGrouping.Layout.nameSize, weight: .medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .accessibilityIdentifier("message-bubble-author")
+            if let name, !relay {
+                nameLine(name)
             }
             content()
             if hasFooter {
@@ -111,13 +119,16 @@ public struct MessageBubble<Content: View, Footer: View>: View {
         .overlay(shape.stroke(own ? GlassTokens.strokeStrong : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         BubbleWidthCap(fraction: TranscriptGrouping.Layout.maxWidthPhone, trailing: own) {
             if let onPress, !own {
-                // A tap on a link inside the text keeps its own press (the
-                // inner gesture wins over this one).
-                bubble
-                    .contentShape(shape)
-                    .onTapGesture(perform: onPress)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityIdentifier("message-bubble-link")
+                VStack(alignment: .leading, spacing: 4) {
+                    if let name {
+                        nameLine(name)
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: onPress)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityIdentifier("message-bubble-link")
+                    }
+                    bubble
+                }
             } else {
                 bubble
             }

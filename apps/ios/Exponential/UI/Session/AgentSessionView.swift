@@ -1089,7 +1089,11 @@ struct AgentSessionView: View {
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // NEW-2: the contract catalog alone (agent commands hidden).
-                if let divider = Chats.commandDivider(text) {
+                if case let .marker(_, label) = TranscriptGrouping.feedInput(text) {
+                    // #EXP-1772: a system input = THE inline marker (a
+                    // hidden one never reaches the transcript).
+                    TranscriptMarkerRow(label: label, icon: nil)
+                } else if let divider = Chats.commandDivider(text) {
                     // EXP-1373: `/new` and `/compact` = the centred divider.
                     TranscriptDividerPill(
                         icon: AppIcons.conceptOrName(divider.icon) ?? divider.icon,
@@ -1102,7 +1106,8 @@ struct AgentSessionView: View {
                     CommandPill(command: command, text: text)
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
-                    // session = THAT session's bubble (its name ` ›`).
+                    // session = THAT session's bubble; #EXP-1772: a relay,
+                    // its name ` ›` above it the only press, never folded.
                     senderBubble(input.body, layout: layout, streaming: false, time: time)
                 } else if layout?.side == .other {
                     // ONE origin rule: the feed's first prompt = the
@@ -1123,7 +1128,7 @@ struct AgentSessionView: View {
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)
             case .compaction:
-                CompactionMarkerRow()
+                TranscriptMarkerRow()
             case let .thought(_, _, running, durationMs, _):
                 // EXP-1324: the Reasoning line. A `started` edge whose `ended`
                 // never came reads settled once the turn is over.
@@ -1206,6 +1211,7 @@ struct AgentSessionView: View {
                     if Chats.commandDivider(text) != nil || SlashCommands.command(for: text, agent: model.catalogAgent) != nil {
                         break
                     }
+                    if case .marker = TranscriptGrouping.feedInput(text) { break }
                     if let input = TranscriptGrouping.crossSessionInput(text) {
                         item = TranscriptGrouping.Item(
                             id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
@@ -4272,14 +4278,20 @@ private struct PermissionRow: View {
 /// EXP-724: the quiet marker a finished compaction leaves in the feed, so the
 /// gap in the conversation above it stays explained after the strip is gone.
 /// Centered and muted — it is punctuation, not a turn. `compactedLabel` is
-/// byte-identical on all four clients.
-private struct CompactionMarkerRow: View {
+/// byte-identical on all four clients. #EXP-1772: THE inline marker ×4, a
+/// system input's too (`label` = transcript-grouping.json `copy.markers`).
+private struct TranscriptMarkerRow: View {
+    var label: String = AgentFeed.compactedLabel
+    var icon: String? = AppIcons.codingCompact
+
     var body: some View {
         HStack(spacing: 6) {
             Spacer(minLength: 0)
-            AppIcon(AppIcons.codingCompact, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text(AgentFeed.compactedLabel)
+            if let icon {
+                AppIcon(icon, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            Text(label)
                 .transcriptToolText()
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Spacer(minLength: 0)
