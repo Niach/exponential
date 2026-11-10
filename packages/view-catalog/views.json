@@ -6863,6 +6863,72 @@
       }
     },
     {
+      "id": "exponential-ui-icon-picker",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · IconPicker",
+      "blurb": "EXP-1760: An icon field: a 32 px outline square shows the pick in its colour and opens a popover grid of the board icons; a pick closes it. The core catalog specimen (a pick, none, the open grid with No icon) of ui.exponential.at/components/icon-picker/.",
+      "order": 118,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-icon-picker",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-icon-picker"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-icon-picker",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-icon-picker",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-color-picker",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · ColorPicker",
+      "blurb": "EXP-1760: A colour field: a 32 px outline square shows the colour as a dot and opens the label palette; a pick closes it. The core catalog specimen (a pick, none, the open palette) of ui.exponential.at/components/color-picker/.",
+      "order": 119,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-color-picker",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-color-picker"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-color-picker",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-color-picker",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-embed",
       "group": "exponential-ui-catalog",
       "title": "genUI · Embed",

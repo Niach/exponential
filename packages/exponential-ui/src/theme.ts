@@ -519,6 +519,9 @@ function deriveColors(theme: ResolvedTheme): void {
     if (color.link === undefined && color.primary !== undefined) color.link = color.primary
     if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
     if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
+    // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
+    const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined
+    if (shadow && shadow.popoverRing === undefined && shadow.popover !== undefined) shadow.popoverRing = shadow.popover
   }
 }
 

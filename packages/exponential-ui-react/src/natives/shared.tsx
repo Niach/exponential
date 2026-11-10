@@ -6,7 +6,7 @@
 // `builtinIcons` (never a hardcoded glyph for an owned part).
 
 import { useContext, useMemo, type ReactNode } from "react"
-import { displayString, nativeRecipeProps } from "@exponential_app/eui"
+import { displayString, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
 import { arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, phrase, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { InstanceContext, useSurfaceContext } from "../context"
@@ -48,7 +48,10 @@ export function useParts(node: UiNode, props: Record<string, unknown>): PartFn {
       const own: Attrs = {}
       if (extra) for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null) own[propAttribute(false, k)] = String(v)
       return {
-        className: `${scope} ${partClass(node.component, name)}`,
+        className: `${scope} ${partClass(node.component, name)}${(() => {
+          const macro = rootPartMacro(node, name)
+          return macro ? ` ${partClass(macro, name)}` : ``
+        })()}`,
         "data-xui-part": `${node.component}/${name}`,
         ...(id !== null ? { "data-xui-id": id } : {}),
         ...recipeAttrs,

@@ -8,14 +8,14 @@
 // flashes): then the icon slot is the spinner and the label `pendingLabel`,
 // at no less than the idle width.
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
 import { PENDING_DELAY_MS } from "@exponential_app/eui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { useForm } from "../form"
+import { ClosePickerContext, useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
-import { ButtonHold, linkHref } from "@exponential_app/eui/web"
+import { ButtonHold, isPickerPick, linkHref } from "@exponential_app/eui/web"
 import type { NativeProps } from "../node-view"
 import { bool, failingChecks, str, useParts } from "./shared"
 
@@ -44,6 +44,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const form = useForm()
+  const closePicker = useContext(ClosePickerContext)
   const submit = bool(props.submit) && form !== null
   const { pending, track } = usePending()
   const label = str(props.label)
@@ -97,6 +98,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
         // #EXP-1674: `href` opens like a Link's (the policy decides).
         if (str(props.href)) ctx.openUrl(str(props.href))
         track(emit(`press`))
+        if (isPickerPick(node.recipe)) closePicker?.()
         if (submit) form.submit()
       }}
     >

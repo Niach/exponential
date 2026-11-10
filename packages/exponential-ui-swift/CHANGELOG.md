@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760): macros the core expands and closes on a pick; painted from the Popover, Button, Box and Icon the painter has.
 - Select option `trailing` + event `open` (#EXP-1629): both come from the core (the popup item's text, `open` through `set_open`); snapshots re-recorded for the specimen's Branch row.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): painted from the core's parts (no label part; the field's accessibility label is the owner's `label`). Snapshot `components.json` gains the five cases.
 - Select `description` (#EXP-1629): painted from the core's parts (the row's `labels` and `control` columns, the field's hint). Anchored popups now fit into the WINDOW around the surface (iOS: the surface's global frame + the screen, `SurfaceModel.setPopupWindow` → the core's `set_popup_bounds`), as web and the IDE do; a row Select's popup no longer stays inside a short surface.

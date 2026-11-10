@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760) through the Solid painter.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): through the React renderer.
 
 ## 0.21.0 (2026-11-09)

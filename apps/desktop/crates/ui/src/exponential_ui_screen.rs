@@ -587,6 +587,12 @@ pub(crate) fn styleguide_surface_in(key: &'static str, tree: Value, mode: Option
 /// logged (a specimen is a still photograph).
 struct SpecimenHost;
 
+/// #EXP-1760: the specimen host for the picker bench (`picker_bench.rs`).
+#[cfg(test)]
+pub(crate) fn bench_specimen_host() -> impl HostPlugin {
+    SpecimenHost
+}
+
 impl HostPlugin for SpecimenHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
         crate::icons::registry::concept_by_name(name)
@@ -739,8 +745,8 @@ mod tests {
         // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave;
         // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner;
         // round 6's Outline and Mosaic; EXP-1586's ZoomableImage; EXP-1604's
-        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed.
-        assert_eq!(specimens().len(), 103);
+        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed. #EXP-1760: + IconPicker, ColorPicker.
+        assert_eq!(specimens().len(), 105);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

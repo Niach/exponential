@@ -47,7 +47,7 @@
 // 5. A painter that is not ported yet stays `Pending` (natives/pending.tsx).
 
 import { createMemo, type JSX } from "solid-js"
-import { displayString, nativeRecipeProps } from "@exponential_app/eui"
+import { displayString, nativeRecipeProps, rootPartMacro } from "@exponential_app/eui"
 import { PLACED, arr, bool, builtinIconName, failingCheck, failingChecks, resolvedFieldChecks, formatFileSize, num, objects, partClass, phrase, propAttribute, str } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { useInstance, useSurfaceContext } from "../context"
@@ -96,7 +96,10 @@ export function parts(source: { readonly node: UiNode; readonly props: Record<st
     const own: Attrs = {}
     if (extra) for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null) own[propAttribute(false, k)] = String(v)
     return {
-      class: `${ctx.compiled.scope} ${partClass(component, name)}`,
+      class: `${ctx.compiled.scope} ${partClass(component, name)}${(() => {
+        const macro = rootPartMacro(source.node, name)
+        return macro ? ` ${partClass(macro, name)}` : ``
+      })()}`,
       "data-xui-part": `${component}/${name}`,
       ...(id !== null ? { "data-xui-id": id } : {}),
       ...recipeAttrs(),
