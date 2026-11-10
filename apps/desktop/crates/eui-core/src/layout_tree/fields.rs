@@ -413,7 +413,12 @@ impl Builder<'_, '_> {
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
+        // #EXP-1764: `triggerIcon` = a row leads its value with the chosen
+        // option's `icon` (the IDE Account row's agent mark); one value only.
+        let value_icon = (row && bool_prop(&owner.props, "triggerIcon") && chosen.len() == 1)
+            .then(|| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("icon")).and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string))
+            .flatten();
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
         if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
@@ -424,11 +429,16 @@ impl Builder<'_, '_> {
         // #EXP-1629: `align` (row: end), `popupWidth` (row: the layout's
         // selectRowPopupWidth; a field without one: at least the trigger).
         let align = owner.props.get("align").and_then(Value::as_str).and_then(OverlayAlign::parse).unwrap_or(OverlayAlign::Start);
-        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| (row || pill).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
+        // `popupMinWidth`: the popup fits its options, at least that wide
+        // (the IDE's non-searchable picker: content-fit, 168 px minimum).
+        let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
+        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| ((row || pill) && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
         if let Some(w) = width {
             style["width"] = json!(w);
+        } else if let Some(w) = min_width {
+            style["minWidth"] = json!(w);
         }
         let (layer, root) = self.popup(&owner, "content", trigger, style);
         let query = self.ctx.local.query.get(&owner.id).cloned().unwrap_or_default();
@@ -449,7 +459,7 @@ impl Builder<'_, '_> {
         if bool_prop(&owner.props, "loading") {
             let skeleton = self.part_in(list, &owner, "skeleton", "Skeleton", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"rows": crate::layout::SELECT_LOADING_ROWS}), "");
             self.skeleton_rows(skeleton);
-            self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
+            self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
             self.place_select_popup(pill, value_node.is_some());
             return;
         }
@@ -476,24 +486,51 @@ impl Builder<'_, '_> {
                 Some(trailing) if !mono => format!("{label} {trailing}"),
                 _ => label,
             };
-            let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
-            if mono {
-                props["mono"] = json!(true);
-                if let Some(trailing) = trailing {
-                    props["trailing"] = json!(trailing);
+            let suffix = format!(".{i}");
+            let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
+            let description = option.get("description").map(js).filter(|d| !d.is_empty());
+            let item = if icon.is_some() || description.is_some() {
+                // #EXP-1629: an option with a glyph or a `description` is a
+                // row of parts (the IDE picker's row): the `itemIcon`, the
+                // `itemText` column (`itemLabel` over the muted
+                // `itemDescription`), then the chosen one's `check`.
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
                 }
-            }
-            if let Some(icon) = option.get("icon") {
-                props["icon"] = icon.clone();
-            }
-            if selected {
-                props["check"] = json!(super::builtin_icon("Select.check"));
-            }
-            let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
-            if mono {
-                style["fontFamily"] = json!("$type.family.mono");
-            }
-            let item = self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &format!(".{i}"));
+                let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, style, json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
+                if let Some(icon) = icon {
+                    self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                }
+                let column = self.part_in(item, &owner, "itemText", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), &suffix);
+                self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
+                if let Some(description) = description {
+                    self.part_in(column, &owner, "itemDescription", "Text", NodeKind::Leaf, json!({}), json!({"text": description, "lines": 1}), &suffix);
+                }
+                if selected {
+                    self.part_in(item, &owner, "check", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.check")}), &suffix);
+                }
+                item
+            } else {
+                let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+                if mono {
+                    props["mono"] = json!(true);
+                    if let Some(trailing) = trailing {
+                        props["trailing"] = json!(trailing);
+                    }
+                }
+                if let Some(icon) = option.get("icon") {
+                    props["icon"] = icon.clone();
+                }
+                if selected {
+                    props["check"] = json!(super::builtin_icon("Select.check"));
+                }
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
+                }
+                self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &suffix)
+            };
             self.nodes[item as usize].pressable = !disabled;
             if selected {
                 self.add_state(item, "selected");
@@ -511,7 +548,7 @@ impl Builder<'_, '_> {
         }
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
-        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
+        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
         self.place_select_popup(pill, value_node.is_some());
     }
 
@@ -534,7 +571,7 @@ impl Builder<'_, '_> {
     /// (else `placeholder`) and the `chevron`), so its popup can hang off
     /// the value. The trigger itself carries the text for its accessible
     /// value.
-    fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool) -> (u32, Option<u32>) {
+    fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool, icon: Option<&str>) -> (u32, Option<u32>) {
         let label = str_prop(&owner.props, "label").map(str::to_string);
         let t = self.part(owner, "trigger", "Box", NodeKind::Container, json!({"alignSelf": "stretch", "display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "placeholder": placeholder, "label": label}));
         self.nodes[t as usize].pressable = !bool_prop(&owner.props, "disabled");
@@ -550,7 +587,7 @@ impl Builder<'_, '_> {
                 self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
             }
             self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
-            return (t, Some(self.row_value(t, owner, text, placeholder)));
+            return (t, Some(self.row_value(t, owner, text, placeholder, icon)));
         };
         let labels = self.part_in(t, owner, "labels", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "minWidth": 0, "flexShrink": 1}), json!({}), "");
         if let Some(label) = label {
@@ -559,14 +596,18 @@ impl Builder<'_, '_> {
         let d = self.part_in(labels, owner, "description", "Text", NodeKind::Leaf, json!({"maxWidth": crate::layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH}), json!({"text": description, "variant": "muted"}), "");
         self.nodes[d as usize].lines = None;
         let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
-        (t, Some(self.row_value(control, owner, text, placeholder)))
+        (t, Some(self.row_value(control, owner, text, placeholder, icon)))
     }
 
     /// A `row` trigger's `button` (the IDE picker's ghost value button: the
     /// one box its hover fills) holding the `value` (else `placeholder`) and
-    /// the `chevron`, under `parent`.
-    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool) -> u32 {
+    /// the `chevron`, under `parent`; #EXP-1764: `icon` (the chosen
+    /// option's, `triggerIcon`) leads as the `valueIcon`.
+    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool, icon: Option<&str>) -> u32 {
         let button = self.part_in(parent, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
+        if let Some(icon) = icon {
+            self.part_in(button, owner, "valueIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), "");
+        }
         let value = self.part_in(button, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
         self.part_in(button, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
         value

@@ -1103,6 +1103,12 @@ fn derive_colors(theme: &mut ResolvedTheme) {
                 }
             }
         }
+        // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
+        if !m.shadow.contains_key("popoverRing") {
+            if let Some(value) = m.shadow.get("popover").cloned() {
+                m.shadow.insert("popoverRing".to_string(), value);
+            }
+        }
     }
 }
 
@@ -1606,6 +1612,21 @@ mod tests {
             let t = builtin_theme(id).unwrap();
             assert_eq!(t.modes.light.color["borderStrong"], t.modes.light.color["border"]);
             assert_eq!(t.modes.dark.color["borderStrong"], t.modes.dark.color["border"]);
+        }
+    }
+
+    #[test]
+    fn popover_ring_is_gpui_components_popover_surface_in_exponential_and_popover_elsewhere() {
+        // #EXP-1760 (catalog/tokens.json `shadow.popoverRing`): the 1 px ring
+        // of the foreground at 10 % outside the box, then shadcn's md.
+        let exp = builtin_theme("exponential").unwrap();
+        let ring = &exp.modes.dark.shadow["popoverRing"];
+        assert_eq!(ring.len(), 3);
+        assert_eq!((ring[0].blur, ring[0].spread), (0.0, 1.0));
+        for id in ["neutral", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.shadow["popoverRing"], t.modes.light.shadow["popover"]);
+            assert_eq!(t.modes.dark.shadow["popoverRing"], t.modes.dark.shadow["popover"]);
         }
     }
 

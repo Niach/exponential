@@ -16,10 +16,10 @@ import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMen
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath } from "@exponential_app/eui/web"
+import { absolutePath, isPickerPopover } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
-import { CloseOnSubmitContext } from "../form"
+import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 import { SearchBody, searchMatches } from "./search"
@@ -285,6 +285,8 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const part = useParts(node, props)
   const [open, setOpen] = useOpenState(node, scope, bool(props.open), emit)
   const side = str(props.side, `bottom`) as `top` | `right` | `bottom` | `left`
+  // #EXP-1760: a pick in an IconPicker / ColorPicker grid closes it.
+  const closePicker = useCallback(() => setOpen(false), [setOpen])
   // `openOn: hover` (a hover card): opens on pointer hover AND keyboard focus
   // of the trigger, stays while the pointer is over the content; touch
   // (no hover pointer) keeps press.
@@ -355,7 +357,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           data-xui-overlay="Popover"
           data-open-on={hoverMode ? `hover` : undefined}
           dir={ctx.direction}
-          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : undefined}
+          // #EXP-1760: a picker opens with the focus on its panel (Tab walks
+          // the grid), not a focus ring on its first cell (the IDE's look).
+          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
           // VAPP-276: a press on the anchor is its toggle, not an outside
           // press; a press or focus in ANOTHER open overlay (a second panel
           // applet) dismisses nothing (the core's rule); a close that did not
@@ -378,7 +382,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
         >
           {/* The nearest overlay decides: a Form in a Popover closes nothing,
               not even a Dialog around the Popover. */}
-          <CloseOnSubmitContext.Provider value={null}>{children}</CloseOnSubmitContext.Provider>
+          <CloseOnSubmitContext.Provider value={null}>
+            <ClosePickerContext.Provider value={isPickerPopover(node.recipe) ? closePicker : null}>{children}</ClosePickerContext.Provider>
+          </CloseOnSubmitContext.Provider>
         </PopoverPrimitive.Content>
       </OverlayPortal>
     </PopoverPrimitive.Root>

@@ -10,6 +10,7 @@ use gpui::{div, px, App, Div, IntoElement, ParentElement as _, SharedString, Sty
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::device_readiness::{self, BlockProps};
+use crate::settings::readiness::{self, Shape};
 
 pub(crate) const ID: &str = "device-readiness";
 pub(crate) const OWNER: &str = "EXP-1196";
@@ -40,19 +41,26 @@ fn cases() -> Vec<(String, coding::device_doctor::DeviceDoctor)> {
         .unwrap_or_default()
 }
 
+/// One case's block (#EXP-1770: the shared readiness document), kept
+/// across renders under `id`.
+fn block(id: &str, shape: Shape, window: &mut Window, cx: &mut App) -> gpui::AnyElement {
+    let block = readiness::keyed(id, window, cx);
+    // A no-op action: the pills draw active, like web's specimen.
+    let props = BlockProps { on_action: Some(std::rc::Rc::new(|_, _, _, _| {})), ..BlockProps::default() };
+    block.update(cx, |block, cx| block.show(shape, props, cx));
+    block.into_any_element()
+}
+
 fn specimen(
     index: usize,
     doctor: &coding::device_doctor::DeviceDoctor,
     local: bool,
-    cx: &App,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Div {
     let muted = cx.theme().muted_foreground;
-    // A no-op action: the pills draw active, like web's specimen.
-    let props = BlockProps {
-        id: SharedString::from(format!("sg-device-readiness-{index}-{local}")),
-        on_action: Some(std::rc::Rc::new(|_, _, _, _| {})),
-        ..BlockProps::default()
-    };
+    let sections = device_readiness::sections(doctor, local, None);
+    let block = block(&format!("sg-device-readiness-{index}-{local}"), Shape::Sections(&sections), window, cx);
     v_flex()
         .w(px(WIDTH))
         .gap_2()
@@ -62,57 +70,40 @@ fn specimen(
                 .text_color(muted)
                 .child(if local { "This device" } else { "Another device" }),
         )
-        .child(device_readiness::render_sections(
-            &device_readiness::sections(doctor, local, None),
-            props,
-            cx,
-        ))
+        .child(block)
 }
 
 /// EXP-1557: the view's SUBJECT first (web `DeviceReadinessSpecimen`, the
 /// natives' specimen line for line): the fixture's low-disk case (its LAST)
 /// from another device, then the composer's low-disk row, so the desktop
 /// `device-readiness` capture shows the Storage band, not the first case.
-fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], cx: &App) -> Option<Div> {
+fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], window: &mut Window, cx: &mut App) -> Option<Div> {
     let (name, doctor) = cases.last()?;
     let muted = cx.theme().muted_foreground;
     let caption = |text: SharedString| div().pt_2p5().text_xs().text_color(muted).child(text);
-    let props = |id: &str| BlockProps {
-        id: SharedString::from(id.to_string()),
-        on_action: Some(std::rc::Rc::new(|_, _, _, _| {})),
-        ..BlockProps::default()
-    };
-    let warning = device_readiness::warning_row(doctor, false);
+    let sections = device_readiness::sections(doctor, false, None);
+    let low_disk = block("sg-device-readiness-low-disk", Shape::Sections(&sections), window, cx);
+    let composer = device_readiness::warning_row(doctor, false).map(|row| block("sg-device-readiness-composer", Shape::Single(&row), window, cx));
     Some(
         v_flex()
             .w(px(WIDTH))
             .gap_1p5()
             .child(caption(SharedString::from(name.clone())))
-            .child(device_readiness::render_sections(
-                &device_readiness::sections(doctor, false, None),
-                props("sg-device-readiness-low-disk"),
-                cx,
-            ))
-            .when_some(warning, |this, row| {
-                this.child(caption("Composer".into())).child(device_readiness::render_single(
-                    &row,
-                    props("sg-device-readiness-composer"),
-                    cx,
-                ))
-            }),
+            .child(low_disk)
+            .when_some(composer, |this, composer| this.child(caption("Composer".into())).child(composer)),
     )
 }
 
-pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
+pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let foreground = cx.theme().foreground;
     let cases = cases();
     // EXP-1558 (DEV-ONLY, `EXP_DEV_SPECIMEN_ONLY=1`): the specimen alone,
     // what web's `?dev=device-readiness` draws (the `device-readiness`
     // capture); the entry itself goes on to every case.
     if std::env::var("EXP_DEV_SPECIMEN_ONLY").is_ok_and(|value| value == "1") {
-        return div().children(low_disk_specimen(&cases, cx));
+        return div().children(low_disk_specimen(&cases, window, cx));
     }
-    let mut column = v_flex().gap_8().children(low_disk_specimen(&cases, cx));
+    let mut column = v_flex().gap_8().children(low_disk_specimen(&cases, window, cx));
     for (index, (name, doctor)) in cases.iter().enumerate() {
         column = column.child(
             v_flex()
@@ -127,8 +118,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                     h_flex()
                         .items_start()
                         .gap_8()
-                        .child(specimen(index, doctor, true, cx))
-                        .child(specimen(index, doctor, false, cx)),
+                        .child(specimen(index, doctor, true, window, cx))
+                        .child(specimen(index, doctor, false, window, cx)),
                 ),
         );
     }

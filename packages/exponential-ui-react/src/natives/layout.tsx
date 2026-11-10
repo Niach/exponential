@@ -6,7 +6,8 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
-import { getPointer, isKeyRecorderField, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, treeKeyTarget } from "@exponential_app/eui/web"
+import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
 import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"
@@ -14,6 +15,7 @@ import { bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
 
 export function BoxNative({ node, props, rootProps, emit, children }: NativeProps) {
   const ctx = useSurfaceContext()
+  const closePicker = useContext(ClosePickerContext)
   // #EXP-1674: `Row.href` lands here and opens like a Link's (the policy decides).
   const href = str(props.href)
   const pressable = bool(props.pressable) || Boolean(node.on?.press) || Boolean(href)
@@ -36,6 +38,7 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
     if (recording) return
     if (href) ctx.openUrl(href)
     void emit(`press`)
+    if (isPickerPick(node.recipe)) closePicker?.()
   }
   const record = (e: KeyboardEvent<HTMLDivElement>) => {
     e.preventDefault()

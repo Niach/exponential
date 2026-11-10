@@ -114,14 +114,16 @@ describe(`icon registry`, () => {
   })
 
   it(`imported marks are one filled path inside the 24-unit grid`, () => {
-    for (const [name, { file }] of Object.entries(registry.imported)) {
+    for (const [name, entry] of Object.entries(registry.imported)) {
+      const { file, fill } = entry as { file: string; fill?: string }
       expect(existsSync(join(iconsPkg, file)), `${name}: ${file}`).toBe(true)
       const svg = readFileSync(
         join(repoRoot, `apps/desktop/assets/icons/${name}.svg`),
         `utf8`
       )
       expect(svg.match(/<path /g)).toHaveLength(1)
-      expect(svg).toContain(`fill="currentColor" stroke="none"`)
+      // #EXP-1764: a mark with its OWN colour (`brand-claude`) carries it.
+      expect(svg).toContain(`fill="${fill ?? `currentColor`}" stroke="none"`)
       const d = svg.match(/ d="([^"]+)"/)![1]
       // Absolute coordinates only appear after an uppercase command; the
       // first moveto anchors the mark, and it must sit inside the grid.

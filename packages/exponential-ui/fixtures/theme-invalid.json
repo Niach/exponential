@@ -990,6 +990,14 @@
           "message": "missing value for $shadow.popover"
         },
         {
+          "path": "modes.light.shadow.popoverRing",
+          "message": "missing value for $shadow.popoverRing"
+        },
+        {
+          "path": "modes.dark.shadow.popoverRing",
+          "message": "missing value for $shadow.popoverRing"
+        },
+        {
           "path": "tokens.opacity.primary",
           "message": "missing value for $opacity.primary"
         },

@@ -121,6 +121,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -223,6 +239,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -3547,13 +3579,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -3664,6 +3697,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -3712,6 +3753,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -6853,6 +6911,89 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -8134,6 +8275,29 @@
                 "spread": -4,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -8227,6 +8391,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -12293,13 +12480,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -12330,7 +12518,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -12340,9 +12528,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -12634,6 +12823,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -12729,6 +12935,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -16076,6 +16317,183 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "width": 12.25,
+                "height": 12.25
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.5,
+                "paddingHorizontal": 3.5
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14,
+                "fontWeight": "$type.weight.regular"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 7,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ],
+          "trigger": [
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 14,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 259
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -17390,6 +17808,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -17471,6 +17905,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -21197,13 +21647,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -21319,6 +21770,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -21367,6 +21826,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -24807,6 +25283,89 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -26118,6 +26677,29 @@
                 "spread": -4,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -26211,6 +26793,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -30277,13 +30882,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -30314,7 +30920,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -30324,9 +30930,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -30618,6 +31225,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -30713,6 +31337,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -34056,6 +34715,183 @@
               "style": {
                 "fontSize": 12.25,
                 "lineHeight": 19.82
+              }
+            }
+          ]
+        },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "width": 12.25,
+                "height": 12.25
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.5,
+                "paddingHorizontal": 3.5
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14,
+                "fontWeight": "$type.weight.regular"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 7,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ],
+          "trigger": [
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 14,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 259
               }
             }
           ]

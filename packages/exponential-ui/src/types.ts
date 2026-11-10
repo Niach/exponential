@@ -155,7 +155,8 @@ export interface MacroTemplate {
   slots?: Record<string, string | MacroTemplate>
   $if?: unknown
   $any?: unknown[]
-  $each?: string
+  /** An expression over the props, or (EXP-1760) a literal list (a picker's default set). */
+  $each?: string | unknown[]
   $as?: string
   /** Part event → the author's macro event (`$context` merged into it), or
    *  #VAPP-284 `{event, context}` = that event with its OWN context (a part
@@ -207,6 +208,10 @@ export interface MacroDef {
    *  `root`, and its root part keeps the author's id whatever it is named.
    *  The conditions also see `{childCount}` (the author's children). */
   alternatives?: readonly { $if: unknown; root: MacroTemplate }[]
+  /** #EXP-1760: parts of the ROOT native the macro styles too (an
+   *  IconPicker's Popover `content`): `<Macro>/<part>` layers over
+   *  `<Native>/<part>` on every renderer. */
+  rootParts?: readonly string[]
 }
 
 /** An extension catalog: its own id, extending the core, with components and

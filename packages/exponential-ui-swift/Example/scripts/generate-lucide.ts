@@ -26,8 +26,17 @@ const icons = JSON.parse(readFileSync(join(root, "packages/icons/icons.json"), "
 
 type Node = [string, Record<string, string>]
 
+// #EXP-1764: icons.json `imported` marks (`brand-claude`, `brand-codex`),
+// already scaled into the 24-unit box by packages/icons.
+const importedNodes: Record<string, Node[]> = Object.fromEntries(
+  [...readFileSync(join(root, "packages/exponential-ui/src/web/custom-icons.generated.ts"), "utf8").matchAll(/^  "([^"]+)": (\[\[.*\]\]),$/gm)]
+    .filter(([, name]) => name in (icons.imported ?? {}))
+    .map(([, name, node]) => [name, JSON.parse(node) as Node[]])
+)
+
 function lucideNode(name: string): Node[] | undefined {
   if (icons.custom?.[name]) return icons.custom[name]
+  if (importedNodes[name]) return importedNodes[name]
   const file = join(lucideDir, `${name}.js`)
   if (!existsSync(file)) return undefined
   const src = readFileSync(file, "utf8")

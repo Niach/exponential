@@ -21,9 +21,9 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isPickerPopover, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
-import { CloseOnSubmitContext } from "../form"
+import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
@@ -390,6 +390,12 @@ export function PopoverNative(props: NativeProps): JSX.Element {
       loop: true,
       onMountAutoFocus: (e) => {
         if (untrack(hoverMode)) e.preventDefault()
+        // #EXP-1760: a picker opens with the focus on its panel (Tab walks
+        // the grid), not a focus ring on its first cell.
+        else if (isPickerPopover(props.node.recipe)) {
+          e.preventDefault()
+          contentEl?.focus()
+        }
       },
       onUnmountAutoFocus: (e) => {
         if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode)) anchor()?.focus()
@@ -421,7 +427,10 @@ export function PopoverNative(props: NativeProps): JSX.Element {
               {/* The nearest overlay decides: a Form in a Popover closes nothing,
                   not even a Dialog around the Popover. */}
               <CloseOnSubmitContext.Provider value={null}>
-                <LayerContext.Provider value={layer.layer}>{props.children}</LayerContext.Provider>
+                {/* #EXP-1760: a pick in an IconPicker / ColorPicker grid closes it. */}
+                <ClosePickerContext.Provider value={isPickerPopover(props.node.recipe) ? () => setOpen(false) : null}>
+                  <LayerContext.Provider value={layer.layer}>{props.children}</LayerContext.Provider>
+                </ClosePickerContext.Provider>
               </CloseOnSubmitContext.Provider>
             </div>
           ) as HTMLDivElement
