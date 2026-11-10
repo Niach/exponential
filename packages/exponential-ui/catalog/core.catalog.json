@@ -385,7 +385,12 @@
       "field",
       "row",
       "bare",
-      "code"
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
     ],
     "textareaVariant": [
       "field",
@@ -4749,7 +4754,13 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default",
+          "description": "sm = compact."
         },
         "disabled": {
           "type": "boolean",
