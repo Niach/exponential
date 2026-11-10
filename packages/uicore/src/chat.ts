@@ -188,6 +188,8 @@ export interface ChatView {
     placeholder: string
     canSend: boolean
     busy: boolean
+    /** #EDE-65 lane T: a send in flight (the IDE's `sending`): the "+" is inert until it lands. */
+    sending: boolean
     /** #EDE-65 lane O: the "+" Menu's items (the host sets them as the Menu's literal prop), `plus` = any. */
     plus: boolean
     menu: ChatMenuItem[]
@@ -296,6 +298,7 @@ export function chatView(input: ChatInput): ChatView {
       placeholder: home ? COPY.homePlaceholder : input.slashCommands ? COPY.placeholder : COPY.messagePlaceholder.replace(`{name}`, input.title),
       canSend: input.draft.trim() !== `` && !input.sending && (!home || picked !== null),
       busy: input.busy,
+      sending: input.sending,
       plus: (input.plus ?? []).length > 0,
       menu: plusMenu(input.plus ?? []),
       replies: (input.replies?.items ?? []).map((item) => ({ key: item.id, label: item.text, messageId: input.replies!.messageId })),

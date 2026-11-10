@@ -13330,6 +13330,20 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "backgroundColor": "$color.popover",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.xl",
+                "paddingTop": 0,
+                "paddingBottom": 3.5,
+                "paddingHorizontal": 5.25,
+                "gap": 3.5
+              }
             }
           ],
           "field": [
@@ -13348,6 +13362,15 @@
               },
               "style": {
                 "minHeight": 0
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 17.5
               }
             }
           ],
@@ -13386,6 +13409,18 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 32,
+                "height": 32,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "#00000000",
+                "color": "$color.primary"
               }
             }
           ]
@@ -31777,6 +31812,20 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "backgroundColor": "$color.popover",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.xl",
+                "paddingTop": 0,
+                "paddingBottom": 3.5,
+                "paddingHorizontal": 5.25,
+                "gap": 3.5
+              }
             }
           ],
           "field": [
@@ -31795,6 +31844,15 @@
               },
               "style": {
                 "minHeight": 0
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "fontSize": 12.25,
+                "lineHeight": 17.5
               }
             }
           ],
@@ -31833,6 +31891,18 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 32,
+                "height": 32,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "#00000000",
+                "color": "$color.primary"
               }
             }
           ]

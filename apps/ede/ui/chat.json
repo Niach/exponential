@@ -2198,81 +2198,85 @@
             },
             "children": [
               {
-                "id": "chat_slash",
-                "component": "Box",
-                "style": {
-                  "display": "flex",
-                  "flexDirection": "column",
-                  "padding": 4,
-                  "borderRadius": 12,
-                  "borderWidth": 1,
-                  "borderColor": "$color.border",
-                  "backgroundColor": "$color.popover"
+                "id": "chat_slash_popover",
+                "component": "Popover",
+                "props": {
+                  "open": {
+                    "@path": "/chatMenu/open"
+                  },
+                  "anchor": "chat_composer",
+                  "side": "top",
+                  "align": "start"
                 },
                 "children": [
                   {
-                    "id": "chat_slash_rows",
-                    "component": "List",
-                    "props": {
-                      "gap": "none"
+                    "id": "chat_slash",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "padding": 4,
+                      "borderRadius": 12,
+                      "borderWidth": 1,
+                      "borderColor": "$color.border",
+                      "backgroundColor": "$color.popover"
                     },
-                    "template": {
-                      "component": "chat_slash_row",
-                      "path": "/chatMenu/rows",
-                      "key": "key"
-                    },
-                    "children": []
-                  },
-                  {
-                    "id": "chat_slash_row",
-                    "component": "Row",
-                    "props": {
-                      "identifier": {
-                        "@path": "command"
+                    "children": [
+                      {
+                        "id": "chat_slash_rows",
+                        "component": "List",
+                        "props": {
+                          "gap": "none"
+                        },
+                        "template": {
+                          "component": "chat_slash_row",
+                          "path": "/chatMenu/rows",
+                          "key": "key"
+                        },
+                        "children": []
                       },
-                      "title": {
-                        "@path": "description"
-                      },
-                      "meta": {
-                        "@path": "hint"
-                      },
-                      "icon": {
-                        "@path": "icon"
-                      },
-                      "selected": {
-                        "@path": "selected"
-                      },
-                      "density": "compact",
-                      "pressable": true
-                    },
-                    "on": {
-                      "press": {
-                        "functionCall": {
-                          "@call": "ede_chat",
-                          "args": {
-                            "action": "slash",
-                            "insert": {
-                              "@path": "insert"
-                            },
-                            "prompt": {
-                              "@path": "prompt"
+                      {
+                        "id": "chat_slash_row",
+                        "component": "Row",
+                        "props": {
+                          "identifier": {
+                            "@path": "command"
+                          },
+                          "title": {
+                            "@path": "description"
+                          },
+                          "meta": {
+                            "@path": "hint"
+                          },
+                          "icon": {
+                            "@path": "icon"
+                          },
+                          "selected": {
+                            "@path": "selected"
+                          },
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "@call": "ede_chat",
+                              "args": {
+                                "action": "slash",
+                                "insert": {
+                                  "@path": "insert"
+                                },
+                                "prompt": {
+                                  "@path": "prompt"
+                                }
+                              }
                             }
                           }
                         }
                       }
-                    }
+                    ]
                   }
-                ],
-                "visible": {
-                  "@call": "cond",
-                  "args": {
-                    "if": {
-                      "@path": "/chatMenu/open"
-                    },
-                    "then": true,
-                    "else": false
-                  }
-                }
+                ]
               },
               {
                 "id": "chat_files",
@@ -2418,9 +2422,10 @@
                 "children": [
                   {
                     "id": "chat_reply_list",
-                    "component": "List",
+                    "component": "Stack",
                     "props": {
                       "direction": "horizontal",
+                      "wrap": true,
                       "gap": "sm"
                     },
                     "template": {
@@ -2493,7 +2498,8 @@
                     "@path": "/chatMenu/open"
                   },
                   "busy": false,
-                  "attachments": false
+                  "attachments": false,
+                  "layout": "flat"
                 },
                 "on": {
                   "submit": {
@@ -2574,13 +2580,29 @@
                     },
                     "children": [
                       {
-                        "id": "chat_plus_button",
-                        "component": "Button",
+                        "id": "chat_plus_tip",
+                        "component": "Tooltip",
                         "props": {
-                          "icon": "ui-add",
-                          "variant": "ghost",
-                          "size": "icon"
-                        }
+                          "content": "Add"
+                        },
+                        "children": [
+                          {
+                            "id": "chat_plus_button",
+                            "component": "Button",
+                            "props": {
+                              "icon": "ui-add",
+                              "variant": "ghost",
+                              "size": "icon",
+                              "disabled": {
+                                "@path": "/chatting/composer/sending"
+                              }
+                            },
+                            "style": {
+                              "width": 24,
+                              "height": 24
+                            }
+                          }
+                        ]
                       }
                     ]
                   },

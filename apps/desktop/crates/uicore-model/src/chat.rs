@@ -260,6 +260,9 @@ pub struct ChatComposer {
     pub placeholder: String,
     pub can_send: bool,
     pub busy: bool,
+    /// #EDE-65 lane T: a send in flight (the IDE's `sending`): the "+" is
+    /// inert until it lands.
+    pub sending: bool,
     /// #EDE-65 lane O: the "+" Menu's `items` (genUI menuItems; the host
     /// sets them as the Menu's literal prop), `plus` = any.
     pub plus: bool,
@@ -483,6 +486,7 @@ pub fn chat_view(input: &ChatInput) -> ChatView {
             },
             can_send: !input.draft.trim().is_empty() && !input.sending && (!home || picked.is_some()),
             busy: input.busy,
+            sending: input.sending,
             plus: !input.plus.is_empty(),
             menu: plus_menu(&input.plus),
             replies: input

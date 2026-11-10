@@ -282,6 +282,8 @@ mod shell_bench;
 mod settings_bench;
 #[cfg(test)]
 mod picker_bench;
+#[cfg(test)]
+mod composer_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;

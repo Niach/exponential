@@ -500,6 +500,8 @@ impl SteerSessionView {
             session_id: Some(self.session_id.to_string()),
             slash_commands: true,
             busy: self.shows_stop(cx),
+            // #EDE-65 lane T: the "+" is inert while a send is in flight.
+            sending: self.sending,
             plus: self.plus_rows(cx),
             replies: self.replies.as_ref().map(|replies| ChatRepliesInput {
                 message_id: replies.message_id.clone(),
@@ -1022,5 +1024,40 @@ mod tests {
         for id in [COMPOSER, PLUS, RING, "chat_slash", "chat_files", "chat_replies"] {
             assert!(text.contains(&format!("\"id\":\"{id}\"")), "{id}");
         }
+    }
+
+    /// #EDE-65 lane T: the IDE card's look and rules through existing genUI:
+    /// the FLAT Composer, the "+" (24 px, Tooltip `Add`, inert while a send
+    /// is in flight), the `/` menu floating over the card (a Popover anchored
+    /// on the composer, never in the column), the quick replies wrapping.
+    #[test]
+    fn the_footer_draws_the_ide_card() {
+        fn node<'a>(tree: &'a Value, id: &str) -> Option<&'a Value> {
+            match tree {
+                Value::Object(map) if map.get("id").and_then(Value::as_str) == Some(id) => Some(tree),
+                Value::Object(map) => map.values().find_map(|v| node(v, id)),
+                Value::Array(items) => items.iter().find_map(|v| node(v, id)),
+                _ => None,
+            }
+        }
+        let doc = document();
+        let tree = uicore_gpui::inline::root_json(&doc).unwrap();
+        let composer = node(&tree, COMPOSER).expect("the composer");
+        assert_eq!(composer["props"]["layout"], "flat");
+        let tip = node(&tree, "chat_plus_tip").expect("the + tooltip");
+        assert_eq!(tip["component"], "Tooltip");
+        assert_eq!(tip["props"]["content"], crate::chat_screen::PLUS_TOOLTIP);
+        let plus = node(tip, "chat_plus_button").expect("the + button");
+        assert_eq!(plus["props"]["disabled"], json!({"@path": "/chatting/composer/sending"}));
+        assert_eq!(plus["style"], json!({"width": 24, "height": 24}));
+        let popover = node(&tree, "chat_slash_popover").expect("the / menu's popover");
+        assert_eq!(popover["component"], "Popover");
+        assert_eq!(popover["props"]["anchor"], COMPOSER);
+        assert_eq!(popover["props"]["side"], "top");
+        assert_eq!(popover["props"]["open"], json!({"@path": "/chatMenu/open"}));
+        assert!(node(popover, "chat_slash").is_some());
+        let replies = node(&tree, "chat_reply_list").expect("the replies");
+        assert_eq!(replies["component"], "Stack");
+        assert_eq!(replies["props"]["wrap"], true);
     }
 }
