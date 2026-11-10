@@ -237,9 +237,8 @@ fn results_input(root_id: &str, now: i64, cx: &App) -> ResultsTabInput {
             id: session.id,
         })
         .collect();
-    let messages: Vec<ResultsMessageInput> = crate::session_data::keyed_messages(cx, |owner, message| {
-        sessions.iter().any(|session| session.id == owner)
-            && message.author_session_id.as_deref() == Some(owner)
+    let messages: Vec<ResultsMessageInput> = crate::session_data::keyed_messages(cx, sessions.iter().map(|session| session.id.as_str()), |owner, message| {
+        message.author_session_id.as_deref() == Some(owner)
             && message.card.as_ref().is_some_and(is_result_card)
     })
     .into_iter()

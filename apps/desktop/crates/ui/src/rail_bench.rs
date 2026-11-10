@@ -1,15 +1,16 @@
-//! #LOGS-11: the rail at a large account's scale (8 teams, ~1,000
-//! sessions with children, dozens working, a 5,000-message team-agent
-//! chat), drawn HEADLESS inside the Shell's glyph scope and layer: the
-//! cold frame, an idle focused second with working marks, and a sessions /
-//! messages / events delta (its observers, then its frame). Release timings:
+//! #LOGS-11: a large account (8 teams, ~1,700 sessions with children,
+//! dozens working, a long chat hosted here and open beside the rail, the
+//! pickup pass on), drawn HEADLESS inside the Shell's glyph scope and layer:
+//! the cold frame, an idle focused second with working marks, and one
+//! delta each — sessions, messages into the open chat, messages elsewhere,
+//! events — its observers and its frame. Release timings:
 //!
 //! ```sh
-//! cargo test -p ui --release --lib rail_bench -- --ignored --nocapture
+//! LOGS11_ROOTS=400 LOGS11_MESSAGES=5000 cargo test -p ui --release --lib rail_bench -- --ignored --nocapture
 //! ```
 //!
-//! `LOGS11_PROFILE=<idle|sessions|messages|events>` loops that phase for
-//! 8 s, for `sample <pid>`.
+//! `LOGS11_PROFILE=<idle|sessions|messages|elsewhere|events>` loops that
+//! phase for 8 s, for `sample <pid>`.
 
 use std::time::{Duration, Instant};
 
@@ -26,7 +27,9 @@ const TEAMS: usize = 8;
 fn roots() -> usize {
     std::env::var("LOGS11_ROOTS").ok().and_then(|n| n.parse().ok()).unwrap_or(400)
 }
-const MESSAGES: usize = 5_000;
+fn messages() -> usize {
+    std::env::var("LOGS11_MESSAGES").ok().and_then(|n| n.parse().ok()).unwrap_or(5_000)
+}
 
 struct Root {
     rail: Entity<RailView>,
@@ -141,9 +144,11 @@ fn seed(me: &str, cx: &mut App) {
         }
     }
     // The very long team-agent chat, then a few messages per other root.
-    for m in 0..MESSAGES {
-        let session = if m < 3_000 { "conv0-0".to_string() } else { format!("s0-{}", m % roots()) };
-        messages.push(json!({"id": format!("m{m:05}"), "session_id": session, "author_kind": if m % 2 == 0 { "user" } else { "agent" }, "body": format!("Message {m}: the list under crates/ui still jumps when a row arrives."), "created_at": at(m)}));
+    let total = self::messages();
+    for m in 0..total {
+        // The long chat is hosted here (d0); every other root's few rows.
+        let session = if m < total * 3 / 5 { "s0-0".to_string() } else { format!("s0-{}", m % roots()) };
+        messages.push(json!({"id": format!("m{m:07}"), "session_id": session, "author_kind": if m % 2 == 0 { "user" } else { "agent" }, "body": format!("Message {m}: the list under crates/ui still jumps when a row arrives."), "created_at": at(m), "consumed_at": at(m)}));
     }
     seed_rows(&c.boards, boards, cx);
     seed_rows(&c.issues, issues, cx);
@@ -199,8 +204,12 @@ fn delta(kind: &str, k: usize, me: &str, window: AnyWindowHandle, cx: &mut Headl
                     "title": format!("Fix the flaky list, round {r}"), "digest": digest(&root, 10_000 + k, false),
                 })], cx);
             }
+            "elsewhere" => {
+                // Another working session streams (the long chat stays open).
+                seed_rows(&c.messages, vec![json!({"id": format!("e{k:08}"), "session_id": format!("s0-{}", 10 * (1 + k % 30)), "author_kind": "agent", "body": format!("Streaming {k}"), "created_at": at(self::messages() + k)})], cx);
+            }
             "messages" => {
-                seed_rows(&c.messages, vec![json!({"id": format!("n{k:08}"), "session_id": "conv0-0", "author_kind": "agent", "body": format!("Streaming {k}"), "created_at": at(MESSAGES + k)})], cx);
+                seed_rows(&c.messages, vec![json!({"id": format!("n{k:08}"), "session_id": "s0-0", "author_kind": "agent", "body": format!("Streaming {k}"), "created_at": at(self::messages() + k)})], cx);
             }
             _ => {
                 seed_rows(&c.events, vec![json!({"id": format!("ne{k:08}"), "team_id": "t0", "name": "session.status", "payload": {"k": k}, "created_at": at(k)})], cx);
@@ -225,12 +234,16 @@ fn rail_bench() {
         cx.set_global(store);
         crate::local_desktops::install(path, cx);
         assert!(crate::local_desktops::enter_current(cx));
+        // The pickup pass runs on every sessions / messages / events delta.
+        crate::queries::set_own_device_id_for_test("d0", cx);
+        crate::session_pickup::install(cx);
+        crate::session_pickup::PASS_ON_LOCAL.with(|on| on.set(true));
         crate::queries::active_account(cx).expect("the desktop's account").user_id
     });
     let seeding = Instant::now();
     cx.update(|cx| seed(&me, cx));
     let sessions = cx.update(|cx| sync::Store::global(cx).collections().sessions.read(cx).len());
-    println!("[LOGS-11] seeded {sessions} sessions, {MESSAGES} messages in {:.0} ms", seeding.elapsed().as_secs_f64() * 1e3);
+    println!("[LOGS-11] seeded {sessions} sessions, {} messages in {:.0} ms", messages(), seeding.elapsed().as_secs_f64() * 1e3);
 
     let handle = cx
         .open_window(size(px(272.), px(900.)), |window: &mut Window, cx| {
@@ -243,6 +256,13 @@ fn rail_bench() {
         })
         .expect("a headless window");
     let window: AnyWindowHandle = handle.into();
+    // The long chat open beside the rail (its own window: its views observe
+    // the deltas as the dock's do).
+    let (chat, _) = cx
+        .open_window(size(px(1100.), px(900.)), |window: &mut Window, cx| cx.new(|cx| crate::session_chat::SessionChatScreenView::new("s0-0".to_string(), window, cx)))
+        .map(|handle| (AnyWindowHandle::from(handle), ()))
+        .expect("a headless window");
+    frame(chat, &mut cx);
     cx.update_window(window, |_, window, _| window.activate_window()).unwrap();
     cx.run_until_parked();
     let cold = frame(window, &mut cx);
@@ -307,7 +327,7 @@ fn rail_bench() {
     }
     println!("[LOGS-11] rail notified, frame: {}", Stats(forced));
 
-    for kind in ["sessions", "messages", "events"] {
+    for kind in ["sessions", "messages", "elsewhere", "events"] {
         let before = renders();
         let (mut apply, mut drawn) = (Vec::new(), Vec::new());
         for k in 0..20 {
