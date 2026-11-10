@@ -88,6 +88,7 @@ name: record-compose-fixtures
 # the description row's control column).
 # EXP-1760 (2026-11-09): IconPicker + ColorPicker (`IconPicker.png`,
 # `ColorPicker.png`, `components.json`).
+# EXP-1760 (2026-11-10): again for the No icon row (a pressable Box).
 # EXP-1629 (2026-11-09): re-recorded for Select option `trailing` + `open`
 # (the specimen's Branch row; `InteractionTest.selectTrailingAndOpen`).
 on:
