@@ -7545,6 +7545,15 @@
           "description": "Turns submit into a stop while a reply streams."
         },
         {
+          "name": "layout",
+          "type": "stacked | flat",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "stacked",
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+        },
+        {
           "name": "menuKeys",
           "type": "boolean",
           "required": false,

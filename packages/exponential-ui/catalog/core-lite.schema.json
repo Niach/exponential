@@ -8754,6 +8754,14 @@
           "description": "Turns submit into a stop while a reply streams.",
           "default": false
         },
+        "layout": {
+          "enum": [
+            "stacked",
+            "flat"
+          ],
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward.",
+          "default": "stacked"
+        },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
           "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu).",
