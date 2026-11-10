@@ -89,6 +89,11 @@ class LeafContext(
     /** A theme colour token. */
     fun themeColor(name: String): Color? = model.color(name)
 
+    /** #EXP-1629: a colour-typed prop: a `$color.<name>` token of the theme,
+     *  else the host's resolved colour (`#rrggbb[aa]`, bound data). */
+    fun propColor(value: String): Color? =
+        if (value.startsWith("\$color.")) themeColor(value.removePrefix("\$color.")) else at.exponential.ui.primitives.parseHexColor(value)
+
     /** A spacing token (dp). */
     fun spacing(name: String): Float = model.spacing(name)
 

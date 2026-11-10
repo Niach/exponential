@@ -251,6 +251,12 @@ impl Builder<'_, '_> {
                     let mut label_props = json!({"text": label, "lines": 1});
                     if let Some(icon) = item.get("icon") {
                         label_props["icon"] = icon.clone();
+                        // #EXP-1629: the glyph's own tint (a status picker's
+                        // coloured glyphs): `$color.<name>`, or the host's
+                        // resolved colour in bound data.
+                        if let Some(color) = item.get("iconColor").filter(|c| c.is_string()) {
+                            label_props["iconColor"] = color.clone();
+                        }
                     }
                     let l = self.part_in(row, owner, "itemLabel", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), label_props, &suffix);
                     self.nodes[l as usize].part_query = None;

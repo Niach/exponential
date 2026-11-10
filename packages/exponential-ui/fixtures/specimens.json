@@ -6546,6 +6546,74 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_menu_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_menu_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "items · icon + iconColor",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_status_menu",
+                "component": "Menu",
+                "props": {
+                  "align": "end",
+                  "items": [
+                    {
+                      "label": "Backlog",
+                      "value": "backlog",
+                      "kind": "checkbox",
+                      "icon": "status-backlog",
+                      "iconColor": "$color.mutedForeground"
+                    },
+                    {
+                      "label": "In Progress",
+                      "value": "in_progress",
+                      "kind": "checkbox",
+                      "icon": "status-in-progress",
+                      "iconColor": "$color.warning",
+                      "checked": true
+                    },
+                    {
+                      "label": "Done",
+                      "value": "done",
+                      "kind": "checkbox",
+                      "icon": "status-done",
+                      "iconColor": "$color.success"
+                    },
+                    {
+                      "label": "Cancelled",
+                      "value": "cancelled",
+                      "kind": "checkbox",
+                      "icon": "status-cancelled",
+                      "iconColor": "$color.destructive"
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c3_status_trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "In Progress",
+                      "icon": "status-in-progress",
+                      "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

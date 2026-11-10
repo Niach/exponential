@@ -16,7 +16,7 @@ import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMen
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath, isPickerPopover } from "@exponential_app/eui/web"
+import { absolutePath, isPickerPopover, propColor } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
@@ -456,6 +456,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -537,7 +539,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
       {items.map((item, i) => {
         const kind = item.separator ? `separator` : (item.kind ?? `item`)
         const key = `${path}${i}`
-        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} /> : null
+        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} style={propColor(item.iconColor) ? { color: propColor(item.iconColor) } : undefined} /> : null
         const shortcut = item.shortcut ? <span {...(part(`shortcut`) as Record<string, string>)}>{item.shortcut}</span> : null
         if (kind === `separator`) return <N.Separator key={key} {...(part(`separator`) as Record<string, string>)} />
         if (kind === `label`) return <N.Label key={key} {...(part(`label`) as Record<string, string>)}>{str(item.label)}</N.Label>
@@ -589,6 +591,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
                   <BuiltinIcon slot="Menu.check" />
                 </N.ItemIndicator>
               </span>
+              {icon}
               <span className="xui-menu-label">{str(item.label)}</span>
               {shortcut}
             </N.CheckboxItem>

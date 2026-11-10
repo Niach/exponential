@@ -1219,8 +1219,10 @@ impl SurfaceView {
         let mut row = lcx.row(lcx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))).items_center().gap(px(gap)).whitespace_nowrap();
         if lead > 0.0 {
             if let Some(icon) = n.props.get("icon").and_then(Value::as_str) {
-                let own = lcx.host.icon_element(icon, 16.0, lcx.ink, cx);
-                row = row.child(div().flex_none().child(own.unwrap_or_else(|| icons::concept_mirrored(lcx.host, icon, 16.0, lcx.ink, lcx.rtl))));
+                // #EXP-1629: a menu item's `iconColor` tints its glyph.
+                let ink = n.props.get("iconColor").and_then(Value::as_str).and_then(|c| lcx.prop_color(c)).unwrap_or(lcx.ink);
+                let own = lcx.host.icon_element(icon, 16.0, ink, cx);
+                row = row.child(div().flex_none().child(own.unwrap_or_else(|| icons::concept_mirrored(lcx.host, icon, 16.0, ink, lcx.rtl))));
             }
         }
         let align = if owner == "Tabs" { "center" } else { lcx.align() };
