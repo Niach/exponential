@@ -189,7 +189,7 @@ pub(super) struct AccountSelect {
 }
 
 /// #VAPP-254: an owner's server Select on an Accounts row.
-// drop with EXP-1629-group4: the outline trigger and its scrollable
+// drop with EXP-1778: the outline trigger and its scrollable
 // single-select menu stay the IDE's own (a `host_leaf` Embed): no genUI
 // Select trigger draws the 32 px outline Button.
 pub(super) fn account_select(select: &AccountSelect, view: gpui::WeakEntity<AppDetailPane>, cx: &App) -> gpui::AnyElement {
@@ -324,7 +324,7 @@ pub(super) struct MidText {
 
 /// A run of mono text cut in its MIDDLE (`text_ellipsis_middle`: a URL or
 /// secret keeps its both ends).
-// drop with EXP-1629-group4: the text stays the IDE's own (a `host_leaf`
+// drop with EXP-1778: the text stays the IDE's own (a `host_leaf`
 // Embed) until genUI's Text truncates in the middle.
 pub(super) fn mid_text(text: &MidText, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
