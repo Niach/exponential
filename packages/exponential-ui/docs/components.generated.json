@@ -1712,7 +1712,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,

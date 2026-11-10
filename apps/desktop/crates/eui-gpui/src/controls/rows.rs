@@ -8,9 +8,8 @@
 //! purpose — fractional hairlines vanish on 1x-scale displays.
 
 use gpui::{
-    div, ease_in_out, percentage, px, Animation, AnyElement, App, Div, ElementId, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful, Styled,
-    Transformation,
+    div, px, AnyElement, App, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, Styled,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui_component::input::Input;
@@ -18,7 +17,6 @@ use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem
 use gpui_component::select::Select;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use super::animation::{SteppedAnimationExt as _, SMOOTH_STEP};
 use super::sizing::CTL_LG_H;
 use crate::chrome::Chrome;
 
@@ -71,32 +69,15 @@ pub fn glass_section_band(
     glass_section_band_loading(leading, label, false, trailing, cx)
 }
 
-/// EXP-1275 — THE spinner (`feedback-states.json` kind 1, INLINE): the
-/// chrome's `icons.refresh` glyph at `size` px in `color`, spinning. Every
-/// wait the IDE draws as a spinner is this glyph.
-///
-/// EXP-1325: gpui-component's `Spinner` in every respect (its 0.8 s
-/// ease-in-out turn), except STEPPED: a spinner may turn for as long as a
-/// start or a fetch takes, and gpui repaints the whole window per
-/// animation frame.
-pub fn spinner(size: f32, color: gpui::Hsla, cx: &App) -> AnyElement {
-    let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
-    div()
-        .child(
-            icon.with_size(px(size))
-                .text_color(color)
-                .with_stepped_animation(
-                    "circle",
-                    Animation::new(SPINNER_TURN).repeat().with_easing(ease_in_out),
-                    SMOOTH_STEP,
-                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
-                ),
-        )
-        .into_any_element()
+/// EXP-1275 — THE spinner (`feedback-states.json` kind 1, INLINE): genUI's
+/// `Spinner` glyph ([`crate::paint::natives::spinner_glyph`], the
+/// `ui-loading` arc, Lucide `loader-circle`) at `size` px in `color`, one
+/// linear turn per 0.8 s, stepped. Every wait the IDE draws as a spinner is
+/// this glyph, the arc web, iOS and Android draw too (#EXP-1629: it was the
+/// chrome's `ui-refresh` arrows turning ease-in-out).
+pub fn spinner(size: f32, color: gpui::Hsla, _cx: &App) -> AnyElement {
+    div().child(crate::paint::natives::spinner_glyph("circle", size, color)).into_any_element()
 }
-
-/// One turn of the spinner (gpui-component's `Spinner` default).
-const SPINNER_TURN: std::time::Duration = std::time::Duration::from_millis(800);
 
 /// The inline spinner's edge (`feedback-states.json` `inline.spinner`).
 pub const INLINE_SPINNER_PX: f32 = 10.;

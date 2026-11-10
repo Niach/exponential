@@ -13969,6 +13969,21 @@
       }
     ]
   },
+  "Icon\/size=xl" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          28,
+          28
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
   "Icon\/tone=danger" : {
     "height" : 20,
     "nodes" : [

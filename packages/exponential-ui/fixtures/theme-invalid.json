@@ -938,6 +938,10 @@
           "message": "missing value for $control.avatarXl"
         },
         {
+          "path": "tokens.control.iconXl",
+          "message": "missing value for $control.iconXl"
+        },
+        {
           "path": "modes.light.shadow.none",
           "message": "missing value for $shadow.none"
         },

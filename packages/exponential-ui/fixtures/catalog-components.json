@@ -3203,6 +3203,17 @@
       }
     },
     {
+      "name": "Icon/size=xl",
+      "node": {
+        "id": "icon",
+        "component": "Icon",
+        "props": {
+          "name": "ui-check",
+          "size": "xl"
+        }
+      }
+    },
+    {
       "name": "Icon/tone=neutral",
       "node": {
         "id": "icon",

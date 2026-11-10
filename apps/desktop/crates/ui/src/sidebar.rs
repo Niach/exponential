@@ -511,8 +511,8 @@ pub(crate) fn computer_button(state: &ComputerState, cx: &App) -> gpui::AnyEleme
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
 /// the plain dot): the classic colored dot (EXP-699: Inbox primary;
 /// EXP-1294: Chats amber/green — the mobile tab-bar palette), a
-/// small status ICON (SC attention triangle / error cross), or the spinning
-/// refresh glyph while a sync is pulling.
+/// small status ICON (SC attention triangle / error cross), or THE spinner's
+/// arc (#EXP-1629, was the refresh glyph) while a sync is pulling.
 #[derive(Clone)]
 pub(crate) enum RailBadge {
     Dot(Hsla),
@@ -556,7 +556,7 @@ pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> g
             .into_any_element(),
         RailBadge::Syncing => div()
             .flex_shrink_0()
-            .child(Spinner::new().icon(registry::UI_REFRESH).with_size(px(glyph_px)).color(cx.theme().muted_foreground))
+            .child(Spinner::new().icon(registry::UI_LOADING).with_size(px(glyph_px)).color(cx.theme().muted_foreground))
             .into_any_element(),
         RailBadge::Icon(icon, color) => Icon::from(icon)
             .with_size(px(glyph_px))
@@ -778,7 +778,7 @@ impl RailView {
             return None;
         }
         let spinner = Spinner::new()
-            .icon(registry::UI_REFRESH)
+            .icon(registry::UI_LOADING)
             .with_size(px(12.))
             .color(cx.theme().muted_foreground);
         let row = h_flex()
