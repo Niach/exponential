@@ -88,7 +88,7 @@ fn status_pill_glyph(view: &StatusPillView, busy: bool, size: PillSize, cx: &App
             .flex_shrink_0()
             .text_color(color)
             .into_any_element(),
-        None => crate::feedback::arc_spinner_colored(size.glyph(), color, cx),
+        None => crate::feedback::spinner_colored(size.glyph(), color, cx),
     }
 }
 

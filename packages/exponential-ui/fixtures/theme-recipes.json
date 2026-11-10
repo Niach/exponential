@@ -5994,6 +5994,79 @@
       "component": "Icon",
       "part": "root",
       "props": {
+        "size": "xl"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#fafafa"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#fafafa"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#1f1235"
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#f5f3ff"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#0a0a0a"
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 28,
+              "height": 28,
+              "color": "#fafafa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Icon",
+      "part": "root",
+      "props": {
         "size": "default",
         "tone": "neutral"
       },

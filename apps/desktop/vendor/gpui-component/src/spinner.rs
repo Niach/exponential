@@ -1,15 +1,35 @@
+use std::rc::Rc;
+
 use crate::{Icon, IconName, Sizable, Size};
 use gpui::{
-    Animation, AnimationExt as _, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled as _,
-    Transformation, Window, div, linear, percentage, prelude::FluentBuilder as _,
+    Animation, AnimationExt as _, AnyElement, App, Global, Hsla, IntoElement, ParentElement,
+    Pixels, RenderOnce, Styled as _, Transformation, Window, div, linear, percentage,
+    prelude::FluentBuilder as _, rems,
 };
 use instant::Duration;
+
+/// Exponential patch (#EXP-1629): the host's spinner glyph at a size in
+/// `color`. Registered (`set_spinner_glyph`), it draws every [`Spinner`]
+/// whose icon is the default, so the IDE has ONE arc: genUI's
+/// (`eui_gpui::paint::natives::spinner_glyph`).
+#[derive(Clone)]
+pub struct SpinnerGlyph(pub Rc<dyn Fn(Pixels, Hsla, &mut Window, &mut App) -> AnyElement>);
+
+impl Global for SpinnerGlyph {}
+
+/// Register the host's spinner glyph (see [`SpinnerGlyph`]).
+pub fn set_spinner_glyph(cx: &mut App, glyph: impl Fn(Pixels, Hsla, &mut Window, &mut App) -> AnyElement + 'static) {
+    cx.set_global(SpinnerGlyph(Rc::new(glyph)));
+}
 
 /// A cycling loading spinner.
 #[derive(IntoElement)]
 pub struct Spinner {
     size: Size,
     icon: Icon,
+    /// The icon was set by the caller ([`Spinner::icon`]): the host's
+    /// [`SpinnerGlyph`] does not replace it.
+    custom_icon: bool,
     speed: Duration,
     easing: Box<dyn Fn(f32) -> f32>,
     color: Option<Hsla>,
@@ -27,6 +47,7 @@ impl Spinner {
             speed: Duration::from_secs_f64(0.8),
             easing: Box::new(linear),
             icon: Icon::new(IconName::LoaderCircle),
+            custom_icon: false,
             color: None,
         }
     }
@@ -38,6 +59,7 @@ impl Spinner {
     /// Please ensure the icon used is suitable for a loading spinner.
     pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
         self.icon = icon.into();
+        self.custom_icon = true;
         self
     }
 
@@ -62,7 +84,19 @@ impl Sizable for Spinner {
 }
 
 impl RenderOnce for Spinner {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(glyph) = cx.try_global::<SpinnerGlyph>().filter(|_| !self.custom_icon).map(|g| g.0.clone()) {
+            // `Icon::with_size`'s ladder in px.
+            let size = match self.size {
+                Size::Size(px) => px,
+                Size::XSmall => rems(0.75).to_pixels(window.rem_size()),
+                Size::Small => rems(0.875).to_pixels(window.rem_size()),
+                Size::Medium => rems(1.).to_pixels(window.rem_size()),
+                Size::Large => rems(1.5).to_pixels(window.rem_size()),
+            };
+            let color = self.color.unwrap_or_else(|| window.text_style().color);
+            return div().child(glyph(size, color, window, cx)).into_any_element();
+        }
         div()
             .child(
                 self.icon
@@ -74,7 +108,7 @@ impl RenderOnce for Spinner {
                         |this, delta| this.transform(Transformation::rotate(percentage(delta))),
                     ),
             )
-            .into_element()
+            .into_any_element()
     }
 }
 

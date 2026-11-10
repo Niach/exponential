@@ -1643,6 +1643,16 @@
           "playful": 48,
           "orange": 48
         }
+      },
+      {
+        "name": "iconXl",
+        "ref": "$control.iconXl",
+        "values": {
+          "neutral": 28,
+          "exponential": 28,
+          "playful": 28,
+          "orange": 28
+        }
       }
     ],
     "shadow": [

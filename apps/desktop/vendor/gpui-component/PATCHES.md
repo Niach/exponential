@@ -48,10 +48,12 @@ upstream carries them).
   `PopupMenu::refresh` is `rebuild` keeping the selected row (and so the
   open submenu) when the rebuilt menu still has it.
 - #EXP-1629, one spinner: `src/spinner.rs` `Spinner::new()` draws the arc
-  (`IconName::LoaderCircle`) on a linear 0.8 s turn, genUI's `Spinner` and
-  the IDE's `controls::spinner`, instead of the spoked `Loader` easing in
-  and out. A `Button::loading(true)` draws it in its icon slot
-  (`src/button/button_icon.rs`), so a pending pill spins the same arc.
+  (`IconName::LoaderCircle`) on a linear 0.8 s turn instead of the spoked
+  `Loader` easing in and out, and a host can register its own glyph
+  (`set_spinner_glyph`, a `SpinnerGlyph` global) that draws every default
+  `Spinner`: `eui_gpui::view::init` registers genUI's `spinner_glyph`, so
+  the IDE's loading buttons (`src/button/button_icon.rs`) spin the ONE arc
+  genUI's Spinner and `controls::spinner` draw.
 - Packaging only: dropped `tests/` (and the manifest's `[[test]]` entry that
   pointed into it), `Cargo.lock`, `Cargo.toml.orig`, `.cargo_vcs_info.json`.
   No other source is modified.
