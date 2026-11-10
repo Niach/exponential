@@ -181,6 +181,7 @@ mod board_detail;
 mod box_fields;
 mod change_email;
 mod field_variants;
+mod focus;
 mod labels;
 mod local_repos;
 mod mcp_servers;

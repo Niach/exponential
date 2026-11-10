@@ -492,3 +492,31 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     binding.update(cx, |binding, cx| binding.attach(&view, cx));
     view
 }
+
+/// Frames a [`focus_input`] waits for its field to appear.
+const FOCUS_FRAMES: u8 = 6;
+
+/// Focus the text field of the `Input` / `Textarea` with id `input_id`
+/// once the document has made it: the field is that node's `<id>.field`
+/// part, and it exists only after the paint that first shows it, so the
+/// focus is retried on the next few frames (never forever).
+pub(crate) fn focus_input(view: gpui::Entity<eui_gpui::view::SurfaceView>, input_id: &str, window: &mut gpui::Window, cx: &mut App) {
+    focus_retry(view, format!("{input_id}.field"), FOCUS_FRAMES, window, cx);
+}
+
+fn focus_retry(view: gpui::Entity<eui_gpui::view::SurfaceView>, field: String, frames: u8, window: &mut gpui::Window, _cx: &mut App) {
+    window.on_next_frame(move |window, cx| {
+        if view.update(cx, |view, cx| view.focus_field(&field, window, cx)) {
+            return;
+        }
+        if frames > 1 {
+            focus_retry(view, field, frames - 1, window, cx);
+            window.refresh();
+        } else {
+            // A wrong id (the Input's own, not its `.field` part) never
+            // draws: loud in debug builds, a log line in release.
+            debug_assert!(false, "no field `{field}` to focus");
+            log::warn!("[ui] no field `{field}` to focus");
+        }
+    });
+}
