@@ -8290,7 +8290,7 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace",
+            "mono": "JetBrains Mono",
             "serif": "ui-serif"
           }
         },
@@ -8415,9 +8415,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       },
       "recipes": {
@@ -26064,7 +26064,7 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace",
+            "mono": "JetBrains Mono",
             "serif": "ui-serif"
           }
         },
@@ -26189,9 +26189,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       },
       "recipes": {
