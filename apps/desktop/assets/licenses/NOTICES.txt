@@ -24985,7 +24985,8 @@ JetBrains Mono
 
 Copyright 2020 The JetBrains Mono Project Authors
 (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL Open Font
-License 1.1.
+License 1.1. The desktop, iOS and Android applications bundle the TTFs; the
+web application self-hosts woff2 conversions of the same faces.
 
 ..............................................................................
 SIL Open Font License 1.1 — JetBrains Mono
