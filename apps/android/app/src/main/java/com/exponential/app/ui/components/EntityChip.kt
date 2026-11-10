@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.layout.Box
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -40,7 +41,7 @@ fun EntityChip(
         Text(
             label,
             style = IssueChipDefaults.textStyle().let {
-                if (monoLabel) it.copy(fontFamily = FontFamily.Monospace) else it
+                if (monoLabel) it.copy(fontFamily = ExpMono) else it
             },
             color = if (monoLabel) MdStyle.ChipToken else MdStyle.Text,
             maxLines = 1,

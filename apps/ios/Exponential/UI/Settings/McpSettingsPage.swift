@@ -96,7 +96,7 @@ struct McpSettingsPage: View {
         section(.endpoint) {
             HStack(spacing: 12) {
                 Text(url)
-                    .font(.subheadline.monospaced())
+                    .font(.expMono(.subheadline))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -672,7 +672,7 @@ struct McpActivityPage: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(call.tool)
-                    .font(.subheadline.monospaced())
+                    .font(.expMono(.subheadline))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(McpSettings.activityCaption(

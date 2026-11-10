@@ -112,7 +112,7 @@ struct InboxListContent: View {
                 HStack(spacing: 6) {
                     if let identifier = group.issue.identifier {
                         Text(identifier)
-                            .font(.caption.monospaced())
+                            .font(.expMono(.caption))
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                     }

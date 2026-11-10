@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.layout.RowScope
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -87,7 +88,7 @@ fun RowScope.IssueSearchRowBody(identifier: String, title: String, status: Resol
     Text(
         identifier,
         style = MaterialTheme.typography.labelMedium,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ExpMono,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         maxLines = 1,
     )

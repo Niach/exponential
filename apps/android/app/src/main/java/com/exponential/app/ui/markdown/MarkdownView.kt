@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -58,6 +59,8 @@ import com.exponential.app.ui.markdown.media.VideoBlockView
 import com.exponential.app.ui.theme.AppPrimitiveTokens
 import com.exponential.app.ui.theme.resolvedStatusColor
 import at.exponential.ui.primitives.MarkdownView as GenUiMarkdownView
+
+private val MONO_FONTS = at.exponential.ui.primitives.MarkdownFontResolver { _, mono -> if (mono) ExpMono else null }
 
 /**
  * Read-only markdown: the shared display path for issue descriptions,
@@ -120,6 +123,8 @@ fun MarkdownView(
         colors = look.colors,
         codeBlockRadius = look.codeRadius.dp,
         monoFamily = null,
+        // #EXP-1629: code spans and blocks in the bundled JetBrains Mono.
+        fonts = MONO_FONTS,
         onLink = onLink,
         linkPolicy = policy,
         linkSegments = segments,

@@ -274,7 +274,7 @@ struct TeamMembersSection: View {
     private func undeliveredLinkRow(_ url: URL) -> some View {
         HStack(spacing: 8) {
             Text(url.absoluteString)
-                .font(.caption.monospaced())
+                .font(.expMono(.caption))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .textSelection(.enabled)
                 .lineLimit(1)

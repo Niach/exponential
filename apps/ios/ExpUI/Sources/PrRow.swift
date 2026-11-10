@@ -92,14 +92,14 @@ public struct PrRow<Trailing: View>: View {
             PrNode(state: node)
             if let identifier, !identifier.isEmpty {
                 Text(identifier)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .frame(minWidth: 72, alignment: .leading)
                     .fixedSize()
             }
             Text(title)
-                .font(base ? .caption.monospaced() : .subheadline)
+                .font(base ? .expMono(.caption) : .subheadline)
                 .foregroundStyle(base ? .white.opacity(TextOpacity.tertiary) : .white)
                 .lineLimit(1)
                 .truncationMode(.tail)
