@@ -114,6 +114,15 @@ export function openingCursorIndex(count: number, isDisabled: (index: number) =>
   return -1
 }
 
+/** #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is
+ *  ONE block (web's Picker, the IDE's `multi_row_edges`): the item recipe
+ *  props of shown row `index`, `joinTop` under a picked row and
+ *  `joinBottom` over one (only the true ones; nothing on a single Select). */
+export function selectItemJoins(multiple: boolean, count: number, isPicked: (index: number) => boolean, index: number): { joinTop?: true; joinBottom?: true } {
+  if (!multiple || !isPicked(index)) return {}
+  return { ...(index > 0 && isPicked(index - 1) ? { joinTop: true as const } : {}), ...(index + 1 < count && isPicked(index + 1) ? { joinBottom: true as const } : {}) }
+}
+
 /** #EXP-1629: does `list` have rows below its visible end (the bottom
  *  `fade` shows; SearchList's rule)? */
 export function listMoreBelow(list: HTMLElement | null | undefined): boolean {

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `multiple` (#EXP-1629): a picked option's item carries `data-r-join-top` / `data-r-join-bottom` (`selectItemJoins` over the shown options), so the theme draws a run of adjacent picks as one block.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only; snapshots gain `ColorPicker/inline=*` and `ColorPicker/child`; the three new `pickerPick` cases replay here.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` trigger with `triggerIcon` draws the chosen option's `icon` (the `valueIcon` part) before its value; `brand-claude` paints in its own orange (its node's fill).
 - `IconPicker` + `ColorPicker` (#EXP-1760): a pick (a cell, a swatch, the No icon row) closes the picker's Popover (`ClosePickerContext`), as the core does; `pickerPick` replays here.

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `multiple` joined rows (#EXP-1629): painted from the core's per-side borders and per-corner radii (no painter change).
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data the core expands; snapshot `components.json` re-recorded for the ColorPicker cases.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `ConceptIcon` paints a mark with its own fill (`BuiltinIcons.fills`, mirrored from the generated `iconFillNames` / `iconFillColors` and checked against them: `brand-claude`) in it, never in the ink.
 - `IconPicker` + `ColorPicker` (#EXP-1760): macros the core expands and closes on a pick; painted from the Popover, Button, Box and Icon the painter has.

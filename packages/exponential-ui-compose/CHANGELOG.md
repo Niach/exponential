@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `multiple` (#EXP-1629): our own popup's option rows resolve `Select/item` with `joinTop` / `joinBottom` (`selectItemJoins` over the shown options) and paint their fill and stroke per side and corner (`paintedSurface`, an absolute per-corner clip) with the recipe's `paddingTop` / `paddingBottom`, so a run of adjacent picks is one block.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data the core expands; snapshot `components.json` + `ColorPicker.png` re-recorded.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `IconView` paints a mark with its own fill (`CatalogConstants.iconFills`, generated `iconFillNames` / `iconFillColors`: `brand-claude`) in it, never in the ink.
 - `IconPicker` + `ColorPicker` (#EXP-1760): macros the core expands and closes on a pick; painted from the Popover, Button, Box and Icon the painter has.

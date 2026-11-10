@@ -102,6 +102,44 @@ describe(`select: open popup`, () => {
     expect(solid).toEqual(react)
     expect(react.items).toEqual([[null, false], [`selected hover`, true], [`disabled`, false]])
   })
+  it(`multiple: a run of adjacent picked SHOWN rows is ONE block (joinTop / joinBottom, #EXP-1629)`, async () => {
+    const options = [`a`, `b`, `c`, `d`, `e`].map((v) => ({ label: v.toUpperCase(), value: v, icon: `ui-docs`, description: `About ${v}` }))
+    const joins = (root: Element) => Array.from(root.ownerDocument.querySelectorAll(`.xui-Select-item`)).map((el) => [el.getAttribute(`data-r-join-top`), el.getAttribute(`data-r-join-bottom`)])
+    for (const searchable of [false, true]) {
+      const tree = sel({ triggerVariant: `row`, multiple: true, searchable, value: [`a`, `b`, `c`, `e`], options })
+      const r = await renderReact({ tree, theme: `exponential`, mode: `dark` })
+      let react: ReturnType<typeof joins>
+      try {
+        await act(async () => {
+          openIt(r.root)
+          await settle()
+        })
+        react = joins(r.root)
+      } finally {
+        r.cleanup()
+      }
+      const so = await renderSolidSurface({ tree, theme: `exponential`, mode: `dark` })
+      try {
+        openIt(so.root)
+        await settle()
+        expect(joins(so.root)).toEqual(react)
+      } finally {
+        so.cleanup()
+      }
+      expect(react).toEqual([[null, `true`], [`true`, `true`], [`true`, null], [null, null], [null, null]])
+    }
+    // A single Select never joins.
+    const r = await renderReact({ tree: sel({ triggerVariant: `row`, searchable: true, value: `backlog` }) })
+    try {
+      await act(async () => {
+        openIt(r.root)
+        await settle()
+      })
+      expect(joins(r.root).flat().every((v) => v === null)).toBe(true)
+    } finally {
+      r.cleanup()
+    }
+  })
   it(`an option's trailing reads on after its label in the popup row (#EXP-1629)`, async () => {
     for (const searchable of [false, true]) {
       const tree = sel({ triggerVariant: `row`, searchable, value: `sprint`, options: [{ label: `Backlog`, value: `backlog`, trailing: `· default` }, { label: `Sprint`, value: `sprint` }] })

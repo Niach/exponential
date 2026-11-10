@@ -12950,6 +12950,63 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_select_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "multiple · searchable · row + option icon, description",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_agent_skills",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c9_skills",
+                    "component": "Select",
+                    "props": {
+                      "label": "Skills",
+                      "name": "skills",
+                      "triggerVariant": "row",
+                      "multiple": true,
+                      "searchable": true,
+                      "value": "deploy,review",
+                      "options": [
+                        {
+                          "label": "deploy",
+                          "value": "deploy",
+                          "icon": "ui-docs",
+                          "description": "Ship a build to staging"
+                        },
+                        {
+                          "label": "review",
+                          "value": "review",
+                          "icon": "ui-docs",
+                          "description": "Review the open pull request"
+                        },
+                        {
+                          "label": "triage",
+                          "value": "triage",
+                          "icon": "ui-docs",
+                          "description": "Sort the inbox by priority"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
