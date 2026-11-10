@@ -60,6 +60,18 @@ pub(super) struct Ink {
     /// disabled fill (`color.opacity(0.15)`).
     pub(super) pill_button_fill: String,
     pub(super) pill_button_fill_disabled: String,
+    /// `glass_pill_button_primary`'s fill, hover, disabled fill (half) and ink.
+    pub(super) primary_button_fill: String,
+    pub(super) primary_button_hover: String,
+    pub(super) primary_button_fill_disabled: String,
+    pub(super) primary_button_fg: String,
+}
+
+/// How a [`Ink::pill_button_with`] paints.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PillPaint {
+    Glass,
+    Primary,
 }
 
 /// The IDE's translucent inks (`foreground.opacity(…)`) as the node's
@@ -104,6 +116,10 @@ impl Ink {
             mono: theme.mono_font_family.to_string(),
             pill_button_fill: hex(gpui_component::Colorize::mix_oklab(&eui_gpui::controls::custom_variant_fill(chrome.fill_card), theme.transparent, eui_gpui::controls::CUSTOM_VARIANT_ALPHA_FACTOR)),
             pill_button_fill_disabled: hex(eui_gpui::controls::custom_variant_fill(chrome.fill_card).opacity(0.15)),
+            primary_button_fill: hex(theme.button_primary),
+            primary_button_hover: hex(theme.button_primary_hover),
+            primary_button_fill_disabled: hex(theme.button_primary.opacity(0.5)),
+            primary_button_fg: hex(theme.button_primary_foreground),
         }
     }
 
@@ -304,20 +320,64 @@ impl Ink {
     /// `text_xs` label (line height 1); no glyph without `icon`. Disabled: the faded fill and the
     /// half-muted ink. Drawn twice, `disabled` picks.
     pub(super) fn pill_button(&self, id: &str, icon: Option<&str>, label: Value, disabled: Value, event: Value) -> [Value; 2] {
+        self.pill_button_with(id, PillPaint::Glass, icon.map(|icon| json!(icon)), None, label, disabled, None, event)
+    }
+
+    /// [`Ink::pill_button`] in `paint` ([`PillPaint::Primary`] =
+    /// `glass_pill_button_primary`: the solid primary fill, no stroke, its
+    /// ink solid, disabled at half fill); `tint` colours the glyph solid
+    /// (an icon's own `text_color`); `spin` = gpui-component's `loading`
+    /// look on the disabled face: the glyph slot is the spinner.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn pill_button_with(&self, id: &str, paint: PillPaint, icon: Option<Value>, tint: Option<&str>, label: Value, disabled: Value, spin: Option<Value>, event: Value) -> [Value; 2] {
+        let primary = paint == PillPaint::Primary;
         let draw = |dim: bool| {
             let id = if dim { format!("{id}_dim") } else { id.to_string() };
-            let (ink, alpha) = if dim { (&self.muted, 0.5) } else { (&self.foreground, VALUE_ALPHA) };
+            let (ink, alpha) = match (primary, dim) {
+                (true, _) => (&self.primary_button_fg, 1.0),
+                (false, true) => (&self.muted, 0.5),
+                (false, false) => (&self.foreground, VALUE_ALPHA),
+            };
             let size = self.r(XS);
-            let glyph = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": self.r(0.75), "height": self.r(0.75), "color": ink, "opacity": alpha, "flexShrink": 0}}));
+            let glyph_size = self.r(0.75);
+            let mut glyph: Vec<Value> = Vec::new();
+            if let Some(icon) = &icon {
+                let (color, opacity) = tint.map_or((ink.as_str(), alpha), |tint| (tint, 1.0));
+                let mut node = json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph_size, "height": glyph_size, "color": color, "opacity": opacity, "flexShrink": 0}});
+                if let (true, Some(spin)) = (dim, &spin) {
+                    node["visible"] = not(spin.clone());
+                    glyph.push(node);
+                    glyph.push(json!({"id": format!("{id}_spin"), "component": "Spinner", "visible": spin, "style": {"width": glyph_size, "height": glyph_size, "color": ink, "opacity": alpha, "flexShrink": 0}}));
+                } else {
+                    glyph.push(node);
+                }
+            }
             let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": ink, "opacity": alpha, "flexShrink": 0}});
+            let fill = match (primary, dim) {
+                (true, false) => &self.primary_button_fill,
+                (true, true) => &self.primary_button_fill_disabled,
+                (false, false) => &self.pill_button_fill,
+                (false, true) => &self.pill_button_fill_disabled,
+            };
             let mut button = json!({"id": id, "component": "Box", "visible": if dim { disabled.clone() } else { not(disabled.clone()) },
-                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": self.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": 9999, "borderWidth": 1, "borderColor": self.stroke_card, "backgroundColor": if dim { &self.pill_button_fill_disabled } else { &self.pill_button_fill }},
+                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": self.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": 9999, "backgroundColor": fill},
                 "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
+            if !primary {
+                button["style"]["borderWidth"] = json!(1);
+                button["style"]["borderColor"] = json!(self.stroke_card);
+            }
+            if primary && dim {
+                // The half fill as a layer at half opacity: a `#rrggbbaa`
+                // alpha byte can't say 0.5 (0x80 = 0.502, a level brighter).
+                button["style"]["backgroundColor"] = json!("#00000000");
+                button["children"].as_array_mut().expect("the pill's children").insert(0, json!({"id": format!("{id}_fill"), "component": "Box",
+                    "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": 9999, "backgroundColor": self.primary_button_fill, "opacity": 0.5}}));
+            }
             if !dim {
                 button["props"] = json!({"pressable": true});
                 button["on"] = json!({"press": {"event": event.clone()}});
                 button["style"]["cursor"] = json!("pointer");
-                button["style"][":hover"] = json!({"backgroundColor": self.fill_active});
+                button["style"][":hover"] = json!({"backgroundColor": if primary { &self.primary_button_hover } else { &self.fill_active }});
             }
             button
         };
