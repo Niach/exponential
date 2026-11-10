@@ -1,2 +1,9 @@
 # EXP-566 — the committed screenshot store. webp is binary; keep diffs/logs clean.
 shots/**/*.webp binary
+
+# eUI changelogs: every PR prepends one-line bullets under "## Unreleased", so
+# concurrent PRs always conflicted at the same spot. Union keeps both bullets.
+apps/desktop/crates/eui-core/CHANGELOG.md merge=union
+apps/desktop/crates/eui-gpui/CHANGELOG.md merge=union
+apps/desktop/crates/exponential-ui-ffi/CHANGELOG.md merge=union
+packages/exponential-ui*/CHANGELOG.md merge=union
