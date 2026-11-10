@@ -3697,6 +3697,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -12815,6 +12823,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -21742,6 +21767,14 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            }
+          ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
               }
             }
           ],
@@ -31189,6 +31222,23 @@
                 "height": 10.5,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            }
+          ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
               }
             }
           ],

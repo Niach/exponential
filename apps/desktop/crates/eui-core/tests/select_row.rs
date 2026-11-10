@@ -268,6 +268,32 @@ fn open_fires_once_as_the_popup_opens() {
     assert!(plain.event(t, "press", None).iter().all(|e| !matches!(e, OutEvent::Action { event, .. } if event == "open")));
 }
 
+/// #EXP-1764: `triggerIcon` = a row leads its value with the CHOSEN
+/// option's `icon` (the IDE Account row's agent mark), in the `button`
+/// before the value; off by default, and a field trigger never draws it.
+#[test]
+fn a_trigger_icon_row_leads_its_value_with_the_chosen_options_icon() {
+    let options = json!([{"label": "ada@example.com", "value": "claude", "icon": "brand-claude"}, {"label": "ada@example.org", "value": "codex", "icon": "brand-codex"}]);
+    let mut s = surface(select(json!({"triggerVariant": "row", "triggerIcon": true, "value": "claude", "options": options})));
+    let out = s.layout(&mut fixed());
+    let button = s.index_of("sel.button").unwrap();
+    let held: Vec<String> = s.nodes().into_iter().filter(|n| n.parent == Some(button)).map(|n| n.id).collect();
+    assert_eq!(held, ["sel.valueIcon", "sel.value", "sel.chevron"]);
+    assert_eq!(node(&mut s, "sel.valueIcon").props["name"], json!("brand-claude"));
+    let icon = frame(&s, &out, "sel.valueIcon");
+    let value = frame(&s, &out, "sel.value");
+    assert!((icon.w - 14.0).abs() < 0.01 && (icon.h - 14.0).abs() < 0.01, "the recipe's 14 square (the IDE Medium trigger's icon): {icon:?}");
+    assert!((value.x - (icon.x + icon.w + 7.0)).abs() < 0.01, "the button's gap (7) before the value, as after it");
+    assert_eq!(eui_core::layout_tree::icon_fill("brand-claude"), Some("#D97757"), "Claude's own orange");
+    assert_eq!(eui_core::layout_tree::icon_fill("brand-codex"), None, "Codex rides the ink");
+
+    for extra in [json!({"triggerVariant": "row", "value": "claude", "options": options}), json!({"triggerIcon": true, "value": "claude", "options": options})] {
+        let mut s = surface(select(extra));
+        s.layout(&mut fixed());
+        assert!(s.index_of("sel.valueIcon").is_none(), "off by default; a field trigger never");
+    }
+}
+
 /// #EXP-1629: an option with a glyph or a `description` is a row of parts
 /// (the IDE picker row): `itemIcon`, the `itemText` column (`itemLabel` over
 /// `itemDescription`), the chosen one's `check`; plain options stay one leaf.
