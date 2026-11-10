@@ -4932,6 +4932,40 @@ mod tests {
         assert!(chat_at_bottom(&view, cx), "following again: {:?}", chat_extent(&view, cx));
     }
 
+    /// #EXP-1782: the transcript ends at the Dock band's top edge; a reader
+    /// scrolled up while FIFTY rows land below stays within the keep
+    /// engine's half pixel of where they were: the hold never accumulates.
+    #[gpui::test]
+    fn a_reader_above_does_not_drift_while_fifty_rows_land(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let line = "A line of the agent's narration that wraps once or twice in the reading column of the chat, so rows differ.";
+        let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
+        for n in 0..40u64 {
+            events.push(steer::ViewerEvent::Activity(2 * n + 1, steer::ActivityEvent::tool("Bash", Some(format!("step {n}")))));
+            events.push(steer::ViewerEvent::Activity(2 * n + 2, steer::ActivityEvent::narration(&line.repeat(1 + (n % 3) as usize))));
+        }
+        apply_events(&view, events, cx);
+        settle_frames(cx);
+        wheel_chat(&view, 300., cx);
+        settle_frames(cx);
+        assert!(!chat_follows(&view, cx), "a wheel up stops following");
+        let document = chat_document(&view, cx);
+        let list_top = cx.update(|_, cx| document.read(cx).painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("painted").top();
+        let (y, _, id) = painted_markdowns(&document, cx).into_iter().find(|(y, _, _)| *y >= f32::from(list_top)).expect("a bubble on screen");
+        for seq in 100..150u64 {
+            let event = if seq % 2 == 0 { steer::ActivityEvent::tool("Bash", Some(format!("more {seq}"))) } else { steer::ActivityEvent::narration(&line.repeat(1 + (seq % 3) as usize)) };
+            apply_events(&view, vec![steer::ViewerEvent::Activity(seq, event)], cx);
+            one_frame(cx);
+            let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
+            assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "row {seq}: a reader above stays put: {y} -> {now:?}");
+        }
+        settle_frames(cx);
+        let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
+        assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "after fifty rows: {y} -> {now:?}");
+        assert!(!chat_at_bottom(&view, cx), "not pulled to the bottom");
+    }
+
     /// #EDE-65 lane O PAGING: the reader scrolled to the top of the window
     /// (the paging row painted): the older rows load ABOVE them and the row
     /// they were looking at stays exactly where it was on screen.
