@@ -75,6 +75,21 @@ const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 // Pane
 // ---------------------------------------------------------------------------
 
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct AgentsShot {
+    /// The tab showing.
+    pub tab: CodingAgent,
+    pub claude_path: &'static str,
+    pub claude_model: &'static str,
+    pub claude_effort: &'static str,
+    pub codex_model: &'static str,
+    pub codex_effort: &'static str,
+    pub ultracode: bool,
+    /// Typed into the CLI path field after the sync.
+    pub typed: Option<&'static str>,
+}
+
 pub struct AgentsPane {
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
@@ -180,6 +195,35 @@ impl AgentsPane {
         };
         this.resync(window, cx);
         this
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(window, cx)
+    }
+
+    /// The pane in a pinned state: the hub's owned fields, the tab, then
+    /// `typed` into the CLI path field.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: AgentsShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let hub = CodingHub::global(cx);
+        hub.update(cx, |hub, cx| {
+            hub.settings.claude_path = shot.claude_path.to_string();
+            hub.settings.claude_model = shot.claude_model.to_string();
+            hub.settings.claude_effort = shot.claude_effort.to_string();
+            hub.settings.codex_model = shot.codex_model.to_string();
+            hub.settings.codex_effort = shot.codex_effort.to_string();
+            hub.settings.claude_ultracode = shot.ultracode;
+            cx.notify();
+        });
+        self.synced = None;
+        self.resync(window, cx);
+        self.agent_tab = shot.tab;
+        if let Some(typed) = shot.typed {
+            self.claude_input.update(cx, |input, cx| input.set_value(typed.to_string(), window, cx));
+            self.path_save = None;
+        }
+        cx.notify();
     }
 
     /// Overlay ONLY this pane's owned fields from `from` onto `onto` —
