@@ -40,6 +40,9 @@ mod doc;
 // #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
 #[cfg(test)]
 pub(crate) mod branch_row_shots;
+// #EXP-1765: the bench's repo branch pickers (IDE vs genUI `pill` Select).
+#[cfg(test)]
+pub(crate) mod branch_picker_shots;
 pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device

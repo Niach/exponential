@@ -60,9 +60,13 @@ struct InlineFieldLeaf: View {
         // the IDE's search rows draw it, else the text's at 60%.
         let iconGap = cx.style.gap > 0 ? cx.style.gap : 8
         let glyph = cx.themeColor("mutedForeground").map { ($0, 1.0) } ?? (cx.ink, 0.6)
-        HStack(spacing: icon == nil ? 0 : iconGap) {
+        // #EXP-1765: a Select search's glyph is its `searchIcon` part's size;
+        // a `pill`'s ends in the clear button while it holds text.
+        let glyphSize = cx.node.ownerComponent == "Select" ? cx.part("Select", "searchIcon").width ?? 16 : 16
+        let clearable = model.selectSearchClearable(cx.index)
+        HStack(spacing: icon == nil && !clearable ? 0 : iconGap) {
             if let icon {
-                ConceptIcon(name: icon, size: 16, color: glyph.0, model: model).opacity(glyph.1)
+                ConceptIcon(name: icon, size: glyphSize, color: glyph.0, model: model).opacity(glyph.1)
             }
             OwnedTextField(
                 index: cx.index,
@@ -81,9 +85,39 @@ struct InlineFieldLeaf: View {
                 accessibilityLabel: label,
                 inputType: ""
             )
+            if clearable {
+                SelectSearchClearButton(cx: cx, glyphSize: glyphSize)
+            }
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+/// #EXP-1765: a `pill` Select search's clear button (while it holds text):
+/// the `Select.clear` glyph at 0.75 × the `searchIcon` size in
+/// `mutedForeground`, centred in a square box 1.25 × that size; "Clear
+/// search", a button. Pressing it empties the field (the core hears "")
+/// and keeps the focus in the field.
+struct SelectSearchClearButton: View {
+    let cx: LeafContext
+    let glyphSize: CGFloat
+
+    var body: some View {
+        let box = glyphSize * SelectTrigger.clearBox
+        let index = cx.index
+        let model = cx.model
+        Button {
+            model.selectSearchClear(index)
+        } label: {
+            ConceptIcon(name: BuiltinIcons.name("Select.clear"), size: glyphSize * SelectTrigger.clearGlyph, color: cx.muted, model: model)
+                .frame(width: box, height: box)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: box, height: box)
+        .accessibilityLabel(model.builtinString("clearSearch"))
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -96,23 +130,30 @@ struct InlineFieldLeaf: View {
 /// #EXP-1629: a Select's text is its `value` part and its glyph its
 /// `chevron` part (a `row` trigger is the core's container of parts,
 /// painted as nodes, never this leaf).
+/// #EXP-1765: a `pill` is the same parts content-sized (the core's), its
+/// glyph the `Select.dropdown` slot at the `chevron` part's size and colour
+/// (opacity 1 unless the recipe fades it), the recipe `gap` apart; the
+/// trigger's `disabled` reaches the value / placeholder parts. Its `label`
+/// is the trigger's accessible name only (the core's).
 struct PickerTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
-        let ph = cx.part(cx.node.recipeComponent, "placeholder")
         let select = cx.node.recipeComponent == "Select"
-        let value = select ? cx.part("Select", "value") : .empty
+        let pill = select && SelectTrigger.isPill(cx.props, owner: cx.ownerProps)
+        let states = pill && cx.model.isDisabled(cx.index) ? ["disabled"] : []
+        let ph = cx.part(cx.node.recipeComponent, "placeholder", states: states)
+        let value = select ? cx.part("Select", "value", states: states) : .empty
         let chevron = select ? cx.part("Select", "chevron") : .empty
         let icon = cx.props.str("icon").isEmpty ? "ui-chevron-down" : cx.props.str("icon")
         let glyph = SelectTrigger.glyphSize(chevron)
         let glyphView = ConceptIcon(name: icon, size: glyph, color: chevron.color ?? cx.ink, model: cx.model)
-            .opacity(chevron.style.opacity ?? 0.6)
+            .opacity(chevron.style.opacity ?? (pill ? 1 : 0.6))
             .frame(width: glyph, height: glyph)
         let ink = isPlaceholder ? (ph.color ?? cx.muted) : (value.color ?? cx.ink)
-        let inkOpacity = isPlaceholder ? 1 : (value.style.opacity ?? 1)
-        HStack(spacing: cx.spacing("sm")) {
+        let inkOpacity = isPlaceholder ? (pill ? ph.style.opacity ?? 1 : 1) : (value.style.opacity ?? 1)
+        HStack(spacing: pill ? SelectTrigger.pillGap(cx.style.gap, sm: cx.spacing("sm")) : cx.spacing("sm")) {
             TextLabel(text(isPlaceholder), cx.textStyle, color: ink, align: cx.style.textAlign, lines: 1)
                 .opacity(inkOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,7 +180,10 @@ struct PickerTriggerLeaf: View {
 }
 
 /// A Select option (`item`): [icon] label [check], the check slot always
-/// reserved (gpui `text_chrome`).
+/// reserved (gpui `text_chrome`). #EXP-1765: a `mono` option (the core
+/// sets its type) carries its `trailing` as its own muted run in the
+/// theme's sans type, right after the label (`SelectTrigger.trailingGap`
+/// apart); the label keeps its line and truncates first.
 struct SelectItemLeaf: View {
     let cx: LeafContext
 
@@ -149,13 +193,18 @@ struct SelectItemLeaf: View {
         // #EXP-1629: the check is the `check` part (its size and ink).
         let look = cx.part("Select", "check", states: selected ? ["selected"] : [])
         let size = SelectTrigger.glyphSize(look)
+        let trailing = cx.props["trailing"].map(\.displayText) ?? ""
         HStack(spacing: max(cx.style.gap, 4)) {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
             }
-            TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: cx.textStyle.lineHeight)
+            if trailing.isEmpty {
+                TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: cx.textStyle.lineHeight)
+            } else {
+                labelAndTrailing(trailing)
+            }
             ZStack {
                 if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
             }
@@ -163,6 +212,29 @@ struct SelectItemLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+extension SelectItemLeaf {
+    /// The label (its line, at most what the trailing leaves) then the
+    /// trailing, `trailingGap` apart, filling the text slot.
+    @ViewBuilder
+    func labelAndTrailing(_ trailing: String) -> some View {
+        let gap = SelectTrigger.trailingGap(cx.style.gap)
+        let sans = SelectTrigger.trailingStyle(cx.textStyle, sans: cx.model.theme?.sansFamily)
+        GeometryReader { g in
+            let t = TextShaper.maxContent(sans.shown(trailing), sans)
+            let l = min(TextShaper.maxContent(cx.textStyle.shown(cx.props.text("text")), cx.textStyle), max(0, g.size.width - t - gap))
+            HStack(spacing: gap) {
+                TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
+                    .frame(width: l, height: cx.textStyle.lineHeight)
+                TextLabel(trailing, sans, color: cx.muted, lines: 1)
+                    .frame(width: min(t, max(0, g.size.width - l - gap)), height: sans.lineHeight)
+            }
+            .frame(width: g.size.width, height: g.size.height, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: cx.textStyle.lineHeight)
     }
 }
 

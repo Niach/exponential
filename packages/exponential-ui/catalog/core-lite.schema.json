@@ -8147,12 +8147,18 @@
           "description": "Shown on no match.",
           "default": "$string.noResults"
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "description": "Hint in the filter field.",
+          "default": "$string.search"
+        },
         "triggerVariant": {
           "enum": [
             "field",
-            "row"
+            "row",
+            "pill"
           ],
-          "description": "`row` = a Group row: label, value, chevron.",
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule.",
           "default": "field"
         },
         "align": {
@@ -8166,6 +8172,11 @@
         "popupWidth": {
           "type": "number",
           "description": "Px (`row`: 260)."
+        },
+        "loading": {
+          "$ref": "common_types.json#/$defs/DynamicBoolean",
+          "description": "Options still loading: skeleton rows in the popup.",
+          "default": false
         },
         "disabled": {
           "type": "boolean",
@@ -17760,6 +17771,10 @@
         "trailing": {
           "type": "string",
           "description": "Text after the label (Select popup)."
+        },
+        "mono": {
+          "type": "boolean",
+          "description": "Label in the mono type (Select popup)."
         },
         "image": {
           "type": "string",
