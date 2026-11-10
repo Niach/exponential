@@ -6398,7 +6398,7 @@
           "const": "Tooltip"
         },
         "content": {
-          "type": "string",
+          "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Hint text."
         },
         "side": {

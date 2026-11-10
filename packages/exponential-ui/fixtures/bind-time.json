@@ -115753,6 +115753,120 @@
       ]
     },
     {
+      "name": "Tooltip/bound:content",
+      "input": {
+        "id": "tip",
+        "component": "Tooltip",
+        "props": {
+          "content": {
+            "@path": "/reason"
+          },
+          "side": "top"
+        },
+        "children": [
+          {
+            "id": "reconnect",
+            "component": "Button",
+            "props": {
+              "label": "Reconnect"
+            }
+          }
+        ]
+      },
+      "expanded": {
+        "id": "tip",
+        "component": "Tooltip",
+        "props": {
+          "content": {
+            "@path": "/reason"
+          },
+          "side": "top"
+        },
+        "children": [
+          {
+            "id": "reconnect",
+            "component": "Button",
+            "props": {
+              "label": "Reconnect"
+            },
+            "children": []
+          }
+        ]
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "reason": "Token expired"
+          },
+          "bound": {
+            "id": "tip",
+            "component": "Tooltip",
+            "props": {
+              "content": "Token expired",
+              "side": "top"
+            },
+            "children": [
+              {
+                "id": "reconnect",
+                "component": "Button",
+                "props": {
+                  "label": "Reconnect"
+                },
+                "children": []
+              }
+            ]
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "reason": ""
+          },
+          "bound": {
+            "id": "tip",
+            "component": "Tooltip",
+            "props": {
+              "content": "",
+              "side": "top"
+            },
+            "children": [
+              {
+                "id": "reconnect",
+                "component": "Button",
+                "props": {
+                  "label": "Reconnect"
+                },
+                "children": []
+              }
+            ]
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "tip",
+            "component": "Tooltip",
+            "props": {
+              "side": "top"
+            },
+            "children": [
+              {
+                "id": "reconnect",
+                "component": "Button",
+                "props": {
+                  "label": "Reconnect"
+                },
+                "children": []
+              }
+            ]
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "MessageBubble/href:bound-resolves",
       "input": {
         "id": "bubble",
