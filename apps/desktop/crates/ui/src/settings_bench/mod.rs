@@ -180,6 +180,7 @@ mod app_detail;
 mod board_detail;
 mod box_fields;
 mod field_variants;
+mod labels;
 mod local_repos;
 mod mcp_servers;
 mod members;
