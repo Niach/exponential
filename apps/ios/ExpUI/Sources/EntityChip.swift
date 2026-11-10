@@ -99,7 +99,7 @@ public struct ChipBox<Leading: View>: View {
             leading()
             if let identifier, !identifier.isEmpty {
                 Text(identifier)
-                    .font(.system(size: pointSize, design: .monospaced))
+                    .font(.expMono(size: pointSize))
                     .foregroundStyle(Color(MarkdownStyle.chipTokenColor))
                     .lineLimit(1)
             }

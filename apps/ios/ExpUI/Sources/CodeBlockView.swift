@@ -86,7 +86,7 @@ public struct CodeBlockView: View {
         return out
     }
 
-    private static let monoFont = UIFont.monospacedSystemFont(ofSize: G.fontSize, weight: .regular)
+    private static let monoFont = UIFont.expMono(size: G.fontSize)
     private static let bottomId = "code-block-bottom"
 
     public var body: some View {

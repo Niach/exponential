@@ -915,7 +915,7 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                 HStack(spacing: 8) {
                     if let split = item.identifierSplit {
                         Text(split.identifier)
-                            .font(.caption.monospaced())
+                            .font(.expMono(.caption))
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                             .lineLimit(1)
                             .fixedSize()
