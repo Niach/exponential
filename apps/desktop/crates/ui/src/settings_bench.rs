@@ -10,6 +10,7 @@ use gpui_component::ActiveTheme as _;
 use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
+use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
 use crate::settings::local_repos::{LocalReposPane, LocalShot};
 use crate::settings::about::AboutPane;
 use crate::settings::account::{AccountPane, AccountShot};
@@ -1700,7 +1701,7 @@ impl BlockShot {
         Self {
             kind,
             model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
-            work_screen: crate::coding_selects::work_screen_select(&crate::styleguide::entries::work_screen::demo_displays(), None, window, cx),
+            work_screen: crate::coding_selects::work_screen_select(&crate::coding_selects::demo_displays(), None, window, cx),
             block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
         }
     }
@@ -2708,4 +2709,94 @@ mod labels {
     fn settings_labels_delete_hover() {
         shoot("labels-delete-hover", base(), Pointer::Hover(DELETE));
     }
+}
+
+fn email_shot() -> EmailShot {
+    EmailShot { code_for: None, email: "", code: "", busy: false, error: None }
+}
+
+fn change_email(name: &str, shot: EmailShot) {
+    shoot_pane_acted(name, ChangeEmailDialogView::for_shots, |_, _| {}, None, &[], move |view, window, cx| view.show(shot, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_empty() {
+    change_email("change-email-empty", email_shot());
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_typed() {
+    change_email("change-email-typed", EmailShot { email: "dana@newmail.example", ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_sending() {
+    change_email("change-email-sending", EmailShot { email: "dana@newmail.example", busy: true, ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_code() {
+    change_email("change-email-code", EmailShot { code_for: Some("dana@newmail.example"), code: "1234", ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_code_error() {
+    change_email("change-email-code-error", EmailShot { code_for: Some("dana@newmail.example"), code: "123456", error: Some("That code is not valid. Check it or send a new one."), ..email_shot() });
+}
+
+/// The node holding the focus once a freshly opened pane has drawn.
+fn focus_after_open<P: Render + 'static>(build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, surface: impl Fn(&P) -> gpui::Entity<eui_gpui::view::SurfaceView>) -> (Option<u32>, Option<u32>) {
+    let mut cx = headless();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+    });
+    let mut frame = None;
+    let handle = cx
+        .open_window(size(px(PANE.0), px(PANE.1)), |window: &mut Window, cx| {
+            let pane = cx.new(|cx| build(window, cx));
+            let view = cx.new(|_| Frame { pane: pane.clone().into() });
+            frame = Some(pane);
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let pane = frame.expect("the pane");
+    // Headless has no frame loop: each draw delivers the next frame's
+    // callbacks by hand (`on_next_frame`, which the focus retries ride).
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.update_window(window, |_, window, cx| window.simulate_next_frame(cx)).expect("the frame's callbacks");
+        cx.run_until_parked();
+    }
+    cx.update(|cx| {
+        let view = surface(pane.read(cx));
+        let view = view.read(cx);
+        (view.focused(), view.index_of("name.field"))
+    })
+}
+
+/// A NEW prompt's page opens with its name field focused (`doc::focus_input`
+/// reaches the Input's `name.field` part, not the Input node).
+#[test]
+#[ignore]
+fn a_new_prompt_page_focuses_its_name() {
+    let (focused, field) = focus_after_open(|window, cx| PromptPage::new("team-focus".into(), None, window, cx), |page| page.surface());
+    assert!(field.is_some(), "the page has a name field");
+    assert_eq!(focused, field);
+}
+
+/// A NEW skill's page opens with its name field focused.
+#[test]
+#[ignore]
+fn a_new_skill_page_focuses_its_name() {
+    let (focused, field) = focus_after_open(|window, cx| SkillPage::new("team-focus".into(), None, window, cx), |page| page.surface());
+    assert!(field.is_some(), "the page has a name field");
+    assert_eq!(focused, field);
 }

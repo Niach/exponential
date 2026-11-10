@@ -15,7 +15,7 @@ surface appears.
 Every image the repo builds runs its published `bun install` with
 `--filter '<its workspace>'` (`@exp/web`, `@exp/steer-relay`,
 `@exp/push-relay`). Unfiltered, the install pulls in every other workspace's
-production dependencies — the site, the styleguide, the shots pipeline — and
+production dependencies — the site, the shots pipeline — and
 hands them to whoever pulls the image, including the self-hosters of the public
 `ghcr.io/niach/exponential-web` and `ghcr.io/niach/exponential-steer-relay`
 images. None of those apps' code runs in an image, and the per-client notices

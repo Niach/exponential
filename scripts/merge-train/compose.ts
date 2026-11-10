@@ -110,14 +110,23 @@ export function compose(input: ComposeInput): ComposeResult {
   if (!composed) git.must(`commit`, `--quiet`, `--allow-empty`, `-m`, `exp-train ${input.trainId}: nothing composed`)
   const head = git.must(`rev-parse`, `HEAD`)
   const workflows = config.ci?.workflows ?? []
-  // #LOGS-2: a Merge now is untested only when nothing was resolved and no
-  // lockfile drifted from its head; else the tree is one nobody tested.
+  // #LOGS-2: a Merge now is untested only when nothing was resolved, no
+  // lockfile drifted from its head and no PR is behind the base (its own
+  // checks ran on an older one); else the tree is one nobody tested.
   const riding = units.filter((u) => u.outcome === `composed`)
+  const behind =
+    input.mode === `untested` &&
+    input.units.some(
+      (unit, i) =>
+        units[i]!.outcome === `composed` &&
+        unit.prs.some((pr) => !git.run(`merge-base`, `--is-ancestor`, input.baseSha, pr.head_sha).ok)
+    )
   const checks: TrainChecksMode = trainChecksMode({
     mode: input.mode,
     composed,
     resolved: riding.some((u) => u.resolved.length > 0),
     drifted: riding.some((u) => (u.drifted ?? []).length > 0),
+    behind,
     proven: composed && proven(git, input.units, units, head),
     workflows,
   })

@@ -36,10 +36,10 @@ import com.exponential.app.ui.theme.TextEmphasis
  *
  * The card is the standard [GlassTokens.CardRadius] glass card, NOT a 24dp
  * capsule-ish blob: a composer is a card with a field in it, the same rung as
- * every other card on the screen. [opaque] is for the two that FLOAT over
- * scrolling content (the docked comment bar, the steer bar) — the translucent
- * fill lets the feed ghost through otherwise. No elevation on either: the
- * hairline is the edge.
+ * every other card on the screen. [opaque] is for a composer that FLOATS over
+ * scrolling content (the docked comment bar; the steer bar sits UNDER its
+ * transcript since #EXP-1782) — the translucent fill lets the feed ghost
+ * through otherwise. No elevation, no shadow: the hairline is the edge.
  *
  * Slots, top to bottom: [leading] (a row above the field — the support
  * chat's Reply / Internal-note pills), [strip] (queued attachments),

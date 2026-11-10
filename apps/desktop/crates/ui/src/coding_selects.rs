@@ -396,6 +396,17 @@ pub fn work_screen_value(id: Option<&str>) -> SharedString {
     SharedString::from(domain::work_screen::work_screen_picker_key(id))
 }
 
+/// A demo machine's two displays (the settings bench's and the tests'): a
+/// 1440p external, the built-in Retina as the primary, each with its stable
+/// id (#FEED-161).
+pub(crate) fn demo_displays() -> Vec<domain::work_screen::WorkScreenDisplay> {
+    use domain::work_screen::WorkScreenDisplay;
+    vec![
+        WorkScreenDisplay { id: "uuid-a".into(), number: 1, width: 2560, height: 1440, primary: false },
+        WorkScreenDisplay { id: "uuid-b".into(), number: 2, width: 3024, height: 1964, primary: true },
+    ]
+}
+
 /// THE Work screen select: the device-settings picker row under the
 /// Computer use model, preselecting `stored`.
 pub fn work_screen_select(

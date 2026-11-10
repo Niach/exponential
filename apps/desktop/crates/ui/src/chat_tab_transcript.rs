@@ -9,8 +9,9 @@
 //! fills with the session view's own row ([`SteerSessionView::chat_host_row`]).
 //! The composer, THE Dock, the strips and the header are the IDE's, around
 //! it. The document's rows: the paging sentinel first (painting it pulls the
-//! older transcript in), the list's rows, the tail spacer last (THE Dock's
-//! band under the newest row).
+//! older transcript in), the list's rows, the tail spacer last (the gap
+//! between the newest row and THE Dock's band, whose top edge ends the
+//! document, #EXP-1782).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -41,7 +42,7 @@ pub(crate) const PRUNED: &[&str] = &["chat_home", "chat_header", "chat_footer"];
 /// The paging sentinel's row id (the old list's top padding, `pt_2`).
 pub(crate) const PAGE_ROW: &str = "page";
 const PAGE_HEIGHT: f32 = 8.;
-/// The tail spacer's row id (THE Dock's band under the newest row).
+/// The tail spacer's row id (the gap above THE Dock's band).
 pub(crate) const TAIL_ROW: &str = "tail";
 /// A host row's height before it was ever measured.
 const ESTIMATE: f32 = 40.;
@@ -435,7 +436,7 @@ impl ChatTranscript {
         self.streaming_key.as_deref()
     }
 
-    /// THE Dock's band under the newest row.
+    /// The gap between the newest row and THE Dock's band.
     pub(crate) fn set_tail(&mut self, height: f32, cx: &mut App) {
         let moved = {
             let mut state = self.state.borrow_mut();
