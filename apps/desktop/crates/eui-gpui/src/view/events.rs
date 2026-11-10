@@ -1312,6 +1312,11 @@ impl SurfaceView {
                 let chosen = |i: &u32| item(i) && self.cache.node(*i).is_some_and(|n| n.props.get("selected").and_then(Value::as_bool).unwrap_or(false));
                 let first_item = if multiple { candidates.iter().copied().find(chosen) } else { candidates.iter().copied().find(item) }.and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
                 let field = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.part.as_deref() == Some("search"))).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+                // #EXP-1765: a POINTER-opened `pill` (the IDE's popover
+                // picker) shows no cursor until the pointer moves or a key
+                // is pressed; a keyboard-opened one keeps it.
+                let pill = self.cache.index_of(&top.owner).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("triggerVariant").and_then(Value::as_str) == Some("pill"));
+                let first_item = first_item.filter(|_| self.keyboard || !pill);
                 if let Some(first) = &first_item {
                     self.move_select_cursor(first, cx);
                 }

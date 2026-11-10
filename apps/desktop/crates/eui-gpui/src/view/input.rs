@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use eui_core::surface::PlacedNode;
-use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, MouseButton, Pixels, Point, Subscription, Task, Window};
+use gpui::{div, prelude::*, px, AnyElement, SharedString, App, Context, Entity, FocusHandle, Focusable as _, MouseButton, Pixels, Point, Subscription, Task, Window};
 use gpui_component::input::{Input, InputEvent, InputState, TextareaState};
 use serde_json::{json, Value};
 
@@ -338,6 +338,18 @@ impl SurfaceView {
     }
 
     /// Empty a field without an echo (a ChipInput after a chip was added).
+    /// #EXP-1765: a pill Select's search clear: the field empties, the core
+    /// hears the empty `search`, and the focus stays in the field.
+    pub(crate) fn clear_search(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_field(id, window, cx);
+        if let Some(index) = self.cache.index_of(id) {
+            let events = self.surface.event(index, "change", Some(json!({"value": ""})));
+            self.dispatch(events, None, cx);
+        }
+        self.focus_field(id, window, cx);
+        cx.notify();
+    }
+
     fn clear_field(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(f) = self.fields.get_mut(id) {
             f.set_value(String::new(), window, cx);
@@ -512,8 +524,17 @@ impl SurfaceView {
         let icon = (f.kind == FieldKind::Search).then(|| n.props.get("icon").and_then(Value::as_str).unwrap_or("search").to_string());
         // The glyph-to-text gap: the field's recipe `gap`, else 8.
         let icon_gap = if lcx.style.gap > 0.0 { lcx.style.gap } else { 8.0 };
-        let icon_w = if icon.is_some() { 16.0 + icon_gap } else { 0.0 };
-        let field_w = (w - icon_w).max(0.0);
+        // #EXP-1765: a Select search's glyph takes its `searchIcon` part's size.
+        let glyph_size = if n.owner_component.as_deref() == Some("Select") { crate::paint::parts::px_prop(&lcx.part_props("Select", "searchIcon", &[]), "width").map(|w| w * lcx.scale).unwrap_or(16.0) } else { 16.0 };
+        let icon_w = if icon.is_some() { glyph_size + icon_gap } else { 0.0 };
+        // #EXP-1765: a `pill` Select's search ends in a clear button while it
+        // holds text (the IDE's `search_field` suffix: an xsmall ghost icon
+        // button: its box 1.25× and its glyph 0.75× the search glyph, `icon_gap`
+        // after the text).
+        let pill_search = n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("search") && n.owner.as_ref().and_then(|o| self.cache.index_of(o)).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("triggerVariant").and_then(Value::as_str) == Some("pill"));
+        let clear_box = if pill_search && !f.value(cx).is_empty() { glyph_size * 1.25 } else { 0.0 };
+        let clear_w = if clear_box > 0.0 { clear_box + icon_gap } else { 0.0 };
+        let field_w = (w - icon_w - clear_w).max(0.0);
         // A disabled field dims ONCE, through its frame's recipe opacity (the
         // reference's `color: inherit` value under the field's `disabled`
         // opacity): gpui-component's own disabled look would halve the text
@@ -549,9 +570,29 @@ impl SurfaceView {
             // The placeholder's ink (`mutedForeground`), as the IDE's
             // search rows draw their glyph; else the text's at 60%.
             let (glyph, fade) = lcx.theme_color("mutedForeground").map_or((ink, 0.6), |muted| (muted, 1.0));
-            row = row.child(div().flex_none().opacity(fade).child(icons::concept(lcx.host, &name, 16.0, glyph)));
+            row = row.child(div().flex_none().opacity(fade).child(icons::concept(lcx.host, &name, glyph_size, glyph)));
         }
-        let row = if row_variant { self.input_row(lcx, row, el) } else { row.child(el) };
+        let mut row = if row_variant { self.input_row(lcx, row, el) } else { row.child(el) };
+        if clear_box > 0.0 {
+            let id = n.id.clone();
+            let muted = lcx.theme_color("mutedForeground").unwrap_or(ink);
+            let label = SharedString::from(self.builtin_string("clearSearch"));
+            row = row.child(
+                div()
+                    .id(SharedString::from(format!("{}.clear", n.id)))
+                    .flex_none()
+                    .size(px(clear_box))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .role(gpui::Role::Button)
+                    .aria_label(label)
+                    .child(icons::concept(lcx.host, eui_core::layout_tree::builtin_icon("Select.clear").unwrap_or("ui-clear"), glyph_size * 0.75, muted))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _, window, cx| this.clear_search(&id, window, cx))),
+            );
+        }
         if disabled {
             return Some(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).child(row.left_0().top_0()).child(div().absolute().size_full().occlude()).into_any_element());
         }
