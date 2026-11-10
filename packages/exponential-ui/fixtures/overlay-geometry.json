@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis, or (VAPP-276 `align`, default centre) flush with the anchor's START or END edge along it (top-start, top-end, bottom-start…; the core mirrors start/end under RTL); FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly. VAPP-276: `byId` cases open a Popover with NO trigger whose `anchor` prop names a node elsewhere in the tree (a bottom-panel button): the layer is placed against THAT node's frame, the painters replay them with the anchor as a sibling. VAPP-281: `hosted` = a popup hosted OUTSIDE its surface (the surface's `hostedPopups` setting; eDE maps it to an xdg_popup): `anchorPosition` places it against the anchor in SURFACE coordinates at its unclipped size with NO flip and NO shift (the host's window system constrains it), so it may land outside `surface`.",
+  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis, or (VAPP-276 `align`, default centre) flush with the anchor's START or END edge along it (top-start, top-end, bottom-start…; the core mirrors start/end under RTL); FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly. VAPP-276: `byId` cases open a Popover with NO trigger whose `anchor` prop names a node elsewhere in the tree (a bottom-panel button): the layer is placed against THAT node's frame, the painters replay them with the anchor as a sibling. VAPP-281: `hosted` = a popup hosted OUTSIDE its surface (the surface's `hostedPopups` setting; eDE maps it to an xdg_popup): `anchorPosition` places it against the anchor in SURFACE coordinates at its unclipped size with NO flip and NO shift (the host's window system constrains it), so it may land outside `surface`. #EXP-1765 / #EXP-1629: `inset` = a popup whose box reaches `inset` OUTSIDE its content on every side (the Select `pill` popup: the IDE Popover's 1 px ring outside its 260 content), placed in gpui-component's Popover order: the inset FIRST (a `start` box begins `inset` before the anchor's start, an `end` one `inset` past its end), THEN the flip and the `padding` clamp, THEN the content's offset from the anchor's origin (x and y) rounded to whole px, half away from zero (gpui's Positioner), so the box may end up half a px past the padding as the IDE's does. The Rust core (`place_inset_overlay`, the layer manager's `inset` layers) and the TS twin (`placeInsetOverlay`) reproduce it exactly, Compose's SelectPopup replays it in dp; React and Solid land on it EXACTLY in headless Chromium (no `tolerancePx`; browser/overlay.test.ts, a pill Select, plain and searchable, replayed with the measured pill and popup): Solid's popper snaps after its shift and flip (`snapInset`), React moves the content from Radix's wrapper onto the box (`insetPopupNudge`).",
   "offset": 4,
   "padding": 8,
   "tolerancePx": 2,
@@ -683,6 +683,148 @@
       "expected": {
         "x": 48,
         "y": 4
+      }
+    }
+  ],
+  "inset": [
+    {
+      "name": "start with room: a hairline before the pill",
+      "anchor": {
+        "x": 16,
+        "y": 16,
+        "width": 80,
+        "height": 24
+      },
+      "size": {
+        "width": 262,
+        "height": 200
+      },
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "side": "bottom",
+      "align": "start",
+      "offset": 3,
+      "padding": 7,
+      "inset": 1,
+      "expected": {
+        "x": 15,
+        "y": 43,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "start pushed back from the right edge: inset, clamp, then whole px from the pill (#EXP-1629: the IDE's Settings, Repositories)",
+      "anchor": {
+        "x": 551.5,
+        "y": 100,
+        "width": 80,
+        "height": 24
+      },
+      "size": {
+        "width": 262,
+        "height": 200
+      },
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "side": "bottom",
+      "align": "start",
+      "offset": 3,
+      "padding": 7,
+      "inset": 1,
+      "expected": {
+        "x": 490.5,
+        "y": 127,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "start at the left edge: the padding holds",
+      "anchor": {
+        "x": 0,
+        "y": 16,
+        "width": 80,
+        "height": 24
+      },
+      "size": {
+        "width": 262,
+        "height": 200
+      },
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "side": "bottom",
+      "align": "start",
+      "offset": 3,
+      "padding": 7,
+      "inset": 1,
+      "expected": {
+        "x": 7,
+        "y": 43,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "end on a fractional-width pill: whole px from the pill's start",
+      "anchor": {
+        "x": 600,
+        "y": 16,
+        "width": 40.5,
+        "height": 24
+      },
+      "size": {
+        "width": 262,
+        "height": 200
+      },
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "side": "bottom",
+      "align": "end",
+      "offset": 3,
+      "padding": 7,
+      "inset": 1,
+      "expected": {
+        "x": 379,
+        "y": 43,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "no room below: above, its y snapped from the pill too",
+      "anchor": {
+        "x": 100,
+        "y": 860.5,
+        "width": 80,
+        "height": 24
+      },
+      "size": {
+        "width": 262,
+        "height": 200.5
+      },
+      "viewport": {
+        "width": 760,
+        "height": 900
+      },
+      "side": "bottom",
+      "align": "start",
+      "offset": 3,
+      "padding": 7,
+      "inset": 1,
+      "expected": {
+        "x": 99,
+        "y": 656.5,
+        "side": "top",
+        "flipped": true
       }
     }
   ]
