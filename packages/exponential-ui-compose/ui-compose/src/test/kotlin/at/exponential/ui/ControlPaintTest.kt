@@ -22,6 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import at.exponential.ui.model.press
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -157,4 +160,31 @@ class ControlPaintTest {
         ).filter { it.second != null }.map { "${it.first}: ${it.second}" }
         assertEquals(emptyList<String>(), failed)
     }
+
+    /**
+     * #EXP-1778: a `button` Select (App detail's Accounts picker) is the
+     * 32 high outline trigger; pressed, its pointer menu lists the options
+     * (SelectPopup: the rows `selectButtonItemGap` apart, the check on the
+     * chosen row only); a `truncate: middle` Text shows start…end in its box. Pictures: build/tmp/control-paint/exp1778-*.png.
+     */
+    @Test
+    fun selectButtonAndMiddleTruncatePaint() {
+        val m = render("""{"id": "root", "component": "Stack", "props": {"gap": "lg"}, "children": [
+            {"id": "row", "component": "Stack", "props": {"direction": "horizontal"}, "children": [
+                {"id": "upstream", "component": "Select", "props": {"label": "github", "name": "upstream", "triggerVariant": "button", "value": "s1", "options": [{"label": "Not set up", "value": "none"}, {"label": "GitHub", "value": "s1"}, {"label": "GitHub (work account)", "value": "s2"}]}, "style": {"width": 144}}]},
+            {"id": "col", "component": "Stack", "style": {"width": 220}, "children": [
+                {"id": "url", "component": "Text", "props": {"text": "https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push", "truncate": "middle"}, "style": {"fontFamily": "${'$'}type.family.mono", "fontSize": 10.5}}]}]}""")
+        val trigger = m.frame(m.indexOf("upstream.trigger")!!)
+        assertTrue("the trigger is 32 high (${trigger.height})", kotlin.math.abs(trigger.height - 32f) < 0.5f)
+        capture("exp1778-closed")
+        val texts = compose.onAllNodes(androidx.compose.ui.test.hasText("https", substring = true), useUnmergedTree = true).fetchSemanticsNodes().flatMap { node -> node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { t -> t.text } }
+        val url = m.frame(m.indexOf("url")!!)
+        assertTrue("the URL shows start…end in its ${url.width} box: $texts", texts.any { it.startsWith("https://") && it.contains("…") && it.endsWith("push") && it.length < 60 })
+        m.press("upstream.trigger")
+        compose.waitForIdle()
+        val rows = listOf("Not set up", "GitHub (work account)").map { compose.onAllNodes(androidx.compose.ui.test.hasText(it), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot }
+        assertTrue("the menu shows its options: $rows", rows.all { it != null })
+        capture("exp1778-open")
+    }
+
 }

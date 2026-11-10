@@ -283,6 +283,8 @@ internal fun SelectPopup(cx: LeafContext) {
             Modifier
                 .padding(bleed.dp)
                 .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = selectPopupMinWidth(owner)?.dp ?: cx.size.width.dp))
+                // #EXP-1778: a `button`'s pointer menu fits its options (the core's rule).
+                .then(if (width == null && button) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)
                 .heightIn(max = maxH.dp)
                 .paintedSurface(fill)
                 .clip(shape)
