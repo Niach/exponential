@@ -196,7 +196,7 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 
 The `Motion` component's engine is the Rust crate `eui-motion` (Lottie, the
 dialect, the display list, the clock, state machines); its WASM build is
-committed in `wasm/motion/` (`scripts/build-motion-wasm.sh`, ≤ 200 KB gz,
+committed in `wasm/motion/` (`scripts/build-motion-wasm.sh`, ≤ 480 KB raw, about 200 KB gz,
 `SOURCE_HASH` gates drift). `@exponential_app/eui/motion` = `loadMotionWasm`
 (browsers, lazy); `@exponential_app/eui/motion/server` = `motionWasmSync` +
 `motionPropsProblems` (servers: validate a Motion node's source). The shared

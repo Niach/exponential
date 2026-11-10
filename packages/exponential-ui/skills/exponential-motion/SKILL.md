@@ -59,7 +59,7 @@ Put the document in a `Motion` component's props (the node's props ARE the docum
 `exponential motion import | compile | decompile | check | render [--frame N |
 --at ms] [--size WxH] [--gif]`. `@exponential_app/eui/motion` (browsers, lazy)
 and `…/motion/server` (`motionPropsProblems`, sync). The WASM build
-(`scripts/build-motion-wasm.sh`, ≤ 200 KB gz, committed with a source-hash
+(`scripts/build-motion-wasm.sh`, ≤ 480 KB raw (about 200 KB gz), committed with a source-hash
 gate).
 
 ## References (read on demand)
