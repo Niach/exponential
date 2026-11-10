@@ -332,6 +332,9 @@ pub struct AgentDetailPane {
     /// The bench's owner flag (headless has no signed-in member).
     #[cfg(test)]
     shot_owner: Option<bool>,
+    /// The bench's frames left to run a pressed popup's fade on.
+    #[cfg(test)]
+    shot_settle: u8,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -389,6 +392,8 @@ impl AgentDetailPane {
             view,
             #[cfg(test)]
             shot_owner: None,
+            #[cfg(test)]
+            shot_settle: 0,
             _subscriptions: subscriptions,
         }
     }
@@ -407,6 +412,22 @@ impl AgentDetailPane {
         let nav = crate::navigation::nav_for_window(window, cx);
         let shared = crate::sidebar::rail_shared_for_window(window, cx);
         Self::for_agent(agent_id.to_string(), nav, shared, window, cx)
+    }
+
+    /// The bench's press on a document node (a headless click never
+    /// reaches an eUI popup), its popup's enter fade run out.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            // The bench's click (today's pane's) may already have opened it.
+            if view.layers().is_empty() {
+                let index = view.index_of(id).expect("the pressed node");
+                view.press(index, window, cx);
+            }
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
+        self.shot_settle = 4;
+        cx.notify();
     }
 
     /// The page in a pinned state: `owner`, and the instructions read
@@ -800,7 +821,14 @@ impl AgentDetailPane {
             "device": {"value": agent.device_id.clone().unwrap_or_default(), "options": device_options},
             "account": {"has": current.is_some(), "none": current.is_none(), "value": current.as_ref().map(|option| option.account_option_key()).unwrap_or_default(), "options": logins},
             "skills": {"value": picked.iter().map(|skill| skill.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::skills::agent_skills_value(&names), "empty": names.is_empty(), "some": !names.is_empty(),
-                "options": rows.iter().map(|skill| json!({"label": skill.name, "value": skill.id, "icon": "ui-docs"})).collect::<Vec<_>>()},
+                "options": rows.iter().map(|skill| {
+                    // THE skills picker's row: the docs glyph, the name, the description caption.
+                    let mut option = json!({"label": skill.name, "value": skill.id, "icon": "ui-docs"});
+                    if !skill.description.is_empty() {
+                        option["description"] = json!(skill.description);
+                    }
+                    option
+                }).collect::<Vec<_>>()},
             "model": {"value": domain::agent_settings::assistant_model_value(agent.model.as_deref(), Some(&cli)), "options": models.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>()},
             "checkIn": {"value": check_in, "options": domain::agent_settings::ASSISTANT.schedules.iter().map(|preset| json!({"label": preset.label, "value": preset.id})).collect::<Vec<_>>()},
             "noTriggers": trigger_rows.is_empty(),
@@ -829,6 +857,12 @@ fn agent_mark_icon(agent: coding::CodingAgent) -> &'static str {
 impl Render for AgentDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AgentDetailPane").entered();
+        #[cfg(test)]
+        if self.shot_settle > 0 {
+            self.shot_settle -= 1;
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            cx.notify();
+        }
         let agent = self.selected_agent_id(cx).and_then(|id| crate::session_data::agent_def(&id, cx));
         // The nav clamps a stale Agent(id) selection away before this pane
         // shows, so a missing row is only a transient frame.
@@ -867,6 +901,12 @@ impl HostPlugin for PanePlugin {
     }
 
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        // The Assistant's mark is the IDE's own logo (the rail's
+        // `ExpIcon::Logo`, full bleed) at three quarters of its 36 px disc
+        // (web `AssistantMark size-9`), past the theme's icon rung.
+        if name == "brand-exponential" {
+            return Some(gpui_component::Icon::from(crate::icons::ExpIcon::Logo).size(gpui::px(27.)).text_color(color).into_any_element());
+        }
         self.inner.icon_element(name, size, color, cx)
     }
 
@@ -897,9 +937,11 @@ struct Chrome {
     disc: String,
     /// `feedback::skeleton_fill`.
     skeleton: String,
-    /// The `+ Add` outline button's stroke and its hover fill.
+    /// The `+ Add` outline button: its fill, stroke, hover fill and ink.
+    outline_fill: String,
     outline: String,
     outline_hover: String,
+    outline_fg: String,
 }
 
 impl Chrome {
@@ -914,8 +956,10 @@ impl Chrome {
             list_hover: hex(theme.list_hover),
             disc: hex(theme.muted),
             skeleton: hex(theme.muted_foreground.opacity(0.18)),
-            outline: hex(theme.border),
-            outline_hover: hex(theme.secondary_hover),
+            outline_fill: hex(theme.input_background()),
+            outline: hex(theme.input),
+            outline_hover: hex(gpui_component::Colorize::mix_oklab(&theme.input, theme.transparent, 0.5)),
+            outline_fg: hex(theme.button_foreground),
         }
     }
 }
@@ -991,28 +1035,42 @@ fn schedule_rows(ink: &Ink, chrome: &Chrome) -> [Value; 3] {
     let label = field_label("triggers");
     let glyph = ink.r(1.);
     // `picker_trigger`: the value + chevron (the Medium ghost button).
+    // The ghost Button's run: gpui snaps it half a pixel up.
+    let mut none_value = faded(ink.text("schedule_new_value", json!(AGENT_SETTINGS.copy.no_schedule.clone()), SM, &ink.value), VALUE_ALPHA);
+    none_value["style"]["position"] = json!("relative");
+    none_value["style"]["top"] = json!(-0.5);
     let none_trigger = json!({"id": "schedule_new_trigger", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "scheduleNew"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "cursor": "pointer"},
         "children": [
-            faded(ink.text("schedule_new_value", json!(AGENT_SETTINGS.copy.no_schedule.clone()), SM, &ink.value), VALUE_ALPHA),
+            none_value,
             {"id": "schedule_new_chevron", "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA, "flexShrink": 0}},
         ]});
     let label_col = |id: &str| json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground)]});
     let control = |id: &str, child: Value| json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexGrow": 1, "minWidth": 200}, "children": [child]});
     let none = ink.shell("schedule_none", false, path("/pane/noTriggers"), vec![label_col("schedule_none"), control("schedule_none", none_trigger)]);
-    // `+ Add`: an outline `xsmall` Button with its glyph.
+    // `+ Add`: gpui-component's outline `xsmall` Button with its glyph
+    // (`h_5`, `px_1`, `gap_1`, a `size_3` glyph, `text_xs`; the input fill
+    // and stroke).
     let size = ink.r(XS);
     let add = json!({"id": "trigger_add", "component": "Box", "visible": path("/pane/canAdd"), "props": {"pressable": true}, "accessibility": {"label": AGENT_SETTINGS.copy.add_trigger.clone()}, "on": {"press": {"event": {"name": "triggerAdd"}}},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.outline, "cursor": "pointer", ":hover": {"backgroundColor": chrome.outline_hover}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": ink.r(1.25), "paddingHorizontal": ink.r(0.25), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.outline, "backgroundColor": chrome.outline_fill, "cursor": "pointer", ":hover": {"backgroundColor": chrome.outline_hover}},
         "children": [
-            {"id": "trigger_add_icon", "component": "Icon", "props": {"name": "ui-add"}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": ink.foreground, "flexShrink": 0}},
-            {"id": "trigger_add_text", "component": "Text", "props": {"text": AGENT_SETTINGS.copy.add_trigger.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground, "flexShrink": 0}},
+            {"id": "trigger_add_icon", "component": "Icon", "props": {"name": "ui-add"}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": chrome.outline_fg, "flexShrink": 0}},
+            {"id": "trigger_add_text", "component": "Text", "props": {"text": AGENT_SETTINGS.copy.add_trigger.clone()}, "style": {"fontSize": size, "lineHeight": size * super::doc::LINE, "color": chrome.outline_fg, "flexShrink": 0}},
         ]});
     let header = ink.shell("schedule_head", false, path("/pane/hasTriggers"), vec![label_col("schedule_head"), control("schedule_head", add)]);
     // One trigger row.
+    // `picker_value_label`: one line, at most 240 px.
     let mut summary = ink.text("trigger_summary", path("summary"), SM, &ink.foreground);
     summary["props"]["lines"] = json!(1);
     summary["style"]["minWidth"] = json!(0);
+    summary["style"]["maxWidth"] = json!(240);
+    // The ghost Button's run sits on its own line box, under the compact
+    // switch's 16 px: a member's row (no ⋯) is the switch's height.
+    summary["style"]["lineHeight"] = json!(16);
+    // gpui snaps the Button's run half a pixel up inside its 32 px row.
+    summary["style"]["position"] = json!("relative");
+    summary["style"]["top"] = json!(-0.5);
     let summary = json!({"id": "trigger_open", "component": "Box", "props": {"pressable": true}, "on": {"press": {"event": {"name": "triggerOpen", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexGrow": 1, "flexShrink": 1, "minWidth": 0, "cursor": "pointer"}, "children": [summary]});
     let switch = json!({"id": "trigger_switch", "component": "Switch", "props": {"label": "", "name": "enabled", "size": "compact", "checked": path("enabled"), "disabled": path("/pane/busy")},

@@ -2081,8 +2081,8 @@ mod agent_detail_shots {
         .expect("a device row")
     }
 
-    fn skill(id: &str, name: &str) -> domain::rows::SkillRow {
-        serde_json::from_value(json!({"id": id, "team_id": TEAM, "name": name, "description": ""})).expect("a skill row")
+    fn skill(id: &str, name: &str, description: &str) -> domain::rows::SkillRow {
+        serde_json::from_value(json!({"id": id, "team_id": TEAM, "name": name, "description": description})).expect("a skill row")
     }
 
     pub(super) fn agent(id: &str, role: &str, device: &str, triggers: serde_json::Value) -> domain::rows::AgentDefRow {
@@ -2108,7 +2108,7 @@ mod agent_detail_shots {
         for d in [device("mint", "mint", "monitor", "desktop", true, true), device("build", "build-server", "server", "server", true, false), device("macbook", "macbook", "laptop", "desktop", false, false)] {
             collections.devices.update(cx, |c, _| c.seed(RowKey::Single(d.id.clone()), d));
         }
-        for s in [skill("s-review", "review"), skill("s-triage", "triage"), skill("s-release", "release-notes")] {
+        for s in [skill("s-review", "review", "Run the checks, then summarise the diff."), skill("s-triage", "triage", "Label, prioritise and route new issues."), skill("s-release", "release-notes", "Draft the notes from the merged PRs.")] {
             collections.skills.update(cx, |c, _| c.seed(RowKey::Single(s.id.clone()), s));
         }
     }
@@ -2121,6 +2121,49 @@ mod agent_detail_shots {
             seed(agent, cx);
             AgentDetailPane::for_shots(&id, window, cx)
         }, |_, _| {}, None, &[], move |pane, window, cx| pane.show(owner, instructions, window, cx));
+    }
+
+    /// The owner's page with one popup opened by a click at `at` (window
+    /// points; the same spot on today's pane and the document).
+    fn opened(name: &str, at: &'static [(f32, f32)], node: &'static str) {
+        let agent = agent("a1", "agent", "mint", triggers());
+        let id = agent.id.clone();
+        shoot_pane_acted(name, move |window, cx| {
+            seed(agent, cx);
+            let mut pane = AgentDetailPane::for_shots(&id, window, cx);
+            pane.show(true, Some(Ok(INSTRUCTIONS.into())), window, cx);
+            pane
+        }, |_, _| {}, Some(std::time::Duration::from_millis(1200)), at, move |pane, window, cx| pane.press_for_shots(node, window, cx));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_agent_icon_open() {
+        opened("agent-icon-open", &[(54., 50.)], "icon_picker.trigger");
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_agent_color_open() {
+        opened("agent-color-open", &[(93., 50.)], "color_picker.trigger");
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_agent_device_open() {
+        opened("agent-device-open", &[(692., 98.)], "device.trigger");
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_agent_skills_open() {
+        opened("agent-skills-open", &[(680., 140.)], "skills.trigger");
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_agent_account_open() {
+        opened("agent-account-open", &[(640., 195.)], "account.trigger");
     }
 
     #[test]
