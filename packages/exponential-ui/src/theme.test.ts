@@ -51,7 +51,7 @@ describe(`built-in themes`, () => {
 
 describe(`recipe contract`, () => {
   test(`recipe keys are a subset of the Box visual keys plus the box keys and native`, () => {
-    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `maxWidth`, `backgroundClip`]) // #EXP-1629: backgroundClip is recipe-only
+    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `maxWidth`, `backgroundClip`, `paddingTop`, `paddingBottom`, `textAlign`]) // #EXP-1629: backgroundClip is recipe-only
     for (const key of RECIPE_KEYS) expect(allowed.has(key), key).toBe(true)
     expect(RECIPE_STATES).toContain(`hover`)
   })

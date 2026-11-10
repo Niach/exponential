@@ -883,7 +883,10 @@ impl Surface {
     }
 
     fn is_inert(&self, n: &LNode) -> bool {
-        let flagged = |p: &crate::types::Props| p.get("disabled").and_then(Value::as_bool) == Some(true) || p.get("loading").and_then(Value::as_bool) == Some(true);
+        // #EXP-1765: a `loading` Select stays live (its popup shows the
+        // skeleton rows while the options load); `loading` freezes the rest.
+        let select = n.component == "Select" || n.owner_component.as_deref() == Some("Select");
+        let flagged = |p: &crate::types::Props| p.get("disabled").and_then(Value::as_bool) == Some(true) || (!select && p.get("loading").and_then(Value::as_bool) == Some(true));
         if flagged(&n.props) || self.states.get(&n.id).is_some_and(|s| s.iter().any(|x| x == "disabled")) {
             return true;
         }

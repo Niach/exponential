@@ -390,7 +390,9 @@ class SurfaceMeasurer(
     private fun text(leaf: LeafRequest, ts: ResolvedTextStyle, inner: Float?): Content {
         val props = leaf.props
         val raw = shown(props.shownText("text"), leaf)
-        val countW = props["count"]?.displayText?.takeIf { it.isNotEmpty() }?.let { line(it, ts) } ?: 0f
+        // #EXP-1765: a mono Select option's `trailing` (the surface's sans type) counts like a count.
+        val countW = props["count"]?.displayText?.takeIf { it.isNotEmpty() }?.let { line(it, ts) }
+            ?: props["trailing"]?.displayText?.takeIf { it.isNotEmpty() }?.let { line(it, ts.copy(fontFamily = null)) } ?: 0f
         val (lead, trail) = textChrome(leaf.ownerComponent ?: leaf.component, leaf.part, props, leaf.control.gap, countW, spacing("xs"))
         if (lead != 0f || trail != 0f) return row(raw, ts, lead, trail, inner)
         if (leaf.part == "cell" && props.str("cellType") == "boolean") return Content(16f, ts.lineHeight)
@@ -598,7 +600,7 @@ class SurfaceMeasurer(
         val gap = max(c.gap, spacing("sm"))
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
         // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
-        val glyph = part("Select", "chevron", leaf.props).width ?: 16f
+        val glyph = part("Select", "chevron", leaf.props).let { it.width ?: it.height } ?: 16f
         return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
     }
 
@@ -647,7 +649,8 @@ class SurfaceMeasurer(
                 owner == "Tabs" && part == "tab" -> (if (props["icon"] != null) 16f + xs else 0f) to (if (props["count"] != null) xs + countW else 0f)
                 // Round 2 §7: the count is its own muted part after the title.
                 owner == "Accordion" && part == "trigger" -> 0f to ((if (props["count"] != null) 8f + countW else 0f) + 16f + max(gap, 8f))
-                owner == "Select" && part == "item" -> icon("icon") to (16f + max(gap, 8f))
+                // #EXP-1765: a mono option's `trailing` ([countW]) sits before the check slot.
+                owner == "Select" && part == "item" -> icon("icon") to (16f + max(gap, 8f) + if (props["trailing"] != null) max(gap, 4f) + countW else 0f)
                 owner == "Menu" && part == "itemLabel" -> icon("icon") to 0f
                 owner == "Table" && part == "headerCell" -> 0f to (if (props["sortIcon"] != null || props.flag("sortable")) 16f + 4f else 0f)
                 else -> 0f to 0f

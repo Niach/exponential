@@ -46,6 +46,8 @@ import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.selectPick
+import at.exponential.ui.model.selectSearchClearable
+import at.exponential.ui.model.selectSearchClear
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
@@ -460,6 +462,137 @@ class InteractionTest {
         assertEquals(262f, at.exponential.ui.compose.selectPopupWidth(row, row = true))
         assertNull(at.exponential.ui.compose.selectPopupWidth(emptyMap(), row = false))
         assertEquals(300f, at.exponential.ui.compose.selectPopupWidth(mapOf("popupWidth" to JsonValue.Num(300.0)), row = false))
+    }
+
+    /**
+     * #EXP-1765: a `pill` Select opened by the POINTER (the core's layer)
+     * shows no cursor until the pointer moves over an option or a key goes
+     * (↓ lands on the first enabled option); opened from the keyboard it
+     * keeps today's cursor. `loading` lays the Skeleton rows (`<id>.skeleton`)
+     * in place of the options and `empty`; a mono option keeps its
+     * `trailing` its own run (the core's `trailing` prop, the label alone
+     * as the text), a plain one reads it on.
+     */
+    @Test
+    fun selectPill() {
+        val options = """[{"label":"Option A","value":"a","disabled":true},{"label":"main","value":"main","mono":true,"trailing":"default"},{"label":"dev","value":"dev","trailing":"· old"}]"""
+        fun surface(extra: String = ""): SurfaceModel {
+            val m = SurfaceModel("select-pill", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"pill","options":$options,"value":"main"$extra}}]}""")
+            m.setViewport(390f, 800f)
+            return m
+        }
+        val hovered = { m: SurfaceModel -> m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id } }
+        // The pointer: no cursor, then the pointer (or ↓) brings it.
+        var m = surface()
+        m.focus("s.trigger", true, fromKeyboard = false)
+        m.press("s.trigger")
+        assertTrue(m.layers.any { it.owner == "s" })
+        assertEquals(emptyList<String>(), hovered(m))
+        m.hover("s.item.2", true)
+        assertEquals(listOf("s.item.2"), hovered(m))
+        m = surface()
+        m.focus("s.trigger", true, fromKeyboard = false)
+        m.press("s.trigger")
+        assertTrue(m.layers.any { it.owner == "s" })
+        assertEquals(emptyList<String>(), hovered(m))
+        assertTrue(handleKey(m, "down"))
+        assertEquals(listOf("s.item.1"), hovered(m))
+        // The keyboard: today's cursor at once.
+        m = surface()
+        m.focus("s.trigger", true, fromKeyboard = true)
+        m.press("s.trigger")
+        assertEquals(listOf("s.item.1"), hovered(m))
+        // A mono option's trailing stays its own run; a plain one's reads on.
+        assertEquals("main", m.node(m.idx("s.item.1"))?.props?.get("text")?.displayText)
+        assertEquals("default", m.node(m.idx("s.item.1"))?.props?.get("trailing")?.displayText)
+        assertEquals("dev · old", m.node(m.idx("s.item.2"))?.props?.get("text")?.displayText)
+        assertNull(m.node(m.idx("s.item.2"))?.props?.get("trailing"))
+        val opts = at.exponential.ui.compose.selectOptions(m.ownerProps(m.idx("s.trigger")), "")
+        assertEquals(listOf("Option A", "main", "dev · old"), opts.map { it.text })
+        assertEquals(listOf(null, "default", null), opts.map { it.trailing })
+        assertEquals(listOf(false, true, false), opts.map { it.mono })
+        assertTrue("the search matches the label alone", at.exponential.ui.compose.selectOptions(m.ownerProps(m.idx("s.trigger")), "default").isEmpty())
+        // loading: the Skeleton rows in place of the options (and `empty`); the search stays.
+        m = surface(""","loading":true,"searchable":true,"searchPlaceholder":"Search branches"""")
+        m.press("s.trigger")
+        assertNotNull(m.indexOf("s.skeleton"))
+        assertEquals(emptyList<String>(), m.nodes.filter { it.owner == "s" && (it.part == "item" || it.part == "empty") && !it.hidden }.map { "${it.id}/${it.component}" })
+        val search = m.nodes.first { it.owner == "s" && it.part == "search" }
+        assertEquals("Search branches", search.props["placeholder"]?.displayText)
+    }
+
+    /**
+     * #EXP-1765: a `pill` Select's search ends in the clear button only while
+     * it holds text; pressing it empties the field, the core hears the empty
+     * query (the list unfiltered) and the focus stays in the field. A
+     * `field` Select's search never has one.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun selectPillSearchClear() = runTest {
+        for (variant in listOf("pill", "field")) {
+            val m = SurfaceModel("select-clear", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"$variant","searchable":true,"options":[{"label":"main","value":"main"},{"label":"develop","value":"develop"}]}}]}""")
+            m.setViewport(390f, 800f)
+            m.press("s.trigger")
+            val search = { m.nodes.first { it.owner == "s" && it.part == "search" }.index }
+            val items = { m.nodes.filter { it.owner == "s" && it.part == "item" && !it.hidden }.map { it.id } }
+            assertFalse("$variant: no clear while empty", m.selectSearchClearable(search()))
+            m.fieldEdited(search(), "dev")
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
+            assertEquals("$variant: filtered", listOf("s.item.1"), items())
+            assertEquals("$variant: clear only on a pill", variant == "pill", m.selectSearchClearable(search()))
+            if (variant != "pill") continue
+            m.selectSearchClear(search())
+            assertEquals("", m.fieldText(search()))
+            assertEquals(listOf("s.item.0", "s.item.1"), items())
+            assertFalse(m.selectSearchClearable(search()))
+            assertEquals("s.search", m.focusRequest)
+            assertTrue(m.layers.any { it.owner == "s" })
+        }
+    }
+
+    /** #EXP-1765: a `loading` Select is not inert: it opens (the core's layer with its skeleton, and our own popup). */
+    @Test
+    fun selectLoadingOpens() {
+        for (native in listOf(false, true)) {
+            val overlays = if (native) OverlayPresentation.Native else OverlayPresentation.Painted
+            val m = SurfaceModel("select-loading", SurfaceOptions(overlays = overlays), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"pill","loading":true,"options":[{"label":"main","value":"main"}]}}]}""")
+            m.setViewport(390f, 800f)
+            assertFalse(m.isDisabled(m.idx("s.trigger")))
+            m.press("s.trigger")
+            if (native) assertEquals("s.trigger", m.popup)
+            else {
+                assertTrue(m.layers.any { it.owner == "s" })
+                assertNotNull(m.indexOf("s.skeleton"))
+            }
+        }
+    }
+
+    /** #EXP-1765: a pill's popup geometry (our own popup): `selectRowPopupWidth` wide, 3 under the pill, its aligned edge 1 outside the pill's. */
+    @Test
+    fun selectPillPopupRules() {
+        val pill = mapOf("triggerVariant" to JsonValue.Str("pill"))
+        assertTrue(at.exponential.ui.compose.selectPillVariant(pill))
+        assertTrue(at.exponential.ui.compose.selectPillVariant(emptyMap(), pill))
+        assertFalse(at.exponential.ui.compose.selectPillVariant(mapOf("triggerVariant" to JsonValue.Str("row"))))
+        assertEquals(3f to 7f, at.exponential.ui.compose.selectPopupSpacing(row = false, pill = true))
+        assertEquals(1f, at.exponential.ui.compose.selectPopupInset(true))
+        assertEquals(0f, at.exponential.ui.compose.selectPopupInset(false))
+        assertEquals(262f, at.exponential.ui.compose.selectPopupWidth(pill, row = true))
+        // LTR start: one before the pill's left edge; end: one past its right edge; rtl start = the right edge.
+        assertEquals(99, at.exponential.ui.compose.selectPopupX("start", false, 100, 160, 262, 1))
+        assertEquals(161 - 262, at.exponential.ui.compose.selectPopupX("end", false, 100, 160, 262, 1))
+        assertEquals(161 - 262, at.exponential.ui.compose.selectPopupX("start", true, 100, 160, 262, 1))
+        assertEquals(100, at.exponential.ui.compose.selectPopupX("start", false, 100, 160, 262, 0))
+        assertEquals(7f, at.exponential.ui.compose.selectTrailingGap(7f))
+        assertEquals(4f, at.exponential.ui.compose.selectTrailingGap(0f))
     }
 
     /**

@@ -377,13 +377,19 @@
     ],
     "selectTrigger": [
       "field",
-      "row"
+      "row",
+      "pill"
     ],
     "inputVariant": [
       "field",
       "row",
       "bare",
-      "code"
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
     ],
     "textareaVariant": [
       "field",
@@ -414,6 +420,9 @@
         },
         "trailing": {
           "type": "string"
+        },
+        "mono": {
+          "type": "boolean"
         },
         "image": {
           "type": "url"
@@ -1260,6 +1269,8 @@
     "Select.search": "search",
     "Select.check": "ui-check",
     "Select.chevron": "ui-chevron-right",
+    "Select.dropdown": "ui-chevron-down",
+    "Select.clear": "ui-clear",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -3673,6 +3684,11 @@
           "enum": "inputVariant",
           "default": "field"
         },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default"
+        },
         "disabled": {
           "type": "boolean",
           "default": false
@@ -4105,6 +4121,10 @@
           "type": "string",
           "default": "$string.noResults"
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "default": "$string.search"
+        },
         "triggerVariant": {
           "type": "enum",
           "enum": "selectTrigger",
@@ -4116,6 +4136,11 @@
         },
         "popupWidth": {
           "type": "number"
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
         },
         "disabled": {
           "type": "boolean",

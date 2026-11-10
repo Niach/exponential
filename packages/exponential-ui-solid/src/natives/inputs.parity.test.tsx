@@ -87,6 +87,13 @@ describe(`inputs: interactions replayed on both`, () => {
       ;(area as HTMLTextAreaElement).focus()
       typeInto(area, `!`)
     }))
+  it(`Input box sm (#EXP-1629): no label part, typing`, async () =>
+    expectParity(one({ id: `i`, component: `Input`, props: { label: `Email`, name: `e`, variant: `box`, size: `sm`, placeholder: `teammate@example.com`, value: { "@path": `/e` } } }, { e: `ada` }), (root) => {
+      const input = root.querySelector(`input`)
+      fire(input, `focusin`)
+      ;(input as HTMLInputElement).focus()
+      typeInto(input, `@example.com`)
+    }))
   it(`NumberField: steppers and keys`, async () =>
     expectParity(one({ id: `n`, component: `NumberField`, props: { label: `N`, value: 3, min: 1, max: 5 } }), (root) => {
       fire(root.querySelector(`[data-xui-part="NumberField/increment"]`), `click`)

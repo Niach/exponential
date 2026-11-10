@@ -182,7 +182,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].style.display",
-          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip"
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip|paddingTop|paddingBottom|textAlign"
         }
       ]
     },

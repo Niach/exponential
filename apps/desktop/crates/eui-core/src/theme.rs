@@ -413,6 +413,11 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("maxWidth", &["control", "spacing"]),
     // #EXP-1629: recipe-only (`padding-box` = the fill paints inside the border).
     ("backgroundClip", &[]),
+    // #EXP-1765: a part's one-sided inset (the pill popup's search row).
+    ("paddingTop", &["spacing"]),
+    ("paddingBottom", &["spacing"]),
+    // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
+    ("textAlign", &[]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -427,7 +432,7 @@ fn is_percent(value: &Value) -> bool {
 pub const BACKGROUND_CLIPS: [&str; 2] = ["border-box", "padding-box"];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
 const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
-const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
+const ENUM_KEYS: [&str; 6] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation", "textAlign"];
 const THEME_KEYS: [&str; 10] = ["$schema", "$comment", "id", "name", "extends", "modes", "contrast", "tokens", "fonts", "recipes"];
 
 /// The enum a style key takes (`borderStyle` → solid|dashed|dotted).

@@ -14877,6 +14877,86 @@
       }
     ]
   },
+  "Input\/size=default" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/size=sm" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          32
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
   "Input\/type=email" : {
     "height" : 60,
     "nodes" : [
@@ -15301,6 +15381,35 @@
         ],
         "id" : "input.field",
         "part" : "field"
+      }
+    ]
+  },
+  "Input\/variant=box" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "input"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 12
       }
     ]
   },
@@ -30996,6 +31105,86 @@
       }
     ]
   },
+  "Select\/loading=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/loading=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
   "Select\/multiple=false" : {
     "height" : 60,
     "nodes" : [
@@ -31193,6 +31382,35 @@
         "id" : "select.trigger",
         "part" : "trigger",
         "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerVariant=pill" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "select"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          160,
+          24
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 9999
       }
     ]
   },
