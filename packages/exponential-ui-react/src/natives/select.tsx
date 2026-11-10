@@ -53,6 +53,8 @@ export interface SelectOption {
   trailing?: string
   /** #EXP-1765: the label in the mono type, the `trailing` its own muted run. */
   mono?: boolean
+  /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
+  description?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -366,8 +368,13 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                 {(loading ? [] : options).map((o) => (
                   // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
                   <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
-                    {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    {trailingText(o) ? (
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {str(o.description) ? (
+                      <span {...(part(`itemText`) as Record<string, string>)}>
+                        <span {...(part(`itemLabel`) as Record<string, string>)}><SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>{trailingText(o)}</span>
+                        <span {...(part(`itemDescription`) as Record<string, string>)}>{str(o.description)}</span>
+                      </span>
+                    ) : trailingText(o) ? (
                       <span>
                         <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                         {trailingText(o)}
@@ -589,8 +596,15 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(i)}
                   >
-                    {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    <span>{str(o.label)}{trailingText(o)}</span>
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {str(o.description) ? (
+                      <span {...(part(`itemText`) as Record<string, string>)}>
+                        <span {...(part(`itemLabel`) as Record<string, string>)}>{str(o.label)}{trailingText(o)}</span>
+                        <span {...(part(`itemDescription`) as Record<string, string>)}>{str(o.description)}</span>
+                      </span>
+                    ) : (
+                      <span>{str(o.label)}{trailingText(o)}</span>
+                    )}
                     <TrailingRun o={o} />
                     {isSel ? (
                       <span {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>

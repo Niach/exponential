@@ -247,8 +247,14 @@ fn decide(if_: Option<&Value>, any: Option<&[Value]>, ctx: &ExprContext) -> Deci
 
 fn expand_template(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, parent_id: &str) -> Vec<UiNode> {
     if let Some(each) = &tpl.each {
-        let Some(Value::Array(items)) = eval_value(&Value::String(format!("{{{each}}}")), ctx) else {
-            return Vec::new();
+        // EXP-1760: a literal list (a picker's default set) or an expression.
+        let items = match each {
+            Value::Array(items) => items.clone(),
+            Value::String(each) => match eval_value(&Value::String(format!("{{{each}}}")), ctx) {
+                Some(Value::Array(items)) => items,
+                _ => return Vec::new(),
+            },
+            _ => return Vec::new(),
         };
         let as_ = tpl.as_.as_deref().unwrap_or("item");
         // #VAPP-285: under `$each` the part's `$if`/`$any` are decided PER

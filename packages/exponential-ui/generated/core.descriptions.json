@@ -2297,6 +2297,9 @@
         "popupWidth": {
           "description": "Px (`row`: 260)."
         },
+        "popupMinWidth": {
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
         "loading": {
           "description": "Options still loading: skeleton rows in the popup."
         },
@@ -2434,6 +2437,59 @@
         "value": [
           "Ctrl",
           "Space"
+        ]
+      }
+    },
+    "IconPicker": {
+      "props": {
+        "value": {
+          "description": "Picked icon name."
+        },
+        "icons": {
+          "description": "Offered icons; default the board set."
+        },
+        "color": {
+          "description": "Hex tint of the pick."
+        },
+        "allowNone": {
+          "description": "Adds a No icon row."
+        },
+        "open": {
+          "description": "Grid shows; bind it."
+        }
+      },
+      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "example": {
+        "value": "rocket",
+        "color": "#3b82f6",
+        "icons": [
+          "code",
+          "rocket",
+          "star",
+          "zap"
+        ]
+      }
+    },
+    "ColorPicker": {
+      "props": {
+        "value": {
+          "description": "Picked hex colour."
+        },
+        "colors": {
+          "description": "Offered hexes; default the label palette."
+        },
+        "open": {
+          "description": "Grid shows; bind it."
+        }
+      },
+      "description": "Colour field: a swatch opens the palette grid.",
+      "example": {
+        "value": "#3b82f6",
+        "colors": [
+          "#ef4444",
+          "#22c55e",
+          "#3b82f6",
+          "#a855f7"
         ]
       }
     },

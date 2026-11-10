@@ -11,10 +11,10 @@
 //!   indented and hidden while their parent is off. `local` decides which
 //!   actions are offered: on the device itself every one, for ANOTHER device
 //!   only the fixture's `remote` ones.
-//! - **The view** ([`render_sections`], [`render_row`]) on the shared
-//!   `surface::` recipes (the group band, flat rows, glass pills, the toggle
-//!   row with no description). No subtitles, no footers: label + state + one
-//!   action.
+//! - **The view** is ONE eUI document for every host (#EXP-1770,
+//!   `settings::readiness`): the group band, flat rows, glass pills, the
+//!   toggle row with no description. No subtitles, no footers: label +
+//!   state + one action.
 //!
 //! Hosts: Settings → Tools and the first-run devices step
 //! (`settings::doctor_section::DoctorPanel`, THIS device), the device
@@ -24,10 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use gpui::{
-    div, px, AnyElement, App, Div, IntoElement, ParentElement, SharedString, Styled, Window,
-};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
+use gpui::{AnyElement, App, SharedString, Window};
 
 use coding::device_doctor::{
     self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_COMPUTER_USE,
@@ -35,8 +32,6 @@ use coding::device_doctor::{
 };
 use coding::CodingAgent;
 
-use crate::icons::registry;
-use crate::surface;
 
 /// The fixture's `copy.localTitle` — the first-run step's title.
 pub(crate) const LOCAL_TITLE: &str = "Set up this device";
@@ -531,239 +526,26 @@ pub(crate) fn agent_for(key: &str) -> Option<CodingAgent> {
 pub(crate) type ActionHandler = Rc<dyn Fn(&str, DoctorAction, &mut Window, &mut App)>;
 /// The computer-use switch.
 pub(crate) type ToggleHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
-
-/// What a host hangs on a row beyond the model: a second trailing control
-/// (the install row's Custom path pill) and a line under it (the path field,
-/// a command's outcome).
-#[derive(Default)]
-pub(crate) struct RowExtras {
-    pub trailing: Option<AnyElement>,
-    pub below: Option<AnyElement>,
-}
+/// One of the Computer use band's host rows (`settings::readiness::
+/// TAIL_SLOTS`), built where the block paints it.
+pub(crate) type TailRow = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 /// The host's wiring. No handler = inert (the styleguide).
 #[derive(Default)]
 pub(crate) struct BlockProps {
-    /// Element-id prefix (two blocks may share a window).
-    pub id: SharedString,
     pub on_action: Option<ActionHandler>,
     pub on_toggle: Option<ToggleHandler>,
     /// Row keys whose action is running (the pill shows its spinner).
     pub busy: HashSet<String>,
-    pub extras: HashMap<String, RowExtras>,
+    /// A line under a row, by its key (a finished command's outcome).
+    pub notes: HashMap<String, String>,
     /// EXP-1236: host rows appended to the Computer use band, under the
     /// switch and its permission rows (the Computer use model picker, NEW-59
     /// the Work screen picker under it). The host hands them over only while
     /// the switch is on; with no Computer use band to hang them on (an older
-    /// device's doctor) they are dropped.
-    pub computer_use_tail: Vec<AnyElement>,
-}
-
-fn tone_color(tone: Tone, cx: &App) -> gpui::Hsla {
-    let theme = cx.theme();
-    match tone {
-        Tone::Success => theme.success,
-        Tone::Warning => theme.warning,
-        Tone::Muted => theme.muted_foreground,
-        Tone::Destructive => theme.danger,
-    }
-}
-
-fn glyph_icon(glyph: Glyph) -> crate::icons::ExpIcon {
-    match glyph {
-        Glyph::Check => registry::UI_CHECK,
-        Glyph::Alert => registry::UI_WARNING,
-        Glyph::Dash => registry::UI_MINUS,
-        Glyph::X => registry::UI_CLOSE,
-    }
-}
-
-/// The band's trailing tag (`optional`): plain muted text, like the web's.
-fn tag_pill(_id: SharedString, tag: &'static str, cx: &App) -> AnyElement {
-    div()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(tag)
-        .into_any_element()
-}
-
-/// ONE row: glyph, label, detail, extras, the pill — or the switch row.
-pub(crate) fn render_row(
-    row: &ReadinessRow,
-    props: &mut BlockProps,
-    cx: &App,
-) -> AnyElement {
-    let id = props.id.clone();
-    let mut extras = props.extras.remove(&row.key).unwrap_or_default();
-    let line: Div = if let Some(on) = row.switch {
-        let mut switch = crate::controls::web_switch(SharedString::from(format!(
-            "{id}-switch-{}",
-            row.key
-        )))
-        .checked(on)
-        .disabled(props.on_toggle.is_none());
-        if let Some(on_toggle) = props.on_toggle.clone() {
-            switch = switch.on_click(move |checked: &bool, window, cx| {
-                on_toggle(*checked, window, cx);
-            });
-        }
-        // The fixture's switch row: label + switch, NO description; read-only
-        // (no toggle), the label dims with the switch like web's disabled row.
-        let foreground = cx.theme().foreground;
-        let label_color = if props.on_toggle.is_some() { foreground } else { foreground.opacity(0.5) };
-        surface::glass_row_shell()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .text_color(label_color)
-                    .child(SharedString::from(row.label.clone())),
-            )
-            .child(switch)
-            .px_3()
-            .py_2()
-    } else {
-        let mut line = surface::flat_row()
-            .flex()
-            .flex_row()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2();
-        if let Some((glyph, tone)) = row.glyph {
-            line = line.child(
-                Icon::new(glyph_icon(glyph))
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(tone_color(tone, cx)),
-            );
-        }
-        line = line
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(row.label.clone())),
-            )
-            // Web parity (`device-readiness.tsx`): the detail sits at the
-            // row's right edge (`ml-auto text-right`) in the smaller size.
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_right()
-                    .text_xs()
-                    .text_color(tone_color(row.detail_tone, cx))
-                    .child(SharedString::from(row.detail.clone().unwrap_or_default())),
-            )
-            .children(extras.trailing.take());
-        if let Some(pill) = row.pill {
-            let pill_id = SharedString::from(format!("{id}-action-{}", row.key));
-            let busy = props.busy.contains(&row.key);
-            let mut button = if pill.primary {
-                surface::glass_pill_button_primary(pill_id, surface::PillSize::Sm)
-                    .accessibility_label(pill.action.label())
-            } else {
-                surface::glass_pill_button(pill_id, surface::PillSize::Sm, cx)
-                    .accessibility_label(pill.action.label())
-            }
-            .label(pill.action.label())
-            .loading(busy)
-            // Web parity: disabled only while its action runs.
-            .disabled(busy);
-            if let Some(on_action) = props.on_action.clone() {
-                let key = row.key.clone();
-                let action = pill.action;
-                button = button.on_click(move |_, window, cx| on_action(&key, action, window, cx));
-            }
-            line = line.child(button);
-        }
-        line
-    };
-    let line = if row.indent { line.pl(px(36.)) } else { line };
-    match extras.below.take() {
-        Some(below) => v_flex()
-            .w_full()
-            .min_w_0()
-            .child(line)
-            .child(div().w_full().px_3().pb_2().pl(px(36.)).child(below))
-            .into_any_element(),
-        None => line.into_any_element(),
-    }
-}
-
-/// THE block: one band per group (its tag trailing), the group's rows as one
-/// hairline ladder under it.
-pub(crate) fn render_sections(
-    sections: &[ReadinessSection],
-    mut props: BlockProps,
-    cx: &App,
-) -> Div {
-    let mut block = v_flex().w_full().min_w_0().gap_4();
-    for section in sections {
-        let tag = section.tag.map(|tag| {
-            tag_pill(
-                SharedString::from(format!("{}-tag-{:?}", props.id, section.group)),
-                tag,
-                cx,
-            )
-        });
-        let mut rows: Vec<AnyElement> = section
-            .rows
-            .iter()
-            .map(|row| render_row(row, &mut props, cx))
-            .collect();
-        if section.group == DoctorGroup::ComputerUse {
-            rows.extend(std::mem::take(&mut props.computer_use_tail));
-        }
-        block = block.child(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .child(surface::glass_section_header(section.label, tag, cx))
-                .child(
-                    v_flex().w_full().min_w_0().children(
-                        rows.into_iter().map(surface::list_row),
-                    ),
-                ),
-        );
-    }
-    block
-}
-
-/// The block's loading shape (no report yet): its rows as placeholders
-/// (EXP-1259 D8).
-pub(crate) fn render_loading(cx: &App) -> Div {
-    v_flex().child(crate::feedback::skeleton_rows(
-        "device-readiness-skeleton",
-        crate::feedback::SKELETON_ROWS,
-        crate::settings::SETTINGS_ROW_H,
-        cx,
-    ))
-}
-
-/// The ONE row under the composer (single-row mode): the failing row with
-/// its action, no band.
-pub(crate) fn render_single(row: &ReadinessRow, props: BlockProps, cx: &App) -> Div {
-    let mut props = props;
-    let tail = std::mem::take(&mut props.computer_use_tail);
-    let line = render_row(row, &mut props, cx);
-    if tail.is_empty() {
-        return h_flex().w_full().min_w_0().child(line);
-    }
-    // EXP-1236: the bare switch row (no doctor) still carries the model
-    // picker (and the Work screen row) under it while it is on — the same
-    // ladder the band draws.
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .child(surface::list_row(line))
-        .children(tail.into_iter().map(surface::list_row))
+    /// device's doctor) they are dropped. The bare switch row (no doctor)
+    /// carries them too.
+    pub computer_use_tail: Vec<TailRow>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,27 +800,19 @@ pub(crate) fn set_local_computer_use(on: bool, cx: &mut App) {
 }
 
 /// The local block's standard wiring (every action + the switch).
-pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
+pub(crate) fn local_props(cx: &App) -> BlockProps {
     BlockProps {
-        id: id.into(),
         on_action: Some(Rc::new(run_local_action)),
         on_toggle: Some(Rc::new(|on, _window, cx| set_local_computer_use(on, cx))),
         busy: local_busy(cx),
-        extras: HashMap::new(),
-        computer_use_tail: Vec::new(),
+        ..BlockProps::default()
     }
 }
 
 /// A remote block's wiring for `device_id` (remote actions; the switch is the
 /// host's, it owns the launch-defaults write).
-pub(crate) fn remote_props(
-    id: impl Into<SharedString>,
-    device_id: String,
-    device_label: SharedString,
-    _cx: &App,
-) -> BlockProps {
+pub(crate) fn remote_props(device_id: String, device_label: SharedString) -> BlockProps {
     BlockProps {
-        id: id.into(),
         on_action: Some(Rc::new(move |key, action, window, cx| {
             run_remote_action(device_id.clone(), device_label.clone(), key, action, window, cx)
         })),

@@ -13,7 +13,7 @@
 //! The list is LIVE off the synced `prompts` shape (body-less rows); the body
 //! comes from `prompts.get` when a page opens.
 
-use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window};
 use gpui_component::ActiveTheme as _;
 
 use crate::icons::registry;
@@ -347,7 +347,7 @@ impl PromptPage {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PAGE_PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(std::rc::Rc::new(IdeToasts));
-            for name in ["edit", "submit", "save", "delete", "retry"] {
+            for name in ["edit", "submit", "save", "delete", "retry", "icon"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -375,7 +375,7 @@ impl PromptPage {
             radius: f32::from(theme.radius),
             skeleton: hex(theme.muted_foreground.opacity(0.18)),
         };
-        let plugin: std::rc::Rc<dyn HostPlugin> = std::rc::Rc::new(PagePlugin { page: cx.weak_entity(), inner: super::doc::ide_plugin() });
+        let plugin: std::rc::Rc<dyn HostPlugin> = std::rc::Rc::new(super::doc::ide_plugin());
         let view = super::doc::mount_with("settings-prompt", page_document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
 
         let mut this = Self {
@@ -542,6 +542,11 @@ impl PromptPage {
                 }
                 cx.notify();
             }
+            "icon" => {
+                if let Some(icon) = payload.get("value").and_then(Value::as_str).filter(|icon| !icon.is_empty()) {
+                    self.pick_icon(icon, cx);
+                }
+            }
             "submit" | "save" => self.submit(window, cx),
             "delete" => self.open_delete(window, cx),
             "retry" => {
@@ -690,6 +695,7 @@ impl PromptPage {
             "readOnly": read_only,
             "editable": !read_only,
             "icon": icon_name(&self.icon),
+            "pickedIcon": self.icon,
             "fields": {"name": self.name, "body": self.shown_body},
             "hasNameError": name_error.is_some(),
             "nameError": name_error.unwrap_or_default(),
@@ -750,53 +756,6 @@ fn icon_name(icon: &str) -> &str {
     }
 }
 
-/// The page's plugin: the IDE's, plus the icon picker drawn by the IDE
-/// itself (`board_form::icon_picker`).
-struct PagePlugin {
-    page: gpui::WeakEntity<PromptPage>,
-    inner: crate::exponential_ui_host::IdePlugin,
-}
-
-impl HostPlugin for PagePlugin {
-    fn icon(&self, name: &str) -> Option<SharedString> {
-        self.inner.icon(name)
-    }
-
-    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
-        self.inner.on_unknown(node)
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        (component_id == "icon_picker").then_some(crate::controls::CTL_MD_H)
-    }
-
-    // drop with EXP-1760: the icon picker is the IDE's own
-    // (`board_form::icon_picker`) until genUI has one.
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement> {
-        if component_id != "icon_picker" {
-            return None;
-        }
-        let page = self.page.upgrade()?;
-        let icon = page.read(cx).icon.clone();
-        let weak = self.page.clone();
-        Some(
-            crate::board_form::icon_picker(
-                "prompt-icon",
-                registry::PICKABLE_ICONS,
-                Some(&icon),
-                None,
-                false,
-                move |name, _, cx| {
-                    let Some(name) = name else { return };
-                    let _ = weak.update(cx, |page, cx| page.pick_icon(name, cx));
-                },
-                cx,
-            )
-            .into_any_element(),
-        )
-    }
-}
-
 /// The colours the page needs beyond [`Ink`]: the error ink and the
 /// primary / danger `Button`s' paints.
 struct PageChrome {
@@ -837,7 +796,7 @@ fn page_document(ink: &Ink, chrome: &PageChrome) -> Value {
     // Icon and name are ONE row (web parity): the glyph picker leads, the
     // name types straight into the row; a reader sees the glyph.
     let glyph = ink.r(1.);
-    let picker = json!({"id": "icon_picker", "component": "Embed", "visible": path("/pane/editable"), "props": {"surface": {}}, "style": {"width": crate::controls::CTL_MD_H, "height": crate::controls::CTL_MD_H, "flexShrink": 0}});
+    let picker = json!({"id": "icon_picker", "component": "IconPicker", "visible": path("/pane/editable"), "props": {"value": path("/pane/pickedIcon")}, "style": {"flexShrink": 0}, "on": {"change": {"event": {"name": "icon"}}}});
     let reader = json!({"id": "icon_glyph", "component": "Icon", "visible": path("/pane/readOnly"), "props": {"name": path("/pane/icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}});
     let name = json!({"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "variant": "bare", "placeholder": "Name", "value": path("/pane/fields/name"), "disabled": path("/pane/readOnly")},
         "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0},
