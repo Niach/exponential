@@ -1532,7 +1532,30 @@ impl SurfaceView {
         let fs = px_prop(&field_props, "fontSize").unwrap_or(lcx.text_style.font_size);
         let field_ink = crate::paint::color::color_of(field_props.get("color").and_then(Value::as_str)).unwrap_or(lcx.ink);
         let gap = lcx.style.gap;
-        let field_h = (h - send - gap).max(0.0);
+        // #EXP-1762: `flat` = one row: the field between the leading slot and
+        // the controls, centred on the send disc while one line, the row's
+        // full height once it grows (upward: the controls stay at the bottom).
+        let (field_x, field_y, field_w, field_h) = if lcx.str("layout") == "flat" {
+            let slot = |name: &str| self.cache.index_of(&format!("{}.{name}", n.id)).and_then(|i| self.frames.get(i as usize)).map_or(0.0, |f| f.w + gap);
+            let lead = slot("leading");
+            let att = if lcx.bool("attachments") { eui_core::measure::COMPOSER_ATTACH_W + gap } else { 0.0 };
+            let fw = (w - lead - slot("trailing") - att - send - gap).max(0.0);
+            let line = px_prop(&field_props, "lineHeight").unwrap_or(lcx.text_style.line_height);
+            let x = if lcx.rtl { w - lead - fw } else { lead };
+            if h > send + 0.5 {
+                (x, 0.0, fw, h)
+            } else {
+                // A one-line draft's TEXT is centred on the disc: gpui-component's
+                // Textarea draws its text its own editor inset (`Size::Medium`
+                // `input_py`) below its top, so the widget sits that inset
+                // above the line's box (the IDE's flat card: #EDE-65 lane T).
+                let fh = line.min(h);
+                let ey = f32::from(gpui_component::Size::Medium.input_py());
+                (x, (h - fh) / 2.0 - ey, fw, fh + 2.0 * ey)
+            }
+        } else {
+            (0.0, 0.0, w, (h - send - gap).max(0.0))
+        };
         let empty = self.fields.get(&n.id).is_none_or(|f| f.value(cx).trim().is_empty());
         let mut out = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
         if let Some(field) = self.fields.get(&n.id) {
@@ -1547,16 +1570,16 @@ impl SurfaceView {
                 }
             };
             let el = match &field.input {
-                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
-                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(w)).h(px(field_h)).on_paste(paste).into_any_element(),
+                super::input::FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(lcx.font.clone()).text_size(px(fs)).text_color(field_ink).w(px(field_w)).h(px(field_h)).on_paste(paste).into_any_element(),
+                super::input::FieldInput::Line(s) => gpui_component::input::Input::new(s).appearance(false).w(px(field_w)).h(px(field_h)).on_paste(paste).into_any_element(),
             };
             // The field claims its presses (see `field_element`).
             out = out.child(
                 div()
                     .absolute()
-                    .left_0()
-                    .top_0()
-                    .w(px(w))
+                    .left(px(field_x))
+                    .top(px(field_y))
+                    .w(px(field_w))
                     .h(px(field_h))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(el),
