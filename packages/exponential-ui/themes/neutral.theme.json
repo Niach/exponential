@@ -2692,6 +2692,14 @@
         },
         {
           "when": {
+            "size": "sm"
+          },
+          "style": {
+            "height": "$control.buttonMd"
+          }
+        },
+        {
+          "when": {
             "variant": "row"
           },
           "style": {

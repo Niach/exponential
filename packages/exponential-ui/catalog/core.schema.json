@@ -11813,10 +11813,19 @@
             "field",
             "row",
             "bare",
-            "code"
+            "code",
+            "box"
           ],
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono.",
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown.",
           "default": "field"
+        },
+        "size": {
+          "enum": [
+            "default",
+            "sm"
+          ],
+          "description": "sm = compact.",
+          "default": "default"
         },
         "disabled": {
           "type": "boolean",
