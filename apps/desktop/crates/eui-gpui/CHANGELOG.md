@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Feature `vendored-spinner` (off by default, #EXP-1629): `view::init` registers the Spinner arc as gpui-component's loading glyph (`gpui_component::spinner::set_spinner_glyph`) only with it on. That hook exists only in the desktop workspace's vendored gpui-component, so the painter builds again against crates.io `gpui-component = "=0.9.0"` (the gpui guide check). The workspace crates turn it on next to `overlay-anchor`.
 - `controls::spinner` draws THE Spinner's arc (#EXP-1629): `paint::natives::spinner_glyph` (Lucide `loader-circle`, one linear turn per 0.8 s, stepped), the glyph genUI `Spinner` paints, so the IDE's spinners match web, iOS and Android (0 px vs genUI `Spinner` headless). `ChromeIcons.refresh` is gone (it only fed the spinner).
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
 - Input `variant: "box"` + `size` (#EXP-1629): from the recipe alone. Against the IDE's `glass_input(..).web_input_sm()` / `.web_input()` (`settings_bench::box_fields`): 160 px, all ±1 on the rounded corners' antialiasing (the IDE fill is `input` × 0.3 = white 7.8/255, a theme hex says 8/255; the IDE drawn with `#ffffff08` is 0 px).
