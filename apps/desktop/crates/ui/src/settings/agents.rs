@@ -38,32 +38,28 @@
 //! fields — see the [`super::tools`] module doc for the drafted/save/resync
 //! contract that keeps their saves from clobbering each other.
 //!
+//! #EXP-1629: the pane is a document on eUI's native host binding: the
+//! agent tabs (the embedded glass tab strip), the CLI path as a `row`
+//! Input, Model and Effort as `row` Selects, Ultracode a Switch row; the
+//! hub logic (baseline, autosave, debounce, failure toast) is unchanged.
+//!
 //! The personal API key is provisioned and rotated **fully automatically**
 //! (`api::users::ensure_personal_key` on the first coding session; the
 //! `.exp-mcp.json` writer picks it up), so there is no key UI here at all.
 
+use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Task, Window,
-};
-use gpui_component::{
-    input::{InputEvent, InputState},
-    v_flex,
-};
+use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window};
+use serde_json::{json, Value};
 
 use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
-use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, selected, ChoiceSelect,
-};
-use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
-use crate::surface;
-use crate::controls::glass_input;
+use crate::coding_selects::{effort_choices_for, model_choices_for};
 
-use super::section;
+use super::doc::{hex, not, path, IdeToasts, Ink, SM};
 
 /// EXP-694: the pane AUTOSAVES like the Device settings dialog — no Save
 /// button. A typed CLI path settles for this long before it is written; a
@@ -71,9 +67,11 @@ use super::section;
 /// straight through on change.
 const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 
-// ---------------------------------------------------------------------------
-// Pane
-// ---------------------------------------------------------------------------
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// The "ultracode sets effort" hint under a locked Effort row.
+const ULTRACODE_HINT: &str = "ultracode sets effort";
 
 /// A state the pictures show (`settings_bench`).
 #[cfg(test)]
@@ -90,20 +88,38 @@ pub(crate) struct AgentsShot {
     pub typed: Option<&'static str>,
 }
 
-pub struct AgentsPane {
-    claude_input: Entity<InputState>,
-    model_select: ChoiceSelect,
-    effort_select: ChoiceSelect,
-    codex_input: Entity<InputState>,
-    codex_model_select: ChoiceSelect,
-    codex_effort_select: ChoiceSelect,
-    /// Which agent tab of the Agents card is showing — pure UI state, not
-    /// persisted (EXP-206).
-    agent_tab: CodingAgent,
-    /// Per-agent run defaults (the shared dialog's prefill — EXP-206: one
-    /// set for single- and multi-issue sessions alike): OFF out of the box
-    /// (S-3: no plan-mode default).
+/// This pane's owned fields as the controls hold them.
+#[derive(Clone, Default, PartialEq)]
+struct Controls {
+    claude_path: String,
+    claude_model: String,
+    claude_effort: String,
+    codex_model: String,
+    codex_effort: String,
     claude_ultracode: bool,
+}
+
+impl Controls {
+    fn of(settings: &Settings) -> Self {
+        Self {
+            claude_path: settings.claude_path.clone(),
+            claude_model: settings.claude_model.clone(),
+            claude_effort: settings.claude_effort.clone(),
+            codex_model: settings.codex_model.clone(),
+            codex_effort: settings.codex_effort.clone(),
+            claude_ultracode: settings.claude_ultracode,
+        }
+    }
+}
+
+pub struct AgentsPane {
+    /// The controls as edited (the document's changes).
+    controls: Controls,
+    /// The CLI path the field was last given (its bound value): a resync
+    /// rewrites it, the person's typing does not.
+    shown_path: String,
+    /// Which agent tab is showing — pure UI state, not persisted (EXP-206).
+    agent_tab: CodingAgent,
     /// The hub settings the controls were last synced from (the autosave
     /// baseline: a control rewrite the pane itself performed drafts back to
     /// it and writes nothing).
@@ -111,89 +127,59 @@ pub struct AgentsPane {
     /// The pending debounced CLI-path write (dropping it cancels).
     path_save: Option<Task<()>>,
     save_error: Option<SharedString>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AgentsPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let claude_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CLAUDE_PATH));
-        let codex_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder(coding::settings::DEFAULT_CODEX_PATH));
-        let defaults = Settings::default();
-        // ONE model select component for every model row.
-        let model_select =
-            crate::coding_selects::model_select(CodingAgent::Claude, &defaults.claude_model, window, cx);
-        let effort_select = choice_select(
-            effort_choices_for(CodingAgent::Claude),
-            &defaults.claude_effort,
-            window,
-            cx,
-        );
-        let codex_model_select =
-            crate::coding_selects::model_select(CodingAgent::Codex, &defaults.codex_model, window, cx);
-        let codex_effort_select = choice_select(
-            effort_choices_for(CodingAgent::Codex),
-            &defaults.codex_effort,
-            window,
-            cx,
-        );
-
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
-        let mut subscriptions = vec![
+        let subscriptions = vec![
             // Doctor results / external settings changes re-render + resync.
-            cx.observe_in(&hub, window, |this, _, window, cx| {
-                this.resync(window, cx);
+            cx.observe(&hub, |this, _, cx| {
+                this.resync(cx);
                 cx.notify();
             }),
         ];
-        for input in [&claude_input, &codex_input] {
-            // EXP-694 autosave: typing settles, a blur commits.
-            subscriptions.push(cx.subscribe(input, |this: &mut Self, _, event: &InputEvent, cx| {
-                match event {
-                    InputEvent::Change => this.queue_path_save(cx),
-                    InputEvent::Blur | InputEvent::PressEnter { .. } => {
-                        this.path_save = None;
-                        this.save(cx);
-                    }
-                    InputEvent::Focus => {}
-                }
-                cx.notify();
-            }));
-        }
-        for select in [
-            &model_select,
-            &effort_select,
-            &codex_model_select,
-            &codex_effort_select,
-        ] {
-            // EXP-694 autosave: confirming a choice IS the save (the baseline
-            // guard in `save` swallows the pane's own rewrites).
-            subscriptions.push(cx.observe(select, |this: &mut Self, _, cx| {
-                this.save(cx);
-                cx.notify();
-            }));
-        }
         // Leaving Settings drops the pane — pay out what the path debounce
         // still owes on the way out (the web/iOS unmount-flush twin).
         cx.on_release(|this, cx| this.flush_pending_path(cx)).detach();
-
+        let pane = cx.weak_entity();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["tab", "pick", "ultracode"] {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let field = event.context.get("field").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let payload = event.payload.clone().unwrap_or(Value::Null);
+                    let pane = pane.clone();
+                    // Deferred: the binding is mid-update and these write it.
+                    cx.defer(move |cx| {
+                        let _ = pane.update(cx, |pane, cx| pane.action(name, &field, &payload, cx));
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin() });
+        let view = super::doc::mount_with("settings-agents", document(&Ink::of(cx), &Chrome::of(cx)), &binding, plugin, true, window, cx);
+        let defaults = Settings::default();
         let mut this = Self {
-            claude_input,
-            model_select,
-            effort_select,
-            codex_input,
-            codex_model_select,
-            codex_effort_select,
+            controls: Controls::of(&defaults),
+            shown_path: String::new(),
             agent_tab: defaults.default_agent,
-            claude_ultracode: defaults.claude_ultracode,
             synced: None,
             path_save: None,
             save_error: None,
+            binding,
+            view,
             _subscriptions: subscriptions,
         };
-        this.resync(window, cx);
+        this.resync(cx);
         this
     }
 
@@ -205,7 +191,7 @@ impl AgentsPane {
     /// The pane in a pinned state: the hub's owned fields, the tab, then
     /// `typed` into the CLI path field.
     #[cfg(test)]
-    pub(crate) fn show(&mut self, shot: AgentsShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn show(&mut self, shot: AgentsShot, _window: &mut Window, cx: &mut gpui::Context<Self>) {
         let hub = CodingHub::global(cx);
         hub.update(cx, |hub, cx| {
             hub.settings.claude_path = shot.claude_path.to_string();
@@ -217,11 +203,12 @@ impl AgentsPane {
             cx.notify();
         });
         self.synced = None;
-        self.resync(window, cx);
+        self.resync(cx);
         self.agent_tab = shot.tab;
         if let Some(typed) = shot.typed {
-            self.claude_input.update(cx, |input, cx| input.set_value(typed.to_string(), window, cx));
-            self.path_save = None;
+            // A person typed it: the field's own text.
+            self.controls.claude_path = typed.to_string();
+            self.shown_path = typed.to_string();
         }
         cx.notify();
     }
@@ -242,7 +229,7 @@ impl AgentsPane {
     /// from under us. Unowned fields (Tools' repos/prefix/shell, the rail
     /// pref) are adopted into the baseline FIRST, so a sibling pane's save
     /// never wipes edits here; only owned-field changes rewrite the controls.
-    fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn resync(&mut self, cx: &mut gpui::Context<Self>) {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
         if let Some(synced) = self.synced.as_mut() {
@@ -253,27 +240,11 @@ impl AgentsPane {
         if self.synced.as_ref() == Some(&settings) {
             return;
         }
-        self.claude_input.update(cx, |input, cx| {
-            input.set_value(settings.claude_path.clone(), window, cx)
-        });
-        self.codex_input.update(cx, |input, cx| {
-            input.set_value(settings.codex_path.clone(), window, cx)
-        });
-        // The persisted values are load-normalized into the choice sets, so
-        // every set_selected_value below finds its row.
-        for (select, value) in [
-            (&self.model_select, settings.claude_model.clone()),
-            (&self.effort_select, settings.claude_effort.clone()),
-            (&self.codex_model_select, settings.codex_model.clone()),
-            (&self.codex_effort_select, settings.codex_effort.clone()),
-        ] {
-            select.update(cx, |select, cx| {
-                select.set_selected_value(&SharedString::from(value), window, cx)
-            });
-        }
-        self.claude_ultracode = settings.claude_ultracode;
-        // Open the Agents card on the saved default agent (first sync only —
-        // later saves must not yank the tab from under the user).
+        // The persisted values are load-normalized into the choice sets.
+        self.controls = Controls::of(&settings);
+        self.shown_path = settings.claude_path.clone();
+        // Open on the saved default agent (first sync only — later saves
+        // must not yank the tab from under the user).
         if self.synced.is_none() {
             self.agent_tab = settings.default_agent;
         }
@@ -282,40 +253,31 @@ impl AgentsPane {
     }
 
     /// The settings the controls currently describe: the synced baseline with
-    /// ONLY this pane's fields overlaid. Blank CLI paths degrade to the §7.7
-    /// defaults — a hand-blanked pane can never produce an unusable launcher
-    /// (mirrors `Settings::load`); the selects are closed sets by
-    /// construction.
-    fn drafted(&self, cx: &App) -> Settings {
+    /// ONLY this pane's fields overlaid. A blank CLI path degrades to the
+    /// §7.7 default — a hand-blanked pane can never produce an unusable
+    /// launcher (mirrors `Settings::load`); the selects are closed sets.
+    fn drafted(&self) -> Settings {
         let defaults = Settings::default();
-        let value = |input: &Entity<InputState>, default: &str| {
-            let raw = input.read(cx).value().trim().to_string();
-            if raw.is_empty() {
-                default.to_string()
-            } else {
-                raw
-            }
-        };
+        let raw = self.controls.claude_path.trim();
         let mut drafted = self.synced.clone().unwrap_or_default();
         let owned = Settings {
-            claude_path: value(&self.claude_input, &defaults.claude_path),
-            codex_path: value(&self.codex_input, &defaults.codex_path),
-            claude_model: selected(&self.model_select, cx),
-            claude_effort: selected(&self.effort_select, cx),
-            codex_model: selected(&self.codex_model_select, cx),
-            codex_effort: selected(&self.codex_effort_select, cx),
-            claude_ultracode: self.claude_ultracode,
+            claude_path: if raw.is_empty() { defaults.claude_path.clone() } else { raw.to_string() },
+            // EXP-1232: codex is a managed download — no field; a custom
+            // `codexPath` in settings.json stays an escape hatch.
+            codex_path: drafted.codex_path.clone(),
+            claude_model: self.controls.claude_model.clone(),
+            claude_effort: self.controls.claude_effort.clone(),
+            codex_model: self.controls.codex_model.clone(),
+            codex_effort: self.controls.codex_effort.clone(),
+            claude_ultracode: self.controls.claude_ultracode,
             ..defaults
         };
         Self::overlay_owned(&mut drafted, &owned);
         drafted
     }
 
-    fn dirty(&self, cx: &App) -> bool {
-        self.synced
-            .as_ref()
-            .map(|synced| *synced != self.drafted(cx))
-            .unwrap_or(false)
+    fn dirty(&self) -> bool {
+        self.synced.as_ref().map(|synced| *synced != self.drafted()).unwrap_or(false)
     }
 
     /// EXP-694: hold a typed CLI path until the typing settles
@@ -357,19 +319,17 @@ impl AgentsPane {
         // A failed write stays retryable: the hub adopts the value in memory
         // even when the file write fails, so the baseline reads clean and the
         // standing error is what re-arms the next commit.
-        if !self.dirty(cx) && self.save_error.is_none() {
+        if !self.dirty() && self.save_error.is_none() {
             return None;
         }
-        let drafted = self.drafted(cx);
+        let drafted = self.drafted();
         let hub = CodingHub::global(cx);
         // Overlay ONLY the owned fields onto the hub's LIVE settings, so a
         // save here can never roll back a concurrent Tools-pane save (or the
         // rail pref).
         let mut settings = hub.read(cx).settings.clone();
         Self::overlay_owned(&mut settings, &drafted);
-        let error = CodingHub::save_settings(&hub, settings.clone(), cx)
-            .err()
-            .map(SharedString::from);
+        let error = CodingHub::save_settings(&hub, settings.clone(), cx).err().map(SharedString::from);
         // `synced` follows the hub via the observer's resync; setting it here
         // too keeps the baseline honest when the observer coalesces.
         self.synced = Some(settings);
@@ -390,100 +350,227 @@ impl AgentsPane {
         }
     }
 
-    // -- render pieces --------------------------------------------------------
-
-    /// The Agents card (EXP-206): one TAB per agent, each holding that
-    /// agent's CLI path + model/effort selects and its OWN toggles — plan
-    /// mode and ultracode exist only on the Claude tab (EXP-690 retired the
-    /// skip-permissions toggle: every run bypasses).
-    ///
-    /// EXP-694: it is the SHARED [`AgentDefaultsGroup`] — byte-for-byte the
-    /// component the Device settings dialog and the Start-coding cluster
-    /// render, with this pane's CLI-path row spliced above Model. The old
-    /// centered `TabBar` pill strip and the title-above-control fields are
-    /// gone, and EXP-862 moved accounts/usage out to the Devices page.
-    fn render_agents_section(
-        &mut self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let agent_tab = self.agent_tab;
-        let active_ix = CodingAgent::ALL
-            .iter()
-            .position(|agent| *agent == agent_tab)
-            .unwrap_or(0);
-        let pills: Vec<AgentPill> = CodingAgent::ALL
-            .into_iter()
-            .map(|agent| AgentPill {
-                label: SharedString::from(agent.label()),
-                icon: Some(agent_icon(agent)),
-                dimmed: false,
-                note: None,
-            })
-            .collect();
-
-        let (path, model, effort) = match agent_tab {
-            CodingAgent::Claude => (&self.claude_input, self.model_select.clone(), self.effort_select.clone()),
-            CodingAgent::Codex => (
-                &self.codex_input,
-                self.codex_model_select.clone(),
-                self.codex_effort_select.clone(),
-            ),
-        };
-        // EXP-1232: codex is a managed download — no CLI path to set (a
-        // custom `codexPath` in settings.json stays an escape hatch).
-        let leading = match agent_tab {
-            CodingAgent::Claude => vec![surface::glass_input_row(
-                "CLI path",
-                surface::glass_row_input(glass_input(path, window, cx)).into_any_element(),
-                cx,
-            )],
-            CodingAgent::Codex => Vec::new(),
-        };
-
-        let mut group = AgentDefaultsGroup::new(
-            "settings-agents",
-            agent_tab,
-            pills,
-            Some(active_ix),
-            move |this: &mut Self, ix, _window, cx| {
-                if let Some(agent) = CodingAgent::ALL.get(ix).copied() {
-                    this.agent_tab = agent;
-                    cx.notify();
-                }
-            },
-            model,
-            effort,
-        )
-        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(leading);
-        if agent_tab == CodingAgent::Claude {
-            group = group
-                .toggle(DefaultsToggle::new(
-                    "claude-ultracode",
-                    "Ultracode",
-                    self.claude_ultracode,
-                    |this: &mut Self, on, cx| {
-                        this.claude_ultracode = on;
-                        this.save(cx);
-                    },
-                ));
+    /// A document action: a tab, a picked model/effort, the Ultracode switch.
+    fn action(&mut self, name: &str, field: &str, payload: &Value, cx: &mut gpui::Context<Self>) {
+        let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
+        match name {
+            "tab" => {
+                self.agent_tab = if field == "codex" { CodingAgent::Codex } else { CodingAgent::Claude };
+                cx.notify();
+            }
+            // EXP-694 autosave: confirming a choice IS the save.
+            "pick" => {
+                let slot = match field {
+                    "claudeModel" => &mut self.controls.claude_model,
+                    "claudeEffort" => &mut self.controls.claude_effort,
+                    "codexModel" => &mut self.controls.codex_model,
+                    "codexEffort" => &mut self.controls.codex_effort,
+                    _ => return,
+                };
+                *slot = value;
+                self.save(cx);
+            }
+            "ultracode" => {
+                self.controls.claude_ultracode = payload.get("checked").and_then(Value::as_bool).unwrap_or(!self.controls.claude_ultracode);
+                self.save(cx);
+            }
+            _ => {}
         }
-        // EXP-1020: no "Agents" headline — nothing else shares this page, so
-        // the headline only named the page it was already on (the device
-        // settings dialog has carried no title over this block since EXP-686).
-        section(cx).child(group.render(cx))
     }
 
+    /// The CLI path field's edits: typing settles (the debounce), a blur or
+    /// Enter commits at once.
+    fn edited(&mut self, value: String, commit: bool, cx: &mut gpui::Context<Self>) {
+        self.controls.claude_path = value;
+        if commit {
+            self.path_save = None;
+            self.save(cx);
+        } else {
+            self.queue_path_save(cx);
+        }
+        cx.notify();
+    }
+
+    /// The state as the document binds it.
+    fn project(&self) -> Value {
+        let options = |choices: &[(&str, &str)]| choices.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>();
+        let claude = self.agent_tab == CodingAgent::Claude;
+        json!({
+            "claude": claude,
+            "codex": !claude,
+            "path": self.shown_path,
+            "pathPlaceholder": coding::settings::DEFAULT_CLAUDE_PATH,
+            "claudeModel": self.controls.claude_model,
+            "claudeEffort": self.controls.claude_effort,
+            "codexModel": self.controls.codex_model,
+            "codexEffort": self.controls.codex_effort,
+            "ultracode": self.controls.claude_ultracode,
+            "claudeModels": options(model_choices_for(CodingAgent::Claude)),
+            "claudeEfforts": options(effort_choices_for(CodingAgent::Claude)),
+            "codexModels": options(model_choices_for(CodingAgent::Codex)),
+            "codexEfforts": options(effort_choices_for(CodingAgent::Codex)),
+        })
+    }
 }
 
 impl Render for AgentsPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AgentsPane").entered();
-        let agents_card = self.render_agents_section(window, cx);
-
+        let projection = self.project();
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         // EXP-694: no Save button — every control autosaves; a write that
         // failed is a toast (FEED-79).
-        div().w_full().child(v_flex().w_full().gap_6().child(agents_card))
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The pane's plugin: the IDE's, and the CLI path field's edits.
+struct PanePlugin {
+    pane: gpui::WeakEntity<AgentsPane>,
+    inner: crate::exponential_ui_host::IdePlugin,
+}
+
+impl HostPlugin for PanePlugin {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.inner.icon(name)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.inner.on_unknown(node)
+    }
+
+    fn on_input(&self, event: &eui_gpui::host::InputEvent, cx: &mut App) {
+        let commit = event.kind == eui_gpui::host::InputKind::Commit;
+        let value = event.value.as_str().unwrap_or_default().to_string();
+        let pane = self.pane.clone();
+        cx.defer(move |cx| {
+            let _ = pane.update(cx, |pane, cx| pane.edited(value, commit, cx));
+        });
+    }
+}
+
+/// The colours the tab strip needs beyond [`Ink`]: the active segment's
+/// glass stroke.
+struct Chrome {
+    stroke_active: String,
+}
+
+impl Chrome {
+    fn of(_cx: &App) -> Self {
+        Self { stroke_active: hex(crate::controls::ide_chrome().stroke_active) }
+    }
+}
+
+/// One agent segment of the embedded tab strip (`glass_tab_item`: an equal
+/// capsule, `px_2` / `py 6`, a 1 px border, `gap_1` between the 14 px mark
+/// and the `text_sm` label); the active one wears the glass active fill and
+/// stroke. Drawn twice, `active` picks.
+fn tab(ink: &Ink, chrome: &Chrome, key: &str, icon: &str, label: &str, active: Value) -> [Value; 2] {
+    let draw = |on: bool| {
+        let id = format!("tab_{key}{}", if on { "_on" } else { "" });
+        let glyph = ink.r(0.875);
+        let mut node = json!({"id": id, "component": "Box", "visible": if on { active.clone() } else { not(active.clone()) },
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexGrow": 1, "flexBasis": 0, "gap": ink.r(0.25), "paddingHorizontal": ink.r(0.5), "paddingVertical": 6, "borderRadius": 9999, "borderWidth": 1, "borderColor": if on { chrome.stroke_active.as_str() } else { "#00000000" }, "cursor": "pointer"},
+            "children": [
+                {"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "flexShrink": 0}},
+                ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground),
+            ]});
+        if on {
+            node["style"]["backgroundColor"] = json!(ink.fill_active);
+        } else {
+            node["props"] = json!({"pressable": true});
+            node["on"] = json!({"press": {"event": {"name": "tab", "context": {"field": key}}}});
+        }
+        node
+    };
+    [draw(false), draw(true)]
+}
+
+/// A `row` Select bound to `/pane/<field>` over `/pane/<options>`.
+fn select(id: &str, label: &str, field: &str, options: &str, extra: Value) -> Value {
+    let mut props = json!({"label": label, "name": id, "triggerVariant": "row", "value": path(&format!("/pane/{field}")), "options": path(&format!("/pane/{options}"))});
+    for (k, v) in extra.as_object().into_iter().flatten() {
+        props[k] = v.clone();
+    }
+    json!({"id": id, "component": "Select", "props": props, "on": {"change": {"event": {"name": "pick", "context": {"field": field}}}}})
+}
+
+/// The pane's tree: ONE glass group — the agent tabs as its first row, then
+/// the active agent's rows (Claude: CLI path, Model, Effort, Ultracode;
+/// Codex: Model, Reasoning).
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let claude = path("/pane/claude");
+    let codex = path("/pane/codex");
+    let ultracode = path("/pane/ultracode");
+    let tabs: Vec<Value> = [tab(ink, chrome, "claude", "brand-claude", CodingAgent::Claude.label(), claude.clone()), tab(ink, chrome, "codex", "brand-codex", CodingAgent::Codex.label(), codex.clone())].into_iter().flatten().collect();
+    let tabs = json!({"id": "tabs", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "padding": ink.r(0.5)}, "children": tabs});
+    let path_row = json!({"id": "cli_path", "component": "Input", "props": {"variant": "row", "label": "CLI path", "name": "cliPath", "value": path("/pane/path"), "placeholder": path("/pane/pathPlaceholder")}});
+    let mut effort_live = select("claude_effort", CodingAgent::Claude.effort_label(), "claudeEffort", "claudeEfforts", json!({}));
+    effort_live["visible"] = not(ultracode.clone());
+    let mut effort_locked = select("claude_effort_locked", CodingAgent::Claude.effort_label(), "claudeEffort", "claudeEfforts", json!({"description": ULTRACODE_HINT, "disabled": true}));
+    effort_locked["visible"] = ultracode.clone();
+    let switch = json!({"id": "ultracode_switch", "component": "Switch", "props": {"label": "", "name": "ultracode", "checked": ultracode}, "on": {"change": {"event": {"name": "ultracode"}}}});
+    let mut switch_label = ink.text("ultracode_label", json!("Ultracode"), SM, &ink.foreground);
+    switch_label["style"]["flexGrow"] = json!(1);
+    switch_label["style"]["minWidth"] = json!(0);
+    let ultracode_row = ink.shell("ultracode", false, json!(true), vec![switch_label, switch]);
+    let claude_rows = json!({"id": "claude_rows", "component": "Box", "visible": claude, "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [
+            ink.divider("path_divider", json!(true)), path_row,
+            ink.divider("claude_model_divider", json!(true)), select("claude_model", "Model", "claudeModel", "claudeModels", json!({})),
+            ink.divider("claude_effort_divider", json!(true)), effort_live, effort_locked,
+            ink.divider("ultracode_divider", json!(true)), ultracode_row,
+        ]});
+    let codex_rows = json!({"id": "codex_rows", "component": "Box", "visible": codex, "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
+        "children": [
+            ink.divider("codex_model_divider", json!(true)), select("codex_model", "Model", "codexModel", "codexModels", json!({})),
+            ink.divider("codex_effort_divider", json!(true)), select("codex_effort", CodingAgent::Codex.effort_label(), "codexEffort", "codexEfforts", json!({})),
+        ]});
+    let group = ink.group("agents", vec![tabs, claude_rows, codex_rows]);
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [group]})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ink() -> Ink {
+        Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        }
+    }
+
+    /// #EXP-1629: the document raises no issue a debug build's mount check
+    /// would refuse (only the IDE's literal chrome and the bound values).
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let tree = document(&ink(), &Chrome { stroke_active: "#ffffff29".into() });
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-agents", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
     }
 }
