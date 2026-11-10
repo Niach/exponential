@@ -6695,15 +6695,15 @@
         "file": "shots/session/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 61130,
-        "sha256": "b444c3a6d2c783ebfee637d9c5ccdaa39a4e27235f114446fb783527e1b7b868"
+        "bytes": 60978,
+        "sha256": "de4018eafb5954b71f9ac6a8bec493dad4a3ce507d3f1ffa6201b8434b8ef250"
       },
       "desktop": {
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 93864,
-        "sha256": "664f35e6fbfffd6ab7e1718addd7fe1512153e77415415cf0de8c3f6a2660369"
+        "bytes": 105040,
+        "sha256": "4e243cc7f63fdda5e3833287868a574fae57f6ff3876b5d6360a35c2fe2ffa0f"
       },
       "ios": {
         "file": "shots/session/ios.webp",
