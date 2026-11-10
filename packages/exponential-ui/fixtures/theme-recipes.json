@@ -1130,7 +1130,7 @@
         "exponential": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 16,
               "fontWeight": 400,
@@ -1139,7 +1139,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 16,
               "fontWeight": 400,
@@ -1170,7 +1170,7 @@
         "orange": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 16,
               "fontWeight": 400,
@@ -1179,7 +1179,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 16,
               "fontWeight": 400,
@@ -2078,7 +2078,7 @@
         "exponential": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "backgroundColor": "#f5f5f5",
               "borderRadius": 3,
@@ -2088,7 +2088,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "backgroundColor": "#ffffff1c",
               "borderRadius": 3,
@@ -2120,7 +2120,7 @@
         "orange": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "backgroundColor": "#ffedd5",
               "borderRadius": 3,
@@ -2130,7 +2130,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "backgroundColor": "#431407",
               "borderRadius": 3,
@@ -2174,7 +2174,7 @@
         "exponential": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "lineHeight": 20.8,
               "backgroundColor": "#f5f5f5",
@@ -2187,7 +2187,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "lineHeight": 20.8,
               "backgroundColor": "#ffffff1c",
@@ -2224,7 +2224,7 @@
         "orange": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "lineHeight": 20.8,
               "backgroundColor": "#ffedd5",
@@ -2237,7 +2237,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12.8,
               "lineHeight": 20.8,
               "backgroundColor": "#431407",
@@ -2683,7 +2683,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2697,7 +2697,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ffffff26",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2743,7 +2743,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2757,7 +2757,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ffffff26",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2815,7 +2815,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ff646766",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2829,7 +2829,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ff646766",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2875,7 +2875,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ff646766",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2889,7 +2889,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ff646766",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 14,
               "lineHeight": 22.75,
               "paddingVertical": 12,
@@ -2947,7 +2947,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 19.5,
               "paddingVertical": 10,
@@ -2961,7 +2961,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ffffff26",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 19.5,
               "paddingVertical": 10,
@@ -3007,7 +3007,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#e5e5e5",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 19.5,
               "paddingVertical": 10,
@@ -3021,7 +3021,7 @@
               "borderRadius": 12,
               "borderWidth": 1,
               "borderColor": "#ffffff26",
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 19.5,
               "paddingVertical": 10,
@@ -39084,7 +39084,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39098,7 +39098,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39112,7 +39112,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "opacity": 0.5,
               "paddingVertical": 0
@@ -39127,7 +39127,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             }
@@ -39143,7 +39143,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39157,7 +39157,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39171,7 +39171,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "opacity": 0.5,
               "paddingVertical": 0
@@ -39186,7 +39186,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             }
@@ -39324,7 +39324,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39338,7 +39338,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39352,7 +39352,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "opacity": 0.5,
               "paddingVertical": 0
@@ -39367,7 +39367,7 @@
               "color": "#0a0a0a",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             }
@@ -39383,7 +39383,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39397,7 +39397,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             },
@@ -39411,7 +39411,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "opacity": 0.5,
               "paddingVertical": 0
@@ -39426,7 +39426,7 @@
               "color": "#fafafa",
               "fontSize": 12.25,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 0
             }
@@ -40980,7 +40980,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -40993,7 +40993,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41006,7 +41006,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5,
               "opacity": 0.5
@@ -41020,7 +41020,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             }
@@ -41035,7 +41035,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41048,7 +41048,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41061,7 +41061,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5,
               "opacity": 0.5
@@ -41075,7 +41075,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             }
@@ -41204,7 +41204,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41217,7 +41217,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41230,7 +41230,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5,
               "opacity": 0.5
@@ -41244,7 +41244,7 @@
               "color": "#0a0a0a",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             }
@@ -41259,7 +41259,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41272,7 +41272,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             },
@@ -41285,7 +41285,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5,
               "opacity": 0.5
@@ -41299,7 +41299,7 @@
               "color": "#fafafa",
               "fontSize": 10.5,
               "lineHeight": 18,
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "boxShadow": [],
               "paddingVertical": 18.5
             }
@@ -55175,7 +55175,7 @@
         "exponential": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 20,
               "color": "#737373"
@@ -55183,7 +55183,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 20,
               "color": "#a1a1a1"
@@ -55211,7 +55211,7 @@
         "orange": {
           "light": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 20,
               "color": "#737373"
@@ -55219,7 +55219,7 @@
           },
           "dark": {
             "default": {
-              "fontFamily": "ui-monospace",
+              "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "lineHeight": 20,
               "color": "#a1a1a1"
@@ -63950,14 +63950,14 @@
             "default": {
               "color": "#e7000b",
               "fontSize": 12,
-              "fontFamily": "ui-monospace"
+              "fontFamily": "JetBrains Mono"
             }
           },
           "dark": {
             "default": {
               "color": "#ff6467",
               "fontSize": 12,
-              "fontFamily": "ui-monospace"
+              "fontFamily": "JetBrains Mono"
             }
           }
         },
@@ -63982,14 +63982,14 @@
             "default": {
               "color": "#e7000b",
               "fontSize": 12,
-              "fontFamily": "ui-monospace"
+              "fontFamily": "JetBrains Mono"
             }
           },
           "dark": {
             "default": {
               "color": "#ff6467",
               "fontSize": 12,
-              "fontFamily": "ui-monospace"
+              "fontFamily": "JetBrains Mono"
             }
           }
         }

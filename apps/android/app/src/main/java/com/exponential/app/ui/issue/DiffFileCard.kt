@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -163,7 +164,7 @@ fun DiffStatusLetter(
             status == Diff.Status.REMOVED -> DesignTokens.Diff.DelFg
             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
         },
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ExpMono,
         fontSize = CountFontSize,
         fontWeight = FontWeight.Bold,
         modifier = modifier,
@@ -177,13 +178,13 @@ fun DiffCounts(additions: Int, deletions: Int, modifier: Modifier = Modifier) {
         Text(
             Diff.additionsLabel(additions),
             color = DesignTokens.Diff.AddFg,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = CountFontSize,
         )
         Text(
             Diff.deletionsLabel(deletions),
             color = DesignTokens.Diff.DelFg,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = CountFontSize,
         )
     }
@@ -240,7 +241,7 @@ fun DiffFileCard(
             Spacer(Modifier.width(8.dp))
             Text(
                 diffPathText(file.path),
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ExpMono,
                 fontSize = PathFontSize,
                 color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,

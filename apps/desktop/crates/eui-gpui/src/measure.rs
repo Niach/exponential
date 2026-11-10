@@ -97,6 +97,9 @@ struct WrapKey {
     tracking: u32,
     features: FontFeatures,
     wrap: Option<i64>,
+    /// A gpui-component Textarea's rows ([`text::field_breaks`]), not CSS
+    /// text's lines.
+    field: bool,
 }
 
 /// Font family NAMES → the families gpui loads, memoized; the surface's
@@ -409,13 +412,37 @@ impl<'w> Shaper<'w> {
     /// The lines `text` breaks into at `wrap` (`None` = the hard breaks
     /// only) — the lines the painter draws.
     pub fn lines(&mut self, text: &str, font: &Font, size: f32, wrap: Option<f32>) -> Rc<Vec<String>> {
-        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), features: font.features.clone(), wrap: wrap.map(|w| (w * 4.0).round() as i64) };
+        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), features: font.features.clone(), wrap: wrap.map(|w| (w * 4.0).round() as i64), field: false };
         if let Some(hit) = self.fonts.cached_lines(&key) {
             return hit;
         }
         let lines = Rc::new(text::wrap(text, wrap, &mut |s| self.line_width(s, font, size)));
         self.fonts.store_lines(key, lines.clone());
         lines
+    }
+
+    /// The rows a gpui-component Textarea (the Textarea and Composer
+    /// fields) draws `text` in at `wrap`: its own wrap rule
+    /// ([`text::field_rows`]), which breaks a word wider than the row by
+    /// grapheme where CSS text overflows it.
+    pub fn field_lines(&mut self, text: &str, font: &Font, size: f32, wrap: f32) -> Rc<Vec<String>> {
+        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), features: font.features.clone(), wrap: Some((wrap * 4.0).round() as i64), field: true };
+        if let Some(hit) = self.fonts.cached_lines(&key) {
+            return hit;
+        }
+        let mut rows = Vec::new();
+        for line in text.split('\n') {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            let mut start = 0;
+            for end in text::field_breaks(line, wrap, &mut |s| self.line_width(s, font, size)) {
+                rows.push(line[start..end].to_string());
+                start = end;
+            }
+            rows.push(line[start..].to_string());
+        }
+        let rows = Rc::new(rows);
+        self.fonts.store_lines(key, rows.clone());
+        rows
     }
 
     /// Where the first baseline sits inside a line box of `line_height`
@@ -1004,16 +1031,26 @@ impl<'a> GpuiMeasure<'a> {
         let gap = leaf.control.gap;
         let live = self.live.get(leaf.id).cloned();
         let value = live.unwrap_or_else(|| str_prop(props, "value").to_string());
-        let text = if value.is_empty() { str_prop(props, "placeholder").to_string() } else { value };
-        // An empty field (no placeholder either) is one line tall.
-        let text = if text.is_empty() { " ".to_string() } else { text };
         let field_ts = TextStyle { font_size: fs, line_height: lh, ..ts.clone() };
         let w = match wrap {
             None => 320.0,
             Some(x) if x <= 0.0 => 120.0,
             Some(x) => x,
         };
-        let (_, th, _) = self.para(&text, &field_ts, Some(w.max(1.0)), None);
+        let th = if value.is_empty() {
+            let text = str_prop(props, "placeholder").to_string();
+            // An empty field (no placeholder either) is one line tall.
+            let text = if text.is_empty() { " ".to_string() } else { text };
+            self.para(&text, &field_ts, Some(w.max(1.0)), None).1
+        } else {
+            // The typed text: the field's own rows (a long URL or hash
+            // wraps by character, as the Textarea draws it).
+            let font = self.fonts.for_style(&field_ts);
+            let mut s = self.shaper();
+            let rows = s.field_lines(&value, &font, fs, w.max(1.0)).len();
+            self.shaped += s.calls;
+            rows as f32 * lh
+        };
         (w, th.clamp(min_h, 200.0) + gap + send)
     }
 
@@ -1034,7 +1071,10 @@ impl<'a> GpuiMeasure<'a> {
         let at = inner.filter(|x| *x > 0.0);
         let font = self.fonts.for_style(ts);
         let mut s = self.shaper();
-        let lines = s.lines(&value, &font, ts.font_size, at).len() as f32;
+        let lines = match at {
+            Some(at) => s.field_lines(&value, &font, ts.font_size, at).len(),
+            None => value.split('\n').count(),
+        } as f32;
         self.shaped += s.calls;
         (w, lines.max(rows).min(max.max(rows)) * ts.line_height)
     }

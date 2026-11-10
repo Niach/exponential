@@ -162,6 +162,12 @@ impl Surface {
         for (k, &i) in missing.iter().enumerate() {
             if let Some(a) = answers.get(k) {
                 self.memo.intrinsics.insert(i as u32, a.sanitised());
+                let n = &self.nodes[i];
+                if crate::measure::follows_width(&n.component, n.part.as_deref(), &n.props) {
+                    self.memo.width_dependent.insert(i as u32);
+                } else {
+                    self.memo.width_dependent.remove(&(i as u32));
+                }
                 self.memo_versions.insert(i as u32, self.node_state[i].content_version);
                 self.engine.mark_dirty(i as u32);
             }

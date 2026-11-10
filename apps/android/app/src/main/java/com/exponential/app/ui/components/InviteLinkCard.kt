@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import android.content.Intent
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -98,7 +99,7 @@ fun InviteLinkCard(
             Text(
                 url,
                 style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ExpMono,
                     fontWeight = FontWeight.Normal,
                 ),
                 color = MaterialTheme.colorScheme.onSurface,

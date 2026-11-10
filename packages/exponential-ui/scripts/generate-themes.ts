@@ -137,7 +137,11 @@ export function composeExponential(): ThemeSource {
     ],
   })
   const s = design.size
-  const mono = `ui-monospace`
+  // #EXP-1629: the IDE's mono face (`theme::terminal::FONT_FAMILY`, bundled
+  // in apps/desktop/assets/fonts). Only the desktop ships it; every other
+  // renderer falls back to its system monospace (web: the stack below;
+  // gpui, Swift, Compose: their `looksMono` rule).
+  const mono = `JetBrains Mono`
   // VAPP-162: the platform's system serif (web `ui-serif, Georgia, serif`).
   const serif = `ui-serif`
   return {
@@ -181,7 +185,7 @@ export function composeExponential(): ThemeSource {
     },
     fonts: {
       [design.type.fontFamily]: { fallback: `ui-sans-serif, system-ui, sans-serif`, weights: [400, 500, 600, 700], source: `host` },
-      [mono]: { fallback: `SFMono-Regular, Menlo, Consolas, monospace`, source: `system` },
+      [mono]: { fallback: `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`, source: `host` },
       [serif]: { fallback: `Georgia, serif`, source: `system` },
     },
     recipes: exponentialRecipes.recipes as unknown as ThemeSource[`recipes`],

@@ -87,7 +87,7 @@ struct WidgetSubmissionCard: View {
                         HStack(alignment: .top, spacing: 8) {
                             rowLabel("Custom data")
                             Text(json)
-                                .font(.caption.monospaced())
+                                .font(.expMono(.caption))
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(8)

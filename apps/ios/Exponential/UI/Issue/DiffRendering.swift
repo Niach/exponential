@@ -97,7 +97,7 @@ struct DiffPatchBlock: View {
         // Dynamic type still drives the size — a transcript card just sits one
         // point below the page's own diff.
         let size = UIFont.preferredFont(forTextStyle: .caption2).pointSize - (compact ? 1 : 0)
-        let uiFont = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let uiFont = UIFont.expMono(size: size)
         let advance = ("0" as NSString).size(withAttributes: [.font: uiFont]).width
         return Metrics(
             font: Font(uiFont),

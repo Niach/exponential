@@ -96,6 +96,11 @@ public enum GlassPillSize {
     var font: Font {
         self == .sm ? .caption.weight(.medium) : .subheadline.weight(.medium)
     }
+
+    /// #EXP-1629: the rung's font in JetBrains Mono (`GlassPill.mono()`).
+    var monoFont: Font {
+        .expMono(self == .sm ? .caption : .subheadline, weight: .medium)
+    }
 }
 
 public enum GlassPillMode {
@@ -130,6 +135,8 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
     /// The loud paint (see the file header): solid `primary`, no hairline.
     var primary: Bool = false
     var enabled: Bool = true
+    /// An identifier or a branch name in the mono face (Android `fontFamily`).
+    var isMono: Bool = false
     let leading: Leading
     let trailing: Trailing
 
@@ -210,12 +217,20 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
                     isSelected: isSelected,
                     isOpaque: isOpaque
                 ),
-                label: contentColor
+                label: contentColor,
+                mono: isMono
             ),
             dot: dot,
             leading: { leading },
             trailing: { trailing }
         )
+    }
+
+    /// The label in JetBrains Mono (web `font-mono`).
+    public func mono() -> Self {
+        var pill = self
+        pill.isMono = true
+        return pill
     }
 
     /// The label/glyph colour: the loud pill's foreground, else the tone when
@@ -242,7 +257,7 @@ extension GlassPillSize {
     /// The SDK pill style for this rung in a paint: the rung's geometry and
     /// font, the glass (`fillCard`/`fillActive` + its hairline, the opaque
     /// card beneath when `isOpaque`) or the solid `primary` fill.
-    func pillStyle(paint: GlassPillPaint, label: Color) -> PillStyle {
+    func pillStyle(paint: GlassPillPaint, label: Color, mono: Bool = false) -> PillStyle {
         let fill: Color
         let stroke: Color?
         if paint.isPrimary {
@@ -265,7 +280,7 @@ extension GlassPillSize {
             label: label,
             dotSize: GlassPillTokens.dotSize,
             glyphSize: glyphSize,
-            font: font,
+            font: mono ? monoFont : font,
             underlay: (!paint.isPrimary && paint.isOpaque) ? DesignTokens.Palette.card : nil,
             strokeCentered: true
         )

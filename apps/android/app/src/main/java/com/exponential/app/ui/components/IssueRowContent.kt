@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.layout.Column
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -108,7 +109,7 @@ private fun RowScope.TitleLine(
         Text(
             identifier,
             style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             maxLines = 1,
             overflow = if (identifierEllipsis) TextOverflow.Ellipsis else TextOverflow.Clip,

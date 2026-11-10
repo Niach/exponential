@@ -99,7 +99,7 @@ struct SlashCommandMenu: View {
         } label: {
             HStack(spacing: 8) {
                 Text(command.token)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     // A confirm command discards the conversation — the same
                     // semantic red the destructive menu items wear (×4).
                     .foregroundStyle(
@@ -115,7 +115,7 @@ struct SlashCommandMenu: View {
                 Spacer(minLength: 0)
                 if !command.argHint.isEmpty {
                     Text("<\(command.argHint)>")
-                        .font(.caption.monospaced())
+                        .font(.expMono(.caption))
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
                         .fixedSize()

@@ -197,7 +197,7 @@ struct TeamRepositoriesSection: View {
                     }
                 } else {
                     GlassPill(repo.defaultBranch)
-                        .monospaced()
+                        .mono()
                         .fixedSize()
                 }
                 if repo.isPrivate {
@@ -601,7 +601,7 @@ private struct RepoDefaultBranchChip: View {
                 } trailing: {
                     AppIcon(AppIcons.uiChevronDown, size: 12)
                 }
-                .monospaced()
+                .mono()
                 .fixedSize()
                 .allowsHitTesting(false)
             }

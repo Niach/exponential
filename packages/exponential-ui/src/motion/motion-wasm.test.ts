@@ -17,9 +17,15 @@ describe(`motion wasm`, () => {
     expect(built).toBe(motionSourceHash())
   })
 
-  it(`stays inside the 200 KB gz budget`, () => {
+  // The budget is on the RAW bytes: a gzip size depends on the zlib build
+  // (Bun 1.3.10 gave 205,127 B, Bun 1.3.14 under 200 KB, Python's zlib
+  // 203,927 B for the same file), so a gz budget at the edge passed in CI and
+  // failed on a dev box. 480,000 B = the 465,752 B built at #2206 + ~3 %
+  // (about 200 KB gzipped). A real growth past it means rebuilding with the
+  // size flags (scripts/build-motion-wasm.sh) or raising this on purpose.
+  it(`stays inside the 480 KB raw budget (about 200 KB gzipped)`, () => {
     const bytes = readFileSync(new URL(`../../wasm/motion/eui_motion_wasm_bg.wasm`, import.meta.url))
-    expect(Bun.gzipSync(bytes, { level: 9 }).byteLength).toBeLessThanOrEqual(200 * 1024)
+    expect(bytes.byteLength).toBeLessThanOrEqual(480_000)
   })
 
   type Case = { id: string; lottie: unknown; frames: { frame: number; packed: number[] }[] }
