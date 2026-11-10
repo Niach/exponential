@@ -78644,57 +78644,6 @@
     },
     {
       "component": "ColorPicker",
-      "part": "grid",
-      "props": {},
-      "visuals": {
-        "neutral": {
-          "light": {
-            "default": {}
-          },
-          "dark": {
-            "default": {}
-          }
-        },
-        "exponential": {
-          "light": {
-            "default": {
-              "gap": 5.25,
-              "width": 259
-            }
-          },
-          "dark": {
-            "default": {
-              "gap": 5.25,
-              "width": 259
-            }
-          }
-        },
-        "playful": {
-          "light": {
-            "default": {}
-          },
-          "dark": {
-            "default": {}
-          }
-        },
-        "orange": {
-          "light": {
-            "default": {
-              "gap": 5.25,
-              "width": 259
-            }
-          },
-          "dark": {
-            "default": {
-              "gap": 5.25,
-              "width": 259
-            }
-          }
-        }
-      }
-    },
-    {
-      "component": "ColorPicker",
       "part": "swatch",
       "props": {
         "selected": false

@@ -9880,6 +9880,43 @@
       }
     ]
   },
+  "ColorPicker\/child" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "color_picker.customTrigger",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          -8,
+          2,
+          40,
+          20
+        ],
+        "id" : "color_picker_child"
+      }
+    ]
+  },
   "ColorPicker\/example" : {
     "height" : 32,
     "nodes" : [
@@ -9916,6 +9953,157 @@
           16
         ],
         "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/inline=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/inline=true" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          232,
+          28
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.0",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ef4444",
+        "component" : "Box",
+        "frame" : [
+          4,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.0.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          34,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.1",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#22c55e",
+        "component" : "Box",
+        "frame" : [
+          38,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.1.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          68,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.2",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          72,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.2.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          102,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.3",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a855f7",
+        "component" : "Box",
+        "frame" : [
+          106,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.3.fill",
         "radius" : 9999
       }
     ]
@@ -10007,8 +10195,8 @@
         "frame" : [
           8,
           36,
-          287,
-          52
+          294,
+          56
         ],
         "id" : "color_picker.content",
         "part" : "content",
@@ -10022,19 +10210,19 @@
         "frame" : [
           22,
           50,
-          259,
-          24
+          266,
+          28
         ],
         "id" : "color_picker.grid"
       },
       {
-        "border" : 1,
+        "border" : 2,
         "component" : "Box",
         "frame" : [
           22,
           50,
-          24,
-          24
+          28,
+          28
         ],
         "id" : "color_picker.grid.swatch.0",
         "radius" : 9999
@@ -10043,22 +10231,22 @@
         "bg" : "#ef4444",
         "component" : "Box",
         "frame" : [
-          25,
-          53,
-          18,
-          18
+          26,
+          54,
+          20,
+          20
         ],
         "id" : "color_picker.grid.swatch.0.fill",
         "radius" : 9999
       },
       {
-        "border" : 1,
+        "border" : 2,
         "component" : "Box",
         "frame" : [
-          51.25,
+          56,
           50,
-          24,
-          24
+          28,
+          28
         ],
         "id" : "color_picker.grid.swatch.1",
         "radius" : 9999
@@ -10067,22 +10255,22 @@
         "bg" : "#22c55e",
         "component" : "Box",
         "frame" : [
-          54.25,
-          53,
-          18,
-          18
+          60,
+          54,
+          20,
+          20
         ],
         "id" : "color_picker.grid.swatch.1.fill",
         "radius" : 9999
       },
       {
-        "border" : 1,
+        "border" : 2,
         "component" : "Box",
         "frame" : [
-          80.5,
+          90,
           50,
-          24,
-          24
+          28,
+          28
         ],
         "id" : "color_picker.grid.swatch.2",
         "radius" : 9999
@@ -10091,22 +10279,22 @@
         "bg" : "#3b82f6",
         "component" : "Box",
         "frame" : [
-          83.5,
-          53,
-          18,
-          18
+          94,
+          54,
+          20,
+          20
         ],
         "id" : "color_picker.grid.swatch.2.fill",
         "radius" : 9999
       },
       {
-        "border" : 1,
+        "border" : 2,
         "component" : "Box",
         "frame" : [
-          109.75,
+          124,
           50,
-          24,
-          24
+          28,
+          28
         ],
         "id" : "color_picker.grid.swatch.3",
         "radius" : 9999
@@ -10115,10 +10303,10 @@
         "bg" : "#a855f7",
         "component" : "Box",
         "frame" : [
-          112.75,
-          53,
-          18,
-          18
+          128,
+          54,
+          20,
+          20
         ],
         "id" : "color_picker.grid.swatch.3.fill",
         "radius" : 9999
