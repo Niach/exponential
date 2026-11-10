@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `triggerIcon` + the `brand-claude` / `brand-codex` marks (#EXP-1764): through the React renderer.
+- Input `variant: "box"` + `size` (#EXP-1629): through the React renderer.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): through the React renderer.
 
 ## 0.21.0 (2026-11-09)

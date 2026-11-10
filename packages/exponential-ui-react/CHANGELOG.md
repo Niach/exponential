@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` trigger with `triggerIcon` draws the chosen option's `icon` (the `valueIcon` part) before its value; `brand-claude` paints in its own orange (its node's fill).
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
+- Input `variant: "box"` + `size` (#EXP-1629): no label part, the field's `aria-label` is the label (as `bare` / `code`). Snapshots re-recorded (every Input gains `data-r-size="default"`).
 - Select option `trailing` + event `open` (#EXP-1629): the popup row reads `label trailing` (Radix's `ItemText` keeps the label alone), the trigger the label; `open` fires as the popup opens.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).
 - Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.

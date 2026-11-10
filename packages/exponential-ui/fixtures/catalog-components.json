@@ -10261,6 +10261,48 @@
       }
     },
     {
+      "name": "Input/variant=box",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "variant": "box"
+        }
+      }
+    },
+    {
+      "name": "Input/size=default",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "size": "default"
+        }
+      }
+    },
+    {
+      "name": "Input/size=sm",
+      "node": {
+        "id": "input",
+        "component": "Input",
+        "props": {
+          "label": "Email",
+          "name": "email",
+          "type": "email",
+          "placeholder": "you@example.com",
+          "size": "sm"
+        }
+      }
+    },
+    {
       "name": "Input/disabled=true",
       "node": {
         "id": "input",

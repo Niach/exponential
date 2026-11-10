@@ -383,7 +383,12 @@
       "field",
       "row",
       "bare",
-      "code"
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
     ],
     "textareaVariant": [
       "field",
@@ -3672,6 +3677,11 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field"
+        },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default"
         },
         "disabled": {
           "type": "boolean",
