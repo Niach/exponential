@@ -2049,6 +2049,8 @@ mod app_detail {
     fn settings_app_detail_color_open() {
         // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
         shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
+    }
+}
 
 /// #EXP-1629: Settings → one agent's page (`AgentDetailPane`), its agent,
 /// the team's machines and skills seeded into the headless store.
