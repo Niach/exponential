@@ -69,7 +69,7 @@
     {
       "id": "exponential-ui-catalog",
       "label": "genUI · core catalog",
-      "blurb": "One specimen per core catalog component (packages/exponential-ui/fixtures/specimens.json) plus the home page demo, painted by all four renderers under the exponential theme: the shots ui.exponential.at shows on each component page. The site owns these; apps/styleguide does not list them.",
+      "blurb": "One specimen per core catalog component (packages/exponential-ui/fixtures/specimens.json) plus the home page demo, painted by all four renderers under the exponential theme: the shots ui.exponential.at shows on each component page. The site owns these.",
       "order": 12
     },
     {
@@ -966,7 +966,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:needs-you"
+          "value": "specimen:needs-you"
         }
       },
       "ios": {
@@ -6101,7 +6101,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
+        "web": "No web capture: the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
         "desktop": "EXP-1654: the desktop styleguide entry `session_row.rs` (`EXP_DEV_SCREEN=styleguide:session-row`, full-window) draws the web island's board line for line on the real `run_rows::run_row`: the Running caption over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit. It used to draw the session CARDS (`chat`'s), not the row; the live instance is the rail's Active band.",
         "android": "See ios: the same specimen (`ChatCardsKind.SessionRow`, `captureOnlyScreens`) on the real `SessionRow` composable (ui/components/SessionRow.kt), the run mark = `AgentRunMark`.",
@@ -6110,7 +6110,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:session-row"
+          "value": "specimen:session-row"
         },
         "anchorDelayMs": 1500
       }
@@ -6146,7 +6146,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:pr-row"
+          "value": "specimen:pr-row"
         },
         "anchorDelayMs": 1500
       }
@@ -6177,7 +6177,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:pr-checks"
+          "value": "specimen:pr-checks"
         },
         "anchorDelayMs": 1500
       },
@@ -7147,7 +7147,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:trace"
+          "value": "specimen:trace"
         },
         "anchorDelayMs": 1500
       },
@@ -7185,7 +7185,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:ask-dock"
+          "value": "specimen:ask-dock"
         },
         "anchorDelayMs": 1500
       },
@@ -7223,7 +7223,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:dock-card"
+          "value": "specimen:dock-card"
         },
         "anchorDelayMs": 1500
       },
@@ -7261,7 +7261,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:plan-card"
+          "value": "specimen:plan-card"
         },
         "anchorDelayMs": 1500
       },
@@ -7299,7 +7299,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:plan-page"
+          "value": "specimen:plan-page"
         },
         "anchorDelayMs": 1500
       },
@@ -7337,7 +7337,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:code-block"
+          "value": "specimen:code-block"
         },
         "anchorDelayMs": 1500
       },
@@ -7375,7 +7375,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:feedback-states"
+          "value": "specimen:feedback-states"
         },
         "anchorDelayMs": 1500
       },
@@ -7537,7 +7537,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:chat-list"
+          "value": "specimen:chat-list"
         },
         "anchorDelayMs": 1500
       },
@@ -7575,7 +7575,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:phone-tab-bar"
+          "value": "specimen:phone-tab-bar"
         },
         "anchorDelayMs": 1500
       },
@@ -7613,7 +7613,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:phone-board-menu"
+          "value": "specimen:phone-board-menu"
         },
         "anchorDelayMs": 1500
       },
@@ -7651,7 +7651,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:phone-page-header"
+          "value": "specimen:phone-page-header"
         },
         "anchorDelayMs": 1500
       },
@@ -7689,7 +7689,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:chat-header"
+          "value": "specimen:chat-header"
         },
         "anchorDelayMs": 1500
       },
@@ -7727,7 +7727,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:chat-transcript"
+          "value": "specimen:chat-transcript"
         },
         "anchorDelayMs": 1500
       },
@@ -7765,7 +7765,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:chat-menus"
+          "value": "specimen:chat-menus"
         },
         "anchorDelayMs": 1500
       },
@@ -7803,7 +7803,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:chat-selection"
+          "value": "specimen:chat-selection"
         },
         "anchorDelayMs": 1500
       },
@@ -7841,7 +7841,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:sealed-locked"
+          "value": "specimen:sealed-locked"
         },
         "anchorDelayMs": 1500
       },
@@ -7877,7 +7877,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:schedule-picker"
+          "value": "specimen:schedule-picker"
         },
         "anchorDelayMs": 1500
       },
@@ -7915,7 +7915,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:mention-pill"
+          "value": "specimen:mention-pill"
         },
         "anchorDelayMs": 1500
       },
@@ -8044,7 +8044,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:voice-call"
+          "value": "specimen:voice-call"
         },
         "anchorDelayMs": 1500
       },
@@ -8082,7 +8082,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:call-controls"
+          "value": "specimen:call-controls"
         },
         "anchorDelayMs": 1500
       },
@@ -8120,7 +8120,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:call-pill"
+          "value": "specimen:call-pill"
         },
         "anchorDelayMs": 1500
       },
@@ -8150,7 +8150,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:voice-call-overlay"
+          "value": "specimen:voice-call-overlay"
         },
         "anchorDelayMs": 1500
       },
@@ -8188,7 +8188,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:device-readiness"
+          "value": "specimen:device-readiness"
         },
         "anchorDelayMs": 1500,
         "env": {
@@ -8261,7 +8261,7 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "styleguide:results-tab"
+          "value": "specimen:results-tab"
         },
         "anchorDelayMs": 1500
       },

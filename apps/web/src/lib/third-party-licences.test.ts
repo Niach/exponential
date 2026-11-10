@@ -78,7 +78,7 @@ describe.each(IMAGES)(
       // Only the image build catches that, and it runs on master, not on the PR.
       // Checked against the SAME scope the published install runs in — for the
       // web image that is the runtime stage, whose stubs arrive via builder COPY.
-      for (const other of [`site`, `push-relay`, `steer-relay`, `styleguide`]) {
+      for (const other of [`site`, `push-relay`, `steer-relay`]) {
         expect(installScope).toContain(`apps/${other}/package.json`)
       }
     })

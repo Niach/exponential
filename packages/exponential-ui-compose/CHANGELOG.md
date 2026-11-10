@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Menu item `iconColor` (#EXP-1629): `MenuItemLeaf` paints the glyph in `LeafContext.propColor` (a `$color.<name>` token, else the host's hex), else the ink.
+- A Select `pill`'s popup snaps like the core's (#EXP-1629): after the inset and the window clamp, its offset from the pill rounds to whole dp, half away from zero (`selectPopupOrigin`; `GeometryTest.insetOverlayPlacement` replays `overlay-geometry.json` `inset` at density 2).
 - Composer `layout: "flat"` (#EXP-1762): `ComposerLeaf` places the field between the core-laid `leading` slot and the controls (centred on the disc while one line, full height once it grows); the measurer wraps it at the width left of the disc and the attach control. Snapshots + `Composer/layout=flat|stacked`.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data the core expands; snapshot `components.json` + `ColorPicker.png` re-recorded.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `IconView` paints a mark with its own fill (`CatalogConstants.iconFills`, generated `iconFillNames` / `iconFillColors`: `brand-claude`) in it, never in the ink.

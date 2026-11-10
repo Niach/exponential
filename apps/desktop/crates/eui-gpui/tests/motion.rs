@@ -209,7 +209,7 @@ fn the_box_shrinks_with_its_aspect_and_a_broken_source_reports(cx: &mut TestAppC
     assert_eq!(frame_of(&view, cx, "broken"), None, "nothing painted");
 }
 
-/// The styleguide's shared specimens (`apps/styleguide/src/entries/
+/// The shared motion specimens (`packages/exponential-ui/fixtures/
 /// motion.specimens.json`, web + desktop) compile, load and name only
 /// colour tokens the exponential theme resolves.
 #[test]
