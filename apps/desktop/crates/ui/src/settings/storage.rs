@@ -713,6 +713,10 @@ mod tests {
             mono: "$type.family.mono".into(),
             pill_button_fill: "#ffffff0f".into(),
             pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
         };
         let tree = document(&ink, "#ffffff10", "#ffffff0a");
         let bound = super::super::doc::bound_styles(&tree);
