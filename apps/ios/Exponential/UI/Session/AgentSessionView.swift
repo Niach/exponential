@@ -4280,7 +4280,7 @@ private struct PermissionRow: View {
 /// Centered and muted — it is punctuation, not a turn. `compactedLabel` is
 /// byte-identical on all four clients. #EXP-1772: THE inline marker ×4, a
 /// system input's too (`label` = transcript-grouping.json `copy.markers`).
-private struct TranscriptMarkerRow: View {
+struct TranscriptMarkerRow: View {
     var label: String = AgentFeed.compactedLabel
     var icon: String? = AppIcons.codingCompact
 

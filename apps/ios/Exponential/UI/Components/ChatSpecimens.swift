@@ -564,6 +564,8 @@ struct ChatTranscriptSpecimens: View {
         let item: TranscriptGrouping.Item
         let text: String?
         let time: String?
+        /// #EXP-1772: an `event` row's line (THE inline marker).
+        var marker: String? = nil
     }
 
     private static let member = UserEntity(
@@ -578,6 +580,10 @@ struct ChatTranscriptSpecimens: View {
         Row(item: TranscriptGrouping.Item(id: id, kind: .full), text: nil, time: nil)
     }
 
+    private static func event(_ id: String, _ text: String) -> Row {
+        Row(item: TranscriptGrouping.Item(id: id, kind: .full), text: nil, time: nil, marker: text)
+    }
+
     private static let rows: [Row] = [
         message("m1", "user", author: "u1", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it.", "21:02"),
         message("m2", "user", author: "u2", "Seeing the same on the Galaxy A54.", "21:04"),
@@ -589,6 +595,12 @@ struct ChatTranscriptSpecimens: View {
         card("compact"),
         message("m6", "user", author: "u1", "Anything new overnight?", "09:02"),
         message("m7", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19.", "09:03"),
+        // #EXP-1772: a busy agent chat: a schedule fire above the reply it
+        // got, a merge event, a session's relay.
+        event("e1", SessionTree.ChatCopy.events["trigger_schedule"] ?? "Schedule"),
+        message("m8", "agent", "PR #412 merged overnight; the iPad sign-in reports stopped.", "07:00"),
+        event("e2", "Merged PR #412"),
+        message("x2", "agent", session: "c-fix", "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.", "08:41"),
         card("new"),
     ]
 
@@ -598,7 +610,10 @@ struct ChatTranscriptSpecimens: View {
             chat: TranscriptGrouping.Chat(sessionId: "a1", title: "Triage", agentId: "ag1", originSessionId: nil),
             members: [TranscriptGrouping.Named(id: "u1", name: "Alex"), TranscriptGrouping.Named(id: "u2", name: "Dana Reyes")],
             agents: [TranscriptGrouping.Named(id: "ag1", name: "Triage")],
-            sessions: [TranscriptGrouping.KnownSession(id: "c1", title: "Measure on the Galaxy A54", agentId: nil)],
+            sessions: [
+                TranscriptGrouping.KnownSession(id: "c1", title: "Measure on the Galaxy A54", agentId: nil),
+                TranscriptGrouping.KnownSession(id: "c-fix", title: "Fix the sign-in redirect", agentId: nil),
+            ],
             items: rows.map(\.item)
         )
         return Dictionary(uniqueKeysWithValues: TranscriptGrouping.transcriptLayout(input).map { ($0.id, $0) })
@@ -627,6 +642,8 @@ struct ChatTranscriptSpecimens: View {
                     AgentMarkdownText(text: text, context: context, hugsWidth: true)
                 }
             }
+        } else if let marker = row.marker {
+            TranscriptMarkerRow(label: marker, icon: nil)
         } else {
             switch row.item.id {
             case "surface":
