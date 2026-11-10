@@ -515,54 +515,6 @@ impl Render for LabelsPane {
     }
 }
 
-/// Web `ColorSwatchGrid`: a palette of clickable dots, the selected one
-/// ringed. The Issue statuses pane's create form and swatch popover (which
-/// pass [`STATUS_COLORS`]) until they move onto genUI ColorPicker.
-///
-/// Web parity (`ColorSwatchGrid`): selection is drawn INSIDE the swatch's own
-/// box — a cell with a 2px border AROUND the dot — never on the dot itself.
-/// A border on the dot is invisible for a near-white swatch (EXP-685's white
-/// status color), and a ring would be clipped by the nearest scroll
-/// container. The fixed width fits exactly 7 cells per row.
-pub(crate) fn swatch_grid(
-    id_prefix: &str,
-    colors: &[&'static str],
-    current: Option<&str>,
-    on_pick: impl Fn(&str, &mut Window, &mut gpui::App) + Clone + 'static,
-    cx: &App,
-) -> impl IntoElement {
-    use gpui::{ElementId, InteractiveElement as _, SharedString, StatefulInteractiveElement as _};
-    use gpui_component::h_flex;
-    // 7 cells + 6 gaps.
-    let mut grid = h_flex().flex_wrap().gap_1p5().w(gpui::px(232.));
-    for color in colors {
-        let color = *color;
-        let selected = current == Some(color);
-        let fill = parse_hex_color(color).unwrap_or(cx.theme().muted_foreground);
-        let on_pick = on_pick.clone();
-        grid = grid.child(
-            div()
-                .id(ElementId::Name(SharedString::from(format!("{id_prefix}-{color}"))))
-                .role(gpui::Role::Button)
-                // Web `ColorSwatchGrid`: `aria-label={c}` + `aria-pressed`.
-                .aria_label(color)
-                .aria_toggled(if selected { gpui::Toggled::True } else { gpui::Toggled::False })
-                .size_7()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .border_2()
-                .border_color(if selected { cx.theme().foreground } else { gpui::transparent_black() })
-                .cursor_pointer()
-                .child(div().size_5().rounded_full().bg(fill))
-                .on_click(move |_, window, cx| on_pick(color, window, cx)),
-        );
-    }
-    grid
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
