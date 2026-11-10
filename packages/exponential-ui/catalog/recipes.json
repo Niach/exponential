@@ -52,7 +52,7 @@
     "ChoiceTiles": { "parts": ["root", "tile", "picture", "label", "description", "error"], "props": ["type", "columns"] },
     "Switch": { "parts": ["root", "track", "thumb", "label", "description", "body"], "props": ["checked", "disabled", "size"] },
     "Slider": { "parts": ["root", "track", "range", "thumb", "label", "value", "header", "row", "icon", "end"], "props": [] },
-    "Select": { "parts": ["root", "label", "trigger", "placeholder", "content", "search", "item", "check", "empty", "error", "value", "chevron", "fade", "description", "labels", "control", "button", "valueIcon"], "props": ["multiple", "searchable", "disabled", "triggerVariant", "triggerIcon"] },
+    "Select": { "parts": ["root", "label", "trigger", "placeholder", "content", "search", "item", "check", "empty", "error", "value", "chevron", "fade", "description", "labels", "control", "button", "valueIcon"], "props": ["multiple", "searchable", "disabled", "triggerVariant"] },
     "SearchList": { "parts": ["root", "head", "search", "count", "list", "item", "icon", "identifier", "label", "check", "empty", "fade"], "props": [] },
     "ChipInput": { "parts": ["root", "label", "field", "chip", "chipLabel", "remove", "placeholder", "description", "error", "input"], "props": ["disabled"] },
     "DatePicker": { "parts": ["root", "label", "trigger", "calendar", "day"], "props": ["inline", "isToday", "outside"] },

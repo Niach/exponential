@@ -929,8 +929,8 @@
             "triggerVariant": "row"
           },
           "style": {
-            "width": 12.25,
-            "height": 12.25
+            "width": 14,
+            "height": 14
           }
         }
       ],
@@ -1089,15 +1089,6 @@
             "height": 15.5,
             "gap": 7,
             "borderRadius": "$radius.md"
-          }
-        },
-        {
-          "when": {
-            "triggerVariant": "row",
-            "triggerIcon": true
-          },
-          "style": {
-            "gap": 3.5
           }
         },
         {

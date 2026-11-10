@@ -282,8 +282,8 @@ fn a_trigger_icon_row_leads_its_value_with_the_chosen_options_icon() {
     assert_eq!(node(&mut s, "sel.valueIcon").props["name"], json!("brand-claude"));
     let icon = frame(&s, &out, "sel.valueIcon");
     let value = frame(&s, &out, "sel.value");
-    assert!((icon.w - 12.25).abs() < 0.01 && (icon.h - 12.25).abs() < 0.01, "the recipe's 12.25 square: {icon:?}");
-    assert!((value.x - (icon.x + icon.w + 3.5)).abs() < 0.01, "the IDE trigger's icon gap (the exponential recipe's `triggerIcon` button gap 3.5)");
+    assert!((icon.w - 14.0).abs() < 0.01 && (icon.h - 14.0).abs() < 0.01, "the recipe's 14 square (the IDE Medium trigger's icon): {icon:?}");
+    assert!((value.x - (icon.x + icon.w + 7.0)).abs() < 0.01, "the button's gap (7) before the value, as after it");
     assert_eq!(eui_core::layout_tree::icon_fill("brand-claude"), Some("#D97757"), "Claude's own orange");
     assert_eq!(eui_core::layout_tree::icon_fill("brand-codex"), None, "Codex rides the ink");
 

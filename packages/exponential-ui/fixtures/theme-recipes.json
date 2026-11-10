@@ -48723,8 +48723,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -48808,8 +48807,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -48893,8 +48891,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -49418,8 +49415,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -49943,8 +49939,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -50004,8 +49999,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -50101,8 +50095,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -50288,8 +50281,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -50511,8 +50503,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -50616,8 +50607,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -50721,8 +50711,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -51070,8 +51059,7 @@
         "multiple": true,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -51419,8 +51407,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -51768,8 +51755,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -51845,8 +51831,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -51922,8 +51907,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -51999,8 +51983,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52156,8 +52139,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -52257,8 +52239,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52326,8 +52307,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -52427,8 +52407,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52496,8 +52475,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52573,8 +52551,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -52654,8 +52631,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52715,8 +52691,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -52776,8 +52751,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -52845,8 +52819,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -52914,8 +52887,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -53007,8 +52979,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "field",
-        "triggerIcon": false
+        "triggerVariant": "field"
       },
       "visuals": {
         "neutral": {
@@ -53076,8 +53047,7 @@
         "multiple": false,
         "searchable": false,
         "disabled": false,
-        "triggerVariant": "row",
-        "triggerIcon": false
+        "triggerVariant": "row"
       },
       "visuals": {
         "neutral": {
@@ -53097,14 +53067,14 @@
         "exponential": {
           "light": {
             "default": {
-              "width": 12.25,
-              "height": 12.25
+              "width": 14,
+              "height": 14
             }
           },
           "dark": {
             "default": {
-              "width": 12.25,
-              "height": 12.25
+              "width": 14,
+              "height": 14
             }
           }
         },
@@ -53125,14 +53095,14 @@
         "orange": {
           "light": {
             "default": {
-              "width": 12.25,
-              "height": 12.25
+              "width": 14,
+              "height": 14
             }
           },
           "dark": {
             "default": {
-              "width": 12.25,
-              "height": 12.25
+              "width": 14,
+              "height": 14
             }
           }
         }
