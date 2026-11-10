@@ -1574,7 +1574,14 @@ fn read_only_row(ink: &Ink, id: &str, label: &str, value: Value, chevron: bool, 
     }
     let control = json!({"id": format!("{id}_control"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "flexGrow": 1, "minWidth": 0}, "children": trailing});
     let label = json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text(&format!("{id}_label"), json!(label), SM, &ink.foreground)]});
-    ink.shell(id, false, visible, vec![label, control])
+    let mut row = ink.shell(id, false, visible, vec![label, control]);
+    if !chevron {
+        // The disabled field's run sits half a point further right.
+        row["style"].as_object_mut().expect("a style").remove("paddingHorizontal");
+        row["style"]["paddingLeft"] = json!(ink.r(1.));
+        row["style"]["paddingRight"] = json!(ink.r(1.) - 0.5);
+    }
+    row
 }
 
 /// #EXP-1645 (team-image.json): the label, the 28 px mark, the Upload pill,
@@ -1608,7 +1615,7 @@ fn image_row(ink: &Ink, chrome: &Chrome) -> Value {
             button["on"] = json!({"press": {"event": {"name": "removeImage"}}});
             button["style"]["cursor"] = json!("pointer");
             button["style"][":hover"] = json!({"backgroundColor": chrome.list_hover});
-            return json!({"id": "image_remove_tip", "component": "Tooltip", "visible": not(path("/pane/image/disabled")), "props": {"content": spec.copy.remove}, "children": [button]});
+            return json!({"id": "image_remove_tip", "component": "Tooltip", "visible": and(path("/pane/image/has"), not(path("/pane/image/disabled"))), "props": {"content": spec.copy.remove}, "children": [button]});
         }
         button
     };
