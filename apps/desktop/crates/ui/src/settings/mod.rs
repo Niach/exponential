@@ -81,11 +81,12 @@ pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
 pub(crate) mod board_detail;
+pub(crate) mod readiness;
 pub(crate) mod repositories;
 pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
-mod tools;
+pub(crate) mod tools;
 pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
