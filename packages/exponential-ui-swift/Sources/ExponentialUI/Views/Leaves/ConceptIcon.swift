@@ -32,6 +32,14 @@ enum BuiltinIcons {
         "ZoomableImage.zoomOut": "ui-minus", "ZoomableImage.zoomIn": "ui-add", "ZoomableImage.fit": "ui-fullscreen",
     ]
 
+    /// #EXP-1764: `iconFillNames` → `iconFillColors` (generated, mirrored
+    /// like `slots`): the marks painted in their OWN colour (`brand-claude` =
+    /// Anthropic's orange), never in the ink.
+    static let fills: [String: String] = ["brand-claude": "#D97757"]
+
+    /// The colour a name paints in: its own fill, else `ink`.
+    static func color(_ name: String, ink: Color) -> Color { fills[name].flatMap { Color(hex: $0) } ?? ink }
+
     /// The icon name of a built-in slot (`Table.sortIcon.asc`).
     static func name(_ slot: String) -> String { slots[slot] ?? "ui-icon-placeholder" }
 
@@ -139,12 +147,12 @@ struct ConceptIcon: View {
     var body: some View {
         Group {
             if let view = model.host.icon(name, size: size) {
-                view.frame(width: size, height: size).foregroundStyle(color)
+                view.frame(width: size, height: size).foregroundStyle(BuiltinIcons.color(name, ink: color))
             } else {
                 // The built-in Lucide glyph, else the `circle-dashed`
                 // placeholder (web's `IconGlyph` fallback), full colour.
                 LucideGlyph(paths: BuiltinIcons.paths(name), size: size)
-                    .foregroundStyle(color)
+                    .foregroundStyle(BuiltinIcons.color(name, ink: color))
             }
         }
         .mirroredForRTL(!mirroredOutside && RTLGlyphs.mirrors(name, rtl: rtl))

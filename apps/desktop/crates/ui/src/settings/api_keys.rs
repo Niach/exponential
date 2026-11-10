@@ -610,7 +610,7 @@ struct Chrome {
 /// one: the alpha rounds to its byte and the channels absorb the rounding,
 /// so colour × alpha (what the quad adds over its ground) stays exact; at
 /// a few percent alpha one channel step is a thirtieth of a pixel level.
-fn premultiplied_hex(color: gpui::Hsla) -> String {
+pub(super) fn premultiplied_hex(color: gpui::Hsla) -> String {
     let c = color.to_rgb();
     let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
     let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;
