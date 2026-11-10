@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Skeleton `rows` are borderless (#EXP-1629, `fixtures/skeleton-rows.json`): no `borderTopWidth` hairline between rows, so rows after the first centre their dot and bars in the full row height again (+0.5 px off before). `tests/skeleton_rows.rs` replays the fixture.
 - Popover `matchAnchorWidth`: the layer (`LayerSpec::exact_anchor_width`) is laid out at EXACTLY its anchor's frame width every pass (min = max = the anchor's), so it follows the anchor when it resizes; `overlay-geometry.json`'s `matchAnchorWidth` cases replay through the layer manager, + a resize test.
 - A Select `pill`'s popup is placed in the IDE Popover's order (#EXP-1629): the inset first, then the flip and the margin clamp, then the content's offset from the pill rounded to whole points, half away from zero (`overlay::place_inset_overlay`, gpui's `Positioner`). Pushed back from the right edge it used to land on the clamp minus the inset (a pill at x = 551.5 in a 760 wide view: 490 against the IDE's 490.5). `overlay-geometry.json` `inset` locks it.
 - Composer `layout: "flat"` (#EXP-1762): a flat, slotted Composer's measure gets the content width minus its slot wrappers (each + the bar's gap), the slots' width added back to the answer, so its field wraps where it is painted; `COMPOSER_ATTACH_W` (32) for the painters.

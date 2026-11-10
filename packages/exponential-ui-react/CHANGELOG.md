@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Skeleton `rows` (#EXP-1629): no hairline between rows (base CSS); `batch-ui.test.tsx` replays `fixtures/skeleton-rows.json`.
 - Popover `matchAnchorWidth`: the content's `width` = `var(--radix-popover-trigger-width)` (Radix's anchor width: the `anchor` node's virtual ref, else the trigger; floating-ui re-measures it on a resize). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases. Snapshots: + `Popover/matchAnchorWidth=true|false`.
 - Select `pill` popup EXACTLY where `placeInsetOverlay` puts it (#EXP-1629): Radix's popper (no middleware, its wrapper rounded to device px) still places it, then the content moves by a `translate` (`insetPopupNudge`) onto the core's box: the inset, the clamp, then whole px from the pill, half away from zero (was up to half a px off). Re-applied whenever Radix moves the wrapper and as the pill, the popup or the window moves or resizes. The browser overlay suite replays the `overlay-geometry.json` `inset` cases with no tolerance, plain and searchable (harness `?view=inset`).
 - Composer `layout: "flat"` (#EXP-1762): the root is one row (`[data-r-layout="flat"]`): the leading slot in its own `.xui-composer-bar` before the field, the field flexes and centres on the disc, the controls bar after it. Snapshots: `data-r-layout` on every Composer part, + `Composer/layout=flat|stacked`.
