@@ -97,6 +97,11 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   borderTopLeftRadius: [`radius`, `spacing`],
   maxWidth: [`control`, `spacing`],
   backgroundClip: [],
+  // #EXP-1765: a part's one-sided inset (the pill popup's search row).
+  paddingTop: [`spacing`],
+  paddingBottom: [`spacing`],
+  // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
+  textAlign: [],
 }
 /** #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`). */
 const PERCENT_KEYS = new Set([`maxWidth`])
@@ -120,7 +125,7 @@ export function isFontText(value: unknown): value is string {
   return count(`"`) % 2 === 0 && count(`'`) % 2 === 0
 }
 const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`, `transition`, `transitionEasing`, `backdropBlur`])
-const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`, `animation`])
+const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`, `animation`, `textAlign`])
 
 export class ThemeError extends Error {
   readonly issues: ThemeIssue[]

@@ -164,6 +164,9 @@ public final class SurfaceModel {
     @ObservationIgnored var layerReturn: [String: String] = [:]
     /// #EXP-1629: the option under each open Select's cursor (by owner id).
     @ObservationIgnored var selectCursor: [String: String] = [:]
+    /// #EXP-1765: the open `pill` Select popups the POINTER opened that show
+    /// no cursor yet (owner ids).
+    @ObservationIgnored var selectCursorless: Set<String> = []
     @ObservationIgnored var openLayerKeys: [String] = []
     @ObservationIgnored var justDismissed: String?
     @ObservationIgnored var hoverDelay: Task<Void, Never>?
@@ -793,8 +796,10 @@ public final class SurfaceModel {
     /// Is a node (or its owner, label parts aside) disabled?
     func isDisabled(_ index: Int) -> Bool {
         guard let n = node(index) else { return true }
-        if n.disabled || n.props.flag("loading") { return true }
-        if n.part != "label", let o = owner(of: index), o.index != n.index, o.disabled || o.props.flag("loading") { return true }
+        // #EXP-1765: a `loading` Select stays live (its popup shows the
+        // skeleton rows while the options load); `loading` freezes the rest.
+        if n.disabled || (n.props.flag("loading") && n.component != "Select") { return true }
+        if n.part != "label", let o = owner(of: index), o.index != n.index, o.disabled || (o.props.flag("loading") && o.component != "Select") { return true }
         return false
     }
 

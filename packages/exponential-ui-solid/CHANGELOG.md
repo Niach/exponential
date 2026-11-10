@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.
+- Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`), React's.
 - Input `variant: "box"` + `size` (#EXP-1629): React's: no label part, `aria-label` on the field. Parity case (Input box sm, typing).
 - Select option `trailing` + event `open` (#EXP-1629), React's: the popup row reads `label trailing`, `open` fires as the popup opens. Parity cases.

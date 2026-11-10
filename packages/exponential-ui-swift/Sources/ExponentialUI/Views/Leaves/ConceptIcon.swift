@@ -24,6 +24,7 @@ enum BuiltinIcons {
         "FileUpload.icon": "upload", "FileUpload.file": "ui-file", "FileUpload.remove": "ui-close",
         "Image.fallback": "ui-icon-placeholder", "NumberField.decrement": "ui-minus", "NumberField.increment": "ui-add",
         "Select.trigger": "ui-selector", "Select.search": "search", "Select.check": "ui-check", "Select.chevron": "ui-chevron-right",
+        "Select.dropdown": "ui-chevron-down", "Select.clear": "ui-clear",
         "SearchList.search": "search", "SearchList.check": "ui-check", "Tabs.close": "ui-close", "Tabs.new": "ui-add",
         "Table.sortIcon.asc": "ui-chevron-up", "Table.sortIcon.desc": "ui-chevron-down", "TimePicker.trigger": "ui-clock",
         "Toast.close": "ui-close", "Toast.icon.info": "ui-info", "Toast.icon.success": "ui-success",
@@ -71,7 +72,7 @@ enum BuiltinIcons {
         case "ui-info", "info": "info"
         case "ui-success", "circle-check", "trace-task-done": "circle-check"
         case "ui-warning", "triangle-alert": "triangle-alert"
-        case "ui-error", "circle-x", "trace-failed": "circle-x"
+        case "ui-error", "ui-clear", "circle-x", "trace-failed": "circle-x"
         case "ui-back", "arrow-left": "arrow-left"
         case "ui-arrow-right", "arrow-right": "arrow-right"
         case "ui-star", "star": "star"
