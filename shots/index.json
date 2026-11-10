@@ -3476,8 +3476,8 @@
         "file": "shots/exponential-ui-input/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 46192,
-        "sha256": "3457e5f33a6f1989d383325ec90ac14be92d8091bba04d7a01ca85b28f6fa39e"
+        "bytes": 45734,
+        "sha256": "09134e065e97f8237018251aedf8f76c11a105a0d27d8b73a243bf4db648b7b2"
       },
       "ios": {
         "file": "shots/exponential-ui-input/ios.webp",
