@@ -119,6 +119,24 @@ class GeometryTest {
         assertEquals(900f, m.viewportHeight, 0.001f)
     }
 
+    /** #EXP-1765: overlay-geometry.json `inset` (the pill popup: the inset, the clamp, then whole dp from the pill), replayed at density 2 in px. */
+    @Test
+    fun insetOverlayPlacement() {
+        val cases = Fixtures.json("overlay-geometry.json")["inset"]?.array ?: emptyList()
+        assertTrue(cases.size >= 5)
+        val d = 2f
+        for (c in cases) {
+            val px = { v: JsonValue?, k: String -> (v!![k]!!.number!! * d).toInt() }
+            val a = c["anchor"]
+            val anchor = androidx.compose.ui.unit.IntRect(px(a, "x"), px(a, "y"), px(a, "x") + px(a, "width"), px(a, "y") + px(a, "height"))
+            val window = androidx.compose.ui.unit.IntSize(px(c["viewport"], "width"), px(c["viewport"], "height"))
+            val p = at.exponential.ui.compose.selectPopupOrigin(c["align"]!!.string!!, false, px(c, "offset"), px(c, "padding"), px(c, "inset"), d, anchor, window, px(c["size"], "width"), px(c["size"], "height"))
+            val name = c["name"]?.string ?: ""
+            assertEquals(name, px(c["expected"], "x"), p.x)
+            assertEquals(name, px(c["expected"], "y"), p.y)
+        }
+    }
+
     @Test
     fun overlayPlacement() {
         val cases = Fixtures.json("overlay-geometry.json")["cases"]?.array ?: emptyList()

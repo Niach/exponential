@@ -16,7 +16,6 @@ const PLATFORM_ROOTS: readonly [string, UiPlatform][] = [
   [`apps/web/src/`, `web`],
   [`packages/ui/`, `web`],
   [`packages/exponential-ui-react/`, `web`],
-  [`apps/styleguide/`, `web`],
   [`apps/ios/`, `ios`],
   [`apps/android/`, `android`],
   [`apps/desktop/crates/ui/`, `desktop`],

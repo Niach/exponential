@@ -17,7 +17,6 @@ describe(`uiPlatformsOfPaths`, () => {
       ])
     ).toEqual([`web`, `ios`, `android`, `desktop`])
     expect(uiPlatformsOfPaths([`packages/ui/src/menu.tsx`])).toEqual([`web`])
-    expect(uiPlatformsOfPaths([`apps/styleguide/src/entries.tsx`])).toEqual([`web`])
     expect(uiPlatformsOfPaths([`apps/desktop/crates/ui/src/sidebar.rs`])).toEqual([`desktop`])
   })
 
