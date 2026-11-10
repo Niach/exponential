@@ -15,8 +15,8 @@
 //! `/pane`): the identity row (genUI IconPicker, ColorPicker and a `bare`
 //! Input), the description (a `row` Textarea), the records line, Record
 //! access, Tools, then `app_mcp`'s groups and the Export / Delete buttons.
-//! The share rows' ⋯ menus, the Accounts rows' server Selects and the
-//! webhook rows' middle-truncated URL / secret stay the IDE's own
+//! The share rows' ⋯ are genUI Menus; the Accounts rows' server Selects and
+//! the webhook rows' middle-truncated URL / secret stay the IDE's own
 //! (`host_leaf` Embeds); the Export dialog and every confirm stay native.
 
 use std::cell::RefCell;
@@ -33,7 +33,7 @@ use domain::app_actions::{action_grantable, action_title, can_grant_actions, dec
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
-use super::app_mcp::{AccountSelect, MidText, ShareMenu, ACCOUNT_SELECT, HOOK_SECRET, HOOK_URL, SHARE_MENU};
+use super::app_mcp::{AccountSelect, MidText, ACCOUNT_SELECT, HOOK_SECRET, HOOK_URL};
 use super::doc::{hex, not, path, IdeToasts, Ink, SM, XS};
 use super::SettingsSection;
 use crate::apps_view::AppEntry;
@@ -795,6 +795,25 @@ impl AppDetailPane {
                     self.set_share(key, if on { "enable" } else { "revoke" }, cx);
                 }
             }
+            // A live share row's ⋯ pick (`app_mcp::share_menu_items`); the
+            // trigger is inert while a share change is in flight.
+            "menu" if self.share_busy.is_none() => {
+                let url = self.mcp.as_ref().and_then(|data| data.shares.iter().find(|share| share.name == key)).and_then(|share| share.url.clone());
+                match value.as_str() {
+                    "copy" => {
+                        let Some(url) = url else { return };
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
+                        crate::toast::show(crate::toast::Toast::success(APPS.copy.webhooks.copied.clone()), window, cx);
+                    }
+                    "rotate" => self.set_share(key, "rotate", cx),
+                    "expiry:never" => self.set_share_expiry(key, None, cx),
+                    other => {
+                        if let Some(days) = other.strip_prefix("expiry:").and_then(|days| days.parse().ok()) {
+                            self.set_share_expiry(key, Some(days), cx);
+                        }
+                    }
+                }
+            }
             "addServer" => self.add_upstream_server(key, window, cx),
             "connect" => {
                 let upstream = self.mcp.as_ref().and_then(|data| data.upstreams.iter().find(|u| u.name == key)).cloned();
@@ -908,7 +927,7 @@ impl AppDetailPane {
             "policies": {"show": !policies.is_empty(), "rows": policies},
             "tools": {"hasRows": !tools.is_empty(), "none": tools.is_empty(), "rows": tools},
             // VAPP-241: the published package's public links first (the web's order).
-            "shares": super::app_mcp::shares_rows(data, self.share_busy.as_deref(), &mut state.menus),
+            "shares": super::app_mcp::shares_rows(data, self.share_busy.as_deref()),
             "accounts": super::app_mcp::accounts_rows(data, busy, self.upstream_busy.as_deref(), &mut state.selects),
             "mcpTools": super::app_mcp::tools_rows(data, busy),
             // #VAPP-220: the published package's automations, read-only.
@@ -947,13 +966,12 @@ impl Render for AppDetailPane {
 const PATH: &str = "/pane";
 
 /// The document's actions (all the pane's).
-const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "addServer", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
+const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "menu", "addServer", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
 
 /// What the host draws itself, refilled by every projection.
 #[derive(Default)]
 struct HostState {
     pane: Option<WeakEntity<AppDetailPane>>,
-    menus: HashMap<String, ShareMenu>,
     selects: HashMap<String, AccountSelect>,
     /// Keyed by the painted id (`hook_url.<name>`, `hook_secret.<name>`).
     texts: HashMap<String, MidText>,
@@ -988,7 +1006,6 @@ impl HostPlugin for PaneHost {
         let state = self.state.borrow();
         let (node, key) = component_id.split_once('.')?;
         match node {
-            SHARE_MENU => state.menus.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
             ACCOUNT_SELECT => state.selects.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
             HOOK_URL | HOOK_SECRET => {
                 let text = state.texts.get(component_id)?;
@@ -1007,7 +1024,6 @@ impl HostPlugin for PaneHost {
         let theme = cx.theme();
         let ide_text = div().font(gpui::font(theme.font_family.clone())).text_size(gpui::rems(1.)).line_height(gpui::phi()).text_color(theme.foreground);
         let leaf = match node {
-            SHARE_MENU => super::app_mcp::share_menu(state.menus.get(key)?, pane, cx),
             ACCOUNT_SELECT => super::app_mcp::account_select(state.selects.get(key)?, pane, cx),
             HOOK_URL | HOOK_SECRET => super::app_mcp::mid_text(state.texts.get(component_id)?, cx),
             _ => return None,
@@ -1034,6 +1050,8 @@ pub(super) struct Tints {
     danger: String,
     danger_fg: String,
     danger_hover: String,
+    /// The ghost ⋯'s hover wash.
+    pub(super) list_hover: String,
 }
 
 impl Tints {
@@ -1053,6 +1071,7 @@ impl Tints {
             danger: hex(theme.button_danger),
             danger_fg: hex(theme.button_danger_foreground),
             danger_hover: hex(theme.button_danger_hover),
+            list_hover: hex(theme.list_hover),
         }
     }
 }
@@ -1284,6 +1303,7 @@ mod tests {
             danger: "#dc2626ff".into(),
             danger_fg: "#ffffffff".into(),
             danger_hover: "#b91c1cff".into(),
+            list_hover: "#ffffff0f".into(),
         };
         let tree = document(&ink, &tints);
         let bound = super::super::doc::bound_values(&tree);

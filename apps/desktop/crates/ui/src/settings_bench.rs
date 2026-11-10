@@ -2045,6 +2045,13 @@ mod app_detail {
         shoot("app-detail-share-hover", owner(), Pointer::Hover(SHARE_MENU));
     }
 
+    /// #EXP-1629: the first share row's ⋯ open (the genUI Menu).
+    #[test]
+    #[ignore]
+    fn settings_app_detail_share_open() {
+        shoot("app-detail-share-open", owner(), Pointer::Press("share_menu_more.contact-form"));
+    }
+
     #[test]
     #[ignore]
     fn settings_app_detail_icon_open() {
@@ -2433,6 +2440,14 @@ mod members {
     fn settings_members_menu_hover() {
         let point = std::env::var("EXP_MEMBERS_HOVER").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(MENU);
         members_hover("members-menu-hover", shot(), Some(point));
+    }
+
+    /// #EXP-1629: the second row's ⋯ open (the genUI Menu).
+    #[test]
+    #[ignore]
+    fn settings_members_menu_open() {
+        let shot = shot();
+        shoot_pane_acted("members-menu-open", MembersPane::for_shots, move |pane, cx| pane.show(shot, cx), None, &[], |pane, window, cx| pane.press_for_shots("member_menu_more.m2", window, cx));
     }
 
     /// The second row's ⋯ (window points), read off `members-owner`.

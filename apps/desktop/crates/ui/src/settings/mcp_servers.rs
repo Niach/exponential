@@ -22,31 +22,27 @@
 //! #EXP-1629: the pane is a document on the native binding (projection at
 //! `/pane`): the band with the owner's Add server pill and the reload
 //! spinner, the skeleton, the failed and empty states, and the rows (glyph,
-//! name + Default pill over the caption, the one connection control). Each
-//! row's ⋯ stays the IDE's own menu, drawn into the document as a
-//! `host_leaf` Embed (`row_menu`); the dialogs stay native.
+//! name + Default pill over the caption, the one connection control) and each
+//! row's ⋯ (a genUI `Menu`, [`menu_items`]); the dialogs stay native.
 
-use crate::controls::PointerMenuButtonExt as _;
 use crate::toast::Toast;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui::{div, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window};
 use gpui::FontWeight;
-use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _, Disableable as _, Icon};
+use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _};
 use serde_json::{json, Value};
 
 use api::mcp_servers::{McpServerConfig, McpServerListEntry};
 use eui_gpui::binding::Binding;
-use eui_gpui::controls::CTL_MD_H;
 use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 use sync::Store;
 
 use crate::controls::{glass_input, WebControl as _};
-use crate::icons::registry;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -239,8 +235,9 @@ pub struct McpServersPane {
     retry_pressed: bool,
     #[cfg(test)]
     shot: Option<McpShot>,
-    /// The rows' ⋯ menus the document's host draws (`row_menu`).
-    host: Rc<RefCell<HostState>>,
+    /// What each row's ⋯ acts on, by server id (refilled by every
+    /// projection).
+    menus: RefCell<HashMap<String, MenuRow>>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
@@ -272,15 +269,16 @@ impl McpServersPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["add", "retry", "connect", "cancel"] {
+            for name in ["add", "retry", "connect", "cancel", "menu"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let value = event.payload.as_ref().and_then(|payload| payload.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
                     let pane = pane.clone();
                     // Deferred: the binding is mid-update and these write it.
                     cx.defer(move |cx| {
                         let _ = handle.update(cx, |_, window, cx| {
-                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, &value, window, cx));
                         });
                     });
                     None
@@ -288,9 +286,8 @@ impl McpServersPane {
             }
             binding
         });
-        let host = Rc::new(RefCell::new(HostState { menus: HashMap::new(), pane: Some(pane) }));
-        let tints = Tints { success: hex(cx.theme().success), warning: hex(cx.theme().warning), skeleton: hex(cx.theme().muted_foreground.opacity(0.18)) };
-        let plugin = Rc::new(McpHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let tints = Tints { success: hex(cx.theme().success), warning: hex(cx.theme().warning), skeleton: hex(cx.theme().muted_foreground.opacity(0.18)), list_hover: hex(cx.theme().list_hover) };
+        let plugin = Rc::new(McpHost { ide: super::doc::ide_plugin() });
         let view = mount_with("settings-mcp-servers", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
         Self {
             nav,
@@ -307,7 +304,7 @@ impl McpServersPane {
             retry_pressed: false,
             #[cfg(test)]
             shot: None,
-            host,
+            menus: RefCell::default(),
             binding,
             view,
             _subscriptions: subscriptions,
@@ -901,8 +898,9 @@ impl McpServersPane {
 
     // -- the document ---------------------------------------------------------
 
-    /// A document action (`add`, `retry`, `connect` / `cancel` on the row `key`).
-    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    /// A document action (`add`, `retry`, `connect` / `cancel` on the row
+    /// `key`, `menu` = the row's ⋯ pick `value`).
+    fn action(&mut self, name: &str, key: &str, value: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match name {
             "add" if !self.busy => {
                 if let Some(team) = self.pane_team(cx) {
@@ -918,16 +916,41 @@ impl McpServersPane {
                     self.connect(&config, window, cx);
                 }
             }
+            "menu" => {
+                let Some(row) = self.menus.borrow().get(key).cloned() else { return };
+                // The trigger is inert while busy or pending.
+                if row.busy || row.pending {
+                    return;
+                }
+                let target = row.entry.config.clone();
+                let (connected, owner) = (row.connected, row.owner);
+                match value {
+                    "test" if connected && target.is_http() => self.test(&target, window, cx),
+                    "key" if connected && target.auth == "secret" => self.open_key_dialog(&target, window, cx),
+                    // FEED-73: share the person's own connection with the team.
+                    "share" if connected && share_menu_offered(target.is_http(), row.entry.shared) => {
+                        self.toggle_shared(&target, !row.entry.shared, window, cx)
+                    }
+                    // VAPP-239: the device it runs on, for the dialog's Runs on row.
+                    "edit" if owner => {
+                        let team = target.team_id.clone();
+                        self.open_editor(Some(target), row.entry.device.clone(), &team, window, cx)
+                    }
+                    "disconnect" if connected => self.confirm_disconnect(&target, window, cx),
+                    "remove" if owner => self.confirm_remove(&target, window, cx),
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
 
-    /// The pane's state as the document reads it; the rows' ⋯ menus are
-    /// written into the host's table at the same time.
+    /// The pane's state as the document reads it; what the rows' ⋯ menus
+    /// act on is kept for their picks at the same time.
     fn project(&self, team: Option<&str>, owner: bool) -> Value {
         let mut menus = HashMap::new();
         let Some(_) = team else {
-            self.host.borrow_mut().menus = menus;
+            *self.menus.borrow_mut() = menus;
             return json!({"noTeam": true, "rows": []});
         };
         let mut out = json!({"noTeam": false, "owner": owner, "busy": self.busy, "reloading": self.reloading,
@@ -947,6 +970,7 @@ impl McpServersPane {
                         let action = row_action(entry);
                         let connected = action == RowAction::Connected;
                         let menu = row_menu_offered(owner, connected);
+                        let items = if menu { menu_items(entry, owner, connected) } else { Vec::new() };
                         if menu {
                             menus.insert(config.id.clone(), MenuRow { entry: entry.clone(), owner, connected, pending, busy: self.busy });
                         }
@@ -971,15 +995,18 @@ impl McpServersPane {
                             "connectLabel": if secret { "Set key" } else { "Connect" },
                             "connectIcon": if secret { "ui-permission" } else { "ui-sign-in" },
                             "menu": menu,
-                            // The ⋯ leaf repaints when what it draws moves.
-                            "menuSurface": {"root": {"id": "menu", "component": "Box"}, "data": {"pending": pending, "busy": self.busy, "connected": connected, "shared": entry.shared}},
+                            "menuLabel": format!("Server menu for {}", config.name),
+                            "items": items,
+                            // gpui-component's disabled / loading ghost ⋯.
+                            "menuLocked": self.busy || pending,
+                            "menuLoading": connected && pending,
                         })
                     })
                     .collect();
                 out["rows"] = Value::Array(rows);
             }
         }
-        self.host.borrow_mut().menus = menus;
+        *self.menus.borrow_mut() = menus;
         out
     }
 }
@@ -988,10 +1015,8 @@ impl McpServersPane {
 /// concept name).
 const ASSET: &str = "asset:";
 
-/// The row's ⋯ (`menu.<key>` once painted).
-const MENU_NODE: &str = "menu";
-
-/// What a row's ⋯ needs to draw and open its menu.
+/// What a row's ⋯ pick acts on.
+#[derive(Clone)]
 struct MenuRow {
     entry: McpServerListEntry,
     owner: bool,
@@ -1000,17 +1025,9 @@ struct MenuRow {
     busy: bool,
 }
 
-#[derive(Default)]
-struct HostState {
-    menus: HashMap<String, MenuRow>,
-    pane: Option<WeakEntity<McpServersPane>>,
-}
-
-/// The pane's host: the IDE's plugin, the brand marks by asset path, and
-/// the rows' ⋯ menus drawn by the IDE itself.
+/// The pane's host: the IDE's plugin and the brand marks by asset path.
 struct McpHost {
     ide: crate::exponential_ui_host::IdePlugin,
-    state: Rc<RefCell<HostState>>,
 }
 
 impl HostPlugin for McpHost {
@@ -1024,119 +1041,42 @@ impl HostPlugin for McpHost {
     fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
         self.ide.on_unknown(node)
     }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
-        self.state.borrow().menus.contains_key(key).then_some(CTL_MD_H)
-    }
-
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
-        let state = self.state.borrow();
-        let row = state.menus.get(key)?;
-        let pane = state.pane.as_ref()?.upgrade()?;
-        Some(row_menu(row, pane, cx).into_any_element())
-    }
 }
 
 /// EXP-862 / EXP-1285 (web parity): everything a person can DO to a row
 /// sits behind ONE ghost "..." menu — the connection items (Test, Replace
 /// key, Share) with the owner's Edit, then the destructive Disconnect /
-/// Remove below the separator.
-// drop with EXP-1629-group4: the per-row menu stays the IDE's own (a
-// `host_leaf` Embed) until the catalog Menu carries icons, a separator and
-// danger items.
-fn row_menu(row: &MenuRow, pane: Entity<McpServersPane>, cx: &App) -> impl IntoElement {
-    let config = &row.entry.config;
-    let (connected, owner, pending) = (row.connected, row.owner, row.pending);
+/// Remove below the separator (web `DropdownMenuItem
+/// variant="destructive"`).
+fn menu_items(entry: &McpServerListEntry, owner: bool, connected: bool) -> Vec<Value> {
+    let config = &entry.config;
     let http = config.is_http();
-    let secret = config.auth == "secret";
-    let shared = row.entry.shared;
-    let target = config.clone();
-    // VAPP-239: the device it runs on, for the dialog's Runs on row.
-    let device = row.entry.device.clone();
-    let team = config.team_id.clone();
-    crate::controls::ghost_icon_button(
-        SharedString::from(format!("mcp-menu-{}", config.id)),
-        Icon::new(registry::UI_MORE),
-        cx,
-    )
-    .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
-    .loading(connected && pending)
-    .disabled(row.busy || pending)
-    .pointer_menu(move |menu, _window, cx| {
-        let mut menu = menu;
-        if connected && http {
-            let (target, pane) = (target.clone(), pane.clone());
-            menu = menu.item(
-                crate::controls::pointer_label_item("Test connection", false)
-                    .icon(Icon::new(registry::UI_REFRESH))
-                    .on_click(move |_, window, cx| {
-                        let target = target.clone();
-                        pane.update(cx, |this, cx| this.test(&target, window, cx));
-                    }),
-            );
-        }
-        if connected && secret {
-            let (target, pane) = (target.clone(), pane.clone());
-            menu = menu.item(
-                crate::controls::pointer_label_item("Replace key", false)
-                    .icon(Icon::new(registry::UI_PRIVATE))
-                    .on_click(move |_, window, cx| {
-                        let target = target.clone();
-                        pane.update(cx, |this, cx| this.open_key_dialog(&target, window, cx));
-                    }),
-            );
-        }
-        // FEED-73: share the person's own connection with the team. A
-        // stdio row only offers the undo of an existing share.
-        if connected && share_menu_offered(http, shared) {
-            let (target, pane) = (target.clone(), pane.clone());
-            menu = menu.item(
-                crate::controls::pointer_label_item(share_menu_label(shared), false)
-                    .icon(Icon::new(registry::UI_SHARE))
-                    .on_click(move |_, window, cx| {
-                        let target = target.clone();
-                        pane.update(cx, |this, cx| this.toggle_shared(&target, !shared, window, cx));
-                    }),
-            );
-        }
-        if owner {
-            let (edit, team, pane, device) = (target.clone(), team.clone(), pane.clone(), device.clone());
-            menu = menu.item(
-                crate::controls::pointer_label_item("Edit", false)
-                    .icon(Icon::new(registry::UI_EDIT))
-                    .on_click(move |_, window, cx| {
-                        let (edit, team, device) = (edit.clone(), team.clone(), device.clone());
-                        pane.update(cx, |this, cx| this.open_editor(Some(edit), device, &team, window, cx));
-                    }),
-            );
-        }
-        menu = menu.separator();
-        // Destructive rows wear the danger tint (web
-        // `DropdownMenuItem variant="destructive"`).
-        if connected {
-            let (target, pane) = (target.clone(), pane.clone());
-            menu = menu.item(
-                crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLEAR), cx)
-                    .on_click(move |_, window, cx| {
-                        let target = target.clone();
-                        pane.update(cx, |this, cx| this.confirm_disconnect(&target, window, cx));
-                    }),
-            );
-        }
-        if owner {
-            let (remove, pane) = (target.clone(), pane.clone());
-            menu = menu.item(
-                crate::controls::danger_menu_item("Remove", Icon::new(registry::UI_DELETE), cx)
-                    .on_click(move |_, window, cx| {
-                        let remove = remove.clone();
-                        pane.update(cx, |this, cx| this.confirm_remove(&remove, window, cx));
-                    }),
-            );
-        }
-        menu
-    })
+    let mut items = Vec::new();
+    if connected && http {
+        items.push(json!({"label": "Test connection", "value": "test", "icon": "ui-refresh"}));
+    }
+    if connected && config.auth == "secret" {
+        items.push(json!({"label": "Replace key", "value": "key", "icon": "ui-private"}));
+    }
+    // FEED-73: a stdio row only offers the undo of an existing share.
+    if connected && share_menu_offered(http, entry.shared) {
+        items.push(json!({"label": share_menu_label(entry.shared), "value": "share", "icon": "ui-share"}));
+    }
+    if owner {
+        items.push(json!({"label": "Edit", "value": "edit", "icon": "ui-edit"}));
+    }
+    let mut danger = Vec::new();
+    if connected {
+        danger.push(json!({"label": "Disconnect", "value": "disconnect", "icon": "ui-clear", "destructive": true}));
+    }
+    if owner {
+        danger.push(json!({"label": "Remove", "value": "remove", "icon": "ui-delete", "destructive": true}));
+    }
+    if !items.is_empty() && !danger.is_empty() {
+        items.push(json!({"kind": "separator"}));
+    }
+    items.extend(danger);
+    items
 }
 
 /// The colours the document needs beyond [`Ink`].
@@ -1144,6 +1084,8 @@ struct Tints {
     success: String,
     warning: String,
     skeleton: String,
+    /// The ghost ⋯'s hover wash.
+    list_hover: String,
 }
 
 /// The row's ONE connection control (web `ConnectionAction`): the waiting
@@ -1185,7 +1127,7 @@ fn server_row(ink: &Ink, tints: &Tints) -> Value {
     detail["visible"] = path("hasDetail");
     detail["props"]["lines"] = json!(1);
     detail["style"]["minWidth"] = json!(0);
-    let menu = json!({"id": MENU_NODE, "component": "Embed", "visible": path("menu"), "props": {"surface": path("menuSurface")}, "style": {"width": CTL_MD_H, "height": CTL_MD_H, "flexShrink": 0}});
+    let menu = ink.row_menu("menu", path("menuLabel"), path("menu"), &tints.list_hover, Some(path("menuLocked")), Some(path("menuLoading")));
     json!({"id": "row", "component": "Box",
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
         "children": [
@@ -1240,6 +1182,12 @@ pub(crate) fn request_add(name: String, cx: &mut App) {
 impl Render for McpServersPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "McpServersPane").entered();
+        // The bench: an open popup's enter fade run out by hand (the
+        // headless clock stands still).
+        #[cfg(test)]
+        if self.shot.is_some() && !self.view.read(cx).layers().is_empty() {
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+        }
         let team = self.pane_team(cx);
         let mut owner = false;
         if let Some(team_id) = team.as_deref() {
