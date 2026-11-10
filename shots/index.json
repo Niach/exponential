@@ -1703,15 +1703,15 @@
         "file": "shots/code-block/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 55226,
-        "sha256": "d5a168c47029787376c69c59dda4fba2f2d0c98f192249c9b0b2c49e06daaefd"
+        "bytes": 55530,
+        "sha256": "1d2b40fed72e906f5c351e6f5ac825c0ae94667ed346bc1c65a140ab6cc87d33"
       },
       "web-mobile": {
         "file": "shots/code-block/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 43456,
-        "sha256": "5c6780ae9687a19dbe5a4359aff18f7a56c64bc4fe88f0a150a85867f3526eec"
+        "bytes": 44190,
+        "sha256": "8579adbf632443e7da6ddcd1312ebab5b7a10b55925a0c18c05c88cdf93c059f"
       }
     },
     "comment-call-card": {
