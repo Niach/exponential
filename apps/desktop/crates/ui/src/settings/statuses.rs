@@ -950,7 +950,7 @@ fn row(ink: &Ink, chrome: &Chrome, id: &str) -> Value {
         "props": {"content": "Built-in status: reorderable, but not renamable, recolorable or deletable."},
         "children": [{"id": format!("{id}_lock_icon"), "component": "Icon", "props": {"name": "ui-private"}, "style": {"width": ink.r(XS), "height": ink.r(XS), "color": ink.muted, "flexShrink": 0}}]});
     let lock = json!({"id": format!("{id}_lock"), "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 24, "height": 24, "flexShrink": 0}, "children": [lock]});
-    // a11y: named by the caller (the row's menuLabel, the node's accessibility label).
+    // a11y: named by the caller ("Status actions for {name}", the node's accessibility label).
     let mut more = ink.ghost_icon_button(&format!("{id}_more"), "ui-more", path("menuLabel"), Value::Null, &chrome.list_hover);
     more.as_object_mut().expect("the trigger").remove("on");
     let menu = json!({"id": format!("{id}_menu"), "component": "Menu", "props": {"items": path("items"), "align": "start"},
@@ -1007,7 +1007,7 @@ fn category(ink: &Ink, chrome: &Chrome, category: IssueStatusCategory) -> Value 
         let add = ink.ghost_icon_button(&format!("{wire}_add"), "ui-add", json!(format!("Add {} status", category.label())), json!({"name": "add", "context": {"category": wire}}), &chrome.list_hover);
         let add = json!({"id": format!("{wire}_add_tip"), "component": "Tooltip", "visible": at("add"), "props": {"content": format!("Add {} status", category.label())}, "children": [add]});
         // gpui-component's disabled ghost: no wash, the glyph muted at half.
-        // a11y: named by the caller (the started-status cap sentence, the node's accessibility label).
+        // a11y: named by the caller (the cap sentence, the node's accessibility label).
         let mut capped = ink.ghost_icon_button(&format!("{wire}_capped"), "ui-add", json!(cap), Value::Null, &chrome.list_hover);
         for key in ["on", "props"] {
             capped.as_object_mut().expect("the button").remove(key);

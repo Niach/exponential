@@ -57,6 +57,10 @@ pub struct ControlBox {
     pub height: Option<f32>,
 }
 
+/// #EXP-1762: a Composer's attach control's width (its 16 px glyph + 8 px
+/// either side), what a flat Composer's field leaves for it.
+pub const COMPOSER_ATTACH_W: f32 = 32.0;
+
 /// One leaf the host must measure. `index` names the layout node; the host
 /// keys its own caches on it. `lines` = the `Text` prop (truncate to N lines).
 #[derive(Debug, Clone)]
