@@ -105,10 +105,13 @@ fn chat_node(id: &str) -> Value {
 fn eui_tree() -> Value {
     let mut composer = chat_node("chat_composer");
     composer["props"]["placeholder"] = json!(PLACEHOLDER);
+    // The ring's Embed keeps its document style (its box, its gap to Send).
+    let mut ring_style = composer["slots"]["trailing"]["style"].clone();
+    ring_style["backgroundColor"] = json!("$color.info");
     composer["slots"]["trailing"] = json!({
         "id": "chat_ring",
         "component": "Box",
-        "style": {"width": RING, "height": RING, "backgroundColor": "$color.info"},
+        "style": ring_style,
     });
     json!({
         "id": "bench_footer",
@@ -232,6 +235,8 @@ fn composer_bench_tree_is_the_chat_documents() {
     assert_eq!(tree["children"][1]["component"], "Composer");
     assert_eq!(tree["children"][1]["props"]["layout"], "flat");
     assert_eq!(tree["children"][0]["id"], "chat_replies");
+    let ring = &tree["children"][1]["slots"]["trailing"]["style"];
+    assert_eq!((ring["width"].as_f64(), ring["height"].as_f64()), (Some(RING as f64), Some(RING as f64)));
 }
 
 #[test]
