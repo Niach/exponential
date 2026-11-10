@@ -197,10 +197,10 @@ describe(`media`, () => {
 
 describe(`#EXP-1629 select popup`, () => {
   it(`a row hangs off its value: start, 262 wide, 1 under, 7 from the window`, () => {
-    expect(selectPopupGeometry({ triggerVariant: `row` }, `--w`)).toEqual({ align: `start`, minWidth: undefined, width: `262px`, anchorValue: true, sideOffset: 1, alignOffset: 0, collisionPadding: 7 })
-    expect(selectPopupGeometry({}, `--w`)).toEqual({ align: `start`, minWidth: `var(--w)`, width: undefined, anchorValue: false, sideOffset: 4, alignOffset: 0, collisionPadding: 8 })
+    expect(selectPopupGeometry({ triggerVariant: `row` }, `--w`)).toEqual({ align: `start`, minWidth: undefined, width: `262px`, anchorValue: true, sideOffset: 1, alignOffset: 0, collisionPadding: 7, inset: undefined })
+    expect(selectPopupGeometry({}, `--w`)).toEqual({ align: `start`, minWidth: `var(--w)`, width: undefined, anchorValue: false, sideOffset: 4, alignOffset: 0, collisionPadding: 8, inset: undefined })
     // #EXP-1765: a pill's popup a hairline outside the pill, the row's width.
-    expect(selectPopupGeometry({ triggerVariant: `pill` }, `--w`)).toEqual({ align: `start`, minWidth: undefined, width: `262px`, anchorValue: false, sideOffset: 3, alignOffset: -1, collisionPadding: 7 })
+    expect(selectPopupGeometry({ triggerVariant: `pill` }, `--w`)).toEqual({ align: `start`, minWidth: undefined, width: `262px`, anchorValue: false, sideOffset: 3, alignOffset: -1, collisionPadding: 7, inset: 1 })
     expect(selectPopupGeometry({ triggerVariant: `pill`, align: `end` }, `--w`)).toMatchObject({ alignOffset: -1 })
     expect(selectPopupGeometry({ triggerVariant: `pill`, align: `center` }, `--w`)).toMatchObject({ alignOffset: 0 })
     expect(selectPopupGeometry({ triggerVariant: `row`, align: `end`, popupWidth: 120 }, `--w`)).toMatchObject({ align: `end`, width: `120px` })

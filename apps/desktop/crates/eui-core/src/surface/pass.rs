@@ -14,7 +14,7 @@ use super::{Frame, Layer, LayoutOutput, ListOutput, NodeDelta, PlacedFrame, Scro
 use crate::engine::LeafAnswer;
 use crate::layout_tree::{LayerPlacement, NodeKind};
 use crate::measure::{HeightRequest, Intrinsics, LeafRequest, Measure, MeasureMemo, MeasureRequest};
-use crate::overlay::{place_overlay, OverlayAlign, OverlayPlacement, OverlaySide, PlaceOptions, Rect as ORect, Size as OSize, OVERLAY_PADDING};
+use crate::overlay::{place_inset_overlay, place_overlay, OverlayAlign, OverlayPlacement, OverlaySide, PlaceOptions, Rect as ORect, Size as OSize, OVERLAY_PADDING};
 use crate::style::{self, BoxKind};
 
 /// The widest a centred Dialog gets, and a side Drawer.
@@ -592,25 +592,18 @@ impl Surface {
                 } else {
                     side
                 };
-                let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
+                let size = if spec.exact_anchor_width {
+                    self.exact_width(root, a.w, guesses)
+                } else {
+                    self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses)
+                };
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
-                let mut p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
-                // #EXP-1765: the aligned edge pushed out past the anchor's.
-                // The view's margin still bounds it (the inset never pushes a
-                // clamped popup past the edge).
-                if let (Some(inset), false) = (spec.inset, hosted) {
-                    match physical {
-                        OverlayAlign::Start => p.x -= inset as f64,
-                        OverlayAlign::End => p.x += inset as f64,
-                        OverlayAlign::Center => {}
-                    }
-                    let margin = spec.margin.map(f64::from).unwrap_or(0.0);
-                    let (lo, hi) = (view.x as f64 + margin, view.x as f64 + view.w as f64 - size.width - margin);
-                    if hi >= lo {
-                        p.x = p.x.clamp(lo, hi);
-                    }
-                }
+                // #EXP-1765: an `inset` popup (the pill's) is placed the IDE
+                // Popover's way (`place_inset_overlay`): the inset first, then
+                // the view's margin, then whole points from the anchor.
+                let inset = spec.inset.filter(|_| !hosted).map_or(0.0, f64::from);
+                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from), inset) };
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }
@@ -703,21 +696,37 @@ impl Surface {
         OSize { width: size.width as f64, height: size.height as f64 }
     }
 
+    /// Popover `matchAnchorWidth`: the layer root laid out at EXACTLY `width`
+    /// (its anchor's), whatever its content's own width.
+    fn exact_width(&mut self, root: u32, width: f32, guesses: &RefCell<Vec<HeightRequest>>) -> OSize {
+        let width = width.max(0.0);
+        self.layer_root_style(root, [0.0; 4], |s| {
+            s.min_size.width = length(width);
+            s.max_size.width = length(width);
+            s.size.width = length(width);
+        });
+        self.compute(root, Size { width: AvailableSpace::Definite(width), height: AvailableSpace::MaxContent }, guesses);
+        let size = self.engine.layout(root).size;
+        OSize { width: size.width as f64, height: size.height as f64 }
+    }
+
     /// `place_overlay` inside the safe area (align start/end follow the
     /// direction).
     fn anchor_place(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool) -> OverlayPlacement {
-        self.anchor_place_with(a, size, view, side, align, rtl, None, None)
+        self.anchor_place_with(a, size, view, side, align, rtl, None, None, 0.0)
     }
 
     /// [`Self::anchor_place`] with the layer's own gap to the anchor and
-    /// margin to the view's edges.
+    /// margin to the view's edges, and (`inset` > 0) its visible edge that far
+    /// outside its content ([`place_inset_overlay`]).
     #[allow(clippy::too_many_arguments)]
-    fn anchor_place_with(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool, offset: Option<f64>, margin: Option<f64>) -> OverlayPlacement {
+    fn anchor_place_with(&self, a: Frame, size: OSize, view: View, side: OverlaySide, align: OverlayAlign, rtl: bool, offset: Option<f64>, margin: Option<f64>, inset: f64) -> OverlayPlacement {
         let align = physical_align(align, rtl);
         let anchor = ORect { x: (a.x - view.x) as f64, y: (a.y - view.y) as f64, width: a.w as f64, height: a.h as f64 };
         let vp = OSize { width: view.w as f64, height: if view.h > 0.0 { view.h as f64 } else { f64::INFINITY } };
         let defaults = PlaceOptions::default();
-        let mut p = place_overlay(&anchor, &size, &vp, &PlaceOptions { side, align, offset: offset.unwrap_or(defaults.offset), padding: margin.unwrap_or(defaults.padding), ..defaults });
+        let options = PlaceOptions { side, align, offset: offset.unwrap_or(defaults.offset), padding: margin.unwrap_or(defaults.padding), ..defaults };
+        let mut p = if inset > 0.0 { place_inset_overlay(&anchor, &size, &vp, &options, inset) } else { place_overlay(&anchor, &size, &vp, &options) };
         p.x += view.x as f64;
         p.y += view.y as f64;
         p

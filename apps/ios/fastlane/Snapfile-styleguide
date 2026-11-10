@@ -21,10 +21,10 @@
 # `bundle exec fastlane styleguide_screenshots shots:sg_reviews,sg_search`
 # narrows a run to those ids (EXP-642); the navigation still runs in full.
 #
-# PARALLEL (EXP-1267): safe beside `fastlane screenshots` and the Android lanes
-# — its own simulator ("iPhone 17 Pro Max exp-styleguide"), DerivedData
-# (apps/ios/build/shots-dd-styleguide) and snapshot cache dir
-# (~/Library/Caches/tools.fastlane/exp-styleguide). See the Fastfile header.
+# #EXP-1783: runs on the store lane's simulator ("iPhone 17 Pro Max
+# exp-store") and DerivedData (apps/ios/build/shots-dd-store), so not beside
+# `fastlane screenshots`; its snapshot cache dir stays its own
+# (~/Library/Caches/tools.fastlane/exp-store-sg). See the Fastfile header.
 
 # xcodebuild only forwards TEST_RUNNER_-prefixed env vars into the UI-test
 # runner process (prefix stripped) — a bare SNAPSHOT_INSTANCE_URL on the

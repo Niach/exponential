@@ -1944,9 +1944,11 @@ impl SteerSessionView {
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
         }
-        // N-12: the last row clears THE Dock's band (its measured height).
-        let tail = self.dock.read(cx).band_height() + crate::dock::DOCK_GAP;
-        self.chat.set_tail(tail, cx);
+        // N-12 / #EXP-1782: the transcript ends at THE Dock band's top edge
+        // (the band is a flow child under it), so the last row clears it by
+        // the gap alone; a band that grows shrinks the viewport and the
+        // following list holds its newest row.
+        self.chat.set_tail(crate::dock::DOCK_GAP, cx);
         self.chat.sync_scroll(cx)
     }
 
@@ -5324,35 +5326,6 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-
-/// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
-/// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
-/// tone (`session-card.json`): the styleguide's `run-status-row` (N-11: the
-/// session view no longer draws it over the transcript).
-pub(crate) fn session_status_row(
-    id: impl Into<gpui::ElementId>,
-    agent: Option<coding::CodingAgent>,
-    state: domain::session_tree::SessionState,
-    word: &str,
-    cx: &App,
-) -> AnyElement {
-    h_flex()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .items_start()
-        .gap_2()
-        .child(crate::run_rows::run_mark(agent, state, cx))
-        .child(
-            v_flex().flex_1().min_w_0().child(
-                div()
-                    .text_sm()
-                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(word.to_string())),
-            ),
-        )
-        .into_any_element()
-}
 
 impl SteerSessionView {
     fn render_feed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -9722,9 +9695,9 @@ impl Render for SteerSessionView {
         // N-11 (owner 2026-10-24): no status row over the transcript; the
         // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
-        // the banners, then THE composer) floats over the transcript's
-        // bottom edge; the transcript is the ONE scroll region and pads by
-        // the band's height.
+        // the banners, then THE composer) sits under the transcript; the
+        // transcript is the ONE scroll region and ENDS at the band's top
+        // edge (#EXP-1782: clipped there, no fade, nothing behind the band).
         let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
         let feed = self.render_feed(window, cx);

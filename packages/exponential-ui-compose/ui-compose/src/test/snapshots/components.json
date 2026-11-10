@@ -19993,6 +19993,36 @@
       }
     ]
   },
+  "Popover\/matchAnchorWidth=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/matchAnchorWidth=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
   "Popover\/open=false" : {
     "height" : 0,
     "nodes" : [

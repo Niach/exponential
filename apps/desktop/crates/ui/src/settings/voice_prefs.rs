@@ -18,9 +18,9 @@
 //! the IDE's chrome written in). Push to talk is genUI's `KeyRecorder` (the
 //! bound keys a `KbdGroup`): the component captures and shows; THIS adapter
 //! keeps Exponential's grammar (`capture_step` over its `key` events) and
-//! pauses the global push-to-talk grab between `start` and the end. The
-//! styleguide twin (`styleguide/entries/voice_settings.rs`) mounts the same
-//! document over static values ([`VoicePrefsPane::twin`]).
+//! pauses the global push-to-talk grab between `start` and the end.
+//! [`VoicePrefsPane::twin`] mounts the same document over static values
+//! (its specimen was retired with the styleguide, #EXP-1779).
 
 use std::rc::Rc;
 
@@ -952,18 +952,6 @@ impl VoicePrefsPane {
     /// S-3: the pane as the Assistant page's Voice block.
     pub(crate) fn assistant(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         Self::build(true, None, window, cx)
-    }
-
-    /// The styleguide twin: `settings` over `fixed`, inert.
-    pub(crate) fn twin(settings: VoiceSettings, fixed: Fixed, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let mut pane = Self::build(false, Some(fixed), window, cx);
-        pane.binding.update(cx, |binding, cx| binding.update_state(|state| state.load = Load::Ready(settings), cx));
-        pane.options = options(pane.binding.read(cx).state(), cx);
-        let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks::of(cx), &pane.options)).expect("the voice document parses");
-        pane.view.update(cx, |view, cx| {
-            view.set_nested(tree, cx);
-        });
-        pane
     }
 
     fn build(assistant_block: bool, fixed: Option<Fixed>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {

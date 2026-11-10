@@ -2,7 +2,7 @@ name: test
 
 # The ONE pull-request gate (2026-10-26: speed first, target < 5 min wall).
 # Only the cheap checks that catch real breakage run here: the typecheck, the
-# web unit tests (four shards), the styleguide suite, and behind path filters
+# web unit tests (four shards), and behind path filters
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
 # (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
@@ -620,19 +620,6 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - run: bun packages/exponential-ui/release/check-gpui-revs.ts
 
-  # The styleguide's own suite (~2 s): every entry's status table names a
-  # REAL declaration in its file on each platform, and the sections/page
-  # bands agree. It drifted red unnoticed outside the gate (sealed-locked).
-  styleguide:
-    needs: pick
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-bun
-      - run: bun install --frozen-lockfile
-      - run: bun test
-        working-directory: apps/styleguide
-
   # exponential.at (apps/site, ~1 min): the Astro build, then dist served
   # with its production headers and checked in Chromium: no CSP or console
   # errors, the build-time eUI HTML, hydrated islands, every Motion tile
@@ -761,7 +748,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:

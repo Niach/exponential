@@ -16,7 +16,7 @@ import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMen
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath, isPickerPopover } from "@exponential_app/eui/web"
+import { absolutePath, isPickerPopover, popoverPanelWidth } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
@@ -330,6 +330,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
+  const panelWidth = popoverPanelWidth(props, `--radix-popover-trigger-width`)
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
@@ -379,6 +380,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           }
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, Radix's anchor-width variable (re-measured on a resize).
+          style={panelWidth ? { width: panelWidth } : undefined}
         >
           {/* The nearest overlay decides: a Form in a Popover closes nothing,
               not even a Dialog around the Popover. */}

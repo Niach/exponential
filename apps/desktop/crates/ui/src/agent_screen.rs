@@ -1280,7 +1280,6 @@ impl Render for AgentScreenView {
             window,
             cx,
         );
-        let band_height = if band.is_some() { self.dock.read(cx).band_height() } else { 0. };
         // VAPP-110: an editor chat with nothing in it yet = the fixture's
         // `chatEmpty` (the list-size empty state).
         // VAPP-176: a draft's = the starters, the composer focused once.
@@ -1301,7 +1300,8 @@ impl Render for AgentScreenView {
             .py_12()
         });
         // EXP-1557 (web parity): the empty state sits CENTRED in the pane
-        // above the floating Dock, never pinned to its top.
+        // above THE Dock, never pinned to its top. #EXP-1782: the band is a
+        // flow child under it, so the pane ends at the band's top edge.
         let conversation = div()
             .flex_1()
             .min_h_0()
@@ -1310,7 +1310,7 @@ impl Render for AgentScreenView {
             .flex_col()
             .justify_center()
             .pt_8()
-            .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP))
+            .pb(px(crate::dock::DOCK_GAP))
             .children(chat_empty)
             .into_any_element();
         let chat = div()
