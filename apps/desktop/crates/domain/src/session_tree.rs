@@ -1774,6 +1774,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
     let messages_by_id: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
     let mut escalated: HashSet<&str> = HashSet::new();
+    let mut fires: HashSet<&str> = HashSet::new();
     for message in conversation {
         if let Some(reason) = message.locked() {
             let author = match message.author_kind.as_deref() {
@@ -1871,6 +1872,27 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 }
             }
             Some(MESSAGE_CARD_KIND_EVENT) => {
+                // #EXP-1772: a firing draws nothing of its own; one the agent
+                // answered is THE marker above that reply (`fires`, below).
+                if card_str(card, "event") == Some("trigger_fired") {
+                    let named = card_str(card, "name").is_some_and(|name| !name.trim().is_empty());
+                    let text = if named {
+                        event_text(card, &issue_map, &pr_map, |_| None)
+                    } else {
+                        SESSION_CHAT.copy.events.get("trigger_schedule").cloned()
+                    };
+                    let Some(text) = text.filter(|text| !text.is_empty()) else {
+                        continue;
+                    };
+                    fires.insert(message.id.as_str());
+                    rows.push(SessionChatRow::Event {
+                        id: message.id.clone(),
+                        event: "trigger_fired".to_string(),
+                        text,
+                        session_id: None,
+                    });
+                    continue;
+                }
                 let session_name = |id: &str| {
                     by_id
                         .get(id)
@@ -1922,6 +1944,23 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
             Some(MESSAGE_CARD_KIND_SURFACE) => rows.extend(surface_card_row(message)),
             _ => {}
         }
+    }
+
+    // #EXP-1772: a firing stays only right above the chat's own agent reply.
+    if !fires.is_empty() {
+        let keep: Vec<bool> = (0..rows.len())
+            .map(|index| {
+                if !fires.contains(rows[index].id()) {
+                    return true;
+                }
+                matches!(
+                    rows.get(index + 1),
+                    Some(SessionChatRow::Message { author, xref: None, .. }) if author == MESSAGE_AUTHOR_KIND_AGENT
+                )
+            })
+            .collect();
+        let mut keep = keep.into_iter();
+        rows.retain(|_| keep.next().unwrap_or(true));
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
