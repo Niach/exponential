@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `ColorPicker` (#EXP-1775): the 28 px cells, `inline` and the child trigger painted from the core's natives; the IDE's Board detail picker moves from the 24 px to the 28 px cell.
 - `IconPicker` + `ColorPicker` (#EXP-1760): against the IDE's `board_form::icon_picker` / `color_picker` in `ui/src/picker_bench.rs` (closed and open).
 - Textarea autosize + Composer (#EXP-1768): a bound value written after the first paint (a body that loads, a host write) grows the field. The pass measured the field's live text BEFORE `sync_fields` adopted the write, and gpui-base's `set_value` emits no Change, so the field kept its old (empty) height and scrolled; the adopted write now re-measures it. Settings → Skills' 30k-char body grows to its 40 rows (0 px vs the gpui pane in `settings_bench`).
 - Feature `vendored-spinner` (off by default, #EXP-1629): `view::init` registers the Spinner arc as gpui-component's loading glyph (`gpui_component::spinner::set_spinner_glyph`) only with it on. That hook exists only in the desktop workspace's vendored gpui-component, so the painter builds again against crates.io `gpui-component = "=0.9.0"` (the gpui guide check). The workspace crates turn it on next to `overlay-anchor`.
