@@ -648,6 +648,7 @@ describe(`new natives`, () => {
       else {
         expect(clear!.getAttribute(`aria-label`)).toBe(`Clear search`)
         expect(clear!.style.width).toBe(`17.5px`)
+        expect(clear!.querySelector(`svg`)!.getAttribute(`width`)).toBe(`10.5`)
         expect(clear!.querySelector(`svg`)!.getAttribute(`data-slot`)).toBe(`Select.clear`)
         fireEvent.click(clear!)
         expect(field.value).toBe(``)

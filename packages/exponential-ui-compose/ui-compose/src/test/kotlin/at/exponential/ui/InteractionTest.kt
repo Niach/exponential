@@ -46,7 +46,6 @@ import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.selectPick
-import at.exponential.ui.model.fieldCommitted
 import at.exponential.ui.model.selectSearchClearable
 import at.exponential.ui.model.selectSearchClear
 import at.exponential.ui.model.segmentedValues
@@ -530,10 +529,11 @@ class InteractionTest {
      * query (the list unfiltered) and the focus stays in the field. A
      * `field` Select's search never has one.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun selectPillSearchClear() {
+    fun selectPillSearchClear() = runTest {
         for (variant in listOf("pill", "field")) {
-            val m = SurfaceModel("select-clear", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            val m = SurfaceModel("select-clear", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), backgroundScope, noShaper)
             m.fixedMeasure = true
             m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"$variant","searchable":true,"options":[{"label":"main","value":"main"},{"label":"develop","value":"develop"}]}}]}""")
             m.setViewport(390f, 800f)
@@ -542,7 +542,8 @@ class InteractionTest {
             val items = { m.nodes.filter { it.owner == "s" && it.part == "item" && !it.hidden }.map { it.id } }
             assertFalse("$variant: no clear while empty", m.selectSearchClearable(search()))
             m.fieldEdited(search(), "dev")
-            m.fieldCommitted(search())
+            advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+            runCurrent()
             assertEquals("$variant: filtered", listOf("s.item.1"), items())
             assertEquals("$variant: clear only on a pill", variant == "pill", m.selectSearchClearable(search()))
             if (variant != "pill") continue

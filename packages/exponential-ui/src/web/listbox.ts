@@ -72,11 +72,12 @@ export function selectLoadingNode(selectId: string): UiNode {
   return { id: `${selectId}.skeleton`, component: `Skeleton`, props: { rows: LAYOUT_CONSTANTS.selectLoadingRows ?? 3 }, children: [] }
 }
 
-/** #EXP-1765: a pill search's CLEAR button: the glyph = the `searchIcon`
- *  part's `width` (16 unset) in a square box 1.25 × it (14 → 17.5). */
+/** #EXP-1765: a pill search's CLEAR button: of the `searchIcon` part's
+ *  `width` (16 unset), the glyph 0.75 × (14 → 10.5) centred in a square box
+ *  1.25 × (14 → 17.5). */
 export function selectClearSize(searchIconWidth: unknown): { glyph: number; box: number } {
-  const glyph = typeof searchIconWidth === `number` && Number.isFinite(searchIconWidth) && searchIconWidth > 0 ? searchIconWidth : 16
-  return { glyph, box: glyph * 1.25 }
+  const icon = typeof searchIconWidth === `number` && Number.isFinite(searchIconWidth) && searchIconWidth > 0 ? searchIconWidth : 16
+  return { glyph: icon * 0.75, box: icon * 1.25 }
 }
 
 /** #EXP-1765: does a pill Select opened this way open WITHOUT a cursor (a

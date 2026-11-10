@@ -459,8 +459,9 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
 
 /**
  * #EXP-1765: a `pill` Select search's clear button (while it holds text):
- * the `Select.clear` glyph at the `searchIcon` size in `mutedForeground`,
- * in a square box 1.25 × the glyph; "Clear search", a button.
+ * the `Select.clear` glyph 0.75 × the `searchIcon` size in
+ * `mutedForeground`, centred in a square box 1.25 × the `searchIcon` size;
+ * "Clear search", a button.
  */
 @Composable
 internal fun SelectSearchClearButton(cx: LeafContext, glyphSize: Float, modifier: Modifier = Modifier, onClear: () -> Unit) {
@@ -479,12 +480,13 @@ internal fun SelectSearchClearButton(cx: LeafContext, glyphSize: Float, modifier
             },
         contentAlignment = Alignment.Center,
     ) {
-        IconOrGlyph(builtinIcon("Select.clear", "ui-clear"), Glyph.Close, glyphSize, cx, cx.themeColor("mutedForeground") ?: cx.ink)
+        IconOrGlyph(builtinIcon("Select.clear", "ui-clear"), Glyph.Close, glyphSize * SELECT_CLEAR_GLYPH, cx, cx.themeColor("mutedForeground") ?: cx.ink)
     }
 }
 
-/** #EXP-1765: the clear button's box over its glyph. */
+/** #EXP-1765: the clear button's box and its glyph, each over the `searchIcon` size (14 → 17.5 box, 10.5 glyph). */
 internal const val SELECT_CLEAR_BOX = 1.25f
+internal const val SELECT_CLEAR_GLYPH = 0.75f
 
 /**
  * The Composer: the owned multi-line field (the `Composer/field` font)

@@ -514,7 +514,8 @@ impl SurfaceView {
         let icon_w = if icon.is_some() { glyph_size + icon_gap } else { 0.0 };
         // #EXP-1765: a `pill` Select's search ends in a clear button while it
         // holds text (the IDE's `search_field` suffix: an xsmall ghost icon
-        // button: its box 1.25× the glyph, `icon_gap` after the text).
+        // button: its box 1.25× and its glyph 0.75× the search glyph, `icon_gap`
+        // after the text).
         let pill_search = n.owner_component.as_deref() == Some("Select") && n.part.as_deref() == Some("search") && n.owner.as_ref().and_then(|o| self.cache.index_of(o)).and_then(|i| self.cache.node(i)).is_some_and(|o| o.props.get("triggerVariant").and_then(Value::as_str) == Some("pill"));
         let clear_box = if pill_search && !f.value(cx).is_empty() { glyph_size * 1.25 } else { 0.0 };
         let clear_w = if clear_box > 0.0 { clear_box + icon_gap } else { 0.0 };
@@ -572,7 +573,7 @@ impl SurfaceView {
                     .cursor_pointer()
                     .role(gpui::Role::Button)
                     .aria_label(label)
-                    .child(icons::concept(lcx.host, eui_core::layout_tree::builtin_icon("Select.clear").unwrap_or("ui-clear"), glyph_size, muted))
+                    .child(icons::concept(lcx.host, eui_core::layout_tree::builtin_icon("Select.clear").unwrap_or("ui-clear"), glyph_size * 0.75, muted))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |this, _, window, cx| this.clear_search(&id, window, cx))),
             );

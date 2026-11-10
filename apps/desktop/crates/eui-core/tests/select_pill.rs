@@ -100,3 +100,14 @@ fn loading_shows_the_skeleton_rows_in_place_of_the_options() {
     assert!(s.index_of("sel.empty").is_none(), "no empty text while loading");
     assert!(s.index_of("sel.search").is_some(), "the search still shows");
 }
+
+#[test]
+fn at_the_view_edge_the_inset_never_crosses_the_margin() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [pill(json!({}))]})).expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    s.set_nested(tree);
+    s.set_viewport(760.0, 900.0, None);
+    let out = open(&mut s);
+    let c = frame(&s, &out, "sel.content");
+    assert!((c.x - eui_core::layout::SELECT_ROW_POPUP_MARGIN).abs() < 0.01, "{c:?}");
+}

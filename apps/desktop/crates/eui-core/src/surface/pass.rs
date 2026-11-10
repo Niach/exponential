@@ -591,11 +591,18 @@ impl Surface {
                 aligned = Some(physical);
                 let mut p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
                 // #EXP-1765: the aligned edge pushed out past the anchor's.
+                // The view's margin still bounds it (the inset never pushes a
+                // clamped popup past the edge).
                 if let (Some(inset), false) = (spec.inset, hosted) {
                     match physical {
                         OverlayAlign::Start => p.x -= inset as f64,
                         OverlayAlign::End => p.x += inset as f64,
                         OverlayAlign::Center => {}
+                    }
+                    let margin = spec.margin.map(f64::from).unwrap_or(0.0);
+                    let (lo, hi) = (view.x as f64 + margin, view.x as f64 + view.w as f64 - size.width - margin);
+                    if hi >= lo {
+                        p.x = p.x.clamp(lo, hi);
                     }
                 }
                 let pos = p.side.as_str().to_string();

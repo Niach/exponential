@@ -259,12 +259,13 @@ describe(`select: open popup`, () => {
       out.push(document.querySelector(`.xui-Select-clear`) === null)
       await wrap(async () => {
         const f = field()
-        f.value = `Ba`
+        // React tracks the value: set it through the prototype's setter.
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, `value`)!.set!.call(f, `Ba`)
         f.dispatchEvent(new Event(`input`, { bubbles: true }))
         await settle()
       })
       const clear = document.querySelector<HTMLButtonElement>(`.xui-Select-clear`)
-      out.push(clear?.getAttribute(`aria-label`) ?? null, clear?.style.width ?? null, clear?.querySelector(`svg`)?.getAttribute(`data-slot`) ?? null, document.querySelectorAll(`.xui-Select-item`).length)
+      out.push(clear?.getAttribute(`aria-label`) ?? null, clear?.style.width ?? null, clear?.querySelector(`svg`)?.getAttribute(`data-slot`) ?? null, clear?.querySelector(`svg`)?.getAttribute(`width`) ?? null, document.querySelectorAll(`.xui-Select-item`).length)
       await wrap(async () => {
         clear!.dispatchEvent(new MouseEvent(`mousedown`, { bubbles: true, cancelable: true }))
         clear!.click()
@@ -286,7 +287,7 @@ describe(`select: open popup`, () => {
     } finally {
       so.cleanup()
     }
-    expect(react).toEqual([true, `Clear search`, `17.5px`, `Select.clear`, 1, ``, true, true, 3])
+    expect(react).toEqual([true, `Clear search`, `17.5px`, `Select.clear`, `10.5`, 1, ``, true, true, 3])
   })
   it(`a loading Select still opens from the pointer (#EXP-1765)`, async () => {
     for (const searchable of [false, true]) {
