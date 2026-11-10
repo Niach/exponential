@@ -1172,6 +1172,9 @@
         },
         "openOn": {
           "description": "Press, or hover (press on touch)."
+        },
+        "matchAnchorWidth": {
+          "description": "Panel exactly as wide as its anchor/trigger."
         }
       },
       "description": "Small panel anchored to its trigger.",

@@ -535,6 +535,7 @@ pub(crate) fn is_specimen_id(id: &str) -> bool {
 
 /// VAPP-162: the node `node_id` inside specimen `specimen_id`'s tree (one
 /// case of a specimen, e.g. the Segmented rail), cloned.
+#[cfg(test)]
 pub(crate) fn specimen_node(specimen_id: &str, node_id: &str) -> Option<Value> {
     fn find(v: &Value, id: &str) -> Option<Value> {
         if v.get("id").and_then(Value::as_str) == Some(id) {

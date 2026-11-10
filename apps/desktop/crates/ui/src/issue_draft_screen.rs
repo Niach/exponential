@@ -164,8 +164,9 @@ pub(crate) fn leave_alert_for(
         .destructive(copy::LEAVE_DISCARD, on_discard)
 }
 
-/// [`leave_alert_for`] with a title present: the styleguide's
-/// `draft-leave-dialog` specimen.
+/// [`leave_alert_for`] with a title present: the alert gallery's
+/// `draft-leave` entry.
+#[cfg(test)]
 pub(crate) fn leave_alert(
     on_create: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,

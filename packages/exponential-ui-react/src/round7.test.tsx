@@ -132,3 +132,40 @@ describe(`hosted popups (VAPP-281)`, () => {
     expect(container.querySelector(`[data-xui-layer="overlay"]`)!.contains(content(`Popover`))).toBe(true)
   })
 })
+
+// `matchAnchorWidth`: the panel takes the popper's anchor width (the anchor
+// node by id, else the trigger); unset, the content keeps its own width.
+describe(`Popover matchAnchorWidth`, () => {
+  const tree = (matchAnchorWidth?: boolean, byIdAnchor = true): NestedNode =>
+    ({
+      id: `root`,
+      component: `Box`,
+      children: byIdAnchor
+        ? [
+            { id: `card`, component: `Box`, children: [{ id: `draft`, component: `Text`, props: { text: `/rev` } }] },
+            { id: `commands`, component: `Popover`, props: { anchor: `card`, side: `top`, align: `start`, open: true, ...(matchAnchorWidth === undefined ? {} : { matchAnchorWidth }) }, children: [{ id: `review`, component: `Text`, props: { text: `/review` } }] },
+          ]
+        : [{ id: `commands`, component: `Popover`, props: { open: true, matchAnchorWidth }, slots: { trigger: { id: `t`, component: `Button`, props: { label: `Open` } } }, children: [{ id: `review`, component: `Text`, props: { text: `/review` } }] }],
+    }) as unknown as NestedNode
+  const open = (node: NestedNode) => {
+    const r = reduceNested(node, { catalogId: CORE_CATALOG_ID })
+    expect(r.issues).toEqual([])
+    return render(<ExponentialSurface root={r.root} theme="neutral" id="typeahead" />)
+  }
+  it(`true: the content is the anchor's width (by id and a trigger)`, async () => {
+    for (const byIdAnchor of [true, false]) {
+      open(tree(true, byIdAnchor))
+      await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+      expect(content(`Popover`)!.style.width, `byId ${byIdAnchor}`).toBe(`var(--radix-popover-trigger-width)`)
+      cleanup()
+    }
+  })
+  it(`false or unset: the content's own width`, async () => {
+    for (const m of [false, undefined]) {
+      open(tree(m))
+      await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+      expect(content(`Popover`)!.style.width).toBe(``)
+      cleanup()
+    }
+  })
+})
