@@ -7,12 +7,21 @@ import { deflateRawSync } from "node:zlib"
 import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
 import specimensDoc from "@exponential_app/eui/fixtures/specimens.json"
 import type { NestedNode } from "@exponential_app/eui"
-import { euiComponentSlug } from "../../../lib/eui-components.ts"
+import { EUI_GROUP_LABELS, EUI_GROUP_ORDER, euiComponentSlug } from "../../../lib/eui-components.ts"
 
 export type ComponentDoc = (typeof componentsDoc.components)[number]
 
 export const COMPONENT_DOCS: readonly ComponentDoc[] = componentsDoc.components
 const SPECIMENS = specimensDoc.specimens as unknown as { id: string; component: string; title: string; node: NestedNode }[]
+
+/* The catalogue (#EXP-1779: /sdk/genui/ renders every component, the one
+   component catalogue since the styleguide app retired): the components by
+   group, in the site's group order. */
+export const CATALOGUE: readonly { group: string; label: string; docs: readonly ComponentDoc[] }[] = EUI_GROUP_ORDER.map((group) => ({
+  group,
+  label: EUI_GROUP_LABELS[group] ?? group,
+  docs: COMPONENT_DOCS.filter((d) => d.group === group),
+})).filter((g) => g.docs.length > 0)
 
 export const componentBySlug = (slug: string) => COMPONENT_DOCS.find((d) => euiComponentSlug(d) === slug)
 export const specimenFor = (doc: ComponentDoc) => SPECIMENS.find((s) => s.id === doc.specimenId)?.node
@@ -25,9 +34,8 @@ const ENUM = /^[A-Za-z0-9_-]+(\s*\|\s*[A-Za-z0-9_-]+)+$/
 const enumOptions = (type: string): string[] | null => (ENUM.test(type.trim()) ? type.split(`|`).map((s) => s.trim()) : null)
 const RESERVED = new Set([`id`, `component`, `children`, `slots`, `on`, `style`, `accessibility`])
 /* Props that change behaviour (looks stay the same) stay out of the gallery. */
-const SKIP_PROPS = new Set([`open`, `pressable`, `multiple`, `autoplay`, `loop`, `dragToDismiss`, `submit`, `searchable`, `autosize`, `stickyHeaders`, `stickyHeader`, `dismissible`, `live`, `loading`, `validateOn`, `openOn`, `collapseBelow`, `gap`, `justify`, `align`, `selectable`, `side`, `external`])
+const SKIP_PROPS = new Set([`open`, `pressable`, `multiple`, `autoplay`, `loop`, `dragToDismiss`, `submit`, `searchable`, `autosize`, `stickyHeaders`, `stickyHeader`, `live`, `validateOn`, `openOn`, `collapseBelow`, `gap`, `justify`, `align`, `selectable`, `side`, `external`])
 const SKIP_QUALIFIED = new Set([`Input.type`, `Image.loading`])
-const MAX_VARIANTS = 24
 
 /** The subject of a specimen's first case (the case stack = [caption, subject]). */
 function subjectOf(doc: ComponentDoc, specimen: NestedNode | undefined): NestedNode | null {
@@ -100,7 +108,7 @@ export function variantsOf(doc: ComponentDoc): Variant[] {
       out.push({ label, node: node({ ...base, [p.name]: value }, out.length) })
     }
   }
-  return out.slice(0, MAX_VARIANTS)
+  return out
 }
 
 /** The variants as ONE surface: a grid of captioned cells. */
