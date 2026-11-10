@@ -101,7 +101,9 @@ impl Ink {
             radius_md: chrome.radius_md,
             fill_section: hex(chrome.fill_section),
             fill_active: hex(chrome.fill_active),
-            mono: theme.mono_font_family.to_string(),
+            // The theme's mono family as the document's font token (a
+            // node's `fontFamily` takes only `$type.family.<name>`).
+            mono: "$type.family.mono".to_string(),
             pill_button_fill: hex(gpui_component::Colorize::mix_oklab(&eui_gpui::controls::custom_variant_fill(chrome.fill_card), theme.transparent, eui_gpui::controls::CUSTOM_VARIANT_ALPHA_FACTOR)),
             pill_button_fill_disabled: hex(eui_gpui::controls::custom_variant_fill(chrome.fill_card).opacity(0.15)),
         }
@@ -334,6 +336,47 @@ impl Ink {
     }
 }
 
+/// The issues a settings document must not raise: the documents write the
+/// IDE's chrome as literal colours ([`Ink`]: the core reports each one, a
+/// node style wants `$color.<name>`, and paints it), and a style value bound
+/// to the pane's data (a meter's `width`) resolves at bind time like a
+/// macro's (#EXP-1767: the author-side check refuses it). Anything else is a
+/// real mistake.
+#[cfg(any(test, debug_assertions))]
+pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, String)>, issues: &[eui_core::ReduceIssue]) -> Vec<eui_core::ReduceIssue> {
+    issues
+        .iter()
+        .filter(|issue| !issue.message.ends_with("expected $color.<name>"))
+        .filter(|issue| !bound.contains(&(issue.id.clone(), issue.path.clone())))
+        .cloned()
+        .collect()
+}
+
+/// The `(node id, "/components/<id>/style/<key>")` of every style value in `tree` that is a
+/// binding (`{"@path"}` / `{"@call"}`), for the mount's debug check.
+#[cfg(any(test, debug_assertions))]
+pub(super) fn bound_styles(tree: &Value) -> std::collections::HashSet<(String, String)> {
+    fn walk(node: &Value, out: &mut std::collections::HashSet<(String, String)>) {
+        let Some(map) = node.as_object() else { return };
+        if let (Some(id), Some(style)) = (map.get("id").and_then(Value::as_str), map.get("style").and_then(Value::as_object)) {
+            for (key, value) in style {
+                if value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call")) {
+                    out.insert((id.to_string(), format!("/components/{id}/style/{key}")));
+                }
+            }
+        }
+        for child in map.get("children").and_then(Value::as_array).into_iter().flatten() {
+            walk(child, out);
+        }
+        for slot in map.get("slots").and_then(Value::as_object).into_iter().flat_map(|slots| slots.values()) {
+            walk(slot, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    walk(tree, &mut out);
+    out
+}
+
 /// The pane's document as a [`SurfaceView`] in the Exponential theme, its actions
 /// and inputs routed to `binding`, everything else to the IDE's plugin.
 pub(super) fn mount<S: 'static>(surface_id: &str, tree: Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
@@ -361,15 +404,20 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
         settings: Some(eui_core::surface::SurfaceSettings { mode: eui_core::theme::ModeSetting::Dark, reduced_motion: theme::motion::reduce_motion(), ..Default::default() }),
         ..Default::default()
     };
+    #[cfg(debug_assertions)]
+    let bound = bound_styles(&tree);
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);
         let outcome = view.set_nested(tree, cx);
-        // The documents write the IDE's chrome as literal colours ([`Ink`]):
-        // the core reports each one (a node style wants `$color.<name>`) and
-        // paints it; anything else is a real mistake.
-        let issues: Vec<_> = outcome.issues.iter().filter(|issue| !issue.message.ends_with("expected $color.<name>")).collect();
-        debug_assert!(issues.is_empty(), "{surface_id}: {issues:?}");
+        // Only [`unexpected_issues`] are mistakes.
+        #[cfg(debug_assertions)]
+        {
+            let issues = unexpected_issues(&bound, &outcome.issues);
+            debug_assert!(issues.is_empty(), "{surface_id}: {issues:?}");
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = &outcome;
         view
     });
     binding.update(cx, |binding, cx| binding.attach(&view, cx));
