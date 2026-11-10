@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
 - `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
 - Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.
 - Select option `description` (#EXP-1629), React's: the `itemIcon` glyph, `itemText` with `itemLabel` and the muted `itemDescription`. Parity cases for both popups.
