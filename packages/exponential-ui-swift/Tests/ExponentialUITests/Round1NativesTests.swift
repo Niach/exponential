@@ -503,6 +503,27 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
     }
 
+    /// #EXP-1629: an option's `iconColor` is its `itemIcon`'s own colour and,
+    /// with `triggerIcon`, the chosen one's `valueIcon`'s: the Icon leaf
+    /// paints in that ink; a plain option's glyph keeps the inherited ink.
+    func testSelectOptionIconColorTintsItsGlyphs() throws {
+        let options: JSONValue = .array([
+            .object(["label": .string("In Review"), "value": .string("review"), "icon": .string("status-in-review"), "iconColor": .string("$color.success")]),
+            .object(["label": .string("Backlog"), "value": .string("backlog"), "icon": .string("status-backlog")]),
+        ])
+        let m = try surface(node("status", "Select", ["label": .string("Status"), "triggerVariant": .string("row"), "triggerIcon": .bool(true), "value": .string("review"), "options": options]))
+        m.setOpen("status", true)
+        let painted = paint(m)
+        let success = try XCTUnwrap(m.color("success"))
+        let value = try XCTUnwrap(m.index(of: "status.valueIcon"))
+        let chosen = try XCTUnwrap(m.index(of: "status.itemIcon.0"))
+        let plain = try XCTUnwrap(m.index(of: "status.itemIcon.1"))
+        for i in [value, chosen, plain] { XCTAssertTrue(painted.contains(i), "\(m.nodes[i].id) painted") }
+        XCTAssertEqual(m.ink(value), success, "the chosen option's glyph leads the value in its colour")
+        XCTAssertEqual(m.ink(chosen), success)
+        XCTAssertNotEqual(m.ink(plain), success, "no `iconColor`: the inherited ink")
+    }
+
     // MARK: - #EXP-1765: the `pill` Select, `loading`, `mono` options
 
     func pillSelect(_ extra: [String: JSONValue] = [:]) -> JSONValue {
