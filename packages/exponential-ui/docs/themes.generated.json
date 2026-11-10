@@ -2596,7 +2596,10 @@
     "marginBottom",
     "borderTopLeftRadius",
     "maxWidth",
-    "backgroundClip"
+    "backgroundClip",
+    "paddingTop",
+    "paddingBottom",
+    "textAlign"
   ],
   "components": [
     {
@@ -3657,7 +3660,8 @@
       "props": [
         "type",
         "disabled",
-        "variant"
+        "variant",
+        "size"
       ]
     },
     {
@@ -3811,6 +3815,7 @@
         "labels",
         "control",
         "button",
+        "searchIcon",
         "itemIcon",
         "itemText",
         "itemLabel",

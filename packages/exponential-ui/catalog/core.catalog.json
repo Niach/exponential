@@ -379,13 +379,19 @@
     ],
     "selectTrigger": [
       "field",
-      "row"
+      "row",
+      "pill"
     ],
     "inputVariant": [
       "field",
       "row",
       "bare",
-      "code"
+      "code",
+      "box"
+    ],
+    "inputSize": [
+      "default",
+      "sm"
     ],
     "textareaVariant": [
       "field",
@@ -423,6 +429,10 @@
         "trailing": {
           "type": "string",
           "description": "Text after the label (Select popup)."
+        },
+        "mono": {
+          "type": "boolean",
+          "description": "Label in the mono type (Select popup)."
         },
         "image": {
           "type": "url",
@@ -1408,6 +1418,8 @@
     "Select.search": "search",
     "Select.check": "ui-check",
     "Select.chevron": "ui-chevron-right",
+    "Select.dropdown": "ui-chevron-down",
+    "Select.clear": "ui-clear",
     "SearchList.search": "search",
     "SearchList.check": "ui-check",
     "Table.sortIcon.asc": "ui-chevron-up",
@@ -4749,7 +4761,13 @@
           "type": "enum",
           "enum": "inputVariant",
           "default": "field",
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "inputSize",
+          "default": "default",
+          "description": "sm = compact."
         },
         "disabled": {
           "type": "boolean",
@@ -5336,11 +5354,16 @@
           "default": "$string.noResults",
           "description": "Shown on no match."
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "default": "$string.search",
+          "description": "Hint in the filter field."
+        },
         "triggerVariant": {
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
         "align": {
           "type": "enum",
@@ -5354,6 +5377,12 @@
         "popupMinWidth": {
           "type": "number",
           "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "description": "Options still loading: skeleton rows in the popup."
         },
         "disabled": {
           "type": "boolean",

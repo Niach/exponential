@@ -10977,7 +10977,7 @@
                 "id": "specimen_input_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · text",
+                  "text": "variant · box",
                   "variant": "caption"
                 }
               },
@@ -10987,8 +10987,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "text",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "box"
                 }
               }
             ]
@@ -11006,7 +11007,7 @@
                 "id": "specimen_input_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · password",
+                  "text": "type · text",
                   "variant": "caption"
                 }
               },
@@ -11016,7 +11017,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "password",
+                  "type": "text",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11035,7 +11036,7 @@
                 "id": "specimen_input_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · number",
+                  "text": "type · password",
                   "variant": "caption"
                 }
               },
@@ -11045,7 +11046,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "number",
+                  "type": "password",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11208,6 +11209,88 @@
                         }
                       }
                     ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_input_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · box, size sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_invite",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "id": "c11_invite_sm",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "id": "c11_invite_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "name",
+                          "variant": "box",
+                          "size": "sm",
+                          "placeholder": "Name"
+                        },
+                        "style": {
+                          "width": 176,
+                          "flexShrink": 0
+                        }
+                      },
+                      {
+                        "id": "c11_invite_email",
+                        "component": "Input",
+                        "props": {
+                          "label": "Email",
+                          "name": "email",
+                          "variant": "box",
+                          "size": "sm",
+                          "value": "ada@example.com"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c11_invite_md",
+                    "component": "Input",
+                    "props": {
+                      "label": "Email",
+                      "name": "email-md",
+                      "variant": "box",
+                      "placeholder": "teammate@example.com"
+                    }
                   }
                 ]
               }
@@ -12445,16 +12528,55 @@
                 "id": "specimen_select_case_2_label",
                 "component": "Text",
                 "props": {
+                  "text": "loading · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_select",
+                "component": "Select",
+                "props": {
+                  "label": "Board",
+                  "name": "board",
+                  "options": [
+                    {
+                      "label": "Backlog",
+                      "value": "backlog"
+                    },
+                    {
+                      "label": "Sprint",
+                      "value": "sprint"
+                    }
+                  ],
+                  "value": "sprint",
+                  "loading": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_3_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · row (in a Group)",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c2_prefs",
+                "id": "c3_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c2_timezone",
+                    "id": "c3_timezone",
                     "component": "Select",
                     "props": {
                       "label": "Timezone",
@@ -12483,7 +12605,7 @@
                     }
                   },
                   {
-                    "id": "c2_week",
+                    "id": "c3_week",
                     "component": "Select",
                     "props": {
                       "label": "Week starts on",
@@ -12503,7 +12625,7 @@
                     }
                   },
                   {
-                    "id": "c2_apps",
+                    "id": "c3_apps",
                     "component": "Select",
                     "props": {
                       "label": "Apps",
@@ -12529,7 +12651,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_3",
+            "id": "specimen_select_case_4",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12538,7 +12660,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_3_label",
+                "id": "specimen_select_case_4_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + description",
@@ -12546,11 +12668,11 @@
                 }
               },
               {
-                "id": "c3_voice_prefs",
+                "id": "c4_voice_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c3_language",
+                    "id": "c4_language",
                     "component": "Select",
                     "props": {
                       "label": "Language",
@@ -12575,7 +12697,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_4",
+            "id": "specimen_select_case_5",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12584,7 +12706,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_4_label",
+                "id": "specimen_select_case_5_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + option trailing",
@@ -12592,11 +12714,11 @@
                 }
               },
               {
-                "id": "c4_board_prefs",
+                "id": "c5_board_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c4_branch",
+                    "id": "c5_branch",
                     "component": "Select",
                     "props": {
                       "label": "Branch",
@@ -12628,7 +12750,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_5",
+            "id": "specimen_select_case_6",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12637,7 +12759,107 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_5_label",
+                "id": "specimen_select_case_6_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · pill + mono options + loading",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_repo_branches",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c6_repo_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch",
+                      "name": "repoBranch",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "mono": true,
+                          "trailing": "default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "c6_repo_branch_loading",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (loading)",
+                      "name": "repoBranchLoading",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "develop",
+                      "loading": true,
+                      "options": [
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "c6_repo_branch_busy",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (busy)",
+                      "name": "repoBranchBusy",
+                      "triggerVariant": "pill",
+                      "value": "release/2026-11",
+                      "disabled": true,
+                      "options": [
+                        {
+                          "label": "release/2026-11",
+                          "value": "release/2026-11",
+                          "mono": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_7_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + option icon, description",
@@ -12645,11 +12867,11 @@
                 }
               },
               {
-                "id": "c5_agent_prefs",
+                "id": "c7_agent_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c5_device",
+                    "id": "c7_device",
                     "component": "Select",
                     "props": {
                       "label": "Device",

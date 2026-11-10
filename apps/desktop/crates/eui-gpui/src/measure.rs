@@ -702,7 +702,8 @@ pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String
         ("Tabs", Some("tab")) => (icon("icon"), if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 }),
         // Round 2 §7: `count` is its own muted part after the title, then the chevron.
         ("Accordion", Some("trigger")) => (0.0, if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 } + 16.0 + gap.max(8.0)),
-        ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0)),
+        // #EXP-1765: a mono option's `trailing` (its width = `count_w`) before the check slot.
+        ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0) + if has(props, "trailing") { gap.max(4.0) + count_w } else { 0.0 }),
         ("Menu", Some("itemLabel")) => (icon("icon"), 0.0),
         ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
         _ => (0.0, 0.0),
@@ -1253,7 +1254,7 @@ impl<'a> GpuiMeasure<'a> {
             _ if is_inline_field(leaf.component, leaf.part) => self.inline_field(leaf),
             ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => self.trigger(leaf),
             ("Text", part) => {
-                let count_w = props.get("count").map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
+                let count_w = props.get("count").or_else(|| props.get("trailing")).map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
                 let chrome = text_chrome(leaf.owner_component.unwrap_or(owner), part, props, c.gap, count_w);
                 let shown = display_text(props.get("text"));
                 let raw = shown.as_str();

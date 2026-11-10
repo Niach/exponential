@@ -1945,7 +1945,10 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        "size": {
+          "description": "sm = compact."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2282,8 +2285,11 @@
         "emptyText": {
           "description": "Shown on no match."
         },
+        "searchPlaceholder": {
+          "description": "Hint in the filter field."
+        },
         "triggerVariant": {
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
         "align": {
           "description": "Popup alignment (`row`: `end`)."
@@ -2293,6 +2299,9 @@
         },
         "popupMinWidth": {
           "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        "loading": {
+          "description": "Options still loading: skeleton rows in the popup."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -3458,6 +3467,9 @@
         },
         "trailing": {
           "description": "Text after the label (Select popup)."
+        },
+        "mono": {
+          "description": "Label in the mono type (Select popup)."
         },
         "image": {
           "description": "Tile picture."

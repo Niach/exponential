@@ -372,7 +372,9 @@ impl Builder<'_, '_> {
         props["text"] = json!(text);
         props["placeholder"] = json!(placeholder);
         props["icon"] = json!(super::builtin_icon(glyph).unwrap_or("ui-selector"));
-        let t = self.part(owner, "trigger", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), props);
+        // #EXP-1765: a `pill` Select's capsule sizes to its content.
+        let pill = owner.component == "Select" && owner.props.get("triggerVariant").and_then(Value::as_str) == Some("pill");
+        let t = self.part(owner, "trigger", &owner.component, NodeKind::Leaf, json!({"alignSelf": if pill { "flex-start" } else { "stretch" }}), props);
         let disabled = bool_prop(&owner.props, "disabled");
         self.nodes[t as usize].pressable = !disabled;
         self.nodes[t as usize].trigger_for = Some(owner.id.clone());
@@ -394,8 +396,12 @@ impl Builder<'_, '_> {
     /// search field, the (filtered) options and `empty`.
     pub(crate) fn select(&mut self, index: u32) {
         // #EXP-1629: a `row` trigger IS a Group row: the label leads inside it.
-        let row = self.nodes[index as usize].props.get("triggerVariant").and_then(Value::as_str) == Some("row");
-        let owner = self.field_open_with(index, !row);
+        let variant = self.nodes[index as usize].props.get("triggerVariant").and_then(Value::as_str).unwrap_or("field").to_string();
+        let row = variant == "row";
+        // #EXP-1765: a `pill` trigger is a capsule (the field trigger's parts,
+        // the `Select.dropdown` glyph); its label stays the accessible name.
+        let pill = variant == "pill";
+        let owner = self.field_open_with(index, !row && !pill);
         // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
@@ -407,7 +413,10 @@ impl Builder<'_, '_> {
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, "Select.trigger"), None) };
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
+            self.default_a11y(trigger, "label", json!(label));
+        }
         self.field_close(&owner, Some(trigger));
         if !self.is_open(&owner.id, &Map::new(), false) {
             return;
@@ -418,7 +427,7 @@ impl Builder<'_, '_> {
         // `popupMinWidth`: the popup fits its options, at least that wide
         // (the IDE's non-searchable picker: content-fit, 168 px minimum).
         let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
-        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| (row && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
+        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| ((row || pill) && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
         if let Some(w) = width {
@@ -429,7 +438,9 @@ impl Builder<'_, '_> {
         let (layer, root) = self.popup(&owner, "content", trigger, style);
         let query = self.ctx.local.query.get(&owner.id).cloned().unwrap_or_default();
         if bool_prop(&owner.props, "searchable") {
-            let search = self.part_in(root, &owner, "search", "Select", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"placeholder": self.string("search"), "value": query, "icon": super::builtin_icon("Select.search")}), "");
+            // #EXP-1765: `searchPlaceholder` (else the built-in "Search…").
+            let hint = str_prop(&owner.props, "searchPlaceholder").filter(|h| !h.is_empty()).map(str::to_string).unwrap_or_else(|| self.string("search"));
+            let search = self.part_in(root, &owner, "search", "Select", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"placeholder": hint, "value": query, "icon": super::builtin_icon("Select.search")}), "");
             self.nodes[search as usize].pressable = true;
         }
         // #EXP-1629: the list sits in a relative `body` that carries the
@@ -438,6 +449,15 @@ impl Builder<'_, '_> {
         self.nodes[body as usize].part_query = None;
         let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
         self.nodes[list as usize].part_query = None;
+        // #EXP-1765: while `loading` the list holds the Skeleton's rows (its
+        // own recipe, the item row's height) in place of the options.
+        if bool_prop(&owner.props, "loading") {
+            let skeleton = self.part_in(list, &owner, "skeleton", "Skeleton", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"rows": crate::layout::SELECT_LOADING_ROWS}), "");
+            self.skeleton_rows(skeleton);
+            self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
+            self.place_select_popup(pill, value_node.is_some());
+            return;
+        }
         let needle = query.to_lowercase();
         let mut shown_any = false;
         for (i, option) in options.iter().enumerate() {
@@ -452,9 +472,14 @@ impl Builder<'_, '_> {
             // #EXP-1629: an option's `trailing` reads on after its label in
             // the item's own style (the IDE branch picker's `main · default`);
             // the search still matches the label alone.
-            let text = match option.get("trailing").map(js).filter(|t| !t.is_empty()) {
-                Some(trailing) => format!("{label} {trailing}"),
-                None => label,
+            // #EXP-1765: a `mono` option sets its label in the mono type and
+            // keeps the `trailing` its own muted run in the item's type (the
+            // IDE repo branch picker's `main` … `default`).
+            let mono = option.get("mono").and_then(Value::as_bool).unwrap_or(false);
+            let trailing = option.get("trailing").map(js).filter(|t| !t.is_empty());
+            let text = match &trailing {
+                Some(trailing) if !mono => format!("{label} {trailing}"),
+                _ => label,
             };
             let suffix = format!(".{i}");
             let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
@@ -464,7 +489,11 @@ impl Builder<'_, '_> {
                 // row of parts (the IDE picker's row): the `itemIcon`, the
                 // `itemText` column (`itemLabel` over the muted
                 // `itemDescription`), then the chosen one's `check`.
-                let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
+                }
+                let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, style, json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
                 if let Some(icon) = icon {
                     self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
                 }
@@ -479,10 +508,23 @@ impl Builder<'_, '_> {
                 item
             } else {
                 let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+                if mono {
+                    props["mono"] = json!(true);
+                    if let Some(trailing) = trailing {
+                        props["trailing"] = json!(trailing);
+                    }
+                }
+                if let Some(icon) = option.get("icon") {
+                    props["icon"] = icon.clone();
+                }
                 if selected {
                     props["check"] = json!(super::builtin_icon("Select.check"));
                 }
-                self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), props, &suffix)
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
+                }
+                self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &suffix)
             };
             self.nodes[item as usize].pressable = !disabled;
             if selected {
@@ -502,11 +544,20 @@ impl Builder<'_, '_> {
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
         self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
-        if value_node.is_some() {
-            if let Some(spec) = self.layers.last_mut() {
-                spec.offset = Some(crate::layout::SELECT_ROW_POPUP_OFFSET);
-                spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
-            }
+        self.place_select_popup(pill, value_node.is_some());
+    }
+
+    /// The just-pushed Select popup's placement: a `row`'s hangs off its
+    /// value (#EXP-1629), a `pill`'s a hairline outside the pill (#EXP-1765).
+    fn place_select_popup(&mut self, pill: bool, row: bool) {
+        let Some(spec) = self.layers.last_mut() else { return };
+        if row {
+            spec.offset = Some(crate::layout::SELECT_ROW_POPUP_OFFSET);
+            spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
+        } else if pill {
+            spec.offset = Some(crate::layout::SELECT_PILL_POPUP_OFFSET);
+            spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
+            spec.inset = Some(crate::layout::SELECT_PILL_POPUP_INSET);
         }
     }
 
