@@ -42,7 +42,7 @@ struct SyncDebugView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                     Text(fatal)
-                        .font(.caption2.monospaced())
+                        .font(.expMono(.caption2))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 Spacer()
@@ -82,7 +82,7 @@ struct SyncDebugView: View {
                     .frame(width: 8, height: 8)
 
                 Text(name)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
@@ -96,12 +96,12 @@ struct SyncDebugView: View {
 
                 if status.errorCount > 0 {
                     Text("\(status.errorCount) err")
-                        .font(.caption2.monospaced())
+                        .font(.expMono(.caption2))
                         .foregroundStyle(.red.opacity(0.8))
                 }
 
                 Text("\(status.requestCount) req")
-                    .font(.caption2.monospaced())
+                    .font(.expMono(.caption2))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
                 Text(status.isLive ? "live" : "init")
@@ -109,7 +109,7 @@ struct SyncDebugView: View {
                     .foregroundStyle(status.isLive ? .green.opacity(0.8) : .orange.opacity(0.8))
 
                 Text("HTTP \(status.lastHttpStatus)")
-                    .font(.caption2.monospaced())
+                    .font(.expMono(.caption2))
                     .foregroundStyle(httpStatusColor(status.lastHttpStatus))
             }
 
@@ -121,7 +121,7 @@ struct SyncDebugView: View {
                             .foregroundStyle(.orange)
                     }
                     Text(message)
-                        .font(.caption2.monospaced())
+                        .font(.expMono(.caption2))
                         .foregroundStyle(.red.opacity(0.85))
                         .lineLimit(2)
                 }
@@ -176,7 +176,7 @@ struct SyncDebugView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(debug.lastMessages.enumerated()), id: \.offset) { _, message in
                         Text(message)
-                            .font(.caption2.monospaced())
+                            .font(.expMono(.caption2))
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
                     }

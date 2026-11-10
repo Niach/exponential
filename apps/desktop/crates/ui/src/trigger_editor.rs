@@ -417,11 +417,12 @@ pub(crate) fn picker_trigger_bare(
         .accessibility_label(label.clone())
         .ghost()
         .cursor_pointer()
-        // EXP-1557: `Small` so the value reads `text_sm` like the row's
-        // label (web `PICKER_ROW_TRIGGER` value: `text-sm text-foreground/70`);
-        // a Medium button sets its content `text_base`, one rung LARGER than
-        // the label it answers. The box metrics are overridden below.
-        .small()
+        // #EXP-1629: the default (Medium) rung, as every other picker row
+        // trigger (Voice, Account, genUI's row Select): its content reads
+        // `text_sm` like the row's label (web `PICKER_ROW_TRIGGER` value:
+        // `text-sm text-foreground/70`) with `gap_2` (7 px) to the chevron;
+        // `Small` drew the same text with `gap_1`. The box metrics are
+        // overridden below.
         .h_auto()
         .px_0()
         .py_0()

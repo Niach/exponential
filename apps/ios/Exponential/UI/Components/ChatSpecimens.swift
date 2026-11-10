@@ -637,7 +637,7 @@ struct ChatTranscriptSpecimens: View {
                 }
                 if let replied {
                     Text("reply → \(replied)")
-                        .font(.caption.monospaced())
+                        .font(.expMono(.caption))
                         .foregroundStyle(DesignTokens.Semantic.green)
                         .accessibilityIdentifier("surface-reply-echo")
                 }

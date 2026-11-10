@@ -16,6 +16,16 @@ describe(`MCP Apps (EXP-1183)`, () => {
     expect(mcpAppHtml(`devices`, built)).not.toContain(`content="issues"`)
   })
 
+  it(`points the stylesheet's /fonts/ urls at the app's origin (#EXP-1766)`, () => {
+    const built = `<html><head><meta name="exp-view" content="issues" /><style>@font-face{src:url(/fonts/JetBrainsMono-Regular.woff2) format("woff2")}@font-face{src:url("/fonts/JetBrainsMono-Bold.woff2")}</style></head></html>`
+    const html = mcpAppHtml(`issues`, built, `https://app.example.com/`)
+    expect(html).toContain(`url(https://app.example.com/fonts/JetBrainsMono-Regular.woff2)`)
+    expect(html).toContain(`url("https://app.example.com/fonts/JetBrainsMono-Bold.woff2")`)
+    expect(html).not.toContain(`url(/fonts/`)
+    // Without an origin the document is untouched.
+    expect(mcpAppHtml(`issues`, built)).toContain(`url(/fonts/JetBrainsMono-Regular.woff2)`)
+  })
+
   it(`serves a placeholder document when the views are not built`, () => {
     expect(mcpAppHtml(`issues`, null)).toContain(`not built`)
   })

@@ -3573,7 +3573,7 @@ struct QuestionCard: View {
     /// on the primary row its border is the primary foreground at 30%.
     private func numberChip(_ number: Int, primary: Bool) -> some View {
         Text("\(number)")
-            .font(.system(size: 10, design: .monospaced))
+            .font(.expMono(size: 10))
             .foregroundStyle(
                 primary
                     ? DesignTokens.Palette.primaryForeground.opacity(0.8)
@@ -4312,7 +4312,7 @@ private struct CommandPill: View {
                 AppIcon(AppIcons.codingCommand, size: 11)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(command.token)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white)
                 if !arguments.isEmpty {
                     Text(arguments)

@@ -173,7 +173,7 @@ struct CreateBoardForm: View {
                         get: { draft.prefix },
                         set: { draft.onPrefixChange($0) }
                     ), bordered: false)
-                    .font(.subheadline.monospaced())
+                    .font(.expMono(.subheadline))
                     .multilineTextAlignment(.trailing)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)

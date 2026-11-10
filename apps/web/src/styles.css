@@ -6,6 +6,43 @@
    still registers. */
 @import "@exp/ui/styles.css";
 
+/* #EXP-1629: the mono face, self-hosted (public/fonts, OFL-1.1: the licence
+   ships beside the files and in NOTICES.txt). The same four JetBrains Mono
+   faces the desktop app bundles; `--font-mono` (@exp/ui) names the family.
+   Inter stays on Google Fonts (__root.tsx). */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-BoldItalic.woff2") format("woff2");
+}
+
+
 /* Belt and braces beside the package's own @source: pin the app's scan root
    explicitly rather than rely on where automatic detection happens to be
    anchored now that the Tailwind import moved into a dependency. */
@@ -201,7 +238,7 @@
   background: var(--muted);
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 /* EXP-698: inline code is TINTED in the agent CHAT feed and nowhere else —
@@ -327,7 +364,7 @@
      the transcript's 22px) — `1rem` is the React chip's `text-xs` line height,
      so decoration and component are the same height to the pixel. */
   line-height: 1rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   /* The identifier recedes; the title below carries the weight. */
   color: var(--muted-foreground);

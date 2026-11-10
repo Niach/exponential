@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.animation.core.animateFloatAsState
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -204,7 +205,7 @@ private fun PatchRow(row: DiffRow, compact: Boolean, gutter: Dp, contextColor: C
         is DiffRow.Gap -> Text(
             text = row.text,
             color = DesignTokens.Diff.GutterFg,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = DiffFontSize,
             lineHeight = DiffLineHeight,
             maxLines = 1,
@@ -218,7 +219,7 @@ private fun PatchRow(row: DiffRow, compact: Boolean, gutter: Dp, contextColor: C
         is DiffRow.Header -> Text(
             text = row.text,
             color = DesignTokens.Diff.HunkFg,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = DiffFontSize,
             lineHeight = DiffLineHeight,
             maxLines = 1,
@@ -244,7 +245,7 @@ private fun PatchBodyRow(line: Diff.Line, compact: Boolean, gutter: Dp, contextC
         Text(
             text = line.text.ifEmpty { " " },
             color = DesignTokens.Diff.GutterFg,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontStyle = FontStyle.Italic,
             fontSize = DiffFontSize,
             lineHeight = DiffLineHeight,
@@ -276,7 +277,7 @@ private fun PatchBodyRow(line: Diff.Line, compact: Boolean, gutter: Dp, contextC
                 else -> " "
             },
             color = ink,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = DiffFontSize,
             lineHeight = DiffLineHeight,
             maxLines = 1,
@@ -287,7 +288,7 @@ private fun PatchBodyRow(line: Diff.Line, compact: Boolean, gutter: Dp, contextC
         Text(
             text = line.text.ifEmpty { " " },
             color = ink,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = DiffFontSize,
             lineHeight = DiffLineHeight,
             maxLines = 1,
@@ -303,7 +304,7 @@ private fun Gutter(number: Int?, width: Dp) {
     Text(
         text = number?.toString().orEmpty(),
         color = DesignTokens.Diff.GutterFg,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ExpMono,
         fontSize = DiffFontSize,
         lineHeight = DiffLineHeight,
         maxLines = 1,

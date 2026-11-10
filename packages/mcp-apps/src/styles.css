@@ -3,6 +3,40 @@
 /* The views' own files; @exp/ui's stylesheet already scans the package. */
 @source "./**/*.{ts,tsx}";
 
+/* #EXP-1766: the mono face, the same self-hosted JetBrains Mono as the web
+   app (@exp/ui's --font-mono names it). The view runs on the HOST's sandbox
+   origin, so `mcpAppHtml` (apps/web lib/emcp/apps.ts) points these root
+   paths at the app's origin when it serves the document, and the server
+   answers /fonts/*.woff2 with `Access-Control-Allow-Origin: *`. */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-BoldItalic.woff2") format("woff2");
+}
+
 /* The view is a CARD on the host's chat, not a page: no ground of its own
    (the package paints the app gradient on body + body::before), so the
    host's background shows around the card exactly as the app's ground does

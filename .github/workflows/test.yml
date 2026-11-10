@@ -10,7 +10,8 @@ name: test
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
-# PRs too but are informational: `gate` does not wait for them. Everything heavy (the rest of the eUI suite: unit suites,
+# PRs too but are informational: `gate` does not wait for them, EXCEPT `eui-swift` when the PR
+# touches the Swift package, eui-core, the FFI or the generated catalog (then required). Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, the site,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
@@ -51,6 +52,7 @@ jobs:
     outputs:
       desktop: ${{ steps.f.outputs.desktop }}
       eui: ${{ steps.f.outputs.eui }}
+      swift: ${{ steps.f.outputs.swift }}
       ede: ${{ steps.f.outputs.ede }}
       ede_shell: ${{ steps.f.outputs.ede_shell }}
       ios: ${{ steps.f.outputs.ios }}
@@ -86,7 +88,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nswift=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
@@ -99,6 +101,11 @@ jobs:
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/vendor/gpui-pre-wgpu/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # What the SwiftUI renderer compiles or replays: its package, the core and
+          # facade it links (eui-core, exponential-ui-ffi) and the generated
+          # catalog/themes it embeds. A PR touching these REQUIRES eui-swift.
+          swift='^(packages/exponential-ui-swift/|packages/exponential-ui/(generated|catalog|conformance|fixtures)/|apps/desktop/crates/(eui-core|exponential-ui-ffi)/|\.github/workflows/exponential-ui\.yml$)'
+          echo "swift=$(grep -qE "$swift" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$rfiles" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
@@ -452,9 +459,10 @@ jobs:
   # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,
   # so a busy single Mac runner never blocks a merge; release-suite.yml runs
   # it as a release blocker before every ios-v* build.
-  # Repo variable PR_MAC_LEGS=off skips the three informational Mac legs
-  # (ios-core, ios-app, eui-swift) so a release suite gets both Macs; the
-  # release shepherd sets it while a release-suite.yml run waits on a Mac.
+  # Repo variable PR_MAC_LEGS=off skips the informational Mac legs (ios-core,
+  # ios-app, ios-runner, and eui-swift when it isn't required) so a release
+  # suite gets both Macs; the release shepherd sets it while a
+  # release-suite.yml run waits on a Mac. A REQUIRED eui-swift still runs.
   ios-core:
     needs: [pick, changes]
     if: needs.changes.outputs.ios == 'true' && vars.PR_MAC_LEGS != 'off'
@@ -572,12 +580,15 @@ jobs:
       skip_swift: true
     secrets: inherit
 
-  # The SwiftUI renderer's conformance pass, INFORMATIONAL (2026-11-01): the
-  # same leg on the single Mac runner, outside `gate` (the full Swift suite
-  # stays a release blocker in release-suite.yml).
+  # The SwiftUI renderer's conformance pass on the Mac runner. REQUIRED by
+  # `gate` when the PR touches what Swift compiles (`changes.swift`: the Swift
+  # package, eui-core, the FFI, the generated catalog), and then it runs even
+  # with PR_MAC_LEGS=off: it queues for a Mac rather than skipping, since a
+  # skipped leg let a Swift compile break reach master (`labelStyle`, #2506).
+  # For other eUI PRs it stays informational and PR_MAC_LEGS=off skips it.
   eui-swift:
     needs: [pick, changes]
-    if: needs.changes.outputs.eui == 'true' && vars.PR_MAC_LEGS != 'off'
+    if: needs.changes.outputs.eui == 'true' && (vars.PR_MAC_LEGS != 'off' || needs.changes.outputs.swift == 'true')
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
@@ -738,15 +749,22 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, uicore-ts, android, runner-android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - env:
           PICK: ${{ needs.pick.result }}
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
+          SWIFT_REQUIRED: ${{ needs.changes.outputs.swift == 'true' && needs.changes.outputs.eui == 'true' }}
         run: |
           [ "$PICK" = success ] || { echo "::error::nothing ran (a fork PR, or the runner pick failed)"; exit 1; }
-          for r in $RESULTS; do
+          # eui-swift counts only when the PR touches what Swift compiles; then
+          # it must have RUN and passed (a skip is a failure there).
+          if [ "$SWIFT_REQUIRED" = true ]; then
+            r=$(jq -r '."eui-swift".result' <<<"$NEEDS")
+            [ "$r" = success ] || { echo "::error::eui-swift is required for this PR (Swift, eui-core, the FFI or the generated catalog changed) and ended $r"; exit 1; }
+          fi
+          for r in $(jq -r 'to_entries[] | select(.key != "eui-swift") | .value.result' <<<"$NEEDS"); do
             case "$r" in success|skipped) ;; *) echo "::error::a job ended $r"; exit 1 ;; esac
           done
