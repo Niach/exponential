@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
 use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
@@ -1459,4 +1460,42 @@ fn settings_general_member() {
 #[ignore]
 fn settings_general_no_team() {
     general("general-no-team", GeneralShot { team: None, ..general_shot() });
+}
+
+fn email_shot() -> EmailShot {
+    EmailShot { code_for: None, email: "", code: "", busy: false, error: None }
+}
+
+fn change_email(name: &str, shot: EmailShot) {
+    shoot_pane_acted(name, ChangeEmailDialogView::for_shots, |_, _| {}, None, &[], move |view, window, cx| view.show(shot, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_empty() {
+    change_email("change-email-empty", email_shot());
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_typed() {
+    change_email("change-email-typed", EmailShot { email: "dana@newmail.example", ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_sending() {
+    change_email("change-email-sending", EmailShot { email: "dana@newmail.example", busy: true, ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_code() {
+    change_email("change-email-code", EmailShot { code_for: Some("dana@newmail.example"), code: "1234", ..email_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_change_email_code_error() {
+    change_email("change-email-code-error", EmailShot { code_for: Some("dana@newmail.example"), code: "123456", error: Some("That code is not valid. Check it or send a new one."), ..email_shot() });
 }

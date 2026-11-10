@@ -59,7 +59,18 @@ enum Step {
     Code { new_email: String },
 }
 
-struct ChangeEmailDialogView {
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct EmailShot {
+    /// `Some` = the code step for that address.
+    pub code_for: Option<&'static str>,
+    pub email: &'static str,
+    pub code: &'static str,
+    pub busy: bool,
+    pub error: Option<&'static str>,
+}
+
+pub(crate) struct ChangeEmailDialogView {
     current_email: String,
     section: WeakEntity<SignInMethodsSection>,
     step: Step,
@@ -115,6 +126,24 @@ impl ChangeEmailDialogView {
             error: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new("dana@example.com".into(), WeakEntity::new_invalid(), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: EmailShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.step = match shot.code_for {
+            Some(address) => Step::Code { new_email: address.to_string() },
+            None => Step::Address,
+        };
+        self.email.update(cx, |state, cx| state.set_value(shot.email, window, cx));
+        self.code.update(cx, |state, cx| state.set_value(shot.code, window, cx));
+        self.busy = shot.busy;
+        self.error = shot.error.map(SharedString::from);
+        cx.notify();
     }
 
     /// Enter / the primary button: whichever submit the visible step means.
