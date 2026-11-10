@@ -398,10 +398,10 @@ impl Ink {
 
 /// The issues a settings document must not raise: the documents write the
 /// IDE's chrome as literal colours ([`Ink`]: the core reports each one, a
-/// node style wants `$color.<name>`, and paints it), and a style value bound
-/// to the pane's data (a meter's `width`) resolves at bind time like a
-/// macro's (#EXP-1767: the author-side check refuses it). Anything else is a
-/// real mistake.
+/// node style wants `$color.<name>`, and paints it), and a style value or a
+/// prop bound to the pane's data (a meter's `width`, a reader's field
+/// `disabled`) resolves at bind time like a macro's (#EXP-1767: the
+/// author-side check refuses it). Anything else is a real mistake.
 #[cfg(any(test, debug_assertions))]
 pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, String)>, issues: &[eui_core::ReduceIssue]) -> Vec<eui_core::ReduceIssue> {
     issues
@@ -412,16 +412,25 @@ pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, Strin
         .collect()
 }
 
-/// The `(node id, "/components/<id>/style/<key>")` of every style value in `tree` that is a
-/// binding (`{"@path"}` / `{"@call"}`), for the mount's debug check.
+/// The `(node id, "/components/<id>/[style/]<key>")` of every style value
+/// and prop in `tree` that is a binding (`{"@path"}` / `{"@call"}`), for the
+/// mount's debug check.
 #[cfg(any(test, debug_assertions))]
-pub(super) fn bound_styles(tree: &Value) -> std::collections::HashSet<(String, String)> {
+pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, String)> {
     fn walk(node: &Value, out: &mut std::collections::HashSet<(String, String)>) {
         let Some(map) = node.as_object() else { return };
-        if let (Some(id), Some(style)) = (map.get("id").and_then(Value::as_str), map.get("style").and_then(Value::as_object)) {
-            for (key, value) in style {
-                if value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call")) {
+        let bound = |value: &Value| value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call"));
+        if let Some(id) = map.get("id").and_then(Value::as_str) {
+            for (key, value) in map.get("style").and_then(Value::as_object).into_iter().flatten() {
+                if bound(value) {
                     out.insert((id.to_string(), format!("/components/{id}/style/{key}")));
+                }
+            }
+            // A prop bound to the pane's state (a field's `disabled` for a
+            // reader) resolves at bind time like a style value.
+            for (key, value) in map.get("props").and_then(Value::as_object).into_iter().flatten() {
+                if bound(value) {
+                    out.insert((id.to_string(), format!("/components/{id}/{key}")));
                 }
             }
         }
@@ -465,7 +474,7 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
         ..Default::default()
     };
     #[cfg(debug_assertions)]
-    let bound = bound_styles(&tree);
+    let bound = bound_values(&tree);
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);

@@ -293,3 +293,44 @@ fn a_trigger_icon_row_leads_its_value_with_the_chosen_options_icon() {
         assert!(s.index_of("sel.valueIcon").is_none(), "off by default; a field trigger never");
     }
 }
+
+/// #EXP-1629: an option with a glyph or a `description` is a row of parts
+/// (the IDE picker row): `itemIcon`, the `itemText` column (`itemLabel` over
+/// `itemDescription`), the chosen one's `check`; plain options stay one leaf.
+#[test]
+fn an_option_with_a_glyph_or_a_description_is_a_row_of_parts() {
+    let mut s = surface(select(json!({"triggerVariant": "row", "value": "mint", "options": [
+        {"label": "mint", "value": "mint", "icon": "monitor"},
+        {"label": "macbook", "value": "macbook", "icon": "laptop", "description": "Offline"},
+        {"label": "plain", "value": "plain"},
+    ]})));
+    let out = open(&mut s);
+    let kids = |s: &mut Surface, id: &str| -> Vec<String> {
+        let i = s.index_of(id).unwrap();
+        s.nodes().into_iter().filter(|n| n.parent == Some(i)).map(|n| n.id).collect()
+    };
+    assert_eq!(kids(&mut s, "sel.item.0"), ["sel.itemIcon.0", "sel.itemText.0", "sel.check.0"]);
+    assert_eq!(kids(&mut s, "sel.itemText.0"), ["sel.itemLabel.0"]);
+    assert_eq!(kids(&mut s, "sel.item.1"), ["sel.itemIcon.1", "sel.itemText.1"]);
+    assert_eq!(kids(&mut s, "sel.itemText.1"), ["sel.itemLabel.1", "sel.itemDescription.1"]);
+    assert_eq!(node(&mut s, "sel.itemDescription.1").props["text"], json!("Offline"));
+    assert_eq!(node(&mut s, "sel.itemIcon.1").props["name"], json!("laptop"));
+    assert!(kids(&mut s, "sel.item.2").is_empty(), "a plain option stays the one-line item text");
+    // A described option grows past the row's minimum.
+    let (one, two) = (frame(&s, &out, "sel.item.0").h, frame(&s, &out, "sel.item.1").h);
+    assert!(two > one, "{two} > {one}");
+}
+
+/// #EXP-1629: `popupMinWidth` = content-fit, at least that wide (the IDE's
+/// non-searchable picker), instead of the row's fixed width.
+#[test]
+fn popup_min_width_fits_the_options_at_least_that_wide() {
+    let mut s = surface(select(json!({"triggerVariant": "row", "popupMinWidth": 170})));
+    let out = open(&mut s);
+    let w = frame(&s, &out, "sel.content").w;
+    assert!(w >= 170.0 && w < 262.0, "short options: the minimum, {w}");
+    let long = "a very long option label that is wider than the minimum popup";
+    let mut s = surface(select(json!({"triggerVariant": "row", "popupMinWidth": 170, "options": [{"label": long, "value": "l"}]})));
+    let out = open(&mut s);
+    assert!(frame(&s, &out, "sel.content").w > 262.0, "long options: the content");
+}
