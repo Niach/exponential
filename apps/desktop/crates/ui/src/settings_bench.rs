@@ -22,8 +22,9 @@ use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
-use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -644,6 +645,35 @@ fn settings_branch_menu_eui() {
     shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
 }
 
+/// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
+/// (`repositories::branch_trigger` + its `Popover`) vs genUI's `pill`
+/// Select, closed (normal, disabled) and open (loading, empty, ready with
+/// `main` the default and checked). Shoot `settings_repo_branch_ide`, then
+/// `settings_repo_branch_eui` with `EXP_SETTINGS_BEFORE` at the first.
+const REPO_BRANCH_STATES: [(&str, PickerState); 5] = [
+    ("repo-branch-trigger", PickerState::Trigger),
+    ("repo-branch-disabled", PickerState::Disabled),
+    ("repo-branch-loading", PickerState::Loading),
+    ("repo-branch-empty", PickerState::Empty),
+    ("repo-branch-ready", PickerState::Ready),
+];
+
+#[test]
+#[ignore]
+fn settings_repo_branch_ide() {
+    for (name, state) in REPO_BRANCH_STATES {
+        shoot_pane(name, IdeBranchPicker::for_shots(state), |_, _| {});
+    }
+}
+
+#[test]
+#[ignore]
+fn settings_repo_branch_eui() {
+    for (name, state) in REPO_BRANCH_STATES {
+        shoot_pane(name, EuiBranchPicker::for_shots(state), |_, _| {});
+    }
+}
+
 /// #EXP-1629: the IDE's chromeless group fields vs genUI Textarea
 /// `row`/`code` and Input `code`/`bare`: the agent instructions (`row`, 4–16
 /// rows), the skill description (`row`, empty, 2–6), the SKILL.md / prompt
@@ -811,6 +841,90 @@ mod spinner_parity {
             cx.set_reduce_motion(true);
             Eui::new(window, cx)
         }, |_, _| {});
+    }
+}
+
+/// #EXP-1629: the IDE's boxed field (`glass_input` at `.web_input_sm()` and
+/// `.web_input()`, a 176 px one beside a flex one, one empty with its
+/// placeholder, one with a value) against genUI's Input `variant: "box"`
+/// at `size` `sm` and `default`: the same picture.
+mod box_fields {
+    use super::*;
+    use crate::controls::WebControl as _;
+    use gpui_component::input::InputState;
+    use serde_json::json;
+
+    const VALUE: &str = "ada@example.com";
+
+    pub(super) struct Ide {
+        fields: Vec<gpui::Entity<InputState>>,
+    }
+
+    impl Ide {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let mut fields = Vec::new();
+            for _ in 0..2 {
+                fields.push(cx.new(|cx| InputState::new(window, cx).placeholder("Name")));
+                let value = cx.new(|cx| InputState::new(window, cx).placeholder("teammate@example.com"));
+                value.update(cx, |s, cx| s.set_value(VALUE, window, cx));
+                fields.push(value);
+            }
+            Self { fields }
+        }
+    }
+
+    impl Render for Ide {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let f = &self.fields;
+            let sm = gpui_component::h_flex().w_full().gap_2().items_center()
+                .child(div().w(px(176.)).flex_shrink_0().child(crate::controls::glass_input(&f[0], window, cx).web_input_sm()))
+                .child(div().flex_1().min_w_0().child(crate::controls::glass_input(&f[1], window, cx).web_input_sm()));
+            let md = gpui_component::h_flex().w_full().gap_2().items_center()
+                .child(div().w(px(176.)).flex_shrink_0().child(crate::controls::glass_input(&f[2], window, cx).web_input()))
+                .child(div().flex_1().min_w_0().child(crate::controls::glass_input(&f[3], window, cx).web_input()));
+            gpui_component::v_flex().w_full().gap_4().child(sm).child(md)
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+    }
+
+    impl Eui {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            // The IDE's `gap_2` / `gap_4`: half a rem, one rem.
+            let rem = crate::settings::doc_ink(cx).2;
+            let state = json!({"a": "", "b": VALUE, "c": "", "d": VALUE});
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", state, |s: &serde_json::Value, _| s.clone()));
+            let pair = |id: &str, size: &str, a: &str, b: &str| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": rem * 0.5, "width": "100%"}, "children": [
+                {"id": a, "component": "Input", "props": {"label": "Name", "name": a, "variant": "box", "size": size, "placeholder": "Name", "value": {"@path": format!("/pane/{a}")}}, "style": {"width": 176, "flexShrink": 0}},
+                {"id": b, "component": "Input", "props": {"label": "Email", "name": b, "variant": "box", "size": size, "placeholder": "teammate@example.com", "value": {"@path": format!("/pane/{b}")}}, "style": {"flexGrow": 1, "minWidth": 0}},
+            ]});
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": rem, "width": "100%"}, "children": [
+                pair("sm", "sm", "a", "b"),
+                pair("md", "default", "c", "d"),
+            ]});
+            let view = crate::settings::doc_mount("bench-box-fields", tree, &binding, window, cx);
+            Self { view }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_box_fields_ide() {
+        shoot_pane("box-fields", Ide::new, |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_box_fields_eui() {
+        shoot_pane("box-fields", Eui::new, |_, _| {});
     }
 }
 
@@ -1184,6 +1298,71 @@ fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
     board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
 }
+
+const PROMPT_BODY: &str = "Review the open PRs on this board.\n\n- Summarise each diff in two lines.\n- Flag anything that touches `apps/web/src/db`.\n";
+
+fn prompt_row() -> api::prompts::Prompt {
+    serde_json::from_value(serde_json::json!({"id": "p1", "teamId": "team-shots", "name": "Review train", "icon": "rocket"})).expect("a prompt")
+}
+
+fn prompt_page(name: &str, prompt: Option<api::prompts::Prompt>, shot: PromptPageShot) {
+    shoot_pane_acted(name, move |window, cx| PromptPage::new("team-shots".into(), prompt, window, cx), |_, _| {}, None, &[], move |page, window, cx| page.show(shot, window, cx));
+}
+
+fn page_shot(owner: bool, body: Option<Result<String, ()>>) -> PromptPageShot {
+    PromptPageShot { owner, body, name: None, touched: false, name_error: None }
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_page() {
+    prompt_page("prompt-page", Some(prompt_row()), page_shot(true, Some(Ok(PROMPT_BODY.into()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_dirty() {
+    prompt_page("prompt-dirty", Some(prompt_row()), PromptPageShot { name: Some("Review train (weekly)".into()), ..page_shot(true, Some(Ok(PROMPT_BODY.into()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_loading() {
+    prompt_page("prompt-loading", Some(prompt_row()), page_shot(true, None));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_failed() {
+    prompt_page("prompt-failed", Some(prompt_row()), page_shot(true, Some(Err(()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_member() {
+    prompt_page("prompt-member", Some(prompt_row()), page_shot(false, Some(Ok(PROMPT_BODY.into()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_new_touched() {
+    prompt_page("prompt-new-touched", None, PromptPageShot { touched: true, ..page_shot(true, Some(Ok(String::new()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_taken() {
+    prompt_page("prompt-taken", Some(prompt_row()), PromptPageShot { name: Some("Release train".into()), name_error: Some("A prompt with this name already exists".into()), ..page_shot(true, Some(Ok(PROMPT_BODY.into()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_too_long() {
+    let body = "x ".repeat(crate::settings::prompts::PROMPT_BODY_MAX_CHARS / 2 + 1);
+    prompt_page("prompt-too-long", Some(prompt_row()), page_shot(true, Some(Ok(body))));
+}
+
+
 
 fn team(icon: bool, zone: Option<&str>) -> domain::rows::Team {
     serde_json::from_value(serde_json::json!({

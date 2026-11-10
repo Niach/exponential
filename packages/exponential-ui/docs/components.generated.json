@@ -5479,12 +5479,21 @@
         },
         {
           "name": "variant",
-          "type": "field | row | bare | code",
+          "type": "field | row | bare | code | box",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono."
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+        },
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "sm = compact."
         },
         {
           "name": "disabled",
@@ -6433,13 +6442,22 @@
           "description": "Shown on no match."
         },
         {
+          "name": "searchPlaceholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.search",
+          "description": "Hint in the filter field."
+        },
+        {
           "name": "triggerVariant",
-          "type": "field | row",
+          "type": "field | row | pill",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row: label, value, chevron."
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
         {
           "name": "align",
@@ -6456,6 +6474,15 @@
           "bindable": false,
           "responsive": false,
           "description": "Px (`row`: 260)."
+        },
+        {
+          "name": "loading",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Options still loading: skeleton rows in the popup."
         },
         {
           "name": "disabled",

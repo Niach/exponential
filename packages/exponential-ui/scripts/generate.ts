@@ -1050,6 +1050,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `branch`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } },
       ],
     },
+  }, {
+    // #EXP-1765: the IDE's per-repository branch picker: a `pill` holding
+    // the branch in mono; the popup searches ("Search branches..."), lists
+    // the branches in mono with the repo default's muted `default`, and
+    // shows the Skeleton rows while `loading` (the lazy fetch on `open`).
+    label: `triggerVariant · pill + mono options + loading`,
+    node: {
+      id: `repo_branches`,
+      component: `Stack`,
+      props: { direction: `horizontal`, gap: `sm`, align: `center` },
+      children: [
+        { id: `repo_branch`, component: `Select`, props: { label: `Default branch`, name: `repoBranch`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `main`, options: [{ label: `main`, value: `main`, mono: true, trailing: `default` }, { label: `develop`, value: `develop`, mono: true }] }, on: { open: { event: { name: `loadBranches` } } } },
+        { id: `repo_branch_loading`, component: `Select`, props: { label: `Default branch (loading)`, name: `repoBranchLoading`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `develop`, loading: true, options: [{ label: `develop`, value: `develop`, mono: true }] } },
+        { id: `repo_branch_busy`, component: `Select`, props: { label: `Default branch (busy)`, name: `repoBranchBusy`, triggerVariant: `pill`, value: `release/2026-11`, disabled: true, options: [{ label: `release/2026-11`, value: `release/2026-11`, mono: true }] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
@@ -1272,6 +1288,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
           { id: `skill-icon`, component: `Icon`, props: { name: `book-open` } },
           { id: `skill-name`, component: `Input`, props: { label: `Name`, name: `skill`, variant: `code`, placeholder: `skill-name` }, style: { flexGrow: 1, minWidth: 0 } },
         ] },
+      ],
+    },
+  }, {
+    // #EXP-1629: the IDE's boxed field (the invite form): `box`, the label
+    // unshown, at `size` sm beside the default.
+    label: `variant · box, size sm`,
+    node: {
+      id: `invite`,
+      component: `Box`,
+      style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+      children: [
+        { id: `invite-sm`, component: `Box`, style: { display: `flex`, flexDirection: `row`, alignItems: `center`, gap: `$spacing.sm` }, children: [
+          { id: `invite-name`, component: `Input`, props: { label: `Name`, name: `name`, variant: `box`, size: `sm`, placeholder: `Name` }, style: { width: 176, flexShrink: 0 } },
+          { id: `invite-email`, component: `Input`, props: { label: `Email`, name: `email`, variant: `box`, size: `sm`, value: `ada@example.com` }, style: { flexGrow: 1, minWidth: 0 } },
+        ] },
+        { id: `invite-md`, component: `Input`, props: { label: `Email`, name: `email-md`, variant: `box`, placeholder: `teammate@example.com` } },
       ],
     },
   }],

@@ -36,7 +36,7 @@ final class FieldState {
         self.text = text
         self.external = external
         self.seenEpoch = seenEpoch
-        filled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        filled = kind == .search ? !text.isEmpty : !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -210,6 +210,31 @@ extension SurfaceModel {
         f.writeGeneration += 1
     }
 
+    /// #EXP-1765: does this node (a Select `search`) end in the clear
+    /// button: a `pill`'s, while it holds text? Reads the observed
+    /// `composerFillTick` so the field redraws on the flip.
+    public func selectSearchClearable(_ index: Int) -> Bool {
+        _ = composerFillTick
+        guard let n = node(index), n.ownerComponent == "Select", n.part == "search" else { return false }
+        return SelectTrigger.isPill(n.props, owner: ownerProps(index)) && !(field(index)?.text.isEmpty ?? true)
+    }
+
+    /// #EXP-1765: a `pill` Select search's clear button: the field empties,
+    /// the core hears the empty `change` at once (the list unfiltered) and
+    /// the focus stays in the field.
+    public func selectSearchClear(_ index: Int) {
+        guard let f = field(index), let n = node(index) else { return }
+        f.debounce?.cancel()
+        f.debounce = nil
+        f.text = ""
+        noteComposerText(f)
+        f.revision += 1
+        f.writeGeneration += 1
+        f.pendingChange = true
+        flushField(f, index: index, event: nil)
+        requestFocus(n.id, keyboard: keyboardFocus)
+    }
+
     /// Is the composer's draft non-blank (its send button enabled)? Reads
     /// the observed `composerFillTick` so the button redraws on the flip.
     public func composerHasText(_ index: Int) -> Bool {
@@ -218,9 +243,11 @@ extension SurfaceModel {
     }
 
     /// A composer draft flipped blank / non-blank: redraw its send button.
+    /// #EXP-1765: a Select search flipping empty / non-empty redraws too
+    /// (a pill's clear button shows while it holds text).
     func noteComposerText(_ f: FieldState) {
-        guard f.kind == .composer else { return }
-        let filled = !f.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard f.kind == .composer || f.kind == .search else { return }
+        let filled = f.kind == .search ? !f.text.isEmpty : !f.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard filled != f.filled else { return }
         f.filled = filled
         composerFillTick &+= 1
