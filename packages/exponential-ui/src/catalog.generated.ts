@@ -262,7 +262,7 @@ export interface ComponentProps {
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
   Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue }
-  Tooltip: { content: string; side?: SideValue }
+  Tooltip: { content: string | Dynamic; side?: SideValue }
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
