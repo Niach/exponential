@@ -25,6 +25,7 @@ use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
@@ -644,6 +645,22 @@ fn settings_branch_menu_ide() {
 #[ignore]
 fn settings_branch_menu_eui() {
     shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
+/// #EXP-1764 (genUI Select `triggerIcon` + the `brand-claude` mark): the
+/// Agent detail Account row closed (the brand mark, the email, the
+/// chevron), today's IDE row vs the genUI row: run each into its own dir,
+/// the second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_account_row_ide() {
+    shoot_pane("account-row", IdeAccountRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_account_row_eui() {
+    shoot_pane("account-row", EuiAccountRow::for_shots, |_, _| {});
 }
 
 /// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
