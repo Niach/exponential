@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildSecurityHeaders } from "./security-headers"
+import { buildSecurityHeaders, fontAssetHeaders } from "./security-headers"
 
 const csp = (env: Parameters<typeof buildSecurityHeaders>[0]) =>
   buildSecurityHeaders(env)[`Content-Security-Policy`].split(`; `)
@@ -49,5 +49,14 @@ describe(`buildSecurityHeaders`, () => {
       `X-Content-Type-Options`,
       `X-Frame-Options`,
     ])
+  })
+})
+
+describe(`fontAssetHeaders (#EXP-1766)`, () => {
+  it(`opens only the self-hosted woff2 files to any origin`, () => {
+    expect(fontAssetHeaders(`/fonts/JetBrainsMono-Regular.woff2`)).toEqual({ "Access-Control-Allow-Origin": `*` })
+    for (const path of [`/fonts/JetBrainsMono-OFL.txt`, `/fonts/sub/x.woff2`, `/api/fonts/x.woff2`, `/NOTICES.txt`, `/`]) {
+      expect(fontAssetHeaders(path), path).toBeNull()
+    }
   })
 })
