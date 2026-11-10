@@ -571,7 +571,12 @@ final class Round1NativesTests: XCTestCase {
         let et = e.frame(try XCTUnwrap(e.index(of: "sel.trigger")))
         let ec = e.frame(try XCTUnwrap(e.index(of: "sel.content")))
         XCTAssertEqual(ec.width, 200, accuracy: 0.01)
-        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.01)
+        // #EXP-1765: inset, clamp, then the content's offset from the pill
+        // rounded to whole points (half away from zero): a content-sized pill
+        // leaves the box within half a point of flush.
+        let at = et.maxX + 1 - 200
+        XCTAssertEqual(ec.minX, et.minX + (at + 1 - et.minX).rounded() - 1, accuracy: 0.01)
+        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.5)
         XCTAssertLessThanOrEqual(ec.maxX, 390 - 7 + 0.01, "selectRowPopupMargin from the view's edge")
     }
 
