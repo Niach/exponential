@@ -1442,7 +1442,8 @@ pub struct ConversationDigest {
 impl ConversationDigest {
     /// The synced jsonb cell; anything that is not a digest object = none.
     pub fn decode(value: Option<&Value>) -> Option<Self> {
-        value.filter(|value| value.is_object()).and_then(|value| serde_json::from_value(value.clone()).ok())
+        // #LOGS-11: read in place (a clone of every digest per list derive).
+        value.filter(|value| value.is_object()).and_then(|value| Self::deserialize(value).ok())
     }
 }
 

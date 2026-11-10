@@ -10,6 +10,7 @@ use gpui_component::ActiveTheme as _;
 use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
+use crate::settings::local_repos::{LocalReposPane, LocalShot};
 use crate::settings::about::AboutPane;
 use crate::settings::account::{AccountPane, AccountShot};
 use crate::settings::sessions::SessionsPane;
@@ -27,6 +28,7 @@ use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPa
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
+use crate::settings::statuses::{DeleteStatusContent, StatusesPane, StatusesShot};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -1698,7 +1700,7 @@ impl BlockShot {
         Self {
             kind,
             model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
-            work_screen: crate::coding_selects::work_screen_select(&crate::styleguide::entries::work_screen::demo_displays(), None, window, cx),
+            work_screen: crate::coding_selects::work_screen_select(&crate::coding_selects::demo_displays(), None, window, cx),
             block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
         }
     }
@@ -2056,5 +2058,654 @@ mod app_detail {
     fn settings_app_detail_color_open() {
         // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
         shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
+    }
+}
+
+fn status(id: &str, category: &str, name: &str, color: Option<&str>, order: f64, builtin: Option<&str>) -> domain::rows::IssueStatusRow {
+    domain::rows::IssueStatusRow { id: id.into(), team_id: "team-shots".into(), category: category.into(), name: name.into(), color: color.map(str::to_string), sort_order: Some(order), builtin_key: builtin.map(str::to_string), created_at: None, updated_at: None }
+}
+
+/// The builtins plus two custom statuses (Unstarted stays empty).
+fn status_rows() -> Vec<domain::rows::IssueStatusRow> {
+    vec![
+        status("s-backlog", "backlog", "Backlog", None, 0., Some("backlog")),
+        status("s-progress", "started", "In Progress", None, 0., Some("in_progress")),
+        status("s-blocked", "started", "Blocked", Some("#ef4444"), 1., None),
+        status("s-review", "started", "In Review", None, 2., Some("in_review")),
+        status("s-done", "completed", "Done", None, 0., Some("done")),
+        status("s-verified", "completed", "Verified", Some("#8b5cf6"), 1., None),
+        status("s-cancelled", "cancelled", "Cancelled", None, 0., Some("cancelled")),
+        status("s-duplicate", "duplicate", "Duplicate", None, 0., Some("duplicate")),
+    ]
+}
+
+fn status_counts() -> HashMap<String, usize> {
+    HashMap::from([("s-backlog".to_string(), 12), ("s-progress".to_string(), 3), ("s-blocked".to_string(), 1), ("s-done".to_string(), 48)])
+}
+
+fn statuses_shot(rows: Vec<domain::rows::IssueStatusRow>) -> StatusesShot {
+    StatusesShot { counts: status_counts(), ready: true, creating: None, row_error: None, press: Vec::new(), rows }
+}
+
+fn statuses(name: &str, shot: StatusesShot, clicks: &'static [(f32, f32)]) {
+    shoot_pane_clicked(name, StatusesPane::for_shots, move |pane, cx| pane.show(shot, cx), None, clicks);
+}
+
+
+#[test]
+#[ignore]
+fn settings_statuses_rows() {
+    statuses("statuses-rows", statuses_shot(status_rows()), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_color_open() {
+    // Before: a click at the Blocked row's glyph (46, 415) opened today's popover.
+    let press = vec!["started_row_color.s-blocked.customTrigger|started_row_color.customTrigger.s-blocked".into()];
+    statuses("statuses-color-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_menu_open() {
+    // Before: a click at the Blocked row's ⋯ (709, 415) only hovered it (the
+    // pointer menu does not open headless).
+    let press = vec!["started_row_more.s-blocked".into()];
+    statuses("statuses-menu-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Unstarted, String::new())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create_duplicate() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Completed, "done".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create-duplicate", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_row_error() {
+    let shot = StatusesShot { row_error: Some(("s-blocked".into(), "A status with this name already exists.".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-row-error", shot, &[]);
+}
+
+/// Started at its cap: the band's "+" disabled and the cap line.
+#[test]
+#[ignore]
+fn settings_statuses_capped() {
+    let mut rows = status_rows();
+    rows.push(status("s-qa", "started", "QA", Some("#eab308"), 3., None));
+    rows.push(status("s-ready", "unstarted", "Ready", Some("#3b82f6"), 0., None));
+    statuses("statuses-capped", statuses_shot(rows), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_loading() {
+    statuses("statuses-loading", StatusesShot { ready: false, ..statuses_shot(Vec::new()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_empty() {
+    statuses("statuses-empty", statuses_shot(Vec::new()), &[]);
+}
+
+/// The delete dialog's body (native, unchanged by the document): the
+/// server count, the PR-pin notice and the target picker.
+#[test]
+#[ignore]
+fn settings_statuses_delete_pin() {
+    let notice = "This status is where issues move when a pull request merges. That automation will fall back to Done.";
+    shoot_pane("statuses-delete-pin", move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice)), |_, _| {});
+}
+
+/// #EXP-1629: Settings → MCP › Servers in every state (owner, member, a
+/// Connect waiting + a Reconnect in flight, reloading, loading, failed,
+/// empty, no team, a row's ⋯ menu open).
+mod mcp_servers {
+    use super::*;
+    use crate::settings::mcp_servers::{McpServersPane, McpShot};
+    use api::mcp_servers::{McpConnection, McpServerConfig, McpServerDevice, McpServerListEntry};
+
+    fn entry(id: &str, name: &str, url: Option<&str>, auth: &str, status: &str) -> McpServerListEntry {
+        McpServerListEntry {
+            config: McpServerConfig { id: id.into(), team_id: "t".into(), name: name.into(), url: url.map(str::to_string), auth: auth.into(), ..Default::default() },
+            connection: McpConnection { status: status.into(), expires_at: None, error: None },
+            ..Default::default()
+        }
+    }
+
+    fn rows() -> Vec<McpServerListEntry> {
+        let mut linear = entry("s1", "Linear", Some("https://mcp.linear.app/mcp"), "oauth", "connected");
+        linear.config.enabled_by_default = true;
+        linear.shared = true;
+        linear.used_by = vec!["Triage".into()];
+        let notion = entry("s2", "Notion", Some("https://mcp.notion.com/mcp"), "oauth", "expired");
+        let docs = entry("s3", "Internal docs", Some("https://mcp.docs.acme.dev/sse"), "oauth", "not_connected");
+        let mut keys = entry("s4", "Stripe", Some("https://mcp.stripe.com"), "secret", "not_connected");
+        keys.config.header_names = vec!["Authorization".into()];
+        let mut files = entry("s5", "Filesystem", None, "none", "not_needed");
+        files.config.transport = "stdio".into();
+        files.config.command = Some("npx".into());
+        files.config.args = vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into(), "/srv/shared".into()];
+        files.device = Some(McpServerDevice { id: "d1".into(), label: "studio-mac".into(), owner_id: "u".into(), kind: "desktop".into(), icon: None });
+        vec![linear, notion, docs, keys, files]
+    }
+
+    fn mcp(name: &str, team: bool, owner: bool, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&'static str>, connecting: Option<&'static str>, clicks: &'static [(f32, f32)]) {
+        let shot = McpShot { team: team.then(|| "t".to_string()), owner };
+        shoot_pane_clicked(name, McpServersPane::for_shots, move |pane, cx| pane.show(shot, load, reloading, pending, connecting, cx), None, clicks);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_owner() {
+        mcp("mcp-servers-owner", true, true, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_member() {
+        mcp("mcp-servers-member", true, false, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_busy() {
+        mcp("mcp-servers-busy", true, true, Some(Ok(rows())), false, Some("s2"), Some("s3"), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_reloading() {
+        mcp("mcp-servers-reloading", true, true, Some(Ok(rows())), true, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_loading() {
+        mcp("mcp-servers-loading", true, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_failed() {
+        mcp("mcp-servers-failed", true, true, Some(Err("offline".into())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_empty() {
+        mcp("mcp-servers-empty", true, true, Some(Ok(vec![])), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_no_team() {
+        mcp("mcp-servers-no-team", false, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_menu_open() {
+        mcp("mcp-servers-menu-open", true, true, Some(Ok(rows())), false, None, None, &[(MENU_X, MENU_Y)]);
+    }
+
+    /// The first row's ⋯ (window points), read off `mcp-servers-owner`.
+    const MENU_X: f32 = 709.;
+    const MENU_Y: f32 = 97.5;
+}
+
+/// #EXP-1629: Settings → Members in every state (an owner's roster with
+/// owners, members, the three placeholder pills, a name-less email row and
+/// a row with no synced user, plus the pending invites; a member's view;
+/// the invite form typed, sending, adding, with its own notices; the link
+/// path's seat-cap notice, generated link and generating; no team; a row's
+/// ⋯ under the pointer).
+mod members {
+    use super::*;
+    use crate::settings::members::{MembersPane, MembersShot};
+    use serde_json::json;
+
+    fn members() -> Vec<domain::rows::TeamMember> {
+        let m = |id: &str, user: &str, role: &str, at: &str| json!({"id": id, "team_id": "t", "user_id": user, "role": role, "created_at": at});
+        serde_json::from_value(json!([
+            m("m1", "u-me", "owner", "2026-01-01T00:00:00Z"),
+            m("m2", "u-fox", "owner", "2026-01-02T00:00:00Z"),
+            m("m3", "u-sam", "member", "2026-01-03T00:00:00Z"),
+            m("m4", "u-ada", "member", "2026-11-01T00:00:00Z"),
+            m("m5", "u-bob", "member", "2026-01-04T00:00:00Z"),
+            m("m6", "u-cy", "member", "2026-02-01T00:00:00Z"),
+            m("m7", "u-apple", "member", "2026-03-01T00:00:00Z"),
+            m("m8", "u-gone-7f3a", "member", "2026-04-01T00:00:00Z"),
+        ]))
+        .expect("members")
+    }
+
+    fn users() -> Vec<domain::rows::User> {
+        let u = |id: &str, name: &str, email: &str| json!({"id": id, "name": name, "email": email});
+        serde_json::from_value(json!([
+            u("u-me", "Dana Scully", "dana@acme.dev"),
+            u("u-fox", "Fox Mulder", "fox@acme.dev"),
+            u("u-sam", "Sam Rivera", "sam@acme.dev"),
+            u("u-ada", "Ada Lovelace", "ada@example.com"),
+            u("u-bob", "Bob Ross", "bob@example.com"),
+            u("u-cy", "Cy Linear", "cy@example.com"),
+            u("u-apple", "", "x7k2@privaterelay.appleid.com"),
+        ]))
+        .expect("users")
+    }
+
+    fn invites() -> Vec<domain::rows::TeamInvite> {
+        serde_json::from_value(json!([
+            {"id": "i1", "team_id": "t", "role": "member", "email": "ada@example.com", "placeholder_user_id": "u-ada", "sent_at": "2026-11-01T00:00:00Z", "expires_at": "2099-11-08T00:00:00Z", "created_at": "2026-11-01T00:00:00Z"},
+            {"id": "i2", "team_id": "t", "role": "member", "email": "bob@example.com", "placeholder_user_id": "u-bob", "sent_at": "2026-01-04T00:00:00Z", "expires_at": "2026-01-11T00:00:00Z", "created_at": "2026-01-04T00:00:00Z"},
+            {"id": "i3", "team_id": "t", "role": "member", "email": "cy@example.com", "placeholder_user_id": "u-cy", "expires_at": "2026-02-01T00:00:00Z", "created_at": "2026-02-01T00:00:00Z"},
+            {"id": "i4", "team_id": "t", "role": "member", "sent_at": "2026-11-05T00:00:00Z", "expires_at": "2099-12-01T00:00:00Z", "created_at": "2026-11-05T00:00:00Z"},
+            {"id": "i5", "team_id": "t", "role": "owner", "email": "eve@other.dev", "sent_at": "2026-11-03T00:00:00Z", "expires_at": "2099-11-20T00:00:00Z", "created_at": "2026-11-03T00:00:00Z"},
+        ]))
+        .expect("invites")
+    }
+
+    const LINK: &str = "https://exponential.at/invite/9f2c4e7a1b3d5f6e8a0c2e4b6d8f0a1c3e5b7d9f";
+
+    fn shot() -> MembersShot {
+        MembersShot {
+            team: Some("t".into()),
+            owner: true,
+            me: "u-me".into(),
+            members: members(),
+            users: users(),
+            invites: invites(),
+            name: String::new(),
+            email: String::new(),
+            sending: false,
+            adding: false,
+            form_out_of_seats: false,
+            form_link: None,
+            email_error: None,
+            link: None,
+            out_of_seats: false,
+            generating: false,
+        }
+    }
+
+    fn typed() -> MembersShot {
+        MembersShot { name: "Grace Hopper".into(), email: "grace@example.com".into(), ..shot() }
+    }
+
+    fn members_shot(name: &str, shot: MembersShot) {
+        members_hover(name, shot, None);
+    }
+
+    /// The pane, then the form filled; `hover` = the pointer moved there
+    /// (window points) after it.
+    fn members_hover(name: &str, shot: MembersShot, hover: Option<(f32, f32)>) {
+        shoot_pane_acted(name, MembersPane::for_shots, move |pane, cx| pane.show(shot, cx), None, &[], move |pane, window, cx| {
+            pane.shot_act(window, cx);
+            if let Some((x, y)) = hover {
+                // After the pane's update: the move repaints it.
+                window.defer(cx, move |window, cx| {
+                    let moved = gpui::MouseMoveEvent { position: gpui::point(px(x), px(y)), pressed_button: None, modifiers: Default::default() };
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
+                });
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_owner() {
+        members_shot("members-owner", shot());
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_member() {
+        members_shot("members-member", MembersShot { owner: false, me: "u-sam".into(), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_typed() {
+        members_shot("members-typed", typed());
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_sending() {
+        members_shot("members-sending", MembersShot { sending: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_adding() {
+        members_shot("members-adding", MembersShot { adding: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_out_of_seats() {
+        members_shot("members-out-of-seats", MembersShot { out_of_seats: true, ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_link() {
+        members_shot("members-link", MembersShot { link: Some(LINK.into()), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_generating() {
+        members_shot("members-generating", MembersShot { generating: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_form_notices() {
+        members_shot("members-form-notices", MembersShot { form_out_of_seats: true, form_link: Some(LINK.into()), email_error: Some("Enter a full email address".into()), ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_no_pending() {
+        members_shot("members-no-pending", MembersShot { invites: Vec::new(), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_no_team() {
+        members_shot("members-no-team", MembersShot { team: None, ..shot() });
+    }
+
+    /// The pointer over the second row's ⋯ (`EXP_MEMBERS_HOVER=x,y`
+    /// overrides [`MENU`]).
+    #[test]
+    #[ignore]
+    fn settings_members_menu_hover() {
+        let point = std::env::var("EXP_MEMBERS_HOVER").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(MENU);
+        members_hover("members-menu-hover", shot(), Some(point));
+    }
+
+    /// The second row's ⋯ (window points), read off `members-owner`.
+    const MENU: (f32, f32) = (700., 140.);
+}
+
+fn local_repos_rows() -> Vec<(String, Option<u64>, Vec<(String, Option<String>)>)> {
+    vec![
+        ("acme/web".into(), Some(1_288_490_189), vec![("exp-session-1a2b".into(), Some("exp/session-1a2b".into())), ("detached".into(), None)]),
+        ("acme/api".into(), Some(314_572_800), vec![("fix-login".into(), Some("exp/fix-login".into()))]),
+        ("acme/docs".into(), Some(52_428_800), vec![]),
+    ]
+}
+
+fn local_shot(repos: Option<Vec<(String, Option<u64>, Vec<(String, Option<String>)>)>>) -> LocalShot {
+    LocalShot { repos, disk: Some((400_000_000_000, 500_000_000_000)), in_use: Vec::new(), busy: None, message: None }
+}
+
+fn local_repos(name: &str, shot: LocalShot) {
+    shoot_pane(name, LocalReposPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_rows() {
+    local_repos("local-repos-rows", local_shot(Some(local_repos_rows())));
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_busy() {
+    let shot = LocalShot {
+        disk: Some((4_000_000_000, 500_000_000_000)),
+        in_use: vec!["acme/api".into()],
+        busy: Some("acme/web".into()),
+        message: Some(("acme/docs".into(), "Removed 2 worktrees · deleted 3 branches".into())),
+        ..local_shot(Some(local_repos_rows()))
+    };
+    local_repos("local-repos-busy", shot);
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_measuring() {
+    let rows = local_repos_rows().into_iter().map(|(name, _, worktrees)| (name, None, worktrees)).collect();
+    local_repos("local-repos-measuring", local_shot(Some(rows)));
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_no_worktrees() {
+    local_repos("local-repos-no-worktrees", local_shot(Some(vec![("acme/docs".into(), Some(52_428_800), vec![])])));
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_empty() {
+    local_repos("local-repos-empty", local_shot(Some(Vec::new())));
+}
+
+#[test]
+#[ignore]
+fn settings_local_repos_loading() {
+    local_repos("local-repos-loading", local_shot(None));
+}
+
+/// #EXP-1629: Settings → Labels in every state (rows in several colours and
+/// a long name, empty, no team, the create form empty / typed / duplicate /
+/// busy / failed, a row's rename error, a row's swatch popover open, the
+/// delete hovered).
+mod labels {
+    use super::*;
+    use crate::settings::labels::{LabelsPane, LabelsShot};
+
+    /// Where the pointer goes before the picture.
+    #[derive(Clone, Copy)]
+    enum Pointer {
+        Rest,
+        Hover((f32, f32)),
+        /// A left click (the gpui pane's picture of the open swatch popover).
+        #[allow(dead_code)]
+        Click((f32, f32)),
+        /// The document's press on a node (the eUI pane's click).
+        Press(&'static str),
+    }
+
+    fn frames(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext) {
+        for _ in 0..6 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        for _ in 0..3 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    }
+
+    fn mouse(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext, event: gpui::PlatformInput) {
+        cx.update_window(window, |_, window, cx| window.dispatch_event(event, cx)).expect("a pointer event");
+    }
+
+    fn shoot(name: &str, shot: LabelsShot, pointer: Pointer) {
+        let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
+        let mut cx = headless();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let mut frame = None;
+        let handle = cx
+            .open_window(size(px(PANE.0), px(PANE.1)), |window: &mut Window, cx| {
+                let pane = cx.new(|cx| LabelsPane::for_shots(window, cx));
+                let view = cx.new(|_| Frame { pane: pane.clone().into() });
+                frame = Some(pane);
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+            })
+            .expect("a headless window");
+        let window: gpui::AnyWindowHandle = handle.into();
+        let frame = frame.expect("the frame");
+        cx.update_window(window, |_, window, cx| frame.update(cx, |pane, cx| pane.show(shot, window, cx))).expect("the state");
+        frames(window, &mut cx);
+        match pointer {
+            Pointer::Rest => {}
+            Pointer::Hover((x, y)) => {
+                let position = gpui::point(px(x), px(y));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx);
+            }
+            Pointer::Press(id) => {
+                cx.update_window(window, |_, window, cx| frame.update(cx, |pane, cx| pane.press_for_shots(id, window, cx))).expect("the press");
+                frames(window, &mut cx);
+                cx.update(|cx| frame.update(cx, |pane, cx| pane.press_for_shots_settle(cx)));
+                frames(window, &mut cx);
+            }
+            Pointer::Click((x, y)) => {
+                let position = gpui::point(px(x), px(y));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false }));
+                frames(window, &mut cx);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 }));
+                frames(window, &mut cx);
+                // Park the pointer away so nothing paints its hover.
+                let away = gpui::point(px(PANE.0 - 4.), px(PANE.1 - 4.));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position: away, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx);
+            }
+        }
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join(format!("{name}.png"))).expect("the PNG");
+        if let Some(before) = std::env::var_os("EXP_SETTINGS_BEFORE") {
+            let before = image::open(std::path::Path::new(&before).join(format!("{name}.png"))).expect("the earlier picture").to_rgba8();
+            let after = image::RgbaImage::from_raw(shot.width(), shot.height(), shot.as_raw().to_vec()).expect("the frame's pixels");
+            assert_eq!(before.dimensions(), after.dimensions());
+            let mut diff = after.clone();
+            let (mut count, mut bounds, mut worst) = (0u32, (u32::MAX, u32::MAX, 0u32, 0u32), 0u8);
+            for (x, y, pixel) in diff.enumerate_pixels_mut() {
+                let a = before.get_pixel(x, y);
+                if a == pixel {
+                    pixel.0 = [pixel.0[0] / 3, pixel.0[1] / 3, pixel.0[2] / 3, 255];
+                    continue;
+                }
+                worst = worst.max((0..3).map(|c| a.0[c].abs_diff(pixel.0[c])).max().unwrap_or(0));
+                count += 1;
+                bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x), bounds.3.max(y));
+                pixel.0 = [255, 0, 0, 255];
+            }
+            eprintln!("{name}: {count} pixels differ (worst level {worst}), within {bounds:?}");
+            diff.save(std::path::Path::new(&dir).join(format!("{name}.diff.png"))).expect("the diff");
+        }
+        std::mem::forget(cx);
+    }
+
+    fn label(id: &str, name: &str, color: Option<&str>, order: f64) -> domain::rows::Label {
+        domain::rows::Label { id: id.into(), team_id: "team-shots".into(), name: name.into(), color: color.map(Into::into), sort_order: Some(order), created_at: None, updated_at: None }
+    }
+
+    fn rows() -> Vec<domain::rows::Label> {
+        vec![
+            label("l1", "bug", Some("#ef4444"), 1.),
+            label("l2", "feature", Some("#22c55e"), 2.),
+            label("l3", "a label with a very long name that keeps going well past the row's width so the field clips its text", Some("#3b82f6"), 3.),
+            label("l4", "design", None, 4.),
+            label("l5", "needs-triage", Some("#a855f7"), 5.),
+        ]
+    }
+
+    fn base() -> LabelsShot {
+        LabelsShot { labels: Some(rows()), creating: false, typed: String::new(), color: "#22c55e".into(), submitting: false, create_error: None, row_error: None, draft: None }
+    }
+
+    fn form(typed: &str) -> LabelsShot {
+        LabelsShot { creating: true, typed: typed.into(), color: "#0ea5e9".into(), ..base() }
+    }
+
+    /// The first row's swatch and delete (window points).
+    #[allow(dead_code)]
+    const SWATCH: (f32, f32) = (45., 89.);
+    const DELETE: (f32, f32) = (709., 89.);
+
+    #[test]
+    #[ignore]
+    fn settings_labels_rows() {
+        shoot("labels-rows", base(), Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_empty() {
+        shoot("labels-empty", LabelsShot { labels: Some(Vec::new()), ..base() }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_no_team() {
+        shoot("labels-no-team", LabelsShot { labels: None, ..base() }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_empty() {
+        shoot("labels-create-empty", LabelsShot { color: "#22c55e".into(), ..form("") }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_first() {
+        shoot("labels-create-first", LabelsShot { labels: Some(Vec::new()), ..form("") }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_typed() {
+        shoot("labels-create-typed", form("regression"), Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_duplicate() {
+        shoot("labels-create-duplicate", form("Bug"), Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_busy() {
+        shoot("labels-create-busy", LabelsShot { submitting: true, ..form("regression") }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_create_failed() {
+        shoot("labels-create-failed", LabelsShot { create_error: Some("Failed to create label.".into()), ..form("regression") }, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_row_error() {
+        let shot = LabelsShot { row_error: Some(("l2".into(), "A label with this name already exists.".into())), draft: Some(("l2".into(), "Bug".into())), ..base() };
+        shoot("labels-row-error", shot, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_color_open() {
+        // The gpui pane's picture: `Pointer::Click(SWATCH)`.
+        shoot("labels-color-open", base(), Pointer::Press("swatch.customTrigger.l1|swatch.l1.customTrigger|swatch.l1"));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_labels_delete_hover() {
+        shoot("labels-delete-hover", base(), Pointer::Hover(DELETE));
     }
 }

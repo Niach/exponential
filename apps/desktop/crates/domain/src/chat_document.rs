@@ -91,7 +91,8 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
         SessionChatRow::Picture { id, attachment_id, caption, .. } => {
             ChatRowInput::Picture { id: id.clone(), attachment_id: attachment_id.clone(), caption: caption.clone() }
         }
-        SessionChatRow::Event { id, text, .. } => ChatRowInput::Line { id: id.clone(), icon: "ui-info".into(), text: text.clone() },
+        // #EXP-1772: an event line is THE inline marker.
+        SessionChatRow::Event { id, text, .. } => ChatRowInput::Marker { id: id.clone(), label: text.clone() },
         SessionChatRow::Divider { id, kind, at } => {
             let time = clock(Some(at));
             let label = if time.is_empty() { kind.label().to_string() } else { format!("{} · {time}", kind.label()) };
@@ -155,7 +156,9 @@ pub const AVATAR_ICON_PREFIX: &str = "avatar:";
 /// transcript-grouping.json) on the chat's message rows, so eDE's bubbles
 /// sit like the IDE's: `out` = the viewer's own, `in` under the sender's
 /// avatar (`avatar` names its icon, a group's first row only) with the
-/// sender's name over a group's first bubble, the group gaps. `transcript`
+/// sender's name over a group's first bubble, the group gaps; #EXP-1772: a
+/// cross-session sender's bubble carries its session as `link` (a relay:
+/// the document draws its name above the bubble as the press). `transcript`
 /// = who is who (its `items` are filled from `rows`).
 pub fn group(out: &mut [ChatRowInput], rows: &[SessionChatRow], mut transcript: crate::transcript_grouping::TranscriptInput, avatar: impl Fn(&crate::transcript_grouping::TranscriptSender) -> Option<String>) {
     use crate::transcript_grouping::{transcript_layout, TranscriptSide};
@@ -171,13 +174,14 @@ pub fn group(out: &mut [ChatRowInput], rows: &[SessionChatRow], mut transcript: 
         };
         let sender = layout.sender.as_ref();
         if side == "in" {
-            *name = sender.filter(|_| layout.name).map(|s| s.display_name());
+            // #EXP-1772: the model adds a relay's chevron itself.
+            *name = sender.filter(|_| layout.name).map(|s| s.name.clone());
         }
         *group = Some(ChatGroup {
             side: Some(side.into()),
             avatar: sender.filter(|_| side == "in" && layout.avatar).and_then(&avatar),
             indent: side == "in",
-            link: None,
+            link: sender.filter(|_| side == "in").and_then(|s| s.link.clone()),
             gap: layout.gap.round().max(0.0) as u32,
         });
     }

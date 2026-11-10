@@ -209,12 +209,12 @@ fn the_box_shrinks_with_its_aspect_and_a_broken_source_reports(cx: &mut TestAppC
     assert_eq!(frame_of(&view, cx, "broken"), None, "nothing painted");
 }
 
-/// The styleguide's shared specimens (`apps/styleguide/src/entries/
+/// The shared motion specimens (`packages/exponential-ui/fixtures/
 /// motion.specimens.json`, web + desktop) compile, load and name only
 /// colour tokens the exponential theme resolves.
 #[test]
 fn the_styleguide_specimens_compile_with_known_tokens() {
-    let doc: Value = serde_json::from_slice(&std::fs::read(repo().join("apps/styleguide/src/entries/motion.specimens.json")).unwrap()).unwrap();
+    let doc: Value = serde_json::from_slice(&std::fs::read(repo().join("packages/exponential-ui/fixtures/motion.specimens.json")).unwrap()).unwrap();
     let theme = eui_core::themes::builtin_theme("exponential").unwrap();
     let mut motions = Vec::new();
     fn walk(n: &Value, out: &mut Vec<Value>) {

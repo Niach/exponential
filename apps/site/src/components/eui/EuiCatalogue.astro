@@ -1,0 +1,33 @@
+---
+/* The component catalogue on /sdk/genui/ (#EXP-1779, it replaces the
+   styleguide app): every catalog component, by group, rendered live at build
+   time (zero JS) from its specimen, each linked to its reference page where
+   the variants gallery shows every variant and state. */
+import Eui from "./Eui.astro"
+import { CATALOGUE, specimenFor, withSamples } from "./components/specimen.ts"
+import { euiComponentPath, euiComponentSlug } from "../../lib/eui-components.ts"
+---
+
+{
+  CATALOGUE.map(({ group, label, docs }) => (
+    <section class="eui-catalogue-group" id={`catalogue-${group}`}>
+      <h3>{label}</h3>
+      <div class="eui-catalogue not-content">
+        {docs.map((doc) => {
+          const tree = specimenFor(doc)
+          if (!tree) throw new Error(`EuiCatalogue: no specimen for ${doc.name}`)
+          return (
+            <article class="eui-catalogue-tile" id={`c-${euiComponentSlug(doc)}`} data-component={doc.name}>
+              <a class="eui-catalogue-name" href={euiComponentPath(doc)}>
+                {doc.name}
+              </a>
+              <div class="eui-specimen">
+                <Eui id={`catalogue-${euiComponentSlug(doc)}`} tree={withSamples(tree)} inlineOverlays />
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  ))
+}

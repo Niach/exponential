@@ -1222,7 +1222,7 @@ impl SteerSessionView {
     /// turns the first message into the origin's bubble.
     fn refresh_transcript_layout(&mut self, from_start: bool, cx: &App) {
         use domain::transcript_grouping::{
-            cross_session_input, transcript_layout, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptItemKind,
+            feed_input, transcript_layout, FeedInput, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptItemKind,
         };
         const VIEWER: &str = "viewer";
         let items = self.feed.items();
@@ -1265,17 +1265,19 @@ impl SteerSessionView {
                     Some((_, FeedKind::UserMessage { text, .. }))
                         if domain::chats::command_divider(text).is_none() && parse_command(text, self.agent()).is_none() =>
                     {
-                        match cross_session_input(text) {
-                            Some(parsed) => {
-                                if !input.sessions.iter().any(|session| session.id == parsed.session_id) {
-                                    let known = Self::transcript_session(&parsed.session_id, Some(parsed.name.as_str()), cx);
+                        match feed_input(text) {
+                            // #EXP-1772: a system input = THE marker, full width.
+                            Some(FeedInput::Marker { .. }) => TranscriptItem::full(id),
+                            Some(FeedInput::Relay { name, session_id, .. }) => {
+                                if !input.sessions.iter().any(|session| session.id == session_id) {
+                                    let known = Self::transcript_session(&session_id, Some(name.as_str()), cx);
                                     input.sessions.extend(known);
                                 }
                                 TranscriptItem::message(
                                     id,
                                     domain::contract::MESSAGE_AUTHOR_KIND_AGENT,
                                     None,
-                                    Some(parsed.session_id.as_str()),
+                                    Some(session_id.as_str()),
                                 )
                             }
                             None => TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None),
@@ -1707,6 +1709,12 @@ impl SteerSessionView {
         } else {
             self.orphan_workflows.clear();
         }
+        // #EXP-1772 (transcript-grouping.json): a system input is THE marker
+        // only above the agent's reply to it, a blank agent turn draws
+        // nothing; both leave the projection before the grouping sees it.
+        if focus.is_none() {
+            drop_silent_rows(&mut self.rows, self.feed.items());
+        }
         // S-3 (dock.json): the relay's waiting card stays inline, answerable
         // in place; it is never a DockCard any more.
         // EXP-850 §12: the per-turn file cards are derived state now
@@ -1928,9 +1936,11 @@ impl SteerSessionView {
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
         }
-        // N-12: the last row clears THE Dock's band (its measured height).
-        let tail = self.dock.read(cx).band_height() + crate::dock::DOCK_GAP;
-        self.chat.set_tail(tail, cx);
+        // N-12 / #EXP-1782: the transcript ends at THE Dock band's top edge
+        // (the band is a flow child under it), so the last row clears it by
+        // the gap alone; a band that grows shrinks the viewport and the
+        // following list holds its newest row.
+        self.chat.set_tail(crate::dock::DOCK_GAP, cx);
         self.chat.sync_scroll(cx)
     }
 
@@ -5537,6 +5547,10 @@ impl SteerSessionView {
     /// #EXP-1736: THE bubble under the session's (or its agent's) avatar,
     /// its name over a group's first bubble.
     fn render_narration(&self, id: FeedItemId, text: String, streaming: bool, cx: &App) -> AnyElement {
+        // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
+        if text.trim().is_empty() {
+            return div().into_any_element();
+        }
         let view = self.with_issue_chips(
             self.prose(SharedString::from(format!("steer-narration-{id}")), text).streaming(streaming),
             cx,
@@ -5623,15 +5637,33 @@ impl SteerSessionView {
                     )
                     .into_any_element()
             }
+            // #EXP-1772: a system input (the device's `[<key>] ` tag, a
+            // firing) = THE inline marker, never a bubble.
+            FeedKind::UserMessage { text, .. }
+                if matches!(
+                    domain::transcript_grouping::feed_input(text),
+                    Some(domain::transcript_grouping::FeedInput::Marker { .. })
+                ) =>
+            {
+                let label = match domain::transcript_grouping::feed_input(text) {
+                    Some(domain::transcript_grouping::FeedInput::Marker { label, .. }) => label,
+                    _ => unreachable!("matched above"),
+                };
+                crate::surface_card::transcript_marker(SharedString::from(format!("steer-marker-{}", item.id)), &label, None, cx)
+            }
             // #EXP-1736: a person's prompt = THE bubble, the viewer's own
             // (right); a session's input (`Message from …` / `Report from
             // …`) = that session's bubble (left, its body alone).
+            // #EXP-1772: a RELAY (a cross-session sender) wears its name
+            // above the bubble as the press, and is never folded.
             FeedKind::UserMessage { text, at, .. } => {
                 let layout = self.item_layout(item.id);
                 let own = layout.map_or(true, |layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
-                let parsed = domain::transcript_grouping::cross_session_input(text)
-                    .filter(|_| !own)
-                    .map(|parsed| parsed.body);
+                let relay = !own && layout.and_then(|layout| layout.sender.as_ref()).is_some_and(|sender| sender.link.is_some());
+                let parsed = match domain::transcript_grouping::feed_input(text).filter(|_| !own) {
+                    Some(domain::transcript_grouping::FeedInput::Relay { body, .. }) => Some(body),
+                    _ => None,
+                };
                 let body = parsed.as_deref().unwrap_or(text.as_str());
                 // EXP-818: a DEFINITE width — inside the EXP-787 column a
                 // content-sized bubble measured at min-content and wrapped
@@ -5643,7 +5675,11 @@ impl SteerSessionView {
                 crate::session_chat::message_bubble(
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
-                        body: self.render_user_message(item.id, body, cx),
+                        body: if relay {
+                            self.render_body_folding(item.id, body, false, cx)
+                        } else {
+                            self.render_user_message(item.id, body, cx)
+                        },
                         // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                         time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                         own,
@@ -5713,18 +5749,13 @@ impl SteerSessionView {
             FeedKind::Question(_) => self.render_question(item, active, window, cx),
             // EXP-724: the quiet divider a finished compaction leaves behind
             // — everything above it is context the agent no longer holds.
-            FeedKind::Compaction => tool_text(h_flex())
-                .w_full()
-                .gap_1p5()
-                .items_center()
-                .justify_center()
-                .child(
-                    Icon::new(registry::CODING_COMPACT)
-                        .xsmall()
-                        .text_color(muted.opacity(0.6)),
-                )
-                .child(div().text_color(muted).child(COMPACTED_LABEL))
-                .into_any_element(),
+            // #EXP-1772: THE inline marker (every system input draws as it).
+            FeedKind::Compaction => crate::surface_card::transcript_marker(
+                SharedString::from(format!("steer-compacted-{}", item.id)),
+                COMPACTED_LABEL,
+                None,
+                cx,
+            ),
             FeedKind::ApiError {
                 message,
                 error_type,
@@ -8824,6 +8855,36 @@ pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
     )
 }
 
+/// #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
+/// minus a system input the agent never answered (THE marker shows only
+/// when an agent reply follows it before the next input or marker) and
+/// every blank agent turn (no empty bubble).
+pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed::FeedItem]) {
+    use domain::transcript_grouping::{feed_input, markers_shown, FeedInput, FeedRowKind};
+    let kinds: Vec<Option<FeedRowKind>> = rows
+        .iter()
+        .map(|spec| match spec {
+            FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| &item.kind) {
+                Some(FeedKind::UserMessage { text, .. }) => Some(match feed_input(text) {
+                    Some(FeedInput::Marker { .. }) => FeedRowKind::Marker,
+                    _ => FeedRowKind::Input,
+                }),
+                Some(FeedKind::Narration { text, .. }) if text.trim().is_empty() => None,
+                Some(FeedKind::Narration { .. }) => Some(FeedRowKind::Reply),
+                _ => Some(FeedRowKind::Other),
+            },
+            _ => Some(FeedRowKind::Other),
+        })
+        .collect();
+    if !kinds.iter().any(|kind| matches!(kind, None | Some(FeedRowKind::Marker))) {
+        return;
+    }
+    let present: Vec<FeedRowKind> = kinds.iter().flatten().copied().collect();
+    let mut shown = markers_shown(&present).into_iter();
+    let mut keep = kinds.iter().map(|kind| kind.is_some() && shown.next().unwrap_or(true));
+    rows.retain(|_| keep.next().unwrap_or(true));
+}
+
 /// EXP-787 — the transcript's TOOL rung: tool rows, group captions, permission
 /// rows, the compaction divider, "Working…". 12/18. The 11px `text_2xs`
 /// captions that hang UNDER one of these (a tool's argument, a subagent's
@@ -9155,9 +9216,9 @@ impl Render for SteerSessionView {
         // N-11 (owner 2026-10-24): no status row over the transcript; the
         // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
-        // the banners, then THE composer) floats over the transcript's
-        // bottom edge; the transcript is the ONE scroll region and pads by
-        // the band's height.
+        // the banners, then THE composer) sits under the transcript; the
+        // transcript is the ONE scroll region and ENDS at the band's top
+        // edge (#EXP-1782: clipped there, no fade, nothing behind the band).
         let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
         let feed = self.render_feed(window, cx);

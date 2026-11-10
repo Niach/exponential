@@ -982,6 +982,7 @@ mod tests {
     /// the N-14 row host (the row host had dropped the field: the IDE's
     /// session composer showed its tools with no text field).
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_card_draws_its_field_above_the_tool_row(cx: &mut gpui::TestAppContext) {
         struct Probe {
             hosted: bool,
@@ -1018,6 +1019,7 @@ mod tests {
     /// submit RIGHT, both bottom-aligned on the field's row (the field grows
     /// upward, they stay put).
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_flat_card_is_one_bottom_aligned_row(cx: &mut gpui::TestAppContext) {
         struct Probe;
         impl gpui::Render for Probe {

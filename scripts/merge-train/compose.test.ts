@@ -122,6 +122,21 @@ describe(`compose: changelogs prepended at one spot (#LOGS-2)`, () => {
     const clean = compose({ dir: r.dir, trainId: `t`, baseSha: r.base, mode: `untested`, units: [{ prs: [pr(2, c)] }] })
     expect([clean.outcome.checks, clean.dispatch]).toEqual([`skipped`, []])
   })
+
+  it(`2026-11-10: a Merge now composed on a base that moved past its PR runs CI; once rebased it stays instant`, () => {
+    // #2590 was green on master B; #2597 (a new test #2590 fails) was
+    // admin-merged (B → B'); #2590's Merge now composed cleanly on B' and
+    // landed untested: master red.
+    const r = repo({ "a.txt": `a\n`, "test.txt": `old\n` }, POLICY)
+    const pr2590 = r.branch({ "a.txt": `a1\n` })
+    const moved = r.branch({ "test.txt": `new test\n` })
+    const onMoved = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2590, pr2590)] }] })
+    expect(onMoved.outcome.units[0]).toEqual({ prs: [2590], outcome: `composed`, files: [], resolved: [] })
+    expect([onMoved.outcome.checks, onMoved.dispatch]).toEqual([`dispatched`, [`ci.yml`]])
+    const rebased = r.branch({ "a.txt": `a1\n` }, moved)
+    const onRebased = compose({ dir: r.dir, trainId: `t`, baseSha: moved, mode: `untested`, units: [{ prs: [pr(2590, rebased)] }] })
+    expect([onRebased.outcome.checks, onRebased.dispatch]).toEqual([`skipped`, []])
+  })
 })
 
 describe(`compose: a Merge now whose lockfile drifted runs CI (#LOGS-2)`, () => {

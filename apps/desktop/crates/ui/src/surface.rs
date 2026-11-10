@@ -168,7 +168,7 @@ pub(crate) fn edge_fade_top_scrim() -> Div {
 
 /// EXP-1162 — the BOTTOM edge strip (`edgeBottom`): the top strip mirrored,
 /// fading upwards from the pane's bottom edge (the issue face's end; the
-/// run's Dock wears [`dock_edge_fade`]). Same contract as
+/// run's Dock wears none, #EXP-1782). Same contract as
 /// [`edge_fade_top`]. EXP-1256: that edge IS the card's bottom edge, so the
 /// strip keeps off the hairlines AND rounds its bottom corners to the card's
 /// inner radius.
@@ -179,19 +179,6 @@ pub(crate) fn edge_fade_bottom() -> Div {
         PANEL_BORDER,
         PANEL_INNER_RADIUS,
     )
-}
-
-/// N-12 — THE Dock's edge fade behind its band: the panel's ground under
-/// the band, fading out `above` px over it (web `-top-10`, the ground at
-/// 72% from the bottom). Paint-only; the band's box is its parent.
-pub(crate) fn dock_edge_fade(above: f32) -> Div {
-    div()
-        .absolute()
-        .left(px(PANEL_BORDER))
-        .right(px(PANEL_BORDER))
-        .top(px(-above))
-        .bottom_0()
-        .bg(crate::dock::fade_gradient(panel_fill_at(EDGE_BOTTOM_RAMP_T)))
 }
 
 // ---------------------------------------------------------------------------

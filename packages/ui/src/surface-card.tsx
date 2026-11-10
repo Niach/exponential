@@ -223,6 +223,42 @@ export function TranscriptDivider({
   )
 }
 
+/** #EXP-1772 (transcript-grouping.json MARKER): THE inline marker, the
+ *  feed's `Context compacted` row: a centred muted label between two
+ *  hairlines. A schedule or event firing the agent answered, a PR or
+ *  session status line, a system note: punctuation, never a bubble. A
+ *  marker about a session opens it (`onPress`). */
+export function TranscriptMarker({
+  label,
+  onPress,
+  className,
+}: {
+  label: string
+  onPress?: () => void
+  className?: string
+}) {
+  const text = <span className="min-w-0 shrink truncate text-muted-foreground/70">{label}</span>
+  return (
+    <div
+      data-testid="transcript-marker"
+      className={cn(
+        `flex items-center gap-2 text-[length:var(--transcript-tool-size)] leading-[var(--transcript-tool-line-height)]`,
+        className
+      )}
+    >
+      <span className="h-px flex-1 bg-border/60" />
+      {onPress ? (
+        <button type="button" onClick={onPress} className="min-w-0 shrink truncate rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+          {text}
+        </button>
+      ) : (
+        text
+      )}
+      <span className="h-px flex-1 bg-border/60" />
+    </div>
+  )
+}
+
 /** EXP-1459: the locked pill's test id (component tests, captures). */
 export const SEALED_LOCKED_TEST_ID = `sealed-locked`
 
