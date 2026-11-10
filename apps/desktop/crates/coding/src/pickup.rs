@@ -625,6 +625,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         queue.sort_by(|a, b| message_order(a, b));
     }
 
+    // #LOGS-11: each session's own open plan cards, grouped once (was a
+    // scan of every message per live session).
+    let mut open_plan_cards: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
+    for message in all_messages.iter().copied().filter(|m| is_open_own_plan_card(m)) {
+        open_plan_cards.entry(message.session_id.as_str()).or_default().push(message);
+    }
+
     let mut live_ids: Vec<&str> = input
         .live
         .keys()
@@ -755,9 +762,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         // still open (unanswered, or answered and not handed): the row's
         // off-flip is the server's, never a person's — and may land first.
         let plan_card = cards.iter().any(|m| m.card.as_ref().is_some_and(card_approved))
-            || all_messages
-                .iter()
-                .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
+            || open_plan_cards
+                .get(session_id)
+                .is_some_and(|cards| cards.iter().any(|m| !view.handed.contains(&m.id)));
         // #EXP-1383: an agent's leading `/new` is no turn a switch could
         // carry ([`switch_session`] keeps it pending for [`deliver`]'s
         // restart): planning one for it would loop on `AlreadyOn` forever.
@@ -966,7 +973,46 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// session input `Message from <child> (session <id>): <body>` — the id is
 /// what `exponential_sessions_get` reads more from. `<child>` = its title
 /// off `sessions`, else `Session`.
+///
+/// #EXP-1772 (transcript-grouping.json `feedInput`): a system input (a
+/// message carrying an `event` card) is led by `[<key>] ` ([`input_tag`]) so
+/// the raw session feed draws it as THE inline marker, not a bubble.
 pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
+    let text = input_body_text(message, sessions);
+    match input_tag(message) {
+        Some(key) => format!("[{key}] {text}"),
+        None => text,
+    }
+}
+
+/// #EXP-1772: the marker key a pending input is tagged with: only a message
+/// whose card is an `event` has one (`schedule` = a schedule firing, a
+/// `trigger_fired` without a name; `event` = an event firing or any other
+/// event; the PR lines by name; `session` = any `session_*` status line).
+pub fn input_tag(message: &MessageRow) -> Option<&'static str> {
+    if message.card_kind() != Some("event") {
+        return None;
+    }
+    let card = message.card.as_ref()?;
+    let event = card.get("event").and_then(serde_json::Value::as_str).unwrap_or("");
+    Some(match event {
+        "trigger_fired" => {
+            let named = card
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| !name.trim().is_empty());
+            if named { "event" } else { "schedule" }
+        }
+        "pr_opened" => "pr_opened",
+        "pr_merged" => "pr_merged",
+        "pr_merge" => "pr_merge",
+        "pr_checks" => "pr_checks",
+        event if event.starts_with("session_") => "session",
+        _ => "event",
+    })
+}
+
+fn input_body_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
     let body = message.body_text().trim();
     let Some(from) = message.author_session_id.as_deref().filter(|_| !message.is_from_user()) else {
         return message.body.clone().unwrap_or_default();
@@ -1689,6 +1735,20 @@ impl LiveRegistry {
     /// [`plan`]'s view of the running engines (done ones excluded — the
     /// pass treats them as gone): handed ids and the open, not yet answered
     /// cards.
+    /// #LOGS-11: every message id an engine here still holds: handed (not
+    /// yet seen consumed), being consumed, or an open card it posted. A
+    /// host's pass snapshot must carry these rows whatever their state
+    /// ([`Self::settle_handed`], a revoke, an answer).
+    pub fn held_message_ids(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = locked(&self.consuming).iter().cloned().collect();
+        for entry in self.lock().values() {
+            ids.extend(entry.handed.iter().cloned());
+            ids.extend(entry.engine.open_cards().into_keys());
+            ids.extend(entry.answered.iter().cloned());
+        }
+        ids
+    }
+
     pub fn live_views(&self) -> HashMap<String, LiveView> {
         self.lock()
             .iter_mut()
@@ -4621,6 +4681,51 @@ mod tests {
         };
         assert_eq!(input_text(&asked, &sessions), "Message from Fix the cart (session c1): Which branch?");
         assert_eq!(input_text(&message("m1", "s1", "t"), &sessions), "body of m1");
+    }
+
+    #[test]
+    fn a_system_input_is_led_by_its_marker_tag() {
+        // #EXP-1772 (transcript-grouping.json feedInput): an `event` card's
+        // input reads `[<key>] ` + exactly today's text.
+        let event = |card: serde_json::Value, body: &str| MessageRow {
+            body: Some(body.to_string()),
+            card: Some(card),
+            ..message("e1", "s1", "2026-10-02T00:00:01Z")
+        };
+        let fired = event(
+            serde_json::json!({"kind": "event", "event": "trigger_fired", "triggerId": "t1", "name": null}),
+            "Schedule `*/30 * * * *` fired.",
+        );
+        assert_eq!(input_text(&fired, &[]), "[schedule] Schedule `*/30 * * * *` fired.");
+        let blank = event(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "  "}), "x");
+        assert_eq!(input_tag(&blank), Some("schedule"));
+        let named = event(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "pr.merged"}), "x");
+        assert_eq!(input_tag(&named), Some("event"));
+        for key in ["pr_opened", "pr_merged", "pr_merge", "pr_checks"] {
+            let line = event(serde_json::json!({"kind": "event", "event": key}), "x");
+            assert_eq!(input_tag(&line), Some(key));
+        }
+        let other = event(serde_json::json!({"kind": "event", "event": "issue_linked"}), "x");
+        assert_eq!(input_text(&other, &[]), "[event] x");
+        // A session status line keeps its `Message from …` lead after the tag.
+        let child = SessionRow { title: Some("Fix the cart".to_string()), ..session("c1", "running", DEV, "t") };
+        let status = MessageRow {
+            author_kind: Some("system".to_string()),
+            author_session_id: Some("c1".to_string()),
+            body: Some("Started working on its device.".to_string()),
+            card: Some(serde_json::json!({"kind": "event", "event": "session_started", "sessionId": "c1"})),
+            ..message("e2", "s1", "2026-10-02T00:00:02Z")
+        };
+        assert_eq!(
+            input_text(&status, &[child]),
+            "[session] Message from Fix the cart (session c1): Started working on its device."
+        );
+        let tagged = domain::transcript_grouping::feed_input(&input_text(&fired, &[]));
+        assert!(matches!(tagged, Some(domain::transcript_grouping::FeedInput::Marker { ref key, .. }) if key == "schedule"));
+        // Everything else is untouched.
+        assert_eq!(input_tag(&message("m1", "s1", "t")), None);
+        assert_eq!(input_tag(&report("r1", "s1", "c1", "Done.")), None);
+        assert_eq!(input_text(&message("m1", "s1", "t"), &[]), "body of m1");
     }
 
     #[test]

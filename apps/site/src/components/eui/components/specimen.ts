@@ -3,16 +3,88 @@
    doc, the specimen tree, the variants gallery (a port of the old /sdk/genui/
    site's VariantGallery, minus the cases the specimen already shows) and
    the playground link. */
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { deflateRawSync } from "node:zlib"
 import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
 import specimensDoc from "@exponential_app/eui/fixtures/specimens.json"
+import samplesDoc from "@exponential_app/eui/samples/samples.json"
 import type { NestedNode } from "@exponential_app/eui"
-import { euiComponentSlug } from "../../../lib/eui-components.ts"
+import { EUI_GROUP_LABELS, EUI_GROUP_ORDER, euiComponentSlug } from "../../../lib/eui-components.ts"
 
 export type ComponentDoc = (typeof componentsDoc.components)[number]
 
 export const COMPONENT_DOCS: readonly ComponentDoc[] = componentsDoc.components
 const SPECIMENS = specimensDoc.specimens as unknown as { id: string; component: string; title: string; node: NestedNode }[]
+
+/* The catalogue (#EXP-1779: /sdk/genui/ renders every component, the one
+   component catalogue since the styleguide app retired): the components by
+   group, in the site's group order. */
+export const CATALOGUE: readonly { group: string; label: string; docs: readonly ComponentDoc[] }[] = EUI_GROUP_ORDER.map((group) => ({
+  group,
+  label: EUI_GROUP_LABELS[group] ?? group,
+  docs: COMPONENT_DOCS.filter((d) => d.group === group),
+})).filter((g) => g.docs.length > 0)
+
+/* The specimens' example media (`https://example.com/*`, served by nobody)
+   → the committed samples (packages/exponential-ui/samples, EXP-1654) as
+   data: urls, so a build-time surface paints the same picture on every host
+   with nothing to serve; an example no sample covers (audio, video) → a
+   tenth of a second of silence. */
+/** packages/exponential-ui/samples/, found by climbing from this module
+ *  and from the cwd (the build runs a bundled copy of this file in dist/). */
+function samplesDir(): string {
+  for (let dir of [dirname(fileURLToPath(import.meta.url)), process.cwd()]) {
+    for (;;) {
+      const hit = join(dir, `packages/exponential-ui/samples/`)
+      if (existsSync(join(hit, `samples.json`))) return hit
+      const up = dirname(dir)
+      if (up === dir) break
+      dir = up
+    }
+  }
+  throw new Error(`specimen: packages/exponential-ui/samples not found`)
+}
+const SAMPLES_DIR = samplesDir()
+const SAMPLE_URLS = samplesDoc.urls as Record<string, string>
+const EXAMPLE = /^https:\/\/example\.com\/[^/]+\.(png|jpe?g|mp3|mp4|wav|webm)$/
+const dataUrls = new Map<string, string>()
+const pngData = (file: string) => {
+  let url = dataUrls.get(file)
+  if (!url) dataUrls.set(file, (url = `data:image/png;base64,${readFileSync(`${SAMPLES_DIR}${file}`).toString(`base64`)}`))
+  return url
+}
+function silenceWav(): string {
+  const n = 800
+  const b = Buffer.alloc(44 + n, 0x80)
+  b.write(`RIFF`, 0)
+  b.writeUInt32LE(36 + n, 4)
+  b.write(`WAVEfmt `, 8)
+  b.writeUInt32LE(16, 16)
+  b.writeUInt16LE(1, 20)
+  b.writeUInt16LE(1, 22)
+  b.writeUInt32LE(8000, 24)
+  b.writeUInt32LE(8000, 28)
+  b.writeUInt16LE(1, 32)
+  b.writeUInt16LE(8, 34)
+  b.write(`data`, 36)
+  b.writeUInt32LE(n, 40)
+  return `data:audio/wav;base64,${b.toString(`base64`)}`
+}
+const SILENCE = silenceWav()
+
+/** A tree with every example src swapped for its sample (see above). */
+export function withSamples<T>(value: T): T {
+  if (typeof value === `string`) {
+    if (SAMPLE_URLS[value]) return pngData(SAMPLE_URLS[value]!) as T
+    const m = EXAMPLE.exec(value)
+    return (m ? (/^(png|jpe?g)$/.test(m[1]!) ? pngData(`preview.png`) : SILENCE) : value) as T
+  }
+  if (Array.isArray(value)) return value.map(withSamples) as T
+  if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withSamples(v)])) as T
+  return value
+}
 
 export const componentBySlug = (slug: string) => COMPONENT_DOCS.find((d) => euiComponentSlug(d) === slug)
 export const specimenFor = (doc: ComponentDoc) => SPECIMENS.find((s) => s.id === doc.specimenId)?.node
@@ -25,9 +97,8 @@ const ENUM = /^[A-Za-z0-9_-]+(\s*\|\s*[A-Za-z0-9_-]+)+$/
 const enumOptions = (type: string): string[] | null => (ENUM.test(type.trim()) ? type.split(`|`).map((s) => s.trim()) : null)
 const RESERVED = new Set([`id`, `component`, `children`, `slots`, `on`, `style`, `accessibility`])
 /* Props that change behaviour (looks stay the same) stay out of the gallery. */
-const SKIP_PROPS = new Set([`open`, `pressable`, `multiple`, `autoplay`, `loop`, `dragToDismiss`, `submit`, `searchable`, `autosize`, `stickyHeaders`, `stickyHeader`, `dismissible`, `live`, `loading`, `validateOn`, `openOn`, `collapseBelow`, `gap`, `justify`, `align`, `selectable`, `side`, `external`])
+const SKIP_PROPS = new Set([`open`, `pressable`, `multiple`, `autoplay`, `loop`, `dragToDismiss`, `submit`, `searchable`, `autosize`, `stickyHeaders`, `stickyHeader`, `live`, `validateOn`, `openOn`, `collapseBelow`, `gap`, `justify`, `align`, `selectable`, `side`, `external`])
 const SKIP_QUALIFIED = new Set([`Input.type`, `Image.loading`])
-const MAX_VARIANTS = 24
 
 /** The subject of a specimen's first case (the case stack = [caption, subject]). */
 function subjectOf(doc: ComponentDoc, specimen: NestedNode | undefined): NestedNode | null {
@@ -100,7 +171,7 @@ export function variantsOf(doc: ComponentDoc): Variant[] {
       out.push({ label, node: node({ ...base, [p.name]: value }, out.length) })
     }
   }
-  return out.slice(0, MAX_VARIANTS)
+  return out
 }
 
 /** The variants as ONE surface: a grid of captioned cells. */

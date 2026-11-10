@@ -2740,6 +2740,10 @@
           "type": "enum",
           "enum": "openOn",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -4348,7 +4352,7 @@
       "kind": "macro",
       "group": "input",
       "lite": false,
-      "children": "none",
+      "children": "one",
       "props": {
         "value": {
           "type": "string",
@@ -4364,6 +4368,10 @@
           "type": "boolean",
           "default": false,
           "bindable": true
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -4600,6 +4608,14 @@
         "busy": {
           "type": "boolean",
           "default": false
+        },
+        "layout": {
+          "type": "enum",
+          "values": [
+            "stacked",
+            "flat"
+          ],
+          "default": "stacked"
         },
         "menuKeys": {
           "type": "boolean",

@@ -90,6 +90,8 @@ mod app_csv_import_dialog;
 mod app_data_tab;
 mod app_import_dialog;
 mod app_screen;
+// The phone bottom bar's capsule + tab cell (the app preview's Phone frame).
+mod phone_bar;
 mod apps_view;
 mod emoji_picker;
 pub mod diff;
@@ -229,11 +231,9 @@ pub mod steer_wiring;
 pub mod enet_wiring;
 // EXP-1459: sealed session content (open at ingest, seal sends + answers).
 pub mod sealing;
-// The shared styleguide's section index, mirrored here so the IDE's entry ids
-// and owners cannot drift from the page that draws them. The styleguide is
-// its OWN app (`apps/styleguide`, styleguide.exponential.at); this module
-// renders nothing and is reachable from no menu in the IDE.
-mod styleguide;
+// EXP-1259 / #EXP-1779: the dev-only specimen screens behind the desktop
+// captures (`EXP_DEV_SCREEN=specimen:<id>`); reachable from no menu.
+mod specimens;
 // EXP-837: the window-level disarm for a stuck text-selection drag.
 mod text_selection_guard;
 mod worktree_prune;
@@ -279,7 +279,14 @@ mod transcript_bench;
 #[cfg(test)]
 mod shell_bench;
 #[cfg(test)]
+mod rail_bench;
+#[cfg(test)]
 mod settings_bench;
+/// #EXP-1488: the accessible-name rules (eui-gpui's `tests/accessible_names.rs`),
+/// compiled here too so the desktop job's lib tests run them on every IDE change.
+#[cfg(test)]
+#[path = "../../eui-gpui/tests/accessible_names.rs"]
+mod accessible_names;
 #[cfg(test)]
 mod picker_bench;
 

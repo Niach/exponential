@@ -45,7 +45,8 @@
             "chart8": "#0891b2",
             "link": "#171717",
             "borderStrong": "#e5e5e5",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -177,7 +178,8 @@
             "chart8": "#22d3ee",
             "link": "#e5e5e5",
             "borderStrong": "#ffffff1a",
-            "ghostHover": "#262626"
+            "ghostHover": "#262626",
+            "strokeActive": "#737373"
           },
           "shadow": {
             "none": [],
@@ -4068,6 +4070,14 @@
               "style": {
                 "borderColor": "$color.ring"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
             }
           ],
           "field": [
@@ -4078,6 +4088,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -8220,7 +8238,8 @@
             "chart8": "#0891b2",
             "link": "#2b59c8",
             "borderStrong": "#d4d4d4",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -8338,7 +8357,8 @@
             "chart8": "#22d3ee",
             "link": "#5f8bea",
             "borderStrong": "#ffffff1f",
-            "ghostHover": "#ffffff0e"
+            "ghostHover": "#ffffff0e",
+            "strokeActive": "#ffffff29"
           },
           "shadow": {
             "none": [],
@@ -11471,6 +11491,15 @@
               "style": {
                 "height": 32
               }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.strokeActive"
+              }
             }
           ],
           "label": [
@@ -13288,6 +13317,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -13303,6 +13340,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -16484,14 +16529,6 @@
                 "gap": 3.5
               }
             }
-          ],
-          "grid": [
-            {
-              "style": {
-                "gap": 5.25,
-                "width": 259
-              }
-            }
           ]
         },
         "Label": {
@@ -17753,7 +17790,8 @@
             "chart8": "#22c55e",
             "link": "#7c3aed",
             "borderStrong": "#e9d5ff",
-            "ghostHover": "#ffe4e6"
+            "ghostHover": "#ffe4e6",
+            "strokeActive": "#a78bfa"
           },
           "shadow": {
             "none": [],
@@ -17864,7 +17902,8 @@
             "chart8": "#86efac",
             "link": "#c4b5fd",
             "borderStrong": "#4c3a7a",
-            "ghostHover": "#4c1d95"
+            "ghostHover": "#4c1d95",
+            "strokeActive": "#a78bfa"
           },
           "shadow": {
             "none": [],
@@ -22155,6 +22194,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.xl2",
                 "borderWidth": "$border.thick",
@@ -22170,6 +22217,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -26622,7 +26677,8 @@
             "chart8": "#65a30d",
             "link": "#2b59c8",
             "borderStrong": "#d4d4d4",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -26740,7 +26796,8 @@
             "chart8": "#a3e635",
             "link": "#5f8bea",
             "borderStrong": "#ffffff1f",
-            "ghostHover": "#ffffff0e"
+            "ghostHover": "#ffffff0e",
+            "strokeActive": "#ffffff29"
           },
           "shadow": {
             "none": [],
@@ -29873,6 +29930,15 @@
               "style": {
                 "height": 32
               }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.strokeActive"
+              }
             }
           ],
           "label": [
@@ -31690,6 +31756,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -31705,6 +31779,14 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0
               }
             }
           ],
@@ -34884,14 +34966,6 @@
                 "borderWidth": 0,
                 "padding": 14,
                 "gap": 3.5
-              }
-            }
-          ],
-          "grid": [
-            {
-              "style": {
-                "gap": 5.25,
-                "width": 259
               }
             }
           ]

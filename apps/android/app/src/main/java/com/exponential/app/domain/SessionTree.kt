@@ -217,6 +217,9 @@ object SessionTree {
             // `mergeOutcome` (MergeTrain.eventTemplate), this = no outcome.
             "pr_merge" to "Auto-merge of PR {pr}",
         )
+        /** #EXP-1772 `events.trigger_schedule`: a schedule firing's marker
+         *  (a `trigger_fired` without a name). */
+        const val TRIGGER_SCHEDULE = "Schedule"
         const val TEST_ID_TABS = "chat-tabs"
         const val TEST_ID_CONVERSATION = "chat-conversation"
         const val TEST_ID_COMPOSER = "chat-composer"
@@ -1140,6 +1143,7 @@ object SessionTree {
         val rows = mutableListOf<SessionChatRow>()
         val messagesById = messages.associateBy { it.id }
         val escalated = mutableSetOf<String>()
+        val fires = mutableSetOf<String>()
         for (message in conversation) {
             val card = message.card
             message.locked?.let { reason ->
@@ -1218,6 +1222,16 @@ object SessionTree {
                     suggestionsRow(message, card, byId, titles, issueMap, now)?.let(rows::add)
                 }
                 DomainContract.messageCardKindEvent -> {
+                    // #EXP-1772: a firing draws nothing of its own; one the agent
+                    // answered is THE marker above that reply (`fires`, below).
+                    if (card.str("event") == DomainContract.messageEventKindTriggerFired) {
+                        val named = !card.str("name").isNullOrBlank()
+                        val text = (if (named) eventText(card, issueMap, prMap) else ChatCopy.TRIGGER_SCHEDULE)
+                            ?: continue
+                        fires.add(message.id)
+                        rows.add(SessionChatRow.Event(message.id, DomainContract.messageEventKindTriggerFired, text, null))
+                        continue
+                    }
                     val text = eventText(card, issueMap, prMap) { id ->
                         byId[id]?.let { target -> sessionCard(target, titles[target.id] ?: "", now).name }
                     }
@@ -1249,6 +1263,17 @@ object SessionTree {
                 }
                 else -> Unit
             }
+        }
+
+        // #EXP-1772: a firing stays only right above the chat's own agent reply.
+        if (fires.isNotEmpty()) {
+            val kept = rows.filterIndexed { index, row ->
+                if (row.id !in fires) return@filterIndexed true
+                val next = rows.getOrNull(index + 1) as? SessionChatRow.MessageRow
+                next != null && next.author == DomainContract.messageAuthorKindAgent && next.xref == null
+            }
+            rows.clear()
+            rows.addAll(kept)
         }
 
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }

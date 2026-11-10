@@ -27,14 +27,15 @@ end
 
 # ── EXP-1267: fast, fail-fast, parallel-safe capture lanes ───────────────────
 #
-# `screenshots` (store) and `styleguide_screenshots` may run AT THE SAME TIME,
-# next to the Android lanes. Stock snapshot cannot: it kills Simulator.app and
+# `screenshots` (store) runs next to the Android lanes; `styleguide_screenshots`
+# shares its simulator and DerivedData (#EXP-1783), so those two run one after
+# the other. Stock snapshot cannot: it kills Simulator.app and
 # shuts down EVERY booted simulator before each run, files every lane's PNGs
 # through ONE cache dir (~/Library/Caches/tools.fastlane/screenshots, which its
 # collector empties), builds into a fresh temp DerivedData every time, and
 # relaunches a failed run up to 20 times when xcodebuild exits non-65. So:
 #
-# - every lane runs on simulators of its OWN, "<model> exp-<tag>" (created on
+# - the lanes run on simulators of their OWN, "<model> exp-<tag>" (created on
 #   first use, kept between runs — no erase; the app's DEBUG-only
 #   `-uiTestingReset` seam gives each launch a fresh-install state instead,
 #   and the suites reuse a cached sign-in, see ExponentialUITests/
@@ -44,21 +45,21 @@ end
 # - only the lane's own simulators are ever shut down, and only when their
 #   locale / appearance prefs actually have to change;
 # - the store lane keeps fastlane's default cache dir (the pop-rect sidecars
-#   live there, `bun run screenshots:pop-sidecars` reads them); the styleguide
-#   lane gets ~/Library/Caches/tools.fastlane/exp-<tag>;
+#   live there, `bun run screenshots:pop-sidecars` reads them); the sg_* lane
+#   gets ~/Library/Caches/tools.fastlane/exp-<tag>-sg;
 # - every lane builds into its own persistent DerivedData,
 #   apps/ios/build/shots-dd-<tag> (incremental after the first run);
 # - a failed run is retried at most ONCE (Snapfile `number_of_retries(1)`),
 #   whatever the exit code.
 #
 # Env knobs (all optional):
-#   SNAPSHOT_LANE_TAG       simulator/DerivedData/cache tag, default "store" /
-#                           "styleguide" — set a distinct one per worktree when
-#                           two checkouts run the SAME lane at once.
+#   SNAPSHOT_LANE_TAG       simulator/DerivedData/cache tag, default "store"
+#                           — set a distinct one per worktree when two
+#                           checkouts run a lane at once.
 #   SNAPSHOT_DERIVED_DATA   override the lanes' DerivedData path (suffixed -<tag>).
 #   SNAPSHOT_INSTANCE_URL   the backend (see Snapfile).
 #
-# Concurrent invocation (from apps/ios, each in its own process):
+# Invocation (from apps/ios, one after the other):
 #   LC_ALL=en_US.UTF-8 bundle exec fastlane screenshots
 #   LC_ALL=en_US.UTF-8 bundle exec fastlane styleguide_screenshots
 # The first run of each lane builds the app (minutes); later runs only build
@@ -369,7 +370,9 @@ platform :ios do
     # Load fastlane/Snapfile-styleguide instead of fastlane/Snapfile (see the
     # Snapshot.snapfile_name override at the top of this file).
     ENV["SNAPFILE_NAME"] = "Snapfile-styleguide"
-    tag = ExpSnapshotLanes.tag("styleguide")
+    # #EXP-1783: the store lane's simulator and DerivedData (no clone of its
+    # own any more), so the two lanes run one after the other.
+    tag = ExpSnapshotLanes.tag("store")
     runtime = ExpSnapshotLanes.runtime("26.5")
     derived_data = ExpSnapshotLanes.derived_data(tag)
     ExpSnapshotLanes.unlock_products(derived_data)
@@ -378,7 +381,7 @@ platform :ios do
       # explicitly: values given to the action win over the config file, so the
       # run stays correct even if the Snapfile selection above ever regresses
       # and the store Snapfile gets loaded instead.
-      ExpSnapshotLanes.with_cache_dir(File.expand_path("~/Library/Caches/tools.fastlane/exp-#{tag}")) do
+      ExpSnapshotLanes.with_cache_dir(File.expand_path("~/Library/Caches/tools.fastlane/exp-#{tag}-sg")) do
         snapshot(
           devices: STYLEGUIDE_DEVICES.map { |model| ExpSnapshotLanes.simulator(model, tag, runtime) },
           output_directory: "fastlane/screenshots-styleguide",

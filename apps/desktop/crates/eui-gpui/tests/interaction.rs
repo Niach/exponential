@@ -1681,7 +1681,13 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
                 continue;
             };
             assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
-            assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
+            // #EXP-1762: a one-line flat composer IS its bottom row (the
+            // disc's height): its slots sit on its centre line.
+            if c["props"]["layout"] == "flat" {
+                assert!((b.1 + b.3 / 2.0 - (cb.1 + cb.3 / 2.0)).abs() < 0.5, "{name}: {slot} centred in the one row");
+            } else {
+                assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
+            }
             along.push((if rtl { -(b.0 + b.2) } else { b.0 }, slot));
         }
         along.sort_by(|a, b| a.0.total_cmp(&b.0));

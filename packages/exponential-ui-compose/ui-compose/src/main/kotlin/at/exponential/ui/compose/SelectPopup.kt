@@ -75,8 +75,10 @@ import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sign
 
 /** The core's anchored-overlay offset (eui-core `overlay::OVERLAY_OFFSET`) and viewport margin. */
 private const val POPUP_OFFSET = 4f
@@ -160,19 +162,38 @@ internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
 internal fun selectPopupMinWidth(owner: Props): Float? = owner.num("popupMinWidth")?.toFloat()?.takeIf { it > 0f }
 
 /**
- * Under the anchor (above when it does not fit), aligned along it by
- * `start | center | end` (logical), inside the window. [bleed] = the
- * transparent room around the box its shadow paints into (px).
+ * #EXP-1765: where a Select popup's border box lands (px): [align]ed along
+ * the anchor ([selectPopupX], [inset] outside its aligned edge FIRST), under
+ * it (above when it does not fit) and clamped [margin] inside the window;
+ * with an [inset] (a pill's) the content's offset from the anchor's origin
+ * then rounds to whole dp, half away from zero (the IDE Popover's,
+ * `overlay-geometry.json` `inset`, the core's `place_inset_overlay`).
  */
-private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int, val bleed: Int, val inset: Int = 0) : PopupPositionProvider {
+internal fun selectPopupOrigin(align: String, rtl: Boolean, offset: Int, margin: Int, inset: Int, density: Float, anchor: IntRect, window: IntSize, w: Int, h: Int): IntOffset {
+    val x = selectPopupX(align, rtl, anchor.left, anchor.right, w, inset)
+    val below = anchor.bottom + offset
+    val above = anchor.top - offset - h
+    val y = if (below + h <= window.height - margin || above < margin) below else above
+    val clamped = x.coerceIn(margin, max(margin, window.width - w - margin))
+    if (inset <= 0) return IntOffset(clamped, y)
+    fun snap(at: Int, origin: Int): Int {
+        val dp = (at + inset - origin) / density
+        return origin + (sign(dp) * floor(abs(dp) + 0.5f) * density).roundToInt() - inset
+    }
+    return IntOffset(snap(clamped, anchor.left), snap(y, anchor.top))
+}
+
+/**
+ * Under the anchor (above when it does not fit), aligned along it by
+ * `start | center | end` (logical), inside the window ([selectPopupOrigin]).
+ * [bleed] = the transparent room around the box its shadow paints into (px).
+ */
+private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int, val bleed: Int, val inset: Int = 0, val density: Float = 1f) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val w = popupContentSize.width - 2 * bleed
         val h = popupContentSize.height - 2 * bleed
-        val x = selectPopupX(align, rtl, anchorBounds.left, anchorBounds.right, w, inset)
-        val below = anchorBounds.bottom + offset
-        val above = anchorBounds.top - offset - h
-        val y = if (below + h <= windowSize.height - margin || above < margin) below else above
-        return IntOffset(x.coerceIn(margin, max(margin, windowSize.width - w - margin)) - bleed, y - bleed)
+        val at = selectPopupOrigin(align, rtl, offset, margin, inset, density, anchorBounds, windowSize, w, h)
+        return IntOffset(at.x - bleed, at.y - bleed)
     }
 }
 
@@ -268,7 +289,7 @@ internal fun SelectPopup(cx: LeafContext) {
     val bleed = cs.shadows.maxOfOrNull { abs(it.x) + abs(it.y) + it.blur + it.spread }?.coerceAtLeast(0f) ?: 0f
     val position = remember(row, pill, owner, cx.rtl, density, bleed) {
         val (offset, margin) = selectPopupSpacing(row, pill)
-        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill).dp.roundToPx() })
+        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill).dp.roundToPx() }, density.density)
     }
     val fill = cs.copy(background = cs.background ?: cx.themeColor("popover"))
     val fadeInk = cx.part("Select", "fade").style.background ?: fill.background
@@ -473,8 +494,8 @@ private val SKELETON_BARS = listOf(56f to 168f, 56f to 120f, 56f to 192f)
 
 /**
  * #EXP-1765: a `loading` Select's placeholder in our own popup: the core's
- * Skeleton rows (`selectLoadingRows` of them, `$control.row` high, a
- * hairline between, the dot and the two bars) from the `Skeleton/row|dot|bar`
+ * Skeleton rows (`selectLoadingRows` of them, `$control.row` high,
+ * borderless, the dot and the two bars) from the `Skeleton/row|dot|bar`
  * recipes, each block pulsing like the painted Skeleton's.
  */
 @Composable
@@ -484,8 +505,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
     val dot = cx.part("Skeleton", "dot", none)
     val bar = cx.part("Skeleton", "bar", none)
     val fill = cx.themeColor("muted") ?: Color.Transparent
-    val line = cx.themeColor("border")
-    val hairline = cx.control("hairline", 1f)
     val h = cx.control("row", 32f)
     val reduced = cx.model.reducedMotion
     for (r in 0 until CatalogConstants.SELECT_LOADING_ROWS) {
@@ -494,7 +513,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
             Modifier
                 .fillMaxWidth()
                 .height(h.dp)
-                .drawBehind { if (r > 0 && line != null) drawLine(line, Offset(0f, hairline.dp.toPx() / 2f), Offset(size.width, hairline.dp.toPx() / 2f), hairline.dp.toPx()) }
                 .padding(horizontal = (rowPart.px("paddingHorizontal") ?: rowPart.style.paddingHorizontal).dp),
             horizontalArrangement = Arrangement.spacedBy((rowPart.px("gap") ?: rowPart.style.gap).dp),
             verticalAlignment = Alignment.CenterVertically,

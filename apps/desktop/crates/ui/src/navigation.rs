@@ -142,12 +142,11 @@ pub enum Screen {
     /// specimen id = its view-catalog id; reachable only through
     /// `EXP_DEV_SCREEN=<id>`.
     ExponentialUiSpecimen { id: String },
-    /// EXP-1259 (DEV-ONLY): one IDE styleguide entry
-    /// ([`crate::styleguide::entries`]) drawn full-window, for the views
-    /// whose states never show together in the app (`feedback-states`).
-    /// `id` = the entry id; reachable only through
-    /// `EXP_DEV_SCREEN=styleguide:<id>`.
-    StyleguideEntry { id: String },
+    /// EXP-1259 (DEV-ONLY): one specimen ([`crate::specimens::entries`])
+    /// drawn full-window, for the views whose states never show together in
+    /// the app (`feedback-states`). `id` = the entry id; reachable only
+    /// through `EXP_DEV_SCREEN=specimen:<id>`.
+    Specimen { id: String },
 }
 
 impl Screen {
@@ -383,7 +382,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::ExponentialUiKitchenSink => "genUI".into(),
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiSpecimen { .. } => "genUI".into(),
-        Screen::StyleguideEntry { .. } => "Styleguide".into(),
+        Screen::Specimen { .. } => "Specimen".into(),
     }
 }
 
@@ -814,8 +813,8 @@ impl Navigation {
 /// (EXP-851 — the list screens the rail's tool windows became) | `home` |
 /// `chats` | `apps` (EXP-1650) | `issue:<uuid>` | `chat:<uuid>` / `session:<uuid>` /
 /// `agent:<uuid>` (EXP-1294: one `sessions` row — a chat root, any session
-/// of a tree, an agent root) | `styleguide:<entry id>` (EXP-1259: one IDE
-/// styleguide entry, full-window) (anything else = no pre-route).
+/// of a tree, an agent root) | `specimen:<entry id>` (EXP-1259: one dev-only
+/// specimen, full-window) (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
@@ -896,10 +895,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     agent_id: id.to_string(),
                 });
             }
-            // EXP-1259: one IDE styleguide entry, full-window.
-            if let Some(id) = spec.strip_prefix("styleguide:") {
-                return crate::styleguide::entries::find(id)
-                    .map(|entry| Screen::StyleguideEntry { id: entry.id.to_string() });
+            // EXP-1259: one dev-only specimen, full-window.
+            if let Some(id) = spec.strip_prefix("specimen:") {
+                return crate::specimens::entries::find(id)
+                    .map(|entry| Screen::Specimen { id: entry.id.to_string() });
             }
             None
         }
@@ -2211,12 +2210,14 @@ mod tests {
             Some(Screen::ExponentialUiSpecimen { id: "exponential-ui-demo".into() })
         );
         assert_eq!(parse_dev_screen("exponential-ui-nope"), None);
-        // EXP-1259: one IDE styleguide entry (view `feedback-states`).
+        // EXP-1259: one dev-only specimen (view `feedback-states`).
         assert_eq!(
-            parse_dev_screen("styleguide:feedback-states"),
-            Some(Screen::StyleguideEntry { id: "feedback-states".into() })
+            parse_dev_screen("specimen:feedback-states"),
+            Some(Screen::Specimen { id: "feedback-states".into() })
         );
-        assert_eq!(parse_dev_screen("styleguide:nope"), None);
+        assert_eq!(parse_dev_screen("specimen:nope"), None);
+        // #EXP-1779: the old prefix is gone.
+        assert_eq!(parse_dev_screen("styleguide:feedback-states"), None);
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         // EXP-1170: a fresh New issue page — a minted id, the active board.

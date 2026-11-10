@@ -566,10 +566,15 @@ function childFor(name: string): NestedNode {
   return { id: `${snake(name)}_child`, component: `Text`, props: { text: `Child` } }
 }
 
+/** Macros whose child switches the look (a ColorPicker's child = its own
+ *  trigger): the sweep keeps them childless and ONE `<name>/child` case
+ *  shows the child. */
+const CHILD_SWITCHES = new Set([`ColorPicker`])
+
 function makeCase(name: string, def: ComponentDef, suffix: string, props: Record<string, unknown>): ComponentCase {
   const node: NestedNode = { id: snake(name), component: name, props }
   // #VAPP-284: children make a Row a foldable parent; the sweep keeps the plain row (foldCases cover the parent).
-  if (def.children !== `none` && name !== `Row`) node.children = [childFor(name)]
+  if (def.children !== `none` && name !== `Row` && !CHILD_SWITCHES.has(name)) node.children = [childFor(name)]
   return { name: `${name}/${suffix}`, node }
 }
 
@@ -737,6 +742,7 @@ function componentCases(): ComponentCase[] {
       }
     }
     for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: snake(name), component: name, props: { ...base, ...props } } })
+    if (CHILD_SWITCHES.has(name)) cases.push({ name: `${name}/child`, node: { id: snake(name), component: name, props: base, children: [childFor(name)] } })
   }
   return cases
 }
@@ -903,6 +909,10 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   ColorPicker: [
     { label: `value`, node: { id: `color`, component: `ColorPicker`, props: { value: `#3b82f6` } } },
     { label: `empty`, node: { id: `color-none`, component: `ColorPicker`, props: {} } },
+    // The IDE's Statuses / Labels: a status glyph as the trigger (a ghost
+    // button around the child) and the create form's inline grid.
+    { label: `child · a status glyph`, node: { id: `color-glyph`, component: `ColorPicker`, props: { value: `#22c55e` }, children: [{ id: `color-glyph-icon`, component: `Icon`, props: { name: `circle-dashed`, size: `sm` } }] } },
+    { label: `inline`, node: { id: `color-inline`, component: `ColorPicker`, props: { value: `#22c55e`, inline: true } } },
   ],
   // #VAPP-285: a repository: folders open and closed, a selected file, an
   // empty folder; then a lazy folder opened (its loading row).
@@ -1003,7 +1013,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
   ],
   ColorPicker: [
-    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 160 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
+    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 180 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
   ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
@@ -1025,6 +1035,19 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       slots: {
         leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
         trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }, {
+    // #EXP-1762: THE session composer, flat: "+" left, the field growing
+    // upward, the context Ring + send right, all on one bottom-aligned row.
+    label: `layout · flat`,
+    node: {
+      id: `flat`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        leading: { id: `flat_options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `flat_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `flat_context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
       },
     },
   }],
@@ -1203,6 +1226,24 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         },
         { id: `start_menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
         { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
+      ],
+    },
+  }, {
+    // `matchAnchorWidth`: the IDE's `/` typeahead floats above the composer
+    // card at the card's full width (anchor = the card, top-start).
+    label: `matchAnchorWidth`,
+    node: {
+      id: `chat`,
+      component: `Box`,
+      style: { position: `relative`, width: `100%`, height: 260, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      children: [
+        {
+          id: `composer_card`,
+          component: `Box`,
+          style: { position: `absolute`, left: 16, right: 16, bottom: 16, height: 72, padding: `$spacing.md`, borderRadius: `$radius.lg`, borderWidth: `$border.hairline`, borderColor: `$color.border`, backgroundColor: `$color.card` },
+          children: [text(`draft`, `/rev`)],
+        },
+        { id: `commands`, component: `Popover`, props: { anchor: `composer_card`, side: `top`, align: `start`, matchAnchorWidth: true, open: true }, children: [text(`review`, `/review`), text(`revert`, `/revert`)] },
       ],
     },
   }],
