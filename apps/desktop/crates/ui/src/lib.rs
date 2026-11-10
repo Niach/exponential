@@ -280,6 +280,8 @@ mod transcript_bench;
 mod shell_bench;
 #[cfg(test)]
 mod settings_bench;
+#[cfg(test)]
+mod picker_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;

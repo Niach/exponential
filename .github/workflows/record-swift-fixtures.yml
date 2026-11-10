@@ -8,6 +8,7 @@ name: record-swift-fixtures
 # record-compose-fixtures.yml (`workflow_dispatch`, or a push editing this file).
 # EXP-1670 (2026-11-05): re-recorded for the kitchen sink's new subtitle.
 
+# EXP-1760 (2026-11-10): IconPicker + ColorPicker, the No icon row.
 on:
   workflow_dispatch: {}
   push:

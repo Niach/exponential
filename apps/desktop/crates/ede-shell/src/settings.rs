@@ -154,8 +154,12 @@ pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
     })
 }
 
-/// The person: login and full name from the password database.
+/// The person: login and full name from the password database; the demo
+/// (the goldens) never reads the machine's login or host.
 pub fn user_json() -> Value {
+    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+        return json!({"login": "alex", "name": "Alex Rivera", "host": "workstation"});
+    }
     let login = std::env::var("USER").unwrap_or_default();
     // SAFETY: getpwuid returns a static buffer or null; the strings are copied out.
     let name = unsafe {

@@ -9880,6 +9880,251 @@
       }
     ]
   },
+  "ColorPicker\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/open=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/open=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff12",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#252525",
+        "component" : "Box",
+        "frame" : [
+          8,
+          36,
+          287,
+          52
+        ],
+        "id" : "color_picker.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          50,
+          259,
+          24
+        ],
+        "id" : "color_picker.grid"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          22,
+          50,
+          24,
+          24
+        ],
+        "id" : "color_picker.grid.swatch.0",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ef4444",
+        "component" : "Box",
+        "frame" : [
+          25,
+          53,
+          18,
+          18
+        ],
+        "id" : "color_picker.grid.swatch.0.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          51.25,
+          50,
+          24,
+          24
+        ],
+        "id" : "color_picker.grid.swatch.1",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#22c55e",
+        "component" : "Box",
+        "frame" : [
+          54.25,
+          53,
+          18,
+          18
+        ],
+        "id" : "color_picker.grid.swatch.1.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          80.5,
+          50,
+          24,
+          24
+        ],
+        "id" : "color_picker.grid.swatch.2",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          83.5,
+          53,
+          18,
+          18
+        ],
+        "id" : "color_picker.grid.swatch.2.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          109.75,
+          50,
+          24,
+          24
+        ],
+        "id" : "color_picker.grid.swatch.3",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a855f7",
+        "component" : "Box",
+        "frame" : [
+          112.75,
+          53,
+          18,
+          18
+        ],
+        "id" : "color_picker.grid.swatch.3.fill",
+        "radius" : 9999
+      }
+    ]
+  },
   "Composer\/attachments=false" : {
     "height" : 72,
     "nodes" : [
@@ -14071,6 +14316,323 @@
           20
         ],
         "id" : "icon"
+      }
+    ]
+  },
+  "IconPicker\/allowNone=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/allowNone=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/open=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/open=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      },
+      {
+        "bg" : "#252525",
+        "component" : "Box",
+        "frame" : [
+          8,
+          36,
+          281,
+          42
+        ],
+        "id" : "icon_picker.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          267,
+          28
+        ],
+        "id" : "icon_picker.scroll"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          267,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.0",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22.88,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.0.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          48.25,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.1",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          56.13,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.1.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          81.5,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.2",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          89.38,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.2.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          114.75,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.3",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          122.63,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.3.glyph"
       }
     ]
   },
@@ -30744,6 +31306,86 @@
     ]
   },
   "Select\/searchable=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerIcon=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerIcon=true" : {
     "height" : 60,
     "nodes" : [
       {

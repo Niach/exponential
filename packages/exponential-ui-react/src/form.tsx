@@ -48,6 +48,11 @@ export const FormContext = createContext<FormContextValue | null>(null)
  *  `submit` (the author never resets the bound `open` flag). */
 export const CloseOnSubmitContext = createContext<(() => void) | null>(null)
 
+/** #EXP-1760: an IconPicker / ColorPicker's Popover provides its close; a
+ *  pick beneath (`isPickerPick`: a cell, a swatch, the No icon row) calls it
+ *  right after `press`, as the core and the IDE's pickers do. */
+export const ClosePickerContext = createContext<(() => void) | null>(null)
+
 export function useForm(): FormContextValue | null {
   return useContext(FormContext)
 }

@@ -61,6 +61,7 @@ struct WorkScreenCard {
     computer_use: bool,
     model: ChoiceSelect,
     work_screen: ChoiceSelect,
+    block: gpui::Entity<crate::settings::readiness::ReadinessBlock>,
 }
 
 impl WorkScreenCard {
@@ -71,6 +72,7 @@ impl WorkScreenCard {
             computer_use: true,
             model: model_select(CodingAgent::Claude, &settings.computer_use_model, window, cx),
             work_screen: work_screen_select(&demo_displays(), None, window, cx),
+            block: gpui::AppContext::new(cx, |cx| crate::settings::readiness::ReadinessBlock::new("sg-work-screen-readiness", window, cx)),
         }
     }
 }
@@ -83,7 +85,6 @@ impl Render for WorkScreenCard {
         };
         let view = cx.entity().downgrade();
         let props = device_readiness::BlockProps {
-            id: "sg-work-screen-readiness".into(),
             on_toggle: Some(Rc::new(move |on, _window, cx| {
                 let _ = view.update(cx, |this, cx| {
                     this.computer_use = on;
@@ -91,7 +92,7 @@ impl Render for WorkScreenCard {
                 });
             })),
             computer_use_tail: if self.computer_use {
-                crate::device_settings::computer_use_rows(&self.model, &self.work_screen, cx)
+                crate::device_settings::computer_use_rows(&self.model, &self.work_screen)
             } else {
                 Vec::new()
             },
@@ -101,6 +102,7 @@ impl Render for WorkScreenCard {
             .into_iter()
             .filter(|section| section.group == coding::device_doctor::DoctorGroup::ComputerUse)
             .collect();
-        device_readiness::render_sections(&sections, props, cx)
+        self.block.update(cx, |block, cx| block.show(crate::settings::readiness::Shape::Sections(&sections), props, cx));
+        div().w_full().child(self.block.clone())
     }
 }

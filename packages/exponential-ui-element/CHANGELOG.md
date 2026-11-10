@@ -6,7 +6,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Skeleton `rows` (#EXP-1629): no hairline between rows, through the React renderer.
+- Select `triggerIcon` + the `brand-claude` / `brand-codex` marks (#EXP-1764): through the React renderer.
+- `IconPicker` + `ColorPicker` (#EXP-1760) through the Solid painter.
 - Input `variant: "box"` + `size` (#EXP-1629): through the React renderer.
+- Select option `description` + `popupMinWidth` (#EXP-1629): through the React renderer.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): through the React renderer.
 
 ## 0.21.0 (2026-11-09)
