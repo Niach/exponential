@@ -83,8 +83,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // toasts ([ToastStack.stackLayout] with [Dock.STACK], anchored at the
 // bottom: the front card last, the older ones peeking out above it, `visible`
 // at most; a tap fans them `gap` apart, the next tap opens a card) over THE
-// composer, which never leaves. The host draws the pile inside its floating
-// band (the band's measured height pads the transcript and lifts the jump
+// composer, which never leaves. The host draws the pile in its bottom band
+// under the transcript (#EXP-1782: the band's measured height is where the
+// transcript ends, clipped there, no fade or gradient; it lifts the jump
 // button). A tap on a card opens its sheet ([DockSheet]: a pinned header,
 // ONE scrolling body ([DockSheetBody]), a pinned footer ([DockSheetFooter]),
 // at most `sheet.maxHeightFraction` of the screen). N-6: the sheet is a

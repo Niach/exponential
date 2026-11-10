@@ -1944,9 +1944,11 @@ impl SteerSessionView {
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
         }
-        // N-12: the last row clears THE Dock's band (its measured height).
-        let tail = self.dock.read(cx).band_height() + crate::dock::DOCK_GAP;
-        self.chat.set_tail(tail, cx);
+        // N-12 / #EXP-1782: the transcript ends at THE Dock band's top edge
+        // (the band is a flow child under it), so the last row clears it by
+        // the gap alone; a band that grows shrinks the viewport and the
+        // following list holds its newest row.
+        self.chat.set_tail(crate::dock::DOCK_GAP, cx);
         self.chat.sync_scroll(cx)
     }
 
@@ -9722,9 +9724,9 @@ impl Render for SteerSessionView {
         // N-11 (owner 2026-10-24): no status row over the transcript; the
         // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
-        // the banners, then THE composer) floats over the transcript's
-        // bottom edge; the transcript is the ONE scroll region and pads by
-        // the band's height.
+        // the banners, then THE composer) sits under the transcript; the
+        // transcript is the ONE scroll region and ENDS at the band's top
+        // edge (#EXP-1782: clipped there, no fade, nothing behind the band).
         let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
         let feed = self.render_feed(window, cx);
