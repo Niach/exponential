@@ -1174,7 +1174,7 @@
             "boxShadow": "$shadow.popoverRing",
             "borderWidth": 0,
             "padding": 7,
-            "gap": 2.5
+            "gap": 3.5
           }
         }
       ],
@@ -1206,8 +1206,8 @@
       "none": [
         {
           "style": {
-            "height": 18.75,
-            "paddingHorizontal": 7
+            "height": 17.5,
+            "paddingHorizontal": 3.5
           }
         },
         {
@@ -1223,7 +1223,8 @@
         {
           "style": {
             "fontSize": 10.5,
-            "lineHeight": 14
+            "lineHeight": 14,
+            "fontWeight": "$type.weight.regular"
           }
         }
       ]

@@ -75427,23 +75427,23 @@
         "exponential": {
           "light": {
             "default": {
-              "height": 18.75,
-              "paddingHorizontal": 7
+              "height": 17.5,
+              "paddingHorizontal": 3.5
             },
             "hover": {
-              "height": 18.75,
-              "paddingHorizontal": 7,
+              "height": 17.5,
+              "paddingHorizontal": 3.5,
               "backgroundColor": "#f5f5f5"
             }
           },
           "dark": {
             "default": {
-              "height": 18.75,
-              "paddingHorizontal": 7
+              "height": 17.5,
+              "paddingHorizontal": 3.5
             },
             "hover": {
-              "height": 18.75,
-              "paddingHorizontal": 7,
+              "height": 17.5,
+              "paddingHorizontal": 3.5,
               "backgroundColor": "#ffffff0e"
             }
           }
@@ -75465,23 +75465,23 @@
         "orange": {
           "light": {
             "default": {
-              "height": 18.75,
-              "paddingHorizontal": 7
+              "height": 17.5,
+              "paddingHorizontal": 3.5
             },
             "hover": {
-              "height": 18.75,
-              "paddingHorizontal": 7,
+              "height": 17.5,
+              "paddingHorizontal": 3.5,
               "backgroundColor": "#f5f5f5"
             }
           },
           "dark": {
             "default": {
-              "height": 18.75,
-              "paddingHorizontal": 7
+              "height": 17.5,
+              "paddingHorizontal": 3.5
             },
             "hover": {
-              "height": 18.75,
-              "paddingHorizontal": 7,
+              "height": 17.5,
+              "paddingHorizontal": 3.5,
               "backgroundColor": "#ffffff0e"
             }
           }
@@ -75510,14 +75510,14 @@
         "exponential": {
           "light": {
             "default": {
-              "fontWeight": 500,
+              "fontWeight": 400,
               "fontSize": 10.5,
               "lineHeight": 14
             }
           },
           "dark": {
             "default": {
-              "fontWeight": 500,
+              "fontWeight": 400,
               "fontSize": 10.5,
               "lineHeight": 14
             }
@@ -75538,14 +75538,14 @@
         "orange": {
           "light": {
             "default": {
-              "fontWeight": 500,
+              "fontWeight": 400,
               "fontSize": 10.5,
               "lineHeight": 14
             }
           },
           "dark": {
             "default": {
-              "fontWeight": 500,
+              "fontWeight": 400,
               "fontSize": 10.5,
               "lineHeight": 14
             }
