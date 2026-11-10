@@ -805,7 +805,7 @@ final class AgentSessionModel {
         let nextRows = AgentFeed.rows(feed, from: start, workflowIds: workflowIds)
         if nextRows != rows {
             rows = nextRows
-            transcript = TranscriptEntry.entries(nextRows, previous: transcript)
+            transcript = TranscriptEntry.entries(TranscriptEntry.shownRows(nextRows), previous: transcript)
         }
         if feed.count != feedCount { feedCount = feed.count }
         let openTool = AgentFeed.liveToolRowId(feed)
@@ -3233,6 +3233,31 @@ final class TranscriptEntry: Identifiable, Equatable {
 
     nonisolated static func == (a: TranscriptEntry, b: TranscriptEntry) -> Bool {
         a === b || (a.id == b.id && a.gap == b.gap && a.row == b.row)
+    }
+
+    /// #EXP-1772 (transcript-grouping.json `markersShown`): a system input's
+    /// marker stays only above the agent's reply to it, and a blank agent
+    /// turn draws nothing; both leave before the transcript layout.
+    static func shownRows(_ rows: [AgentFeedRow]) -> [AgentFeedRow] {
+        let kinds: [TranscriptGrouping.FeedRowKind] = rows.map { row in
+            guard case let .single(item) = row else { return .other }
+            switch item {
+            case let .userMessage(_, text, _, _):
+                if case .marker = TranscriptGrouping.feedInput(text) { return .marker }
+                return .input
+            case let .narration(_, text, _, _):
+                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .other : .reply
+            default:
+                return .other
+            }
+        }
+        let shown = TranscriptGrouping.markersShown(kinds)
+        return zip(rows, shown).compactMap { row, shown in
+            guard shown else { return nil }
+            if case let .single(.narration(_, text, _, _)) = row,
+               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            return row
+        }
     }
 
     /// The entries for `rows`, reusing `previous`'s instance for every row

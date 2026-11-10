@@ -70,7 +70,7 @@ import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { MessageBubble, SenderAvatar, TranscriptRow, transcriptSenderName } from "./user-message-bubble"
-import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, useLiveArrivals } from "./surface-card"
+import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, TranscriptMarker, useLiveArrivals } from "./surface-card"
 import {
   transcriptLayout,
   type TranscriptItem,
@@ -107,7 +107,6 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
 const MoreIcon = conceptIcon(`ui-more`)
-const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 
@@ -500,9 +499,10 @@ export function ChatConversation(props: ChatConversationProps) {
       case `message`: {
         const layout = layouts.get(row.id)
         if (layout?.side === `full`) {
+          // #EXP-1772: a system note is THE inline marker, never a bubble.
           return (
-            <div key={row.id} data-slot="chat-system" className="text-xs text-muted-foreground">
-              {row.body}
+            <div key={row.id} data-slot="chat-system">
+              <TranscriptMarker label={row.body} className={enter} />
             </div>
           )
         }
@@ -522,7 +522,13 @@ export function ChatConversation(props: ChatConversationProps) {
             />
           )
         }
+        // #EXP-1772: a relay names its session ABOVE the bubble; only the
+        // name opens it.
         const link = layout?.sender?.link ?? null
+        const relay =
+          link && layout?.name && layout.sender
+            ? { name: layout.sender.name, onPress: canOpenXref ? () => openXref(link) : undefined }
+            : null
         return (
           <MessageBubble
             key={row.id}
@@ -530,7 +536,7 @@ export function ChatConversation(props: ChatConversationProps) {
             text={row.body}
             renderText={renderText}
             author={layout?.name ? transcriptSenderName(layout.sender) : null}
-            onPress={link && canOpenXref ? () => openXref(link) : undefined}
+            relay={relay}
             time={time}
             caption={row.queued ? `queued` : null}
             className={enter}
@@ -548,8 +554,8 @@ export function ChatConversation(props: ChatConversationProps) {
             side="in"
             text={row.summary || row.text}
             renderText={renderText}
-            author={layout?.name ? transcriptSenderName(layout.sender) : null}
-            onPress={open ? () => openXref(row.sessionId) : undefined}
+            author={null}
+            relay={layout?.name && layout.sender ? { name: layout.sender.name, onPress: open ? () => openXref(row.sessionId) : undefined } : null}
             className={enter}
           />
         )
@@ -701,35 +707,15 @@ export function ChatConversation(props: ChatConversationProps) {
           </figure>
         )
       case `event`: {
-        // #EXP-1464: a line about another session opens it (chevron,
-        // hover, press); any other stays a plain muted line.
+        // #EXP-1464: a line about another session opens it. #EXP-1772:
+        // every event is THE inline marker, never a bubble or a bare line.
         const action = actionOf(row)
         const sessionId = action.sessionId
-        if (action.action === `none` || !sessionId) {
-          return (
-            <div
-              key={row.id}
-              data-slot="chat-event"
-              data-event={row.event}
-              className="text-xs text-muted-foreground"
-            >
-              {row.text}
-            </div>
-          )
-        }
+        const open = action.action !== `none` && sessionId ? () => openXref(sessionId) : undefined
         return (
-          <button
-            key={row.id}
-            type="button"
-            data-slot="chat-event"
-            data-testid={CHAT_ROW_ACTION_TEST_IDS.event}
-            data-event={row.event}
-            className="flex min-w-0 max-w-full items-center gap-1 self-start text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70"
-            onClick={() => openXref(sessionId)}
-          >
-            <span className="min-w-0 truncate">{row.text}</span>
-            <ChevronRightIcon className="size-3.5 shrink-0" />
-          </button>
+          <div key={row.id} data-slot="chat-event" data-event={row.event} data-testid={open ? CHAT_ROW_ACTION_TEST_IDS.event : undefined}>
+            <TranscriptMarker label={row.text} onPress={open} className={enter} />
+          </div>
         )
       }
       case `suggestions`:
