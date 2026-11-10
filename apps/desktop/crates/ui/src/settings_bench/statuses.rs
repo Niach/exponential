@@ -105,3 +105,33 @@ fn settings_statuses_delete_pin() {
     let notice = "This status is where issues move when a pull request merges. That automation will fall back to Done.";
     shoot_pane("statuses-delete-pin", move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice)), |_, _| {});
 }
+
+fn delete_body(name: &'static str, count: Option<i64>) {
+    shoot_pane(name, move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", count, None), |_, _| {});
+}
+
+/// The count still in flight (or failed): no count line.
+#[test]
+#[ignore]
+fn settings_statuses_delete_loading() {
+    delete_body("statuses-delete-loading", None);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_delete_zero() {
+    delete_body("statuses-delete-zero", Some(0));
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_delete_n() {
+    delete_body("statuses-delete-n", Some(2));
+}
+
+/// More issues than the client synced: some sit on trashed boards.
+#[test]
+#[ignore]
+fn settings_statuses_delete_trashed() {
+    delete_body("statuses-delete-trashed", Some(5));
+}
