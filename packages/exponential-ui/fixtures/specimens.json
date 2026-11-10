@@ -12735,7 +12735,13 @@
                       "searchPlaceholder": "Search branches...",
                       "value": "develop",
                       "loading": true,
-                      "options": []
+                      "options": [
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
                     }
                   },
                   {

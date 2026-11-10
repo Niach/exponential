@@ -1062,7 +1062,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       props: { direction: `horizontal`, gap: `sm`, align: `center` },
       children: [
         { id: `repo_branch`, component: `Select`, props: { label: `Default branch`, name: `repoBranch`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `main`, options: [{ label: `main`, value: `main`, mono: true, trailing: `default` }, { label: `develop`, value: `develop`, mono: true }] }, on: { open: { event: { name: `loadBranches` } } } },
-        { id: `repo_branch_loading`, component: `Select`, props: { label: `Default branch (loading)`, name: `repoBranchLoading`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `develop`, loading: true, options: [] } },
+        { id: `repo_branch_loading`, component: `Select`, props: { label: `Default branch (loading)`, name: `repoBranchLoading`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `develop`, loading: true, options: [{ label: `develop`, value: `develop`, mono: true }] } },
         { id: `repo_branch_busy`, component: `Select`, props: { label: `Default branch (busy)`, name: `repoBranchBusy`, triggerVariant: `pill`, value: `release/2026-11`, disabled: true, options: [{ label: `release/2026-11`, value: `release/2026-11`, mono: true }] } },
       ],
     },
