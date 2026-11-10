@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): generated catalog + themes; the recipe index lists Button's `tone`; theme tests pin the 24 px round icon-xs and the muted colour under the ghost hover fill; `catalog_fixtures` counts 743 cases.
 - `ColorPicker` (#EXP-1775): the macro's 28 px cells, the `inline` root (`grid`; its swatches pick without a popover to close) and the `customTrigger` alternative (a child); generated catalog + themes.
 - Colour token `strokeActive` (`derive_colors`: a chain that sets none takes `ring`) and the generated themes' focused box Input stroke (`Input.field` `variant: box` + `focus`).
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): a `row` Select with `triggerIcon: true` leads its value with the chosen option's `icon` as the `valueIcon` part (an Icon leaf in the `button`, before the `value`; one chosen value only, off by default, never on a field trigger). `layout_tree::icon_fill(name)` = an icon's OWN colour from the generated `ICON_FILL_NAMES` / `ICON_FILL_COLORS` (`brand-claude` = `#D97757`); `brand-claude` / `brand-codex` join `ICON_NAMES`.

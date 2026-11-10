@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer; the glyph takes the `icon` part's 10.5, the ink the recipe's muted colour. Snapshot `components.json` gains the Button `size=icon-xs`, `tone=default|muted` cases (copied from the Compose record; re-check on a Mac).
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data the core expands; snapshot `components.json` re-recorded for the ColorPicker cases.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `ConceptIcon` paints a mark with its own fill (`BuiltinIcons.fills`, mirrored from the generated `iconFillNames` / `iconFillColors` and checked against them: `brand-claude`) in it, never in the ink.
 - `IconPicker` + `ColorPicker` (#EXP-1760): macros the core expands and closes on a pick; painted from the Popover, Button, Box and Icon the painter has.

@@ -487,7 +487,7 @@ fn button_face(cx: &LeafCx, component: &str, window: &Window, loading: bool) -> 
     let pending = cx.str("pendingLabel");
     let label = if loading && !pending.is_empty() { pending } else { cx.str("label") };
     let icon = cx.str("icon");
-    let icon_only = cx.str("size") == "icon";
+    let icon_only = matches!(cx.str("size"), "icon" | "icon-xs");
     // The icon recipe for the BUTTON's own props (as the measurer reads
     // it): a part button (a FileUpload remove) is not sized by its owner's.
     let icon_size = px_prop(&part_props(cx.theme, cx.mode, component, "icon", &cx.node.props, &[]), "width").unwrap_or_else(|| control(cx.theme, "iconSm", 16.0));

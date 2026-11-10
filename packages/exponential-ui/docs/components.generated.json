@@ -4996,12 +4996,21 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg | icon",
+          "type": "sm | default | lg | icon | icon-xs",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "Control height class; `icon` is a square icon-only button."
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+        },
+        {
+          "name": "tone",
+          "type": "default | muted",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "`muted` = muted glyph and label."
         },
         {
           "name": "disabled",

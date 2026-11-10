@@ -7286,9 +7286,18 @@
             "sm",
             "default",
             "lg",
-            "icon"
+            "icon",
+            "icon-xs"
           ],
-          "description": "Control height class; `icon` is a square icon-only button.",
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one.",
+          "default": "default"
+        },
+        "tone": {
+          "enum": [
+            "default",
+            "muted"
+          ],
+          "description": "`muted` = muted glyph and label.",
           "default": "default"
         },
         "disabled": {

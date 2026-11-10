@@ -938,7 +938,7 @@ impl<'a> GpuiMeasure<'a> {
         let label = str_prop(props, "label");
         let loading = props.get("loading").and_then(Value::as_bool) == Some(true);
         let has_icon = has(props, "icon") || loading;
-        let icon_only = str_prop(props, "size") == "icon";
+        let icon_only = matches!(str_prop(props, "size"), "icon" | "icon-xs");
         let icon = if has_icon || icon_only { px_prop(&self.part(component, "icon", props, &[]), "width").unwrap_or_else(|| control(self.theme, "iconSm", 16.0)) } else { 0.0 };
         let label_w = if icon_only || label.is_empty() { 0.0 } else { self.line(label, ts) };
         let gap = if has_icon && label_w > 0.0 { leaf.control.gap } else { 0.0 };

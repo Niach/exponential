@@ -19,7 +19,8 @@
       "sm",
       "default",
       "lg",
-      "icon"
+      "icon",
+      "icon-xs"
     ],
     "tone": [
       "neutral",
@@ -392,6 +393,10 @@
     "inputSize": [
       "default",
       "sm"
+    ],
+    "buttonTone": [
+      "default",
+      "muted"
     ],
     "textareaVariant": [
       "field",
@@ -4478,7 +4483,13 @@
           "type": "enum",
           "enum": "size",
           "default": "default",
-          "description": "Control height class; `icon` is a square icon-only button."
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "buttonTone",
+          "default": "default",
+          "description": "`muted` = muted glyph and label."
         },
         "disabled": {
           "type": "boolean",

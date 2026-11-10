@@ -3769,7 +3769,8 @@
         "variant",
         "size",
         "disabled",
-        "loading"
+        "loading",
+        "tone"
       ]
     },
     {

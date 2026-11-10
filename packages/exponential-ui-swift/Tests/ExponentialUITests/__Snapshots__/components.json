@@ -1633,6 +1633,87 @@
       }
     ]
   },
+  "Button\/size=icon-xs" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "button",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          -8,
+          2,
+          40,
+          20
+        ],
+        "id" : "button_child"
+      }
+    ]
+  },
+  "Button\/tone=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          6,
+          40,
+          20
+        ],
+        "id" : "button_child"
+      }
+    ]
+  },
+  "Button\/tone=muted" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          6,
+          40,
+          20
+        ],
+        "id" : "button_child"
+      }
+    ]
+  },
   "Button\/variant=default" : {
     "height" : 32,
     "nodes" : [

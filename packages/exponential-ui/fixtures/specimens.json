@@ -10030,6 +10030,57 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_button_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_button_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "size · icon-xs, tone · muted",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_icon_xs",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c9_tool",
+                    "component": "Button",
+                    "props": {
+                      "label": "Add",
+                      "icon": "ui-add",
+                      "variant": "ghost",
+                      "size": "icon-xs",
+                      "tone": "muted"
+                    }
+                  },
+                  {
+                    "id": "c9_dismiss",
+                    "component": "Button",
+                    "props": {
+                      "label": "Dismiss",
+                      "icon": "ui-close",
+                      "variant": "ghost",
+                      "size": "icon-xs"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

@@ -10,8 +10,10 @@
         { "style": { "boxShadow": "$shadow.none", "fontWeight": "$type.weight.medium" } },
         { "when": { "variant": "outline" }, "style": { "backgroundColor": "$color.secondary", "borderColor": "$color.border", "boxShadow": "$shadow.none" } },
         { "when": { "variant": "outline", "state": "hover" }, "style": { "backgroundColor": "$color.accent" } },
-        { "when": { "variant": "secondary" }, "style": { "backgroundColor": "$color.secondary" } }
-      ]
+        { "when": { "variant": "secondary" }, "style": { "backgroundColor": "$color.secondary" } },
+        { "when": { "size": "icon-xs" }, "style": { "height": "$control.buttonSm", "width": "$control.buttonSm" } }
+      ],
+      "icon": [ { "when": { "size": "icon-xs" }, "style": { "width": 10.5, "height": 10.5 } } ]
     },
     "Input": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } }, { "when": { "variant": "row" }, "style": { "height": 40.82, "paddingHorizontal": 14, "paddingVertical": 10.5, "gap": 10.5, "backgroundColor": "#00000000", "fontSize": 12.25, "lineHeight": 17.5 } }, { "when": { "variant": ["bare", "code"] }, "style": { "height": 18, "fontSize": 12.25, "lineHeight": 18 } }, { "when": { "variant": "box" }, "style": { "height": 36, "paddingHorizontal": 10, "borderRadius": "$radius.lg", "borderColor": "$color.border", "backgroundColor": "#ffffff08", "fontSize": 12.25, "lineHeight": 17.5 } }, { "when": { "variant": "box", "size": "sm" }, "style": { "height": 32 } }, { "when": { "variant": "box", "state": "focus" }, "style": { "borderColor": "$color.strokeActive" } } ], "label": [ { "when": { "variant": "row" }, "style": { "fontSize": 12.25, "lineHeight": 19.82 } } ] },
     "Textarea": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } }, { "when": { "variant": ["row", "code"] }, "style": { "paddingHorizontal": 24, "paddingVertical": 18.5, "backgroundColor": "#00000000", "fontSize": 12.25, "lineHeight": 18 } }, { "when": { "variant": "code" }, "style": { "fontSize": 10.5, "lineHeight": 18 } } ] },
