@@ -12528,16 +12528,55 @@
                 "id": "specimen_select_case_2_label",
                 "component": "Text",
                 "props": {
+                  "text": "loading · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_select",
+                "component": "Select",
+                "props": {
+                  "label": "Board",
+                  "name": "board",
+                  "options": [
+                    {
+                      "label": "Backlog",
+                      "value": "backlog"
+                    },
+                    {
+                      "label": "Sprint",
+                      "value": "sprint"
+                    }
+                  ],
+                  "value": "sprint",
+                  "loading": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_3_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · row (in a Group)",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c2_prefs",
+                "id": "c3_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c2_timezone",
+                    "id": "c3_timezone",
                     "component": "Select",
                     "props": {
                       "label": "Timezone",
@@ -12566,7 +12605,7 @@
                     }
                   },
                   {
-                    "id": "c2_week",
+                    "id": "c3_week",
                     "component": "Select",
                     "props": {
                       "label": "Week starts on",
@@ -12586,7 +12625,7 @@
                     }
                   },
                   {
-                    "id": "c2_apps",
+                    "id": "c3_apps",
                     "component": "Select",
                     "props": {
                       "label": "Apps",
@@ -12612,7 +12651,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_3",
+            "id": "specimen_select_case_4",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12621,7 +12660,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_3_label",
+                "id": "specimen_select_case_4_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + description",
@@ -12629,11 +12668,11 @@
                 }
               },
               {
-                "id": "c3_voice_prefs",
+                "id": "c4_voice_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c3_language",
+                    "id": "c4_language",
                     "component": "Select",
                     "props": {
                       "label": "Language",
@@ -12658,7 +12697,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_4",
+            "id": "specimen_select_case_5",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -12667,7 +12706,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_4_label",
+                "id": "specimen_select_case_5_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + option trailing",
@@ -12675,11 +12714,11 @@
                 }
               },
               {
-                "id": "c4_board_prefs",
+                "id": "c5_board_prefs",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c4_branch",
+                    "id": "c5_branch",
                     "component": "Select",
                     "props": {
                       "label": "Branch",
@@ -12704,6 +12743,106 @@
                           "name": "loadBranches"
                         }
                       }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_6_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · pill + mono options + loading",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6_repo_branches",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c6_repo_branch",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch",
+                      "name": "repoBranch",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "main",
+                      "options": [
+                        {
+                          "label": "main",
+                          "value": "main",
+                          "mono": true,
+                          "trailing": "default"
+                        },
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    },
+                    "on": {
+                      "open": {
+                        "event": {
+                          "name": "loadBranches"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "c6_repo_branch_loading",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (loading)",
+                      "name": "repoBranchLoading",
+                      "triggerVariant": "pill",
+                      "searchable": true,
+                      "searchPlaceholder": "Search branches...",
+                      "value": "develop",
+                      "loading": true,
+                      "options": [
+                        {
+                          "label": "develop",
+                          "value": "develop",
+                          "mono": true
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "c6_repo_branch_busy",
+                    "component": "Select",
+                    "props": {
+                      "label": "Default branch (busy)",
+                      "name": "repoBranchBusy",
+                      "triggerVariant": "pill",
+                      "value": "release/2026-11",
+                      "disabled": true,
+                      "options": [
+                        {
+                          "label": "release/2026-11",
+                          "value": "release/2026-11",
+                          "mono": true
+                        }
+                      ]
                     }
                   }
                 ]

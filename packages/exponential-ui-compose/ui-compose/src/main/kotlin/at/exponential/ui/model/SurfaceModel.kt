@@ -395,6 +395,9 @@ class SurfaceModel(
     /** #EXP-1629: each open Select popup's cursor (owner id → the `item` carrying its ONE `hover`). */
     internal val selectCursors = HashMap<String, String>()
 
+    /** #EXP-1765: the open `pill` Select popups opened by the POINTER that show no cursor yet (owner ids). */
+    internal val selectCursorless = HashSet<String>()
+
     /** The overlay owner dismissed in the last 300 ms (its trigger's own tap must not reopen it). */
     var justDismissed: String? = null
         internal set

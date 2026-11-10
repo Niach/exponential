@@ -103,7 +103,7 @@ impl Glyph {
             "ui-info" => Glyph::Info,
             "ui-success" => Glyph::Success,
             "ui-warning" => Glyph::Warning,
-            "ui-error" => Glyph::Error,
+            "ui-error" | "ui-clear" => Glyph::Error,
             "ui-back" => Glyph::Back,
             "ui-star" | "star" => Glyph::Star,
             "ui-image" | "image" => Glyph::Image,
