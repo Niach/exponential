@@ -2480,9 +2480,12 @@
         },
         "open": {
           "description": "Grid shows; bind it."
+        },
+        "inline": {
+          "description": "The grid alone, no trigger."
         }
       },
-      "description": "Colour field: a swatch opens the palette grid.",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
       "example": {
         "value": "#3b82f6",
         "colors": [

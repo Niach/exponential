@@ -305,7 +305,7 @@ export interface ComponentProps {
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }
   IconPicker: { value?: string | Dynamic; icons?: IconName[]; color?: string; allowNone?: boolean; open?: boolean | Dynamic }
-  ColorPicker: { value?: string | Dynamic; colors?: string[]; open?: boolean | Dynamic }
+  ColorPicker: { value?: string | Dynamic; colors?: string[]; open?: boolean | Dynamic; inline?: boolean }
   DatePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number; inline?: boolean; marks?: Shapes["dateMark"][]; today?: string }
   DateRangePicker: { label?: string; name: string; start?: string | Dynamic; end?: string | Dynamic; min?: string; max?: string; placeholder?: string; firstDayOfWeek?: number }
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }

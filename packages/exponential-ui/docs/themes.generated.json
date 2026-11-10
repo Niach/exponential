@@ -4086,6 +4086,7 @@
         "fill",
         "trigger",
         "dot",
+        "customTrigger",
         "content"
       ],
       "props": [

@@ -5673,8 +5673,8 @@
       "kind": "macro",
       "group": "input",
       "lite": false,
-      "children": "none",
-      "description": "Colour field: a swatch opens the palette grid.",
+      "children": "one",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
       "props": {
         "value": {
           "type": "string",
@@ -5693,6 +5693,11 @@
           "default": false,
           "bindable": true,
           "description": "Grid shows; bind it."
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false,
+          "description": "The grid alone, no trigger."
         }
       },
       "events": [

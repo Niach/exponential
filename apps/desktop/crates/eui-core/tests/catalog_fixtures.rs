@@ -187,7 +187,7 @@ fn catalog_macros_expansion_is_pure_and_reaches_natives_only_ids_stay_unique_rec
         let recipe = expanded.recipe.as_ref().expect("recipe");
         assert_eq!(recipe.macro_, c.input.component, "{}", c.name);
         // #VAPP-284: a foldable Row (children) takes its `group` alternative root.
-        assert_eq!(recipe.part, if c.name.starts_with("Row/fold:") { "group" } else { "root" }, "{}", c.name);
+        assert_eq!(recipe.part, if c.name.starts_with("Row/fold:") { "group" } else if c.name == "ColorPicker/inline=true" { "grid" } else { "root" }, "{}", c.name);
         assert_all_native(&expanded, &c.name);
     }
 }

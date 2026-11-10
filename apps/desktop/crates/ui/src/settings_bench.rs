@@ -1273,38 +1273,45 @@ fn board_detail(name: &str, shot: BoardShot) {
 #[test]
 #[ignore]
 fn settings_board_unlinked() {
-    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_linked() {
-    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_pinned() {
-    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false, press: Vec::new() });
+}
+
+/// The identity row's ColorPicker open: the label palette's 28 px cells.
+#[test]
+#[ignore]
+fn settings_board_color_open() {
+    board_detail("board-color-open", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: vec!["color_picker.trigger".into()] });
 }
 
 #[test]
 #[ignore]
 fn settings_board_loading() {
-    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_unavailable() {
-    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
-    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true, press: Vec::new() });
 }
 
 const PROMPT_BODY: &str = "Review the open PRs on this board.\n\n- Summarise each diff in two lines.\n- Flag anything that touches `apps/web/src/db`.\n";
