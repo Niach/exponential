@@ -195,7 +195,7 @@ fn document(ink: &Ink) -> Value {
     // names as `text_xs` mono chips (`px_1`, radius 4, `muted`).
     let code = |id: &str, name: &str| {
         let mut text = ink.text(&format!("{id}_text"), json!(name), XS, &ink.foreground);
-        text["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+        text["style"]["fontFamily"] = json!("$type.family.mono");
         json!({"id": id, "component": "Box", "style": {"borderRadius": 4, "paddingHorizontal": ink.r(0.25), "backgroundColor": ink.code}, "children": [text]})
     };
     let words = |id: &str, text: &str| -> Vec<Value> {
@@ -538,6 +538,10 @@ mod tests {
             mono: "Lilex".into(),
             pill_button_fill: "#ffffff0f".into(),
             pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
         };
         let tree: eui_core::NestedNode = serde_json::from_value(document(&ink)).expect("parses");
         assert_eq!(tree.id, "root");

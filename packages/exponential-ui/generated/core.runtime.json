@@ -117,6 +117,12 @@
       "lg",
       "xl"
     ],
+    "iconSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -404,6 +410,9 @@
           "type": "boolean"
         },
         "description": {
+          "type": "string"
+        },
+        "trailing": {
           "type": "string"
         },
         "image": {
@@ -2016,7 +2025,7 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "iconSize",
           "default": "default"
         },
         "tone": {
@@ -2734,7 +2743,8 @@
       "props": {
         "content": {
           "type": "string",
-          "required": true
+          "required": true,
+          "bindable": true
         },
         "side": {
           "type": "enum",
@@ -4126,7 +4136,8 @@
       },
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ]
     },
     "SearchList": {

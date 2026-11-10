@@ -54,6 +54,19 @@ class MeasurerRulesTest {
         assertEquals(s.maxContent("Hello world", ts), one.width, 0f)
     }
 
+    /**
+     * #EXP-1629: a 12k-char line without a break opportunity (a long URL, a
+     * hash) wraps by character at the field's laid-out width (the core asks
+     * an autosize Textarea at that width, [SurfaceMeasurer]'s `textarea`
+     * clamps to rows..maxRows): rows 10 grow to maxRows 40.
+     */
+    @Test
+    fun aLongUnbrokenLineFillsAnAutosizeTextarea() {
+        val rows = shaper().wrappedHeight("a".repeat(12_000), ts, 360f) / ts.lineHeight
+        assertTrue("$rows rows: wrapped by character", rows >= 40f)
+        assertEquals(40f * ts.lineHeight, kotlin.math.min(kotlin.math.max(rows, 10f), 40f) * ts.lineHeight, 0f)
+    }
+
     @Test
     fun controlBoxAndLabels() {
         val c = ControlBox(paddingHorizontal = 16f, paddingVertical = 0f, borderWidth = 1f, gap = 8f, minWidth = 80f, minHeight = null, width = null, height = 36f)

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.TaskQueue
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.domain.contentType
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
@@ -4416,7 +4417,7 @@ internal fun QuestionOptionButton(
                     // The digit a keyboard client presses — monospace, like
                     // every other key in the app (web `font-mono`).
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         fontWeight = FontWeight.Normal,
                         fontSize = 10.sp,
                         lineHeight = 16.sp,
@@ -4492,7 +4493,7 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
             if (!detail.isNullOrBlank()) {
                 Text(
                     remember(detail) { middleTruncate(detail) },
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -6008,10 +6009,11 @@ private fun ExpandedSteerComposer(
                 },
             )
         },
-        // EXP-1334: the card's footer = the "+" (composer-menu.json's rows)
-        // · spacer · send; the model, the Plan switch and the ring sit UNDER
-        // the card (the options line).
-        footer = {
+        // #EXP-1762: THE flat one-line card (web's `<Composer flat>`): the
+        // "+" (composer-menu.json's rows) LEFT of the field, the context ring
+        // + send RIGHT, bottom-aligned while the field grows upward.
+        flat = true,
+        tools = {
             Box {
                 ComposerToolButton(
                     ExpIcons.uiAdd,
@@ -6027,36 +6029,42 @@ private fun ExpandedSteerComposer(
                     onMenuOpenChange(COMPOSER_MENU_ATTACH, false)
                 }
             }
-            // S-3 (composer-menu.json): the "+" is the card's ONLY tool;
-            // the model is its Model › row, the device never moves here.
-            Spacer(Modifier.weight(1f).testTag("steer-options-line"))
-            if (hasUsage) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClick = onOpenUsage)
-                        .testTag("steer-context-ring"),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    ContextRing(percent = contextPercent, size = 16.dp)
-                }
-            }
-            ComposerSubmitButton(
-                if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
-                contentDescription = if (stop) "Stop" else "Send",
-                // The draft is cleared by the send itself, and only once the
-                // message is out (EXP-621) — a failed image upload leaves the
-                // whole composition intact to retry.
-                onClick = {
-                    when {
-                        stop -> onInterrupt()
-                        canSend -> onSend()
+        },
+        // S-3 (composer-menu.json): the "+" is the card's ONLY tool; the
+        // model is its Model › row, the device never moves here.
+        submit = {
+            Row(
+                modifier = Modifier.testTag("steer-options-line"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasUsage) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable(role = Role.Button, onClick = onOpenUsage)
+                            .testTag("steer-context-ring"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ContextRing(percent = contextPercent, size = 16.dp)
                     }
-                },
-                enabled = stop || canSend,
-                sending = sending,
-            )
+                }
+                ComposerSubmitButton(
+                    if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
+                    contentDescription = if (stop) "Stop" else "Send",
+                    // The draft is cleared by the send itself, and only once the
+                    // message is out (EXP-621) — a failed image upload leaves the
+                    // whole composition intact to retry.
+                    onClick = {
+                        when {
+                            stop -> onInterrupt()
+                            canSend -> onSend()
+                        }
+                    },
+                    enabled = stop || canSend,
+                    sending = sending,
+                )
+            }
         },
     ) {
         GlassTextField(
@@ -6067,7 +6075,9 @@ private fun ExpandedSteerComposer(
                 .focusRequester(focusRequester)
                 .then(fieldModifier),
             placeholder = placeholder,
-            maxLines = 4,
+            // #EXP-1762: one line at rest, growing with the input up to
+            // web's max-h-60 (~8 lines) before it scrolls.
+            maxLines = 8,
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
         )
@@ -6396,7 +6406,7 @@ private fun SlashCommandMenu(
                     Text(
                         "/${command.name}",
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = nameColor,
                         maxLines = 1,
                     )
@@ -6418,7 +6428,7 @@ private fun SlashCommandMenu(
                         Text(
                             "<${command.argHint}>",
                             style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ExpMono,
                             color = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = TextEmphasis.Tertiary,
                             ),
@@ -6515,7 +6525,7 @@ private fun CommandRow(command: SlashCommand, text: String) {
             Text(
                 "/${command.name}",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ExpMono,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (args.isNotEmpty()) {

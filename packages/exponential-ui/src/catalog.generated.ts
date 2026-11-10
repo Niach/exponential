@@ -43,6 +43,7 @@ export const ENUMS = {
   alertType: ["info","success","warning","error"],
   controlSize: ["sm","default","lg"],
   avatarSize: ["sm","default","lg","xl"],
+  iconSize: ["sm","default","lg","xl"],
   spinnerSize: ["xs","sm","default","lg"],
   tabClosable: ["none","hover","always"],
   tabsVariant: ["pill","strip"],
@@ -107,6 +108,7 @@ export type ValidateOnValue = (typeof ENUMS)["validateOn"][number]
 export type AlertTypeValue = (typeof ENUMS)["alertType"][number]
 export type ControlSizeValue = (typeof ENUMS)["controlSize"][number]
 export type AvatarSizeValue = (typeof ENUMS)["avatarSize"][number]
+export type IconSizeValue = (typeof ENUMS)["iconSize"][number]
 export type SpinnerSizeValue = (typeof ENUMS)["spinnerSize"][number]
 export type TabClosableValue = (typeof ENUMS)["tabClosable"][number]
 export type TabsVariantValue = (typeof ENUMS)["tabsVariant"][number]
@@ -163,7 +165,7 @@ export const TOKEN_NAMES = {
   "type.lineHeight": ["xs","sm","base","lg","xl","xl2","xl3"],
   "type.weight": ["regular","medium","semibold","bold"],
   "type.family": ["sans","mono","serif"],
-  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl"],
+  "control": ["buttonSm","buttonMd","buttonLg","buttonIcon","input","textarea","row","rowCompact","pill","badge","chip","toggle","switch","checkbox","slider","progress","meter","avatarSm","avatarMd","avatarLg","iconSm","iconMd","iconLg","hairline","appBar","tabBar","toast","avatarXl","iconXl"],
   "shadow": ["none","sm","md","lg","xl","popover"],
   "opacity": ["primary","secondary","tertiary","quaternary","disabled"],
   "border": ["none","hairline","thick"],
@@ -191,7 +193,7 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
   menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
@@ -239,7 +241,7 @@ export interface ComponentProps {
   Label: { text: string | Dynamic; for?: string; required?: boolean }
   Image: { src?: string | Dynamic; alt: string | Dynamic; fit?: ImageFitValue; width?: number; height?: number; aspectRatio?: number; fallback?: IconName; loading?: ImageLoadingValue; focalX?: number; focalY?: number; style?: Style }
   ZoomableImage: { src: string | Dynamic; alt: string | Dynamic; naturalWidth?: number; naturalHeight?: number; initial?: ZoomInitialValue; maxScale?: number; controls?: ZoomControlsValue; scale?: number | Dynamic; style?: Style }
-  Icon: { name: IconName | Dynamic; size?: ControlSizeValue; tone?: ToneValue | Dynamic; label?: string }
+  Icon: { name: IconName | Dynamic; size?: IconSizeValue; tone?: ToneValue | Dynamic; label?: string }
   Video: { src: string | Dynamic; poster?: string; durationMs?: number; autoplay?: boolean; aspectRatio?: number; style?: Style }
   AudioPlayer: { src: string | Dynamic; title?: string; durationMs?: number }
   Avatar: { name: string | Dynamic; src?: string | Dynamic; size?: AvatarSizeValue; seed?: string | Dynamic }
@@ -262,7 +264,7 @@ export interface ComponentProps {
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
   Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue }
-  Tooltip: { content: string; side?: SideValue }
+  Tooltip: { content: string | Dynamic; side?: SideValue }
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }

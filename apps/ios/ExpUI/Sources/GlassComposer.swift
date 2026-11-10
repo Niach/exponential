@@ -41,6 +41,8 @@ public enum GlassComposerTokens {
     public static let toolSpacing: CGFloat = 2
     public static let horizontalPadding: CGFloat = 12
     public static let bottomPadding: CGFloat = 10
+    /// #EXP-1762: the flat card's inset around its one row (web `px-1.5`).
+    public static let flatPadding: CGFloat = 6
 }
 
 // MARK: - Tool + submit buttons
@@ -145,6 +147,11 @@ public struct GlassComposer<
     /// Lays the opaque card surface beneath the glass tint — for a composer
     /// that floats over a scrolling feed.
     var isOpaque: Bool = false
+    /// #EXP-1762: THE flat one-line card (the session screen's reply box,
+    /// web `Composer flat`): `tools` sit LEFT of the field, `submit` RIGHT,
+    /// all bottom-aligned on the field's row, so the card starts as one line
+    /// and grows upward with the input. The strip rides above that row.
+    var isFlat: Bool = false
     let leading: Leading
     let strip: Strip
     let field: Field
@@ -154,6 +161,7 @@ public struct GlassComposer<
     /// Slots are declared in the order they RENDER.
     public init(
         isOpaque: Bool = false,
+        isFlat: Bool = false,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder field: () -> Field,
         @ViewBuilder strip: () -> Strip,
@@ -161,6 +169,7 @@ public struct GlassComposer<
         @ViewBuilder submit: () -> Submit
     ) {
         self.isOpaque = isOpaque
+        self.isFlat = isFlat
         self.leading = leading()
         self.field = field()
         self.strip = strip()
@@ -171,15 +180,27 @@ public struct GlassComposer<
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             leading
-            field
-            strip
-            HStack(spacing: GlassComposerTokens.toolSpacing) {
-                tools
-                Spacer(minLength: 0)
-                submit
+            if isFlat {
+                strip
+                HStack(alignment: .bottom, spacing: GlassComposerTokens.toolSpacing) {
+                    HStack(spacing: GlassComposerTokens.toolSpacing) { tools }
+                    field.frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: GlassComposerTokens.toolSpacing) { submit }
+                        .frame(height: GlassComposerTokens.toolHitSize)
+                }
+                .padding(.horizontal, GlassComposerTokens.flatPadding)
+                .padding(.vertical, GlassComposerTokens.flatPadding)
+            } else {
+                field
+                strip
+                HStack(spacing: GlassComposerTokens.toolSpacing) {
+                    tools
+                    Spacer(minLength: 0)
+                    submit
+                }
+                .padding(.horizontal, GlassComposerTokens.horizontalPadding)
+                .padding(.bottom, GlassComposerTokens.bottomPadding)
             }
-            .padding(.horizontal, GlassComposerTokens.horizontalPadding)
-            .padding(.bottom, GlassComposerTokens.bottomPadding)
         }
         // N-12: ONE gray ×4 — the card composite under the card hairline,
         // floating or not (`isOpaque` keeps its API; the look is one).
@@ -198,6 +219,7 @@ extension GlassComposer where Leading == EmptyView {
     /// No leading row — the issue and steer composers.
     public init(
         isOpaque: Bool = false,
+        isFlat: Bool = false,
         @ViewBuilder field: () -> Field,
         @ViewBuilder strip: () -> Strip,
         @ViewBuilder tools: () -> Tools,
@@ -205,6 +227,7 @@ extension GlassComposer where Leading == EmptyView {
     ) {
         self.init(
             isOpaque: isOpaque,
+            isFlat: isFlat,
             leading: { EmptyView() },
             field: field,
             strip: strip,

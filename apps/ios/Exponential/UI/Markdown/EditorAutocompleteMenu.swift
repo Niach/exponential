@@ -130,7 +130,7 @@ struct EditorAutocompleteMenu: View {
                                 Color.clear.frame(width: 16, height: 16)
                             }
                             Text(candidate.identifier)
-                                .font(.caption.monospaced())
+                                .font(.expMono(.caption))
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .lineLimit(1)
                                 .layoutPriority(1)
@@ -149,7 +149,7 @@ struct EditorAutocompleteMenu: View {
                                 .font(.system(size: 18))
                                 .frame(width: 24)
                             Text(":\(record.shortcodes.first ?? record.label):")
-                                .font(.caption.monospaced())
+                                .font(.expMono(.caption))
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .lineLimit(1)
                                 .layoutPriority(1)

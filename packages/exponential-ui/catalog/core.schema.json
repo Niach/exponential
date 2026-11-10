@@ -3720,7 +3720,8 @@
           "enum": [
             "sm",
             "default",
-            "lg"
+            "lg",
+            "xl"
           ],
           "description": "Glyph size.",
           "default": "default"
@@ -6398,7 +6399,7 @@
           "const": "Tooltip"
         },
         "content": {
-          "type": "string",
+          "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Hint text."
         },
         "side": {
@@ -13185,7 +13186,8 @@
             "children": "none",
             "events": [
               "change",
-              "search"
+              "search",
+              "open"
             ]
           }
         }
@@ -22348,7 +22350,8 @@
               "appBar",
               "tabBar",
               "toast",
-              "avatarXl"
+              "avatarXl",
+              "iconXl"
             ]
           }
         },
@@ -23154,6 +23157,10 @@
         "description": {
           "type": "string",
           "description": "Second line."
+        },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
         },
         "image": {
           "type": "string",
@@ -27359,6 +27366,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "search": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "open": {
           "$ref": "#/$defs/EuiAction"
         }
       },

@@ -897,7 +897,7 @@ struct AppSettingsPage: View {
                     ForEach(rows, id: \.kind) { row in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.kind)
-                                .font(.subheadline.monospaced())
+                                .font(.expMono(.subheadline))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             Text(row.caption)
@@ -964,7 +964,7 @@ struct AppSettingsPage: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(tool)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1123,7 +1123,7 @@ struct AppSettingsPage: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(tool.name)
-                    .font(.caption.monospaced())
+                    .font(.expMono(.caption))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1195,7 +1195,7 @@ struct AppSettingsPage: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(automation.name)
-                    .font(.subheadline.monospaced())
+                    .font(.expMono(.subheadline))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 // Why it is paused is the line's point: it wraps, never cut in the middle.
@@ -1247,11 +1247,11 @@ struct AppSettingsPage: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(hook.name)
-                        .font(.subheadline.monospaced())
+                        .font(.expMono(.subheadline))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(hook.url)
-                        .font(.caption.monospaced())
+                        .font(.expMono(.caption))
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -1297,7 +1297,7 @@ struct AppSettingsPage: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                 Text(secret)
-                    .font(.subheadline.monospaced())
+                    .font(.expMono(.subheadline))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)

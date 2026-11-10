@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -425,7 +426,7 @@ private fun PromptForm(
                     minLines = 8,
                     enabled = editable,
                     bordered = false,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                 )
             }
         }

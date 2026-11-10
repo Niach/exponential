@@ -1712,7 +1712,7 @@
         },
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "sm | default | lg | xl",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -3390,7 +3390,7 @@
           "name": "content",
           "type": "string",
           "required": true,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Hint text."
         },
@@ -6342,7 +6342,8 @@
       "slots": [],
       "events": [
         "change",
-        "search"
+        "search",
+        "open"
       ],
       "basic": [
         "ChoicePicker (filterable, multipleSelection)"

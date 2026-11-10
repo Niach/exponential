@@ -1590,7 +1590,7 @@ fn image_row(ink: &Ink, chrome: &Chrome) -> Value {
         "children": [
             {"id": "image_picture", "component": "Image", "visible": path("/pane/image/has"), "props": {"src": path("/pane/image/src"), "alt": "", "fit": "cover", "fallback": spec.mark.glyph},
                 "style": {"width": side, "height": side, "borderRadius": side * spec.mark.radius_fraction}},
-            {"id": "image_glyph", "component": "Icon", "visible": path("/pane/image/none"), "props": {"name": spec.mark.glyph}, "style": {"width": side, "height": side, "color": ink.foreground}},
+            {"id": "image_glyph", "component": "Icon", "visible": path("/pane/image/none"), "props": {"name": spec.mark.glyph, "size": "xl"}, "style": {"width": side, "height": side, "color": ink.foreground}},
         ]});
     let mut upload = ink.pill_button("image_upload", None, json!(spec.copy.upload), path("/pane/image/disabled"), json!({"name": "upload"}));
     // gpui centres the label's line half a point lower than the flex centre.

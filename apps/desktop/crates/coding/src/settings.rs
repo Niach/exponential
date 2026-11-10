@@ -340,17 +340,13 @@ impl Settings {
             settings.branch_prefix = defaults.branch_prefix;
         }
         // Every model is explicit: blank or unknown reads as the default.
-        settings.claude_model =
-            normalize_choice(&settings.claude_model, MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
+        settings.claude_model = normalize_claude_model(&settings.claude_model, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
         settings.codex_model =
             normalize_choice(&settings.codex_model, &CODEX_MODELS, DEFAULT_CODEX_MODEL);
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
-        settings.computer_use_model = normalize_choice(
-            &settings.computer_use_model,
-            MODEL_ALIASES,
-            DEFAULT_COMPUTER_USE_MODEL,
-        );
+        settings.computer_use_model =
+            normalize_claude_model(&settings.computer_use_model, DEFAULT_COMPUTER_USE_MODEL);
         // A blank or overlong hand-edited display id reads as Auto.
         settings.computer_use_display_id = settings
             .computer_use_display_id
@@ -482,6 +478,14 @@ pub(crate) fn normalize_choice(raw: &str, allowed: &[&str], fallback: &str) -> S
     }
 }
 
+/// A stored claude model as its alias: a resolved id (`claude-fable-5-1`,
+/// an older Fable) folds onto its family's alias, so a saved Fable 5.1 runs
+/// on [`crate::agent::CLAUDE_FABLE_MODEL`]; blank or unknown = `fallback`.
+pub(crate) fn normalize_claude_model(raw: &str, fallback: &str) -> String {
+    let folded = crate::agent::claude_model_alias(raw).unwrap_or(raw);
+    normalize_choice(folded, MODEL_ALIASES, fallback)
+}
+
 /// See [`Settings::resolved_claude_path`]. Split out (with `home` injected)
 /// for testability.
 pub fn resolve_claude_program(raw: &str, home: Option<PathBuf>) -> String {
@@ -608,6 +612,10 @@ mod tests {
     fn model_vocabulary_and_defaults_mirror_the_contract() {
         assert_eq!(MODEL_ALIASES, domain::contract::CODING_MODEL_VALUES);
         assert_eq!(MODEL_ALIASES, ["fable", "opus", "sonnet", "haiku"]);
+        // A saved Fable 5.1 id reads as `fable` (= 5.2 at the CLI); the
+        // default stays Opus.
+        assert_eq!(normalize_claude_model("claude-fable-5-1", DEFAULT_CLAUDE_MODEL), "fable");
+        assert_eq!(normalize_claude_model("", DEFAULT_CLAUDE_MODEL), "opus");
         let settings = Settings::default();
         assert_eq!(settings.computer_use_model, "haiku");
         assert_eq!(settings.claude_model, "opus");

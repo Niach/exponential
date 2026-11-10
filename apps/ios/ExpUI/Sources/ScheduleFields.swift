@@ -175,7 +175,7 @@ public struct ScheduleFields: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .font(.system(.body, design: .monospaced))
+        .font(.expMono(.body))
     }
 }
 

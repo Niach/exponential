@@ -1,6 +1,7 @@
 package com.exponential.app.ui.onboarding
 
 import androidx.compose.foundation.layout.Arrangement
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -172,7 +173,7 @@ fun CreateBoardForm(
                     },
                     placeholder = "e.g. API",
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                    textStyle = TextStyle(fontFamily = FontFamily.Monospace),
+                    textStyle = TextStyle(fontFamily = ExpMono),
                 )
             }
         }
