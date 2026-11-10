@@ -303,6 +303,9 @@ pub fn demo_input() -> ChatInput {
         ],
         ..Default::default()
     };
+    if std::env::var("EXP1780_LONG").is_ok() {
+        for i in 0..24 { input.rows.push(message(&format!("x{i}"), if i % 2 == 0 { "user" } else { "agent" }, &format!("Long conversation line {i}: this keeps going to overflow the panel."), "10:00")); }
+    }
     crate::chat::demo_group(&mut input.rows, &agent_icon("a2"), "Triage");
     input
 }

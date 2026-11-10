@@ -1581,6 +1581,13 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
     size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
+    // #EXP-1780: the chat's rows follow the newest one.
+    if doc.name == "chat" {
+        let view = shell.borrow().surfaces.region("chat").map(|r| r.view.clone());
+        if let Some(view) = view {
+            view.update(cx, uicore_gpui::follow_chat);
+        }
+    }
 }
 
 fn close(shell: &SharedShell, name: &str, cx: &mut App) {
