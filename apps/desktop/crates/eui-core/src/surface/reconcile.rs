@@ -250,6 +250,7 @@ impl Surface {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            macro_query: None,
             authored_keys: Vec::new(),
             hidden: true,
             lines: None,
@@ -406,7 +407,7 @@ impl Surface {
                     || old.live != n.live
                     || old.part_query.as_ref().map(|q| &q.states) != n.part_query.as_ref().map(|q| &q.states)
                     || old.own_query.as_ref().map(|q| &q.states) != n.own_query.as_ref().map(|q| &q.states);
-                let style_changed = old.base_style != n.base_style || old.default_keys != n.default_keys || old.own_query != n.own_query || old.part_query != n.part_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
+                let style_changed = old.base_style != n.base_style || old.default_keys != n.default_keys || old.own_query != n.own_query || old.part_query != n.part_query || old.macro_query != n.macro_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
                 let measure_changed = old.props != n.props || old.lines != n.lines || old.component != n.component || old.kind != n.kind || old.part != n.part;
                 if old.parent != n.parent || old.children != n.children || old.layer != n.layer {
                     structure_changed = true;

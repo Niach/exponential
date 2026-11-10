@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
 - Select option `trailing` + event `open` (#EXP-1629), React's: the popup row reads `label trailing`, `open` fires as the popup opens. Parity cases.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629), React's: no label part, `aria-label` on the field. Parity case (Input code + Textarea row, typing).
 - Select `description` (#EXP-1629), React's: the field hint, the row's `labels` + `control` columns, `aria-describedby`. Parity cases for both variants.

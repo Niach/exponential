@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760): a pick (a cell, a swatch, the No icon row) closes the picker's Popover (`ClosePickerContext`), as the core does; `pickerPick` replays here.
 - Select option `trailing` + event `open` (#EXP-1629): the popup row reads `label trailing` (Radix's `ItemText` keeps the label alone), the trigger the label; `open` fires as the popup opens.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).
 - Select `description` (#EXP-1629): under a field trigger; in a row the `labels` column (label + hint) and the `control` column (value + chevron); the trigger's `aria-describedby` names it.

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760): against the IDE's `board_form::icon_picker` / `color_picker` in `ui/src/picker_bench.rs` (closed and open).
 - Textarea autosize (#EXP-1629): an intrinsic measure pass (no width yet) counts the value's hard lines only, instead of wrapping it at a guessed 160 px, which left an enabled one-line `row` Textarea a row taller than its rows (the Skills page's description, 3 rows for 2).
 - Textarea `row` / `code` (#EXP-1629): the gpui-component Textarea is placed its own editor inset (`Size::Medium` input_px × input_py) outside the field's content box, so the recipe padding is the whole inset, as the IDE's `Textarea.appearance(false).px_4().py_3()` draws it. 0 px against the IDE's agent instructions, skill description, SKILL.md / prompt body and the disabled team prompt; Input `bare` / `code` against `glass_row_input` and the skill name row.
 - Composer slots + paste (#EDE-65 R): the attach control moves before the core-laid `trailing` slot; a paste into the field (`Textarea::on_paste`) with images (copied image files, a raw clipboard image written to a temporary `image.<ext>`) fires `attach` {files} and `on_upload` (`name` = the Composer's id), files without an image insert nothing. `SurfaceView::composer_paste`, `clipboard_images`, `clipboard_has_files`.

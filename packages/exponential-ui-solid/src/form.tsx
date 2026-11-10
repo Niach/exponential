@@ -45,6 +45,10 @@ export const FormContext = createContext<FormContextValue | null>(null)
  *  overlay provides null. */
 export const CloseOnSubmitContext = createContext<(() => void) | null>(null)
 
+/** #EXP-1760: an IconPicker / ColorPicker's Popover provides its close; a
+ *  pick beneath (`isPickerPick`) calls it right after `press`. */
+export const ClosePickerContext = createContext<(() => void) | null>(null)
+
 export function useForm(): FormContextValue | null {
   return useContext(FormContext) ?? null
 }
