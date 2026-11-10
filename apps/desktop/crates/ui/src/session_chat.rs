@@ -4915,7 +4915,10 @@ mod tests {
         arrive(1, &view, cx);
         for _ in 0..2 {
             let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
-            assert!(now.is_some_and(|now| (now - y).abs() < 0.5), "a reader above stays put: {y} -> {now:?}");
+            // Within the keep engine's own half-pixel hold (`keep.rs` `hold`:
+            // `<= 0.5` counts as in place; #EXP-1782's transcript ends at the
+            // Dock band's top, so a re-measured row above can land on it).
+            assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "a reader above stays put: {y} -> {now:?}");
             one_frame(cx);
         }
         assert!(!chat_at_bottom(&view, cx), "not pulled to the bottom");
