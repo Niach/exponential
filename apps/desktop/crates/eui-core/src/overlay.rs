@@ -190,6 +190,24 @@ pub fn place_overlay(anchor: &Rect, size: &Size, viewport: &Size, options: &Plac
     OverlayPlacement { x: round3(x), y: round3(y), side, flipped }
 }
 
+/// #EXP-1765: an overlay whose box reaches `inset` OUTSIDE its content on
+/// every side (the IDE Popover: its 1 pt ring outside its content box),
+/// placed in gpui-component's Popover order: the inset first (a `start` box
+/// begins `inset` before the anchor's start, an `end` one `inset` past its
+/// end), then [`place_overlay`]'s flip and margin clamp, then the CONTENT's
+/// offset from the anchor's origin rounded to whole points (gpui's
+/// `Positioner`, half away from zero). The snap may leave the box up to half
+/// a point past the margin, as the IDE's does. Mirrors `placeInsetOverlay`
+/// (TS); `overlay-geometry.json` `inset` locks it.
+pub fn place_inset_overlay(anchor: &Rect, size: &Size, viewport: &Size, options: &PlaceOptions, inset: f64) -> OverlayPlacement {
+    let wide = Rect { x: anchor.x - inset, width: anchor.width + 2.0 * inset, ..*anchor };
+    let mut p = place_overlay(&wide, size, viewport, options);
+    let snap = |at: f64, origin: f64| round3(origin + (at + inset - origin).round() - inset);
+    p.x = snap(p.x, anchor.x);
+    p.y = snap(p.y, anchor.y);
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
