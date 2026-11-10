@@ -6460,6 +6460,15 @@
           "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
         {
+          "name": "triggerIcon",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
+        {
           "name": "align",
           "type": "start | center | end",
           "required": false,
@@ -6930,8 +6939,8 @@
       "group": "input",
       "lite": false,
       "specimenId": "exponential-ui-color-picker",
-      "description": "Colour field: a swatch opens the palette grid.",
-      "children": "none",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
+      "children": "one",
       "slots": [],
       "events": [
         "change"
@@ -6962,13 +6971,22 @@
           "responsive": false,
           "default": false,
           "description": "Grid shows; bind it."
+        },
+        {
+          "name": "inline",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "The grid alone, no trigger."
         }
       ],
       "accessibility": {
         "role": "button",
-        "notes": "as IconPicker: the trigger is named `Color: #hex`, each swatch a toggle button named by its hex",
+        "notes": "as IconPicker: the trigger (a child = a ghost button around it) is named `Color: #hex`, each swatch a toggle button named by its hex; `inline` = the swatches alone",
         "keys": [
-          "As IconPicker"
+          "As IconPicker; inline: Tab moves through the swatches, Enter, Space picks"
         ]
       },
       "example": {

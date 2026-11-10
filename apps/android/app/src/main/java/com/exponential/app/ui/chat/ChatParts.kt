@@ -549,14 +549,24 @@ fun ChatConversation(
                             TranscriptGrouping.Side.Other -> {
                                 val link = sender?.link
                                 val open = onOpenXref
-                                MessageBubble(
-                                    text = row.body,
-                                    own = false,
-                                    time = rowMeta?.time,
-                                    author = layout.authorLine(),
-                                    onClick = if (link != null && open != null) ({ open(link) }) else null,
-                                    queued = row.queued,
-                                )
+                                if (layout.isRelay()) {
+                                    // #EXP-1772: a relay: its name above the
+                                    // bubble, only the name opens the session.
+                                    RelayBubble(
+                                        author = layout.authorLine(),
+                                        time = rowMeta?.time,
+                                        onOpen = if (link != null && open != null) ({ open(link) }) else null,
+                                        queued = row.queued,
+                                    ) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) }
+                                } else {
+                                    MessageBubble(
+                                        text = row.body,
+                                        own = false,
+                                        time = rowMeta?.time,
+                                        author = layout.authorLine(),
+                                        queued = row.queued,
+                                    )
+                                }
                             }
                         }
                     }
@@ -640,7 +650,8 @@ fun ChatConversation(
                         )
                     }
                     // #EXP-1736: a child's report = its bubble (the summary),
-                    // named `<child> ›`, opening it.
+                    // named `<child> ›`; #EXP-1772: a relay, only the name
+                    // above it opens the child.
                     is SessionTree.SessionChatRow.Report -> {
                         val action = ChatRowAction.chatRowAction(
                             type = "report",
@@ -652,13 +663,11 @@ fun ChatConversation(
                             answered = false,
                         )
                         val open = onOpenXref?.takeIf { action.action != ChatRowAction.Kind.None }
-                        MessageBubble(
-                            text = row.summary.ifEmpty { row.text },
-                            own = false,
-                            time = null,
+                        RelayBubble(
                             author = layout.authorLine(),
-                            onClick = open?.let { { it(row.sessionId) } },
-                        )
+                            time = null,
+                            onOpen = open?.let { { it(row.sessionId) } },
+                        ) { MarkdownView(markdown = row.summary.ifEmpty { row.text }, softBreaksAsNewlines = true) }
                     }
                     is SessionTree.SessionChatRow.Suggestions -> ChatSuggestionsCard(
                         row = row,
@@ -1034,42 +1043,13 @@ fun ChatPictureRow(row: SessionTree.SessionChatRow.Picture) {
     }
 }
 
-/** An `event` card (and a system message): ONE quiet line. #EXP-1464: a
- *  line about another session ([onClick] non-null) becomes a button with the
- *  trailing chevron and the pressed wash; otherwise it stays plain. */
+/** An `event` card (and a system message): #EXP-1772 THE inline marker
+ *  ([FeedMarkerRow]: the centred muted label). #EXP-1464: a line about
+ *  another session ([onClick] non-null) is a button with the trailing
+ *  chevron that opens it; otherwise it stays plain. */
 @Composable
 fun ChatEventLine(text: String, onClick: (() -> Unit)? = null) {
-    if (onClick == null) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = Muted,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag(ChatRowAction.TestIds.EVENT),
-        )
-        return
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-            .testTag(ChatRowAction.TestIds.EVENT),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = Muted,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(12.dp))
-    }
+    FeedMarkerRow(text, onClick = onClick, testTag = ChatRowAction.TestIds.EVENT)
 }
 
 /**

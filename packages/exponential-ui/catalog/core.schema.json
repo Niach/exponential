@@ -1268,6 +1268,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -2420,6 +2422,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -3150,6 +3154,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -4459,6 +4465,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -5624,6 +5632,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -6487,6 +6497,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -7261,6 +7273,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -7980,6 +7994,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -8638,6 +8654,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -10207,6 +10225,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -10961,6 +10981,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -12412,6 +12434,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -13151,6 +13175,11 @@
           "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule.",
           "default": "field"
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "description": "`row`: the chosen option's `icon` before the value.",
+          "default": false
+        },
         "align": {
           "enum": [
             "start",
@@ -13499,6 +13528,8 @@
               "boxes",
               "braces",
               "brain",
+              "brand-claude",
+              "brand-codex",
               "brand-exponential",
               "briefcase",
               "brush-cleaning",
@@ -14102,7 +14133,7 @@
     },
     "ColorPicker": {
       "type": "object",
-      "description": "Colour field: a swatch opens the palette grid.",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
       "properties": {
         "component": {
           "const": "ColorPicker"
@@ -14123,6 +14154,14 @@
           "description": "Grid shows; bind it.",
           "default": false
         },
+        "inline": {
+          "type": "boolean",
+          "description": "The grid alone, no trigger.",
+          "default": false
+        },
+        "children": {
+          "$ref": "#/$defs/ChildList"
+        },
         "on": {
           "$ref": "#/$defs/On_ColorPicker"
         },
@@ -14136,14 +14175,13 @@
       "required": [
         "component"
       ],
-      "allowedChildren": [],
       "metadata": {
         "extensions": {
           "at_exponential_component": {
             "kind": "macro",
             "group": "input",
             "lite": false,
-            "children": "none",
+            "children": "one",
             "events": [
               "change"
             ]
@@ -14666,6 +14704,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -22969,7 +23009,8 @@
               "chart8",
               "link",
               "borderStrong",
-              "ghostHover"
+              "ghostHover",
+              "strokeActive"
             ]
           }
         },
@@ -23327,6 +23368,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -23993,6 +24036,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -24624,6 +24669,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -25277,6 +25324,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -26185,6 +26234,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -26878,6 +26929,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",

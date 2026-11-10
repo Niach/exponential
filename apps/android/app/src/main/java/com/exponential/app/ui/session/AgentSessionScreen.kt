@@ -351,6 +351,9 @@ import com.exponential.app.ui.chat.MessageBubble
 import com.exponential.app.ui.chat.SenderAvatar
 import com.exponential.app.ui.chat.TranscriptBubbleRow
 import com.exponential.app.ui.chat.authorLine
+import com.exponential.app.ui.chat.FeedMarkerRow
+import com.exponential.app.ui.chat.RelayBubble
+import com.exponential.app.ui.chat.isRelay
 import com.exponential.app.ui.chat.SurfaceCard
 import com.exponential.app.ui.chat.ChatAnswer
 import com.exponential.app.ui.chat.ChatAskCard
@@ -1773,8 +1776,12 @@ private fun ActivityFeed(
     // trailing unsettled row is history, not a tail). The rule is shared ×4.
     val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
     val rows = remember(feed, windowStart, workflowIds, docked) {
-        splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
-            .filterNot { docked != null && isSameAskRow(it, docked) }
+        // #EXP-1772: a hidden marker (a system input the agent answered with
+        // no reply) and a blank agent turn are no rows at all.
+        dropHiddenFeedRows(
+            splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
+                .filterNot { docked != null && isSameAskRow(it, docked) },
+        )
     }
     // #EXP-1736 (transcript-grouping.json): the main stream's senders and
     // groups; the EXP-787 ladder keeps the gaps except between two bubbles.
@@ -2121,22 +2128,26 @@ private fun ActivityFeed(
                                 val command =
                                     SlashCommands.commandFor(item.text, agent)
                                 val time = item.at?.let(::feedClock)
+                                // #EXP-1772: a system input = THE inline marker.
+                                val input = TranscriptGrouping.feedInput(item.text)
                                 when {
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
+                                    input is TranscriptGrouping.FeedInput.Marker -> FeedMarkerRow(input.label)
                                     layout?.side == TranscriptGrouping.Side.Other -> {
                                         // #EXP-1736: a parent's / child's message
-                                        // = that session's bubble (its body).
+                                        // = that session's bubble (its body);
+                                        // #EXP-1772: a relay, its name above,
+                                        // only the name opens it, never folded.
                                         val link = layout?.sender?.link
                                         val open = senders?.onOpen
-                                        val cross = TranscriptGrouping.crossSessionInput(item.text)
+                                        val relay = (input as? TranscriptGrouping.FeedInput.Relay)
                                             ?.takeIf { it.sessionId == link }
-                                        MessageBubble(
-                                            own = false,
-                                            time = time,
+                                        RelayBubble(
                                             author = layout.authorLine(),
-                                            onClick = if (link != null && open != null) ({ open(link) }) else null,
-                                        ) { UserMessageBody(cross?.body ?: item.text) }
+                                            time = time,
+                                            onOpen = if (link != null && open != null) ({ open(link) }) else null,
+                                        ) { UserMessageBody(relay?.body ?: item.text, fold = false) }
                                     }
                                     else -> MessageBubble(own = true, time = time) { UserMessageBody(item.text) }
                                 }
@@ -2281,6 +2292,34 @@ internal data class FeedSenders(
  *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
 internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
 
+/**
+ * #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
+ * without the markers nobody answered (a system input shows only when an
+ * agent reply follows it before the next input or marker) and without the
+ * blank agent turns, BEFORE the transcript layout (a hidden marker never
+ * breaks a group).
+ */
+internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): List<AgentFeedRow> {
+    fun blank(row: AgentFeedRow): Boolean =
+        ((row as? AgentFeedRow.Single)?.item as? AgentFeedItem.Narration)?.text?.isBlank() == true
+    val kinds = rows.map { row ->
+        when (val item = (row as? AgentFeedRow.Single)?.item) {
+            is AgentFeedItem.UserMessage ->
+                if (TranscriptGrouping.feedInput(item.text) is TranscriptGrouping.FeedInput.Marker) {
+                    TranscriptGrouping.FeedRowKind.Marker
+                } else {
+                    TranscriptGrouping.FeedRowKind.Input
+                }
+            is AgentFeedItem.Narration ->
+                if (item.text.isNotBlank()) TranscriptGrouping.FeedRowKind.Reply else TranscriptGrouping.FeedRowKind.Other
+            else -> TranscriptGrouping.FeedRowKind.Other
+        }
+    }
+    if (kinds.none { it == TranscriptGrouping.FeedRowKind.Marker } && rows.none(::blank)) return rows
+    val shown = TranscriptGrouping.markersShown(kinds)
+    return rows.filterIndexed { index, row -> shown[index] && !blank(row) }
+}
+
 /** The raw feed's viewer: every typed prompt there is the viewer's own
  *  turn (web `FEED_VIEWER`). */
 internal const val FEED_VIEWER = "feed-viewer"
@@ -2326,9 +2365,12 @@ internal fun feedTranscriptLayout(
                     Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
+                } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker) {
+                    // #EXP-1772: a system input is THE marker (full, never grouped).
+                    TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else {
                     bubbleIds += id
-                    val cross = TranscriptGrouping.crossSessionInput(feedItem.text)
+                    val cross = TranscriptGrouping.feedInput(feedItem.text) as? TranscriptGrouping.FeedInput.Relay
                     if (cross != null) {
                         sessions.getOrPut(cross.sessionId) {
                             TranscriptGrouping.SessionRef(cross.sessionId, cross.name, null)
@@ -3310,14 +3352,15 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
 /** A human turn's body inside its bubble: the prose (folded when long, its
  *  `[Image #N]` markers as pills), the images, the file tiles. */
 @Composable
-private fun UserMessageBody(text: String) {
+private fun UserMessageBody(text: String, fold: Boolean = true) {
     var expanded by remember(text) { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
     // Wave D: file lines peel off too — rendered as file tiles below.
     val hasFiles = parsed.files.isNotEmpty()
     val prose = if (hasImages || hasFiles) parsed.text else text
-    val folds = remember(prose) { clampable(prose) }
+    // #EXP-1772: a relay is never folded.
+    val folds = remember(prose, fold) { fold && clampable(prose) }
     Column(
         modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
     ) {
@@ -6481,23 +6524,8 @@ internal fun SlashPromptRow(
  *  divider, so "why did it forget what we discussed" has an answer later. */
 @Composable
 private fun CompactionMarkerRow() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-    ) {
-        Icon(
-            ExpIcons.codingCompact,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Text(
-            COMPACTED_LABEL,
-            style = transcriptToolStyle(),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
+    // #EXP-1772: THE inline marker ([FeedMarkerRow]), a system input's too.
+    FeedMarkerRow(COMPACTED_LABEL, testTag = "session-compaction-marker")
 }
 
 /** EXP-724: a steered message that IS a catalog command — the pill says a

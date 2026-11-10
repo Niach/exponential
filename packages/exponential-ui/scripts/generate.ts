@@ -116,7 +116,7 @@ interface IconRegistry {
   devicePickable: string[]
   semantic: Record<string, string>
   custom?: Record<string, unknown>
-  imported?: Record<string, unknown>
+  imported?: Record<string, { fill?: string }>
 }
 
 /** Every name the Icon prop accepts: the concept ids plus every registry
@@ -131,6 +131,16 @@ export function iconNames(): string[] {
   for (const name of Object.keys(registry.custom ?? {})) names.add(name)
   for (const name of Object.keys(registry.imported ?? {})) names.add(name)
   return [...names].sort()
+}
+
+/** #EXP-1764: the icons with their OWN colour (icons.json `imported[].fill`,
+ *  `brand-claude` = Anthropic's orange): every renderer paints them in it,
+ *  never in the text colour. Sorted by name. */
+export function iconFills(): [string, string][] {
+  const registry = JSON.parse(readFileSync(join(repoRoot, `packages/icons/icons.json`), `utf8`)) as IconRegistry
+  return Object.entries(registry.imported ?? {})
+    .flatMap(([name, entry]) => (entry.fill ? [[name, entry.fill] as [string, string]] : []))
+    .sort(([a], [b]) => a.localeCompare(b))
 }
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
@@ -283,6 +293,9 @@ export const STYLE_STATE_NAMES = ${JSON.stringify(STYLE_STATES)} as const
 /** The Icon prop's vocabulary: packages/icons/icons.json at generate time. */
 export const ICON_NAMES = ${JSON.stringify(icons)} as const
 
+/** #EXP-1764: the icons painted in their OWN colour (\`#RRGGBB\`), never the text colour. */
+export const ICON_FILLS: Record<string, string> = ${JSON.stringify(Object.fromEntries(iconFills()))}
+
 export const FUNCTION_NAMES = ${JSON.stringify(coreCatalog.functions.names)} as const
 
 /** VAPP-108: the typed authoring surface (src/define.ts). A ~ prop also
@@ -341,6 +354,8 @@ const rows = {
   codeLanguageNames: [...CODE_LANGUAGE_NAMES],
   builtinIconSlots: Object.keys(builtinIcons()),
   builtinIconNames: Object.values(builtinIcons()),
+  iconFillNames: iconFills().map(([name]) => name),
+  iconFillColors: iconFills().map(([, fill]) => fill),
   weekStartRegions: Object.values(localeJson.weekStart.regions).flat(),
   weekStartDays: Object.entries(localeJson.weekStart.regions).flatMap(([day, regions]) => regions.map(() => day)),
   likelyRegionLanguages: Object.keys(localeJson.likelyRegion),
@@ -551,10 +566,15 @@ function childFor(name: string): NestedNode {
   return { id: `${snake(name)}_child`, component: `Text`, props: { text: `Child` } }
 }
 
+/** Macros whose child switches the look (a ColorPicker's child = its own
+ *  trigger): the sweep keeps them childless and ONE `<name>/child` case
+ *  shows the child. */
+const CHILD_SWITCHES = new Set([`ColorPicker`])
+
 function makeCase(name: string, def: ComponentDef, suffix: string, props: Record<string, unknown>): ComponentCase {
   const node: NestedNode = { id: snake(name), component: name, props }
   // #VAPP-284: children make a Row a foldable parent; the sweep keeps the plain row (foldCases cover the parent).
-  if (def.children !== `none` && name !== `Row`) node.children = [childFor(name)]
+  if (def.children !== `none` && name !== `Row` && !CHILD_SWITCHES.has(name)) node.children = [childFor(name)]
   return { name: `${name}/${suffix}`, node }
 }
 
@@ -722,6 +742,7 @@ function componentCases(): ComponentCase[] {
       }
     }
     for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: snake(name), component: name, props: { ...base, ...props } } })
+    if (CHILD_SWITCHES.has(name)) cases.push({ name: `${name}/child`, node: { id: snake(name), component: name, props: base, children: [childFor(name)] } })
   }
   return cases
 }
@@ -888,6 +909,10 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
   ColorPicker: [
     { label: `value`, node: { id: `color`, component: `ColorPicker`, props: { value: `#3b82f6` } } },
     { label: `empty`, node: { id: `color-none`, component: `ColorPicker`, props: {} } },
+    // The IDE's Statuses / Labels: a status glyph as the trigger (a ghost
+    // button around the child) and the create form's inline grid.
+    { label: `child · a status glyph`, node: { id: `color-glyph`, component: `ColorPicker`, props: { value: `#22c55e` }, children: [{ id: `color-glyph-icon`, component: `Icon`, props: { name: `circle-dashed`, size: `sm` } }] } },
+    { label: `inline`, node: { id: `color-inline`, component: `ColorPicker`, props: { value: `#22c55e`, inline: true } } },
   ],
   // #VAPP-285: a repository: folders open and closed, a selected file, an
   // empty folder; then a lazy folder opened (its loading row).
@@ -988,7 +1013,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
   ],
   ColorPicker: [
-    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 160 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
+    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 180 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
   ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
@@ -1067,6 +1092,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       component: `Group`,
       children: [
         { id: `branch`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } },
+      ],
+    },
+  }, {
+    // #EXP-1764: the IDE's Account row: the chosen login's agent mark
+    // (`brand-claude` in its own orange) before the email (`triggerIcon`).
+    label: `triggerVariant · row + triggerIcon`,
+    node: {
+      id: `agent_prefs`,
+      component: `Group`,
+      children: [
+        { id: `account`, component: `Select`, props: { label: `Account`, name: `account`, triggerVariant: `row`, triggerIcon: true, value: `claude`, options: [{ label: `ada@example.com`, value: `claude`, icon: `brand-claude` }, { label: `ada@example.org`, value: `codex`, icon: `brand-codex` }] } },
       ],
     },
   }, {

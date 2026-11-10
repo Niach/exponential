@@ -26,6 +26,7 @@ use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
@@ -645,6 +646,22 @@ fn settings_branch_menu_ide() {
 #[ignore]
 fn settings_branch_menu_eui() {
     shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
+/// #EXP-1764 (genUI Select `triggerIcon` + the `brand-claude` mark): the
+/// Agent detail Account row closed (the brand mark, the email, the
+/// chevron), today's IDE row vs the genUI row: run each into its own dir,
+/// the second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_account_row_ide() {
+    shoot_pane("account-row", IdeAccountRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_account_row_eui() {
+    shoot_pane("account-row", EuiAccountRow::for_shots, |_, _| {});
 }
 
 /// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
@@ -1275,38 +1292,45 @@ fn board_detail(name: &str, shot: BoardShot) {
 #[test]
 #[ignore]
 fn settings_board_unlinked() {
-    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_linked() {
-    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_pinned() {
-    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false, press: Vec::new() });
+}
+
+/// The identity row's ColorPicker open: the label palette's 28 px cells.
+#[test]
+#[ignore]
+fn settings_board_color_open() {
+    board_detail("board-color-open", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: vec!["color_picker.trigger".into()] });
 }
 
 #[test]
 #[ignore]
 fn settings_board_loading() {
-    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_unavailable() {
-    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
-    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true, press: Vec::new() });
 }
 
 const PROMPT_BODY: &str = "Review the open PRs on this board.\n\n- Summarise each diff in two lines.\n- Flag anything that touches `apps/web/src/db`.\n";
@@ -1786,6 +1810,351 @@ impl Render for BlockShot {
         }
         div().w_full().child(self.block.clone())
     }
+}
+
+/// #EXP-1629: the app editor's Settings tab (`settings::app_detail` and the
+/// `app_mcp` groups), in a window tall enough for every group at once.
+mod app_detail {
+    use super::*;
+    use crate::settings::app_detail::{AppDetailPane, AppShot};
+    use serde_json::json;
+
+    const WINDOW: (f32, f32) = (760., 2240.);
+
+    /// Where the pointer goes before the picture.
+    #[derive(Clone, Copy)]
+    enum Pointer {
+        Rest,
+        Hover((f32, f32)),
+        /// A left click (the gpui pane's pictures of the open pickers).
+        #[allow(dead_code)]
+        Click((f32, f32)),
+        /// The document's press on a node (the eUI pane's click).
+        Press(&'static str),
+    }
+
+    fn frames(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext, settle: bool) {
+        for _ in 0..6 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+        if settle {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            for _ in 0..3 {
+                draw(window, cx);
+                cx.run_until_parked();
+            }
+        }
+    }
+
+    fn mouse(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext, event: gpui::PlatformInput) {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(event, cx);
+        })
+        .expect("a pointer event");
+    }
+
+    /// `EXP_APP_POINT=x,y` overrides the state's pointer position.
+    fn point(default: (f32, f32)) -> gpui::Point<gpui::Pixels> {
+        let (x, y) = std::env::var("EXP_APP_POINT").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(default);
+        gpui::point(px(x), px(y))
+    }
+
+    fn shoot(name: &str, shot: AppShot, pointer: Pointer) {
+        let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
+        let mut cx = headless();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let mut frame = None;
+        let handle = cx
+            .open_window(size(px(WINDOW.0), px(WINDOW.1)), |window: &mut Window, cx| {
+                let pane = cx.new(|cx| AppDetailPane::for_shots(window, cx));
+                let view = cx.new(|_| Frame { pane: pane.clone().into() });
+                frame = Some(pane);
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+            })
+            .expect("a headless window");
+        let window: gpui::AnyWindowHandle = handle.into();
+        let frame = frame.expect("the frame");
+        cx.update(|cx| frame.update(cx, |pane, cx| pane.show(shot, cx)));
+        frames(window, &mut cx, true);
+        match pointer {
+            Pointer::Rest => {}
+            Pointer::Hover(at) => {
+                let position = point(at);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx, true);
+            }
+            Pointer::Press(id) => {
+                cx.update_window(window, |_, window, cx| frame.update(cx, |pane, cx| pane.press_for_shots(id, window, cx))).expect("the press");
+                frames(window, &mut cx, true);
+                cx.update(|cx| frame.update(cx, |pane, cx| pane.press_for_shots_settle(cx)));
+                frames(window, &mut cx, true);
+            }
+            Pointer::Click(at) => {
+                let position = point(at);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false }));
+                frames(window, &mut cx, false);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 }));
+                frames(window, &mut cx, true);
+                // Park the pointer away so no cell paints its hover.
+                let away = gpui::point(px(WINDOW.0 - 4.), px(WINDOW.1 - 4.));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position: away, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx, true);
+            }
+        }
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join(format!("{name}.png"))).expect("the PNG");
+        if let Some(before) = std::env::var_os("EXP_SETTINGS_BEFORE") {
+            let before = image::open(std::path::Path::new(&before).join(format!("{name}.png"))).expect("the earlier picture").to_rgba8();
+            let after = image::RgbaImage::from_raw(shot.width(), shot.height(), shot.as_raw().to_vec()).expect("the frame's pixels");
+            assert_eq!(before.dimensions(), after.dimensions());
+            let mut diff = after.clone();
+            let (mut count, mut bounds, mut worst) = (0u32, (u32::MAX, u32::MAX, 0u32, 0u32), 0u8);
+            for (x, y, pixel) in diff.enumerate_pixels_mut() {
+                let a = before.get_pixel(x, y);
+                if a == pixel {
+                    pixel.0 = [pixel.0[0] / 3, pixel.0[1] / 3, pixel.0[2] / 3, 255];
+                    continue;
+                }
+                worst = worst.max((0..3).map(|c| a.0[c].abs_diff(pixel.0[c])).max().unwrap_or(0));
+                count += 1;
+                bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x), bounds.3.max(y));
+                pixel.0 = [255, 0, 0, 255];
+            }
+            eprintln!("{name}: {count} pixels differ (worst level {worst}), within {bounds:?}");
+            diff.save(std::path::Path::new(&dir).join(format!("{name}.diff.png"))).expect("the diff");
+        }
+        std::mem::forget(cx);
+    }
+
+    fn row(package: bool, head: i64) -> domain::rows::AppRow {
+        let package = package.then(|| {
+            json!({
+                "functions": ["exponential_issues_update_status", "exponential_comments_create", "exponential_issues_delete"],
+                "records": {"lead": {"policy": {"read": "author", "update": "author", "delete": "owners"}}, "visit": {}},
+            })
+        });
+        serde_json::from_value(json!({
+            "id": "app-crm", "team_id": "team-acme", "slug": "field-crm", "name": "Field CRM", "icon": "rocket", "color": "#3b82f6",
+            "description": "Tracks leads and follow-ups for the field team.",
+            "package": package, "head_version": head, "published_version": head,
+            "granted_tools": ["exponential_comments_create"],
+        }))
+        .expect("an app row")
+    }
+
+    fn mcp(owner: bool) -> api::app_access::AppToolsOut {
+        serde_json::from_value(json!({
+            "canToggle": owner,
+            "tools": [
+                {"name": "list_leads", "title": "List leads", "access": "read", "enabled": true},
+                {"name": "log_visit", "title": "Log a visit", "access": "write", "enabled": true},
+                {"name": "purge_stale", "title": "Purge stale leads", "access": "write", "enabled": false},
+            ],
+            "upstreams": [
+                {"name": "hubspot", "serverId": null, "auth": "oauth"},
+                {"name": "github", "serverId": "s-gh", "serverName": "github", "auth": "oauth", "state": "connected"},
+                {"name": "crm", "serverId": "s-sf", "serverName": "salesforce", "auth": "oauth", "state": "disconnected"},
+                {"name": "calendar", "serverId": "s-cal", "serverName": "calendar", "auth": "oauth", "state": "reconnect"},
+            ],
+            "servers": if owner { json!([{"id": "s-cal", "name": "calendar"}, {"id": "s-gh", "name": "github"}, {"id": "s-sf", "name": "salesforce"}]) } else { json!([]) },
+            "automations": [
+                {"name": "nightly-digest", "on": {"schedule": {"cron": "0 6 * * *", "tz": "Europe/Vienna"}}, "tool": "digest", "sponsorName": "Ada Lovelace", "lastStatus": "ok"},
+                {"name": "on-new-lead", "on": {"record": {"kind": "lead", "op": "create"}}, "tool": "welcome", "lastStatus": "error", "droppedRuns": 3},
+                {"name": "intake", "on": {"webhook": {"name": "intake"}}, "tool": "intake", "paused": "sponsor_left"},
+            ],
+            "hooks": [
+                {"name": "intake", "url": "https://acme.exponential.at/api/apps/hooks/app-crm/intake", "hasSecret": true},
+                {"name": "billing", "url": "https://acme.exponential.at/api/apps/hooks/app-crm/billing", "hasSecret": false},
+            ],
+            "shares": [
+                {"name": "contact-form", "mode": "submit", "kind": "form", "state": "on", "url": "https://acme.exponential.at/s/7f3k2"},
+                {"name": "lead-board", "mode": "view", "kind": "view", "state": "off"},
+            ],
+        }))
+        .expect("the app's MCP side")
+    }
+
+    fn owner() -> AppShot {
+        AppShot {
+            row: row(true, 3),
+            manage: true,
+            grant: true,
+            records: 12,
+            records_max: Some(1000),
+            mcp: Some(mcp(true)),
+            tool_busy: None,
+            mcp_busy: None,
+            upstream_busy: None,
+            hook_busy: None,
+            share_busy: None,
+            hook_secrets: vec![("intake".into(), "whsec_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d".into())],
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_owner() {
+        shoot("app-detail-owner", owner(), Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_member() {
+        let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), hook_secrets: Vec::new(), ..owner() };
+        shoot("app-detail-member", shot, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_empty() {
+        let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), hook_secrets: Vec::new(), ..owner() };
+        shoot("app-detail-empty", shot, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_busy() {
+        let shot = AppShot {
+            tool_busy: Some("exponential_issues_update_status".into()),
+            mcp_busy: Some("s-sf".into()),
+            upstream_busy: Some("crm".into()),
+            hook_busy: Some("billing".into()),
+            share_busy: Some("contact-form".into()),
+            ..owner()
+        };
+        shoot("app-detail-busy", shot, Pointer::Rest);
+    }
+
+    /// The first share row's ⋯ (window points), read off `app-detail-owner`.
+    const SHARE_MENU: (f32, f32) = (588., 670.);
+    /// The identity row's icon and colour pickers.
+    #[allow(dead_code)]
+    const ICON_PICKER: (f32, f32) = (56., 52.);
+    #[allow(dead_code)]
+    const COLOR_PICKER: (f32, f32) = (96., 52.);
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_share_hover() {
+        shoot("app-detail-share-hover", owner(), Pointer::Hover(SHARE_MENU));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_icon_open() {
+        // The gpui pane's pictures: `Pointer::Click(ICON_PICKER)`.
+        shoot("app-detail-icon-open", owner(), Pointer::Press("icon_picker.trigger"));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_color_open() {
+        // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
+        shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
+    }
+}
+
+/// #EXP-1629: Settings → MCP › Servers in every state (owner, member, a
+/// Connect waiting + a Reconnect in flight, reloading, loading, failed,
+/// empty, no team, a row's ⋯ menu open).
+mod mcp_servers {
+    use super::*;
+    use crate::settings::mcp_servers::{McpServersPane, McpShot};
+    use api::mcp_servers::{McpConnection, McpServerConfig, McpServerDevice, McpServerListEntry};
+
+    fn entry(id: &str, name: &str, url: Option<&str>, auth: &str, status: &str) -> McpServerListEntry {
+        McpServerListEntry {
+            config: McpServerConfig { id: id.into(), team_id: "t".into(), name: name.into(), url: url.map(str::to_string), auth: auth.into(), ..Default::default() },
+            connection: McpConnection { status: status.into(), expires_at: None, error: None },
+            ..Default::default()
+        }
+    }
+
+    fn rows() -> Vec<McpServerListEntry> {
+        let mut linear = entry("s1", "Linear", Some("https://mcp.linear.app/mcp"), "oauth", "connected");
+        linear.config.enabled_by_default = true;
+        linear.shared = true;
+        linear.used_by = vec!["Triage".into()];
+        let notion = entry("s2", "Notion", Some("https://mcp.notion.com/mcp"), "oauth", "expired");
+        let docs = entry("s3", "Internal docs", Some("https://mcp.docs.acme.dev/sse"), "oauth", "not_connected");
+        let mut keys = entry("s4", "Stripe", Some("https://mcp.stripe.com"), "secret", "not_connected");
+        keys.config.header_names = vec!["Authorization".into()];
+        let mut files = entry("s5", "Filesystem", None, "none", "not_needed");
+        files.config.transport = "stdio".into();
+        files.config.command = Some("npx".into());
+        files.config.args = vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into(), "/srv/shared".into()];
+        files.device = Some(McpServerDevice { id: "d1".into(), label: "studio-mac".into(), owner_id: "u".into(), kind: "desktop".into(), icon: None });
+        vec![linear, notion, docs, keys, files]
+    }
+
+    fn mcp(name: &str, team: bool, owner: bool, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&'static str>, connecting: Option<&'static str>, clicks: &'static [(f32, f32)]) {
+        let shot = McpShot { team: team.then(|| "t".to_string()), owner };
+        shoot_pane_clicked(name, McpServersPane::for_shots, move |pane, cx| pane.show(shot, load, reloading, pending, connecting, cx), None, clicks);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_owner() {
+        mcp("mcp-servers-owner", true, true, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_member() {
+        mcp("mcp-servers-member", true, false, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_busy() {
+        mcp("mcp-servers-busy", true, true, Some(Ok(rows())), false, Some("s2"), Some("s3"), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_reloading() {
+        mcp("mcp-servers-reloading", true, true, Some(Ok(rows())), true, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_loading() {
+        mcp("mcp-servers-loading", true, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_failed() {
+        mcp("mcp-servers-failed", true, true, Some(Err("offline".into())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_empty() {
+        mcp("mcp-servers-empty", true, true, Some(Ok(vec![])), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_no_team() {
+        mcp("mcp-servers-no-team", false, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_menu_open() {
+        mcp("mcp-servers-menu-open", true, true, Some(Ok(rows())), false, None, None, &[(MENU_X, MENU_Y)]);
+    }
+
+    /// The first row's ⋯ (window points), read off `mcp-servers-owner`.
+    const MENU_X: f32 = 709.;
+    const MENU_Y: f32 = 97.5;
 }
 
 fn local_repos_rows() -> Vec<(String, Option<u64>, Vec<(String, Option<String>)>)> {

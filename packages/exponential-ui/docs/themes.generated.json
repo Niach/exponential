@@ -969,6 +969,28 @@
             "dark": "#ffffff0e"
           }
         }
+      },
+      {
+        "name": "strokeActive",
+        "ref": "$color.strokeActive",
+        "values": {
+          "neutral": {
+            "light": "#a1a1a1",
+            "dark": "#737373"
+          },
+          "exponential": {
+            "light": "#a1a1a1",
+            "dark": "#ffffff29"
+          },
+          "playful": {
+            "light": "#a78bfa",
+            "dark": "#a78bfa"
+          },
+          "orange": {
+            "light": "#a1a1a1",
+            "dark": "#ffffff29"
+          }
+        }
       }
     ],
     "spacing": [
@@ -3985,6 +4007,7 @@
         "labels",
         "control",
         "button",
+        "valueIcon",
         "searchIcon",
         "itemIcon",
         "itemText",
@@ -4086,6 +4109,7 @@
         "fill",
         "trigger",
         "dot",
+        "customTrigger",
         "content"
       ],
       "props": [

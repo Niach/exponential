@@ -609,6 +609,15 @@ impl Surfaces {
     }
 }
 
+/// The chat document's rows (`apps/ede/ui/chat.json`).
+pub const CHAT_SCROLL: &str = "chat_scroll";
+
+/// #EXP-1780: the chat's rows scroll above its composer, held at the newest
+/// row until the reader scrolls up (the IDE's FOLLOW, `keep_list_place`).
+pub fn follow_chat(view: &mut SurfaceView, cx: &mut gpui::Context<SurfaceView>) {
+    view.keep_list_place(CHAT_SCROLL, true, 0, cx);
+}
+
 /// The document's tree and data into a view, then the feed on top.
 pub fn load(view: &mut SurfaceView, doc: &Document, feed: &Feed, cx: &mut gpui::Context<SurfaceView>) {
     if let Some(obj) = doc.data.as_ref().and_then(Value::as_object) {

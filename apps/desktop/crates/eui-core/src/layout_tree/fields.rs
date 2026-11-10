@@ -413,7 +413,12 @@ impl Builder<'_, '_> {
         let shown: Vec<String> = chosen.iter().map(|v| label_of(v).unwrap_or_else(|| v.clone())).collect();
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let (text, is_placeholder) = if shown.is_empty() { (placeholder, true) } else { (shown.join(", "), false) };
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
+        // #EXP-1764: `triggerIcon` = a row leads its value with the chosen
+        // option's `icon` (the IDE Account row's agent mark); one value only.
+        let value_icon = (row && bool_prop(&owner.props, "triggerIcon") && chosen.len() == 1)
+            .then(|| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("icon")).and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string))
+            .flatten();
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
         if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
@@ -566,7 +571,7 @@ impl Builder<'_, '_> {
     /// (else `placeholder`) and the `chevron`), so its popup can hang off
     /// the value. The trigger itself carries the text for its accessible
     /// value.
-    fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool) -> (u32, Option<u32>) {
+    fn row_trigger(&mut self, owner: &LNode, text: &str, placeholder: bool, icon: Option<&str>) -> (u32, Option<u32>) {
         let label = str_prop(&owner.props, "label").map(str::to_string);
         let t = self.part(owner, "trigger", "Box", NodeKind::Container, json!({"alignSelf": "stretch", "display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"text": text, "placeholder": placeholder, "label": label}));
         self.nodes[t as usize].pressable = !bool_prop(&owner.props, "disabled");
@@ -582,7 +587,7 @@ impl Builder<'_, '_> {
                 self.part_in(t, owner, "label", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": label, "lines": 1}), "");
             }
             self.part_in(t, owner, "spacer", "Box", NodeKind::Container, json!({"flexGrow": 1, "minWidth": 0}), json!({}), "");
-            return (t, Some(self.row_value(t, owner, text, placeholder)));
+            return (t, Some(self.row_value(t, owner, text, placeholder, icon)));
         };
         let labels = self.part_in(t, owner, "labels", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "minWidth": 0, "flexShrink": 1}), json!({}), "");
         if let Some(label) = label {
@@ -591,14 +596,18 @@ impl Builder<'_, '_> {
         let d = self.part_in(labels, owner, "description", "Text", NodeKind::Leaf, json!({"maxWidth": crate::layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH}), json!({"text": description, "variant": "muted"}), "");
         self.nodes[d as usize].lines = None;
         let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
-        (t, Some(self.row_value(control, owner, text, placeholder)))
+        (t, Some(self.row_value(control, owner, text, placeholder, icon)))
     }
 
     /// A `row` trigger's `button` (the IDE picker's ghost value button: the
     /// one box its hover fills) holding the `value` (else `placeholder`) and
-    /// the `chevron`, under `parent`.
-    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool) -> u32 {
+    /// the `chevron`, under `parent`; #EXP-1764: `icon` (the chosen
+    /// option's, `triggerIcon`) leads as the `valueIcon`.
+    fn row_value(&mut self, parent: u32, owner: &LNode, text: &str, placeholder: bool, icon: Option<&str>) -> u32 {
         let button = self.part_in(parent, owner, "button", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "minWidth": 0, "flexShrink": 1}), json!({}), "");
+        if let Some(icon) = icon {
+            self.part_in(button, owner, "valueIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), "");
+        }
         let value = self.part_in(button, owner, if placeholder { "placeholder" } else { "value" }, "Text", NodeKind::Leaf, json!({"minWidth": 0, "flexShrink": 1, "maxWidth": crate::layout::SELECT_ROW_VALUE_MAX_WIDTH}), json!({"text": text, "lines": 1}), "");
         self.part_in(button, owner, "chevron", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.chevron")}), "");
         value

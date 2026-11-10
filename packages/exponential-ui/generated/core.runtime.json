@@ -4130,6 +4130,10 @@
           "enum": "selectTrigger",
           "default": "field"
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false
+        },
         "align": {
           "type": "enum",
           "enum": "overlayAlign"
@@ -4344,7 +4348,7 @@
       "kind": "macro",
       "group": "input",
       "lite": false,
-      "children": "none",
+      "children": "one",
       "props": {
         "value": {
           "type": "string",
@@ -4360,6 +4364,10 @@
           "type": "boolean",
           "default": false,
           "bindable": true
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [

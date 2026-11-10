@@ -40,6 +40,9 @@ mod doc;
 // #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
 #[cfg(test)]
 pub(crate) mod branch_row_shots;
+// #EXP-1764: the bench's Account rows (IDE vs genUI `triggerIcon`).
+#[cfg(test)]
+pub(crate) mod account_row_shots;
 // #EXP-1765: the bench's repo branch pickers (IDE vs genUI `pill` Select).
 #[cfg(test)]
 pub(crate) mod branch_picker_shots;
@@ -63,7 +66,7 @@ mod resend_invite_dialog;
 mod issues;
 mod labels;
 mod mcp;
-mod mcp_servers;
+pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
 mod mcp_server_dialog;
