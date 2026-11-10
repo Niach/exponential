@@ -52973,6 +52973,142 @@
       }
     },
     {
+      "component": "Select",
+      "part": "valueIcon",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "field"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Select",
+      "part": "valueIcon",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "row"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 12.25,
+              "height": 12.25
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 12.25,
+              "height": 12.25
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 12.25,
+              "height": 12.25
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 12.25,
+              "height": 12.25
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "SearchList",
       "part": "root",
       "props": {},

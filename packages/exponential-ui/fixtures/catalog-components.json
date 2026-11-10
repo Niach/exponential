@@ -11220,6 +11220,52 @@
       }
     },
     {
+      "name": "Select/triggerIcon=true",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": true
+        }
+      }
+    },
+    {
+      "name": "Select/triggerIcon=false",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": false
+        }
+      }
+    },
+    {
       "name": "Select/align=start",
       "node": {
         "id": "select",

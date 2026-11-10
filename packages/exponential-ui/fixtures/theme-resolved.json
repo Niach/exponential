@@ -3656,6 +3656,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -12455,6 +12463,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 12.25,
+                "height": 12.25
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -21118,6 +21143,14 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            }
+          ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
               }
             }
           ],
@@ -30246,6 +30279,23 @@
               "style": {
                 "opacity": 1,
                 "color": "$color.accentForeground"
+              }
+            }
+          ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 12.25,
+                "height": 12.25
               }
             }
           ],

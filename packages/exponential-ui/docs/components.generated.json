@@ -6442,6 +6442,15 @@
           "description": "`row` = a Group row: label, value, chevron."
         },
         {
+          "name": "triggerIcon",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
+        {
           "name": "align",
           "type": "start | center | end",
           "required": false,

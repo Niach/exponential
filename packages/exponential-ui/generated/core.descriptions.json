@@ -2285,6 +2285,9 @@
         "triggerVariant": {
           "description": "`row` = a Group row: label, value, chevron."
         },
+        "triggerIcon": {
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
         "align": {
           "description": "Popup alignment (`row`: `end`)."
         },

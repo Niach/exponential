@@ -923,6 +923,17 @@
           }
         }
       ],
+      "valueIcon": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 12.25,
+            "height": 12.25
+          }
+        }
+      ],
       "description": [
         {
           "when": {

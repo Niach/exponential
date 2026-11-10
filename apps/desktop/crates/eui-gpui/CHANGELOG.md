@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerIcon` + the own-colour marks (#EXP-1764): an Icon leaf whose name has its own fill (`eui_core::layout_tree::icon_fill`, `brand-claude`) paints in it, never in the ink; the `row` trigger's `valueIcon` comes from the core. Bench `settings_account_row_*`: the IDE Account row vs the genUI row.
 - `controls::spinner` draws THE Spinner's arc (#EXP-1629): `paint::natives::spinner_glyph` (Lucide `loader-circle`, one linear turn per 0.8 s, stepped), the glyph genUI `Spinner` paints, so the IDE's spinners match web, iOS and Android (0 px vs genUI `Spinner` headless). `ChromeIcons.refresh` is gone (it only fed the spinner).
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
 - Textarea autosize (#EXP-1629): an intrinsic measure pass (no width yet) counts the value's hard lines only, instead of wrapping it at a guessed 160 px, which left an enabled one-line `row` Textarea a row taller than its rows (the Skills page's description, 3 rows for 2).

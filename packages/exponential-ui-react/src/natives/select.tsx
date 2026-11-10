@@ -21,7 +21,9 @@
 // row UNDER the label (the `labels` column; the value and chevron then sit
 // in the trailing `control` column). An option's `trailing` reads on after
 // its label in the popup row only (the trigger shows the label); `open`
-// fires as the popup opens.
+// fires as the popup opens. #EXP-1764: a `triggerIcon` row leads its value
+// with the chosen option's `icon` (the `valueIcon` part: the IDE Account
+// row's agent mark, in the mark's own colour).
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
@@ -184,8 +186,11 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     ) : (
       children
     )
+  // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
+  const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
+    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} /> : null,
     field: row ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
     describedBy: joinIds(description && `${id}-d`, f.describedBy),
   }
@@ -211,6 +216,8 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
 /** A `description`: the row's `control` wrapper, the field's hint line, the trigger's describedby. */
 interface Hint {
   end: (children: React.ReactNode) => React.ReactNode
+  /** #EXP-1764: the chosen option's icon before the value (`triggerIcon`). */
+  valueIcon: React.ReactNode
   field: React.ReactNode
   describedBy: string | undefined
 }
@@ -294,6 +301,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
             {spacer}
             {hint.end(
               <>
+                {hint.valueIcon}
                 <span ref={valueRef}>{chosen ? <span {...(part(`value`, inButton) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part(`placeholder`, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
                 <SelectPrimitive.Icon asChild>
                   <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
@@ -449,6 +457,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
           {spacer}
           {hint.end(
             <>
+              {hint.valueIcon}
               {geometry.anchorValue ? <PopoverPrimitive.Anchor asChild>{shownValue}</PopoverPrimitive.Anchor> : shownValue}
               <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
             </>

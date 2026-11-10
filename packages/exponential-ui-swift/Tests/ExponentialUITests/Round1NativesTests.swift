@@ -616,6 +616,8 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(slots.count, names.count)
         XCTAssertFalse(slots.isEmpty)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(slots, names)), BuiltinIcons.slots)
+        // #EXP-1764: the own-colour marks.
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(array("iconFillNames"), array("iconFillColors"))), BuiltinIcons.fills)
         let locale = JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/locale.json"), encoding: .utf8))
         XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), RTLGlyphs.mirrored)
     }

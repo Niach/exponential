@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerIcon` + the own-colour marks (#EXP-1764): the `valueIcon` part comes from the core; `ConceptIcon` paints a mark with its own fill (`BuiltinIcons.fills`, mirrored from the generated `iconFillNames` / `iconFillColors` and checked against them: `brand-claude`) in it, never in the ink.
 - Icon `size: xl` (#EXP-1629): 28 pt from the recipe (`$control.iconXl`). Snapshot `components.json` gains `Icon/size=xl`.
 - Select option `trailing` + event `open` (#EXP-1629): both come from the core (the popup item's text, `open` through `set_open`); snapshots re-recorded for the specimen's Branch row.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): painted from the core's parts (no label part; the field's accessibility label is the owner's `label`). Snapshot `components.json` gains the five cases.

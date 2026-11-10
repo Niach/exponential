@@ -3810,7 +3810,8 @@
         "description",
         "labels",
         "control",
-        "button"
+        "button",
+        "valueIcon"
       ],
       "props": [
         "multiple",

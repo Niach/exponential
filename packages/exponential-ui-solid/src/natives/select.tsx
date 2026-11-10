@@ -18,7 +18,8 @@
 // theirs too), the opening at the top with the cursor on the first enabled
 // option (a `multiple` one's on its first chosen), the list's bottom fade, item `hover` = the cursor,
 // `selected` = chosen; an option's `trailing` after its label in the popup
-// row only, `open` as the popup opens.
+// row only, `open` as the popup opens; #EXP-1764: a `triggerIcon` row's
+// `valueIcon` (the chosen option's `icon`) before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectPopupGeometry } from "@exponential_app/eui/web"
@@ -50,6 +51,8 @@ const asList = (raw: unknown): string[] => (Array.isArray(raw) ? raw.map(String)
 // ---------------------------------------------------------------------------
 
 interface SelectState {
+  /** #EXP-1764: the chosen option's icon before the row's value (`triggerIcon`). */
+  ValueIcon: () => JSX.Element
   part: PartFn
   id: string
   listId: string
@@ -186,10 +189,17 @@ export function SelectNative(props: NativeProps): JSX.Element {
     </Show>
   )
   const describedBy = () => joinIds(description() && `${id}-d`, f.describedBy)
+  // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
+  const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
+  const ValueIcon = () => (
+    <Show when={chosenIcon()} keyed>
+      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} />}
+    </Show>
+  )
   const [valueEl, setValueEl] = createSignal<HTMLElement>()
   const chevronSlot = () => (row() ? `Select.chevron` : `Select.trigger`)
   const geometry = (triggerWidthVar: string) => selectPopupGeometry(props.props, triggerWidthVar)
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry }
+  const state: SelectState = { ValueIcon, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
       <Show when={!row()}>
@@ -278,6 +288,7 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
         {s.rowLabel()}
         {s.spacer()}
         <s.End>
+          <s.ValueIcon />
           <span ref={s.setValueEl}>
             {chosen() ? <span {...part(`value`, s.inButton())} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part(`placeholder`, s.inButton())}>{s.placeholder()}</span>}
           </span>
@@ -578,6 +589,7 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
         {s.rowLabel()}
         {s.spacer()}
         <s.End>
+          <s.ValueIcon />
           <span ref={s.setValueEl}>{chosen().length ? <span {...part(`value`, s.inButton())}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part(`placeholder`, s.inButton())}>{s.placeholder()}</span>}</span>
           <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`, s.inButton())} />
         </s.End>

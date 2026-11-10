@@ -12626,6 +12626,54 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_select_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + triggerIcon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_agent_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c5_account",
+                    "component": "Select",
+                    "props": {
+                      "label": "Account",
+                      "name": "account",
+                      "triggerVariant": "row",
+                      "triggerIcon": true,
+                      "value": "claude",
+                      "options": [
+                        {
+                          "label": "ada@example.com",
+                          "value": "claude",
+                          "icon": "brand-claude"
+                        },
+                        {
+                          "label": "ada@example.org",
+                          "value": "codex",
+                          "icon": "brand-codex"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

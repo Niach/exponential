@@ -1394,6 +1394,13 @@ pub fn builtin_icon(slot: &str) -> Option<&'static str> {
     crate::generated::catalog::BUILTIN_ICON_NAMES.get(g).copied()
 }
 
+/// #EXP-1764: an icon's OWN colour (`#RRGGBB`, icons.json `imported[].fill`:
+/// `brand-claude` = Anthropic's orange), painted instead of the ink.
+pub fn icon_fill(name: &str) -> Option<&'static str> {
+    let i = crate::generated::catalog::ICON_FILL_NAMES.iter().position(|n| *n == name)?;
+    crate::generated::catalog::ICON_FILL_COLORS.get(i).copied()
+}
+
 /// Build the layout tree for a normalized root. `Unknown` nodes become
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {

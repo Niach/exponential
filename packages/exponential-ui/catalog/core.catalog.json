@@ -5342,6 +5342,11 @@
           "default": "field",
           "description": "`row` = a Group row: label, value, chevron."
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
         "align": {
           "type": "enum",
           "enum": "overlayAlign",
