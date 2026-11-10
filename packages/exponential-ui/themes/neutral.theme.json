@@ -3652,6 +3652,14 @@
           }
         }
       ],
+      "valueIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
       "description": [
         {
           "style": {
