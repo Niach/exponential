@@ -1304,6 +1304,7 @@ mod hug_tests {
     /// collapsed to its header): header + the block + the padding, nothing
     /// more, nothing less.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_alert_hugs_its_content(cx: &mut gpui::TestAppContext) {
         let (panel, probe, ok, _) = layout(
             |cx| {
@@ -1325,6 +1326,7 @@ mod hug_tests {
     /// A plain confirm: as tall as its words and footer, far under the old
     /// fixed 220.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_confirm_hugs_its_footer(cx: &mut gpui::TestAppContext) {
         let (panel, _, ok, _) = layout(|_| AlertSpec::new("Delete", "Gone for good.", "Delete"), cx);
         let ok = ok.expect("the footer draws");
@@ -1335,6 +1337,7 @@ mod hug_tests {
     /// Past the window the panel caps at the viewport less the gutters;
     /// the body scrolls and the footer stays on the panel.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_tall_alert_caps_and_keeps_its_footer(cx: &mut gpui::TestAppContext) {
         let (panel, _, ok, viewport_h) = layout(
             |cx| {

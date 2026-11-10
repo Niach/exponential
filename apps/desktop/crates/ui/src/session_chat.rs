@@ -4369,6 +4369,7 @@ mod tests {
     /// opens the plan BESIDE the chat, across frames and a decision; its `‹`
     /// closes it; any other tab opens the pane beside the chat too.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_agent_chats_plan_opens_beside_the_chat(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         fn seed_plan(decision: Option<&str>, cx: &mut App) {
@@ -4572,6 +4573,7 @@ mod tests {
     /// bubbles, a tool row is the view's own row painted by the host (a
     /// host row, measured at its own height), in the feed's order.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_chat_tab_draws_its_transcript_as_the_chat_document(cx: &mut gpui::TestAppContext) {
         seed_agent_chat("Hey", cx);
         let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
@@ -5087,6 +5089,7 @@ mod tests {
     /// its own child: each lands with a Back to the chat; the same screens
     /// reached another way wear none, nor does a session opened in place.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_session_opened_from_an_agent_chat_has_a_way_back(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         cx.update(|cx| {
@@ -5229,6 +5232,7 @@ mod tests {
     /// chats.json THE WAY BACK: an agent's chat reached through a link
     /// (a cross-session bubble, #EXP-1736), wears the Back in THE agent header.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_agent_chat_without_a_strip_wears_the_links_back(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         cx.update(|cx| {

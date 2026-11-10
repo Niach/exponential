@@ -625,6 +625,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         queue.sort_by(|a, b| message_order(a, b));
     }
 
+    // #LOGS-11: each session's own open plan cards, grouped once (was a
+    // scan of every message per live session).
+    let mut open_plan_cards: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
+    for message in all_messages.iter().copied().filter(|m| is_open_own_plan_card(m)) {
+        open_plan_cards.entry(message.session_id.as_str()).or_default().push(message);
+    }
+
     let mut live_ids: Vec<&str> = input
         .live
         .keys()
@@ -755,9 +762,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         // still open (unanswered, or answered and not handed): the row's
         // off-flip is the server's, never a person's — and may land first.
         let plan_card = cards.iter().any(|m| m.card.as_ref().is_some_and(card_approved))
-            || all_messages
-                .iter()
-                .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
+            || open_plan_cards
+                .get(session_id)
+                .is_some_and(|cards| cards.iter().any(|m| !view.handed.contains(&m.id)));
         // #EXP-1383: an agent's leading `/new` is no turn a switch could
         // carry ([`switch_session`] keeps it pending for [`deliver`]'s
         // restart): planning one for it would loop on `AlreadyOn` forever.
@@ -1728,6 +1735,20 @@ impl LiveRegistry {
     /// [`plan`]'s view of the running engines (done ones excluded — the
     /// pass treats them as gone): handed ids and the open, not yet answered
     /// cards.
+    /// #LOGS-11: every message id an engine here still holds: handed (not
+    /// yet seen consumed), being consumed, or an open card it posted. A
+    /// host's pass snapshot must carry these rows whatever their state
+    /// ([`Self::settle_handed`], a revoke, an answer).
+    pub fn held_message_ids(&self) -> HashSet<String> {
+        let mut ids: HashSet<String> = locked(&self.consuming).iter().cloned().collect();
+        for entry in self.lock().values() {
+            ids.extend(entry.handed.iter().cloned());
+            ids.extend(entry.engine.open_cards().into_keys());
+            ids.extend(entry.answered.iter().cloned());
+        }
+        ids
+    }
+
     pub fn live_views(&self) -> HashMap<String, LiveView> {
         self.lock()
             .iter_mut()
