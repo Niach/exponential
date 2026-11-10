@@ -3,7 +3,7 @@
 // reproduces it).
 
 import { describe, expect, test } from "bun:test"
-import { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeOverlay } from "./overlay"
+import { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeInsetOverlay, placeOverlay } from "./overlay"
 import fixture from "../fixtures/overlay-geometry.json" with { type: "json" }
 import type { OverlayAlign, OverlayPlacement, OverlaySide } from "./overlay"
 
@@ -46,6 +46,14 @@ describe(`overlay-geometry.json`, () => {
     // In-surface the same popup shifts inside; hosted it does not.
     const c = fixture.hosted.find((h) => h.expected.x < 0 && h.align === `end`)!
     expect(placeOverlay(c.anchor, c.size, { width: c.surface.width, height: 600 }, { side: c.side as OverlaySide, align: `end` }).x).toBe(fixture.padding)
+  })
+  test(`#EXP-1765: an inset popup takes the inset, then the clamp, then whole px from its anchor`, () => {
+    expect(fixture.inset.length).toBeGreaterThanOrEqual(5)
+    for (const c of fixture.inset) {
+      expect(placeInsetOverlay(c.anchor, c.size, c.viewport, { side: c.side as OverlaySide, align: c.align as OverlayAlign, offset: c.offset, padding: c.padding }, c.inset), c.name).toEqual(c.expected as OverlayPlacement)
+    }
+    // The snap rounds half away from zero (gpui's): -59.5 px lands on -60.
+    expect(fixture.inset.some((c) => c.expected.x % 1 !== 0 && c.anchor.x % 1 !== 0)).toBe(true)
   })
   test(`a flip happens only when the opposite side has MORE room`, () => {
     const tight = placeOverlay({ x: 0, y: 290, width: 100, height: 20 }, { width: 100, height: 400 }, { width: 400, height: 600 }, { side: `bottom` })

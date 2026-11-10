@@ -5,6 +5,7 @@
 //   ?view=kitchen-sink&theme=<id>&mode=light|dark&width=<px>&rtl=1&echo=150
 //   ?view=geometry&case=900|390|900-rtl|390-rtl        (fixed fake measure)
 //   ?view=overlay&case=<n>                              (overlay-geometry.json)
+//   ?view=inset&case=<n>&searchable=1                   (#EXP-1629: its `inset` cases, a pill Select)
 //   ?view=hosted                                        (VAPP-281: popups hosted outside a panel surface)
 //   ?view=catalog                                        (every fixture case)
 //   ?view=conditions&case=<n>&ctx=<n>                    (style-conditions.json)
@@ -64,7 +65,7 @@ declare global {
   interface Window {
     __xuiFrames?: (rootId?: string) => { id: string; x: number; y: number; w: number; h: number }[]
     __xuiLog: unknown[]
-    __xuiOverlay?: () => { x: number; y: number; w: number; h: number; side: string } | null
+    __xuiOverlay?: () => { x: number; y: number; w: number; h: number; side: string; anchor?: { x: number; y: number; width: number; height: number } } | null
     __xuiData?: () => unknown
     __xuiControls?: () => Record<string, Record<string, number> | null>
     __xuiBench?: { firstPaintMs?: number; handle: () => SurfaceHandle | null; flush: (fn: () => void) => void }
@@ -165,6 +166,29 @@ function Overlay() {
     if (!el) return null
     const r = el.getBoundingClientRect()
     return { x: r.left, y: r.top, w: r.width, h: r.height, side: el.dataset.side ?? `` }
+  }
+  return <ExponentialSurface id="ov" root={root} theme="neutral" mode="light" width={c.viewport.width} />
+}
+
+function Inset() {
+  // #EXP-1629: one overlay-geometry.json `inset` case: a pill Select at the
+  // case's anchor (`searchable=1` = the popover path); the suite opens it.
+  const c = (overlays.inset as { anchor: { x: number; y: number }; viewport: { width: number; height: number }; align: string }[])[Number(params.get(`case`) ?? 0)]
+  const options = Array.from({ length: 6 }, (_, i) => ({ value: `o${i}`, label: `Option ${i}` }))
+  const tree: NestedNode = {
+    id: `root`,
+    component: `Box`,
+    style: { position: `relative`, width: c.viewport.width, height: c.viewport.height, overflow: `hidden` },
+    children: [{ id: `wrap`, component: `Box`, style: { position: `absolute`, left: c.anchor.x, top: c.anchor.y }, children: [{ id: `pill`, component: `Select`, props: { label: `Pick`, triggerVariant: `pill`, align: c.align, searchable: params.get(`searchable`) === `1`, options, value: `o0` } }] }],
+  }
+  const { root } = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
+  window.__xuiOverlay = () => {
+    const el = document.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)
+    const t = document.querySelector<HTMLElement>(`#pill [aria-expanded="true"], [aria-expanded="true"]`)
+    if (!el || !t) return null
+    const r = el.getBoundingClientRect()
+    const a = t.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height, side: el.dataset.side ?? ``, anchor: { x: a.left, y: a.top, width: a.width, height: a.height } }
   }
   return <ExponentialSurface id="ov" root={root} theme="neutral" mode="light" width={c.viewport.width} />
 }
@@ -668,6 +692,7 @@ function App() {
   if (view === `controls`) return <Controls />
   if (view === `geometry`) return <Geometry />
   if (view === `overlay`) return <Overlay />
+  if (view === `inset`) return <Inset />
   if (view === `catalog`) return <Catalog />
   if (!BUILTIN_THEME_IDS.includes(themeId)) return <div>unknown theme {themeId}</div>
   if (view === `specimen`) return <Specimen />
@@ -677,7 +702,7 @@ function App() {
 if (view === `primitives`) void mountPrimitives()
 else {
   document.body.style.margin = `0`
-  document.body.style.background = view === `geometry` || view === `overlay` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
+  document.body.style.background = view === `geometry` || view === `overlay` || view === `inset` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
   createRoot(document.getElementById(`app`)!).render(
     <StrictMode>
       <App />

@@ -32,7 +32,7 @@ One branch per session, yours to push: the device only snapshots your commits an
 
 ## Results
 
-Show your work as results: `exponential_show` with pictures (label = platform-prefixed: `web`, `web-mobile`, `ios`, `android`, `desktop`) before `pr open`; the PR body (summary + those pictures) is written for you. Cheapest capture: web `cd apps/web && bun run capture:views -- --form-factor web|web-mobile --views <id>`; ios, android, desktop `bun run shots -- --platform <p> --views <id> --skip-seed`; a primitive = its styleguide entry. `pr open` refuses a UI diff without a picture per platform unless `notRun` names the screen.
+Show your work as results: `exponential_show` with pictures (label = platform-prefixed: `web`, `web-mobile`, `ios`, `android`, `desktop`) before `pr open`; the PR body (summary + those pictures) is written for you. Cheapest capture: web `cd apps/web && bun run capture:views -- --form-factor web|web-mobile --views <id>`; ios, android, desktop `bun run shots -- --platform <p> --views <id> --skip-seed`; a primitive = its `exponential-ui-<name>` view. `pr open` refuses a UI diff without a picture per platform unless `notRun` names the screen.
 
 ## Agents
 

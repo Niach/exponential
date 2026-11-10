@@ -655,6 +655,54 @@ fn overlay_geometry_hosted_cases_sit_against_the_anchor_without_flip_or_shift() 
     }
 }
 
+/// #EXP-1765 / #EXP-1629: a popup whose box reaches `inset` outside its
+/// content (the Select pill's) is placed in gpui-component's Popover order:
+/// the inset, the flip and padding clamp, then whole px from the anchor.
+#[test]
+fn overlay_geometry_inset_cases_take_the_inset_then_the_clamp_then_whole_px() {
+    let fx = fixture("overlay-geometry.json");
+    let cases = fx["inset"].as_array().unwrap();
+    assert!(cases.len() >= 5);
+    for c in cases {
+        let n = |v: &Value, k: &str| v[k].as_f64().unwrap();
+        let anchor = Rect { x: n(&c["anchor"], "x"), y: n(&c["anchor"], "y"), width: n(&c["anchor"], "width"), height: n(&c["anchor"], "height") };
+        let size = Size { width: n(&c["size"], "width"), height: n(&c["size"], "height") };
+        let viewport = Size { width: n(&c["viewport"], "width"), height: n(&c["viewport"], "height") };
+        let options = PlaceOptions { side: OverlaySide::parse(c["side"].as_str().unwrap()).unwrap(), align: OverlayAlign::parse(c["align"].as_str().unwrap()).unwrap(), offset: n(c, "offset"), padding: n(c, "padding") };
+        let p = eui_core::overlay::place_inset_overlay(&anchor, &size, &viewport, &options, n(c, "inset"));
+        let name = c["name"].as_str().unwrap();
+        let e = &c["expected"];
+        assert_eq!((p.x, p.y, p.side.as_str(), p.flipped), (n(e, "x"), n(e, "y"), e["side"].as_str().unwrap(), e["flipped"].as_bool().unwrap()), "{name}");
+    }
+}
+
+/// #EXP-1629: the regression through the layer manager: a pill Select at
+/// x = 551.5 in a 760 wide view, its popup pushed back from the right edge,
+/// lands where the IDE's Popover does (`overlay-geometry.json` `inset`).
+#[test]
+fn a_pill_popup_pushed_back_from_the_right_edge_lands_on_the_ides_half_point() {
+    let fx = fixture("overlay-geometry.json");
+    let c = &fx["inset"][1];
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "paddingLeft": c["anchor"]["x"], "paddingTop": c["anchor"]["y"]}, "children": [
+        {"id": "sel", "component": "Select", "props": {"label": "Default branch", "value": "main", "triggerVariant": "pill", "options": [{"label": "main", "value": "main"}]}}
+    ]}))
+    .expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    s.set_nested(tree);
+    s.set_viewport(c["viewport"]["width"].as_f64().unwrap() as f32, c["viewport"]["height"].as_f64().unwrap() as f32, None);
+    let mut m = FixedMeasure { sizes: HashMap::new(), wrap: true };
+    s.layout(&mut m);
+    let t = s.index_of("sel.trigger").unwrap();
+    s.event(t, "press", None);
+    let out = s.layout(&mut m);
+    let trigger = out.frames.iter().find(|f| f.index == t).copied().unwrap();
+    assert_eq!(trigger.x, 551.5);
+    let content = s.index_of("sel.content").unwrap();
+    let popup = out.layers.iter().flat_map(|l| l.frames.iter()).find(|f| f.index == content).copied().unwrap();
+    assert_eq!(popup.x as f64, c["expected"]["x"].as_f64().unwrap(), "{popup:?}");
+    assert_eq!(popup.y, trigger.y + trigger.h + eui_core::layout::SELECT_PILL_POPUP_OFFSET, "{popup:?} under {trigger:?}");
+}
+
 /// VAPP-281: a bottom panel SURFACE (800 × 44) with `hosted_popups`: its
 /// start menu and calendar lay out at their unclipped size ABOVE the surface
 /// (negative y), no flip, no shift, marked `hosted`; presses on their nodes
