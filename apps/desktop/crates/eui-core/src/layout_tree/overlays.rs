@@ -211,6 +211,8 @@ impl Builder<'_, '_> {
     /// open submenu becomes its own layer beside its row.
     pub(crate) fn menu_items(&mut self, parent: u32, owner: &LNode, items: &[Value], prefix: &str, top: bool) {
         let open_sub = if top { self.ctx.local.submenu.get(&owner.id).copied() } else { None };
+        // #EXP-1629: the row whose `preview` shows (`crate::menu_preview`).
+        let shown_preview = self.ctx.local.menu_preview.get(&owner.id).and_then(|m| m.shown.clone());
         for (i, item) in items.iter().enumerate() {
             let suffix = format!("{prefix}.{i}");
             let kind = item.get("kind").and_then(Value::as_str).unwrap_or(if item.get("separator").and_then(Value::as_bool) == Some(true) { "separator" } else { "item" });
@@ -233,6 +235,12 @@ impl Builder<'_, '_> {
                     if item.get("destructive").and_then(Value::as_bool) == Some(true) {
                         props["destructive"] = json!(true);
                     }
+                    // #EXP-1629: an action or checkbox row with a `preview`
+                    // (a submenu parent's own is ignored).
+                    let preview = item.get("preview").filter(|p| !p.is_null() && kind != "submenu").cloned();
+                    if preview.is_some() {
+                        props["hasPreview"] = json!(true);
+                    }
                     let row = self.part_in(parent, owner, "item", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm"}), props, &suffix);
                     self.nodes[row as usize].pressable = !disabled;
                     if disabled {
@@ -249,13 +257,39 @@ impl Builder<'_, '_> {
                         }
                     }
                     let mut label_props = json!({"text": label, "lines": 1});
+                    // #EXP-1629: the mono `identifier` between the icon and
+                    // the label: the icon then leads as its own glyph.
+                    let identifier = item.get("identifier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
                     if let Some(icon) = item.get("icon") {
-                        label_props["icon"] = icon.clone();
+                        if identifier.is_some() {
+                            let g = self.part_in(row, owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon.clone(), "size": "sm"}), &suffix);
+                            self.nodes[g as usize].part_query = None;
+                        } else {
+                            label_props["icon"] = icon.clone();
+                        }
+                    }
+                    if let Some(identifier) = &identifier {
+                        let n = self.text_part(row, owner, "identifier", identifier, "muted", &suffix);
+                        self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
+                        self.nodes[n as usize].props.insert("lines".into(), json!(1));
+                        self.nodes[n as usize].lines = Some(1);
                     }
                     let l = self.part_in(row, owner, "itemLabel", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), label_props, &suffix);
                     self.nodes[l as usize].part_query = None;
+                    // #EXP-1629: the muted `detail` after the label (a
+                    // submenu parent's current value too).
+                    if let Some(detail) = item.get("detail").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        let detail = detail.to_string();
+                        let n = self.text_part(row, owner, "detail", &detail, "muted", &suffix);
+                        self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
+                        self.nodes[n as usize].props.insert("lines".into(), json!(1));
+                        self.nodes[n as usize].lines = Some(1);
+                    }
                     if let Some(shortcut) = item.get("shortcut").map(js) {
                         self.text_part(row, owner, "shortcut", &shortcut, "muted", &suffix);
+                    }
+                    if let Some(surface) = preview.filter(|_| shown_preview.as_deref() == suffix.strip_prefix('.')) {
+                        self.menu_preview_layer(row, owner, surface, &suffix);
                     }
                     if kind == "submenu" {
                         let glyph = format!("{}.submenuIndicator", owner.component);
@@ -287,6 +321,28 @@ impl Builder<'_, '_> {
                     }
                 }
             }
+        }
+    }
+
+    /// #EXP-1629: the shown `preview` of row `row`: its own layer (the
+    /// `preview` part, `<menu>.preview<suffix>`) beside the row, the inline
+    /// end first, `MENU_PREVIEW_OFFSET` off it, centred on it, holding the
+    /// nested surface as an `Embed` leaf (`<menu>.preview<suffix>.surface`,
+    /// no part: every painter mounts it as an Embed, and its `action` fires
+    /// the Menu's own).
+    fn menu_preview_layer(&mut self, row: u32, owner: &LNode, surface: Value, suffix: &str) {
+        let (layer, root) = self.layer_root_suffixed(owner, "preview", suffix, json!({"display": "flex", "flexDirection": "column"}));
+        let id = format!("{}.preview{suffix}.surface", owner.id);
+        let mut leaf = self.blank(&id, "Embed", Some(root), layer, NodeKind::Leaf, &owner.scope);
+        leaf.owner = Some(owner.id.clone());
+        leaf.owner_component = Some(owner.component.clone());
+        leaf.base_style = super::obj(json!({"alignSelf": "stretch"}));
+        leaf.props = super::obj(json!({"surface": surface}));
+        self.push(leaf);
+        self.push_layer(layer, root, owner, LayerPlacement::Anchored { anchor: row, side: OverlaySide::Right, align: OverlayAlign::Center }, false, true, false, None);
+        if let Some(spec) = self.layers.last_mut() {
+            spec.mirror = true;
+            spec.offset = Some(crate::layout::MENU_PREVIEW_OFFSET);
         }
     }
 

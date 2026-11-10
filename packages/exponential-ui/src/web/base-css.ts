@@ -532,6 +532,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
+.xui-Menu-identifier,.xui-Menu-detail{flex-shrink:0;white-space:nowrap}
+.xui-Menu-preview{z-index:53;display:flex;flex-direction:column;box-sizing:border-box;outline:none}
+.xui-Menu-preview>.xui-menu-preview-surface{align-self:stretch;min-width:0}
 .xui-Select-searchbox>svg{width:16px;height:16px;flex-shrink:0;color:var(--xui-color-mutedForeground)}
 .xui-Select-listbox>.xui-Select-item{flex-shrink:0}
 .xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}

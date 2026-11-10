@@ -1664,6 +1664,30 @@
             "backgroundColor": "$color.accent"
           }
         }
+      ],
+      "identifier": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 14
+          }
+        }
+      ],
+      "detail": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 14
+          }
+        }
+      ],
+      "preview": [
+        {
+          "style": {
+            "width": 144,
+            "padding": 8
+          }
+        }
       ]
     },
     "Alert": {

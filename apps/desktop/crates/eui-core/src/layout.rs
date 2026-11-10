@@ -74,6 +74,12 @@ pub const SELECT_PILL_POPUP_OFFSET: f32 = 3.0;
 /// #EXP-1765: how far before the pill's aligned edge its popup's border box
 /// starts (px): the IDE popover's ring sits outside its content.
 pub const SELECT_PILL_POPUP_INSET: f32 = 1.0;
+/// #EXP-1629: how far a Menu item's `preview` sits off its row (px).
+pub const MENU_PREVIEW_OFFSET: f32 = 10.0;
+/// #EXP-1629: how long the pointer rests on a row before its preview shows,
+/// and how long a preview stays after the pointer and the highlight left (ms).
+pub const MENU_PREVIEW_OPEN_MS: f64 = 150.0;
+pub const MENU_PREVIEW_CLOSE_MS: f64 = 80.0;
 
 #[cfg(test)]
 mod tests {
@@ -81,10 +87,10 @@ mod tests {
 
     #[test]
     fn the_constants_are_layout_json() {
-        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS), ("selectRowPopupWidth", SELECT_ROW_POPUP_WIDTH as f64), ("selectRowPopupOffset", SELECT_ROW_POPUP_OFFSET as f64), ("selectRowValueMaxWidth", SELECT_ROW_VALUE_MAX_WIDTH as f64), ("selectRowPopupMargin", SELECT_ROW_POPUP_MARGIN as f64), ("selectRowDescriptionMaxWidth", SELECT_ROW_DESCRIPTION_MAX_WIDTH as f64), ("selectLoadingRows", SELECT_LOADING_ROWS as f64), ("selectPillPopupOffset", SELECT_PILL_POPUP_OFFSET as f64), ("selectPillPopupInset", SELECT_PILL_POPUP_INSET as f64)] {
+        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS), ("selectRowPopupWidth", SELECT_ROW_POPUP_WIDTH as f64), ("selectRowPopupOffset", SELECT_ROW_POPUP_OFFSET as f64), ("selectRowValueMaxWidth", SELECT_ROW_VALUE_MAX_WIDTH as f64), ("selectRowPopupMargin", SELECT_ROW_POPUP_MARGIN as f64), ("selectRowDescriptionMaxWidth", SELECT_ROW_DESCRIPTION_MAX_WIDTH as f64), ("selectLoadingRows", SELECT_LOADING_ROWS as f64), ("selectPillPopupOffset", SELECT_PILL_POPUP_OFFSET as f64), ("selectPillPopupInset", SELECT_PILL_POPUP_INSET as f64), ("menuPreviewOffset", MENU_PREVIEW_OFFSET as f64), ("menuPreviewOpenMs", MENU_PREVIEW_OPEN_MS), ("menuPreviewCloseMs", MENU_PREVIEW_CLOSE_MS)] {
             assert_eq!(layout_constant(name), Some(v), "{name}");
         }
-        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 29);
+        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 32);
         let json: serde_json::Value = serde_json::from_str(g::LAYOUT_JSON).unwrap();
         assert_eq!(json["windowThreshold"], 50);
     }

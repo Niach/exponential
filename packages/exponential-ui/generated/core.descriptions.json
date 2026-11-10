@@ -3581,6 +3581,15 @@
         "shortcut": {
           "description": "Key-cap hint after the text (`⌘K`)."
         },
+        "identifier": {
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
+        },
         "checked": {
           "description": "Checkbox entry's state; bind it."
         },

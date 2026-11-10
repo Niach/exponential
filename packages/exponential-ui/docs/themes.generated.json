@@ -3495,7 +3495,10 @@
         "count",
         "list",
         "empty",
-        "fade"
+        "fade",
+        "identifier",
+        "detail",
+        "preview"
       ],
       "props": [
         "openOn"

@@ -108,6 +108,7 @@ pub mod list;
 pub mod locale;
 pub mod macros;
 pub mod measure;
+pub mod menu_preview;
 pub mod overlay;
 pub mod qr_code;
 pub mod read_only;

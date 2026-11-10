@@ -2272,6 +2272,39 @@
             "backgroundColor": "$color.popover"
           }
         }
+      ],
+      "identifier": [
+        {
+          "style": {
+            "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "detail": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "preview": [
+        {
+          "style": {
+            "width": 224,
+            "padding": "$spacing.sm",
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.md"
+          }
+        }
       ]
     },
     "Ring": {

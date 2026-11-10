@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Menu item `detail`, `identifier`, `preview` (#EXP-1629), React's: the `identifier` / `detail` parts, the preview box beside its row (`natives/menu-preview.tsx`, the keyboard modality from `isUsingKeyboard`), its events the Menu's `action`; `menuRows` + `menuPreview` replay here.
 - Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.
 - `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
 - Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.

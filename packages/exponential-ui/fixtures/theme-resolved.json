@@ -2319,6 +2319,39 @@
                 "backgroundColor": "$color.popover"
               }
             }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "detail": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "preview": [
+            {
+              "style": {
+                "width": 224,
+                "padding": "$spacing.sm",
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.md"
+              }
+            }
           ]
         },
         "Ring": {
@@ -10937,6 +10970,57 @@
               "style": {
                 "height": 24,
                 "backgroundColor": "$color.popover"
+              }
+            }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14
+              }
+            }
+          ],
+          "detail": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14
+              }
+            }
+          ],
+          "preview": [
+            {
+              "style": {
+                "width": 224,
+                "padding": "$spacing.sm",
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.md"
+              }
+            },
+            {
+              "style": {
+                "width": 144,
+                "padding": 8
               }
             }
           ]
@@ -20272,6 +20356,39 @@
                 "backgroundColor": "$color.popover"
               }
             }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "detail": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "preview": [
+            {
+              "style": {
+                "width": 224,
+                "padding": "$spacing.sm",
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.md"
+              }
+            }
           ]
         },
         "Ring": {
@@ -29352,6 +29469,57 @@
               "style": {
                 "height": 24,
                 "backgroundColor": "$color.popover"
+              }
+            }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14
+              }
+            }
+          ],
+          "detail": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14
+              }
+            }
+          ],
+          "preview": [
+            {
+              "style": {
+                "width": 224,
+                "padding": "$spacing.sm",
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.md"
+              }
+            },
+            {
+              "style": {
+                "width": 144,
+                "padding": 8
               }
             }
           ]
