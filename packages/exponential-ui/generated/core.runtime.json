@@ -4348,7 +4348,7 @@
       "kind": "macro",
       "group": "input",
       "lite": false,
-      "children": "none",
+      "children": "one",
       "props": {
         "value": {
           "type": "string",
@@ -4364,6 +4364,10 @@
           "type": "boolean",
           "default": false,
           "bindable": true
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [

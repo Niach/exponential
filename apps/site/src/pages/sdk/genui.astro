@@ -8,8 +8,9 @@ import manifest from "@exponential_app/eui/conformance/manifest.json"
 import EuiSurface from "../../components/eui/EuiSurface.tsx"
 import { DEPLOY_CARD, MOTION_GALLERY, SETTINGS_DATA, SETTINGS_FORM, THEME_CARD } from "../../components/eui/trees.ts"
 import PlatformShots from "../../components/PlatformShots.astro"
+import EuiCatalogue from "../../components/eui/EuiCatalogue.astro"
 
-const components = Object.keys(catalog.components).length
+const components = Object.values(catalog.components).filter((c) => !(c as { hidden?: boolean }).hidden).length
 const THEMES = [`neutral`, `exponential`, `playful`, `orange`]
 const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`en-US`)
 ---
@@ -59,6 +60,10 @@ const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`e
     <EuiSurface client:visible id="motion" tree={MOTION_GALLERY} />
   </div>
 
-  <h2>{components} components · {cases} conformance cases</h2>
+  <h2 id="components">{components} components</h2>
+  <p><a href="/docs/sdk/genui/reference/components/">Every variant, prop and state</a></p>
+  <EuiCatalogue />
+
+  <h2>{cases} conformance cases</h2>
   <p><a href="/docs/sdk/genui/reference/conformance/">Every renderer, every change.</a></p>
 </StarlightPage>
