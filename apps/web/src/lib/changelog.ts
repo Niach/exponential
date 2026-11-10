@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-wide-chat`,
+    date: `2026-11-10`,
+    title: `A wider chat and a one-line composer`,
+    summary: `The chat uses the width of the window, the composer is one flat line that grows as you type, and the tabs sit on the header line.`,
+    body: `- **Wider chat**: the conversation spreads across the window like a messenger, with the agent's messages on the left and yours on the right.
+- **One-line composer**: the reply box starts as one flat line with + on the left and the context ring and send on the right, and grows as you type.
+- **One header line**: on a wide screen the Chat, Issues, Sessions and Results tabs sit on the same line as the title, the status and the menu.`,
+  },
+  {
+    id: `2026-11-09-smooth-chats-reliable-updates`,
+    date: `2026-11-09`,
+    title: `Smooth long chats, updates without GitHub's limit`,
+    summary: `A long chat in the desktop app stays smooth while you type and scroll, and the desktop app and the CLI find updates through Exponential instead of GitHub's rate-limited API.`,
+    body: `- **Long chats stay smooth**: typing, scrolling and an idle long chat in the desktop app no longer redo their work every frame.
+- **The chat transcript**: the desktop app's Chat tab draws its messages the same way as the rest of the app.
+- **Updates always show up**: the desktop app and \`exponential update\` learn about new versions from Exponential itself and download straight from the release, so a busy network that has used up GitHub's request limit no longer hides an update.
+- **Exponential Desktop 0.2.13**: a chat with no agent set up offers to set up Claude Code right there.`,
+  },
+  {
     id: `2026-11-09-one-session-screen`,
     date: `2026-11-09`,
     title: `One screen for every chat`,

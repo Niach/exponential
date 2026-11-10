@@ -5,6 +5,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lock.sh"
 root=$(mktemp -d "${TMPDIR:-/tmp}/exp-lane-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
+# The machine config must not leak into the checks (mint says heavy=2).
+export XDG_CONFIG_HOME="$root/config"
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -84,5 +86,41 @@ case "$pid" in '' | *[!0-9]*) no "lane.sh records its pid" ;; *) ok "lane.sh rec
 # lane.sh never frees a lock someone else took mid-run.
 "$here/lane.sh" android me -- sh -c 'echo "other 1" > "$EXP_LANE_LOCK_ROOT/exp-android-emu-1/owner"' 2>/dev/null
 [ "$(lock_owner "$root/exp-android-emu-1")" = other ] && ok "lane.sh leaves a lock it no longer owns" || no "lane.sh leaves a lock it no longer owns"
+
+
+# Slots (exp-lane-slots `heavy=2`): two lane.sh runs hold the heavy lane at
+# once, each its own slot dir, both released after; the default stays 1.
+[ "$(lane_slots heavy)" = 1 ] && ok "a lane has one slot by default" || no "a lane has one slot by default"
+printf 'heavy=2\n' > "$root/exp-lane-slots"
+[ "$(lane_slots heavy)" = 2 ] && ok "exp-lane-slots raises a lane's slots" || no "exp-lane-slots raises a lane's slots"
+[ "$(lane_slots ios)" = 1 ] && ok "other lanes keep one slot" || no "other lanes keep one slot"
+"$here/lane.sh" heavy first -- sh -c 'touch "$EXP_LANE_LOCK_ROOT/first-in"; sleep 3' &
+firstpid=$!
+i=0; while [ ! -e "$root/first-in" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+second=$(LANE_LOCK_POLL_SECONDS=30 "$here/lane.sh" heavy second -- sh -c 'cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"; cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-2/owner"' | tr '\n' ' ')
+[ "$second" = "first second " ] && ok "a second run takes the free slot while the first holds slot 1" || no "a second run takes the free slot while the first holds slot 1 (got '$second')"
+[ ! -e "$root/exp-perf-heavy-2" ] && ok "the second run releases its slot" || no "the second run releases its slot"
+wait "$firstpid"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "the first run releases slot 1" || no "the first run releases slot 1"
+rm -f "$root/exp-lane-slots" "$root/first-in"
+
+
+# --own-target: the command sees THIS checkout's apps/desktop/target as
+# CARGO_TARGET_DIR, whatever the machine exports; without it, the shared one.
+top=$(git -C "$here" rev-parse --show-toplevel)
+seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me --own-target -- sh -c 'echo "$CARGO_TARGET_DIR"' 2>/dev/null)
+[ "$seen" = "$top/apps/desktop/target" ] && ok "--own-target builds into this checkout's target" || no "--own-target builds into this checkout's target (got '$seen')"
+seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me -- sh -c 'echo "$CARGO_TARGET_DIR"')
+[ "$seen" = /shared/target ] && ok "without --own-target the shared target stays" || no "without --own-target the shared target stays (got '$seen')"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "--own-target still releases the lane" || no "--own-target still releases the lane"
+
+
+# The machine config (survives a reboot) sets slots too; the lock-root file
+# still overrides it.
+mkdir -p "$XDG_CONFIG_HOME/exponential" && printf 'heavy=3\n' > "$XDG_CONFIG_HOME/exponential/lane-slots"
+[ "$(lane_slots heavy)" = 3 ] && ok "the machine config sets a lane's slots" || no "the machine config sets a lane's slots"
+printf 'heavy=1\n' > "$root/exp-lane-slots"
+[ "$(lane_slots heavy)" = 1 ] && ok "the lock-root file overrides the machine config" || no "the lock-root file overrides the machine config"
+rm -f "$root/exp-lane-slots" "$XDG_CONFIG_HOME/exponential/lane-slots"
 
 [ "$fails" -eq 0 ] && echo "all lane lock checks passed" || { echo "$fails lane lock check(s) failed"; exit 1; }

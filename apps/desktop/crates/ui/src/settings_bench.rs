@@ -21,6 +21,9 @@ use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
+use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
 
@@ -578,6 +581,283 @@ fn settings_voice_apps() {
 #[ignore]
 fn settings_voice_apps_open() {
     voice_clicked("voice-apps-open", voice_apps_settings(), &[]);
+}
+
+fn prompts_rows() -> Vec<api::prompts::Prompt> {
+    serde_json::from_value(serde_json::json!([
+        {"id": "p1", "name": "Release train", "icon": "rocket"},
+        {"id": "p2", "name": "Triage the inbox and file every bug against its board with a reproduction", "icon": "bug"},
+        {"id": "p3", "name": "Weekly digest"},
+        {"id": "p4", "name": "Unknown glyph", "icon": "not-an-icon"},
+    ]))
+    .expect("prompt rows")
+}
+
+fn prompts(name: &str, shot: PromptsShot) {
+    shoot_pane(name, PromptsPane::for_shots, move |pane, cx| pane.show(shot, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_owner() {
+    prompts("prompts-owner", PromptsShot { team: Some("t".into()), owner: true, prompts: prompts_rows(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_member() {
+    prompts("prompts-member", PromptsShot { team: Some("t".into()), owner: false, prompts: prompts_rows(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_empty() {
+    prompts("prompts-empty", PromptsShot { team: Some("t".into()), owner: true, prompts: Vec::new(), ready: true });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_loading() {
+    prompts("prompts-loading", PromptsShot { team: Some("t".into()), owner: false, prompts: Vec::new(), ready: false });
+}
+
+#[test]
+#[ignore]
+fn settings_prompts_no_team() {
+    prompts("prompts-no-team", PromptsShot { team: None, owner: true, prompts: Vec::new(), ready: true });
+}
+
+/// #EXP-1629 (genUI Select option `trailing`): the Branch row's menu opened
+/// (the IDE's by its dev open, as a click would; genUI's by a trigger
+/// press), today's IDE row vs the genUI row: run each into its own dir, the
+/// second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_branch_menu_ide() {
+    shoot_pane("branch-menu", IdeBranchRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_branch_menu_eui() {
+    shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
+/// #EXP-1629: the IDE's chromeless group fields vs genUI Textarea
+/// `row`/`code` and Input `code`/`bare`: the agent instructions (`row`, 4–16
+/// rows), the skill description (`row`, empty, 2–6), the SKILL.md / prompt
+/// body (`code`, 14–40), the skill name after its glyph (Input `code`), the
+/// agent / board / prompt name (Input `bare`) and the team prompt while it
+/// loads (`code`, disabled, 10–40). Shoot `settings_fields_ide`, then
+/// `settings_fields_eui` with `EXP_SETTINGS_BEFORE` at the first: 0 px.
+mod field_variants {
+    use super::*;
+    use gpui_component::input::{InputState, Textarea, TextareaState};
+    use serde_json::json;
+
+    const AREA: &str = "Triage new issues every morning.\nLabel them and ping the owner of the board.";
+    const CODE: &str = "---\nname: review\n---\n# Review\nRun the checks, then summarise the diff.";
+    const NAME: &str = "review-pr";
+
+    pub(super) struct Ide {
+        area: gpui::Entity<TextareaState>,
+        empty: gpui::Entity<TextareaState>,
+        code: gpui::Entity<TextareaState>,
+        name: gpui::Entity<InputState>,
+        plain: gpui::Entity<InputState>,
+        off: gpui::Entity<TextareaState>,
+    }
+
+    impl Ide {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let area = cx.new(|cx| crate::controls::web_textarea(4, 16, window, cx).placeholder("Instructions"));
+            area.update(cx, |s, cx| s.set_value(AREA, window, cx));
+            let empty = cx.new(|cx| crate::controls::web_textarea(2, 6, window, cx).placeholder("What it does"));
+            let code = cx.new(|cx| crate::controls::web_textarea(14, 40, window, cx).placeholder("SKILL.md"));
+            code.update(cx, |s, cx| s.set_value(CODE, window, cx));
+            let name = cx.new(|cx| InputState::new(window, cx).placeholder("name"));
+            name.update(cx, |s, cx| s.set_value(NAME, window, cx));
+            let plain = cx.new(|cx| InputState::new(window, cx).placeholder("Agent name"));
+            plain.update(cx, |s, cx| s.set_value("Triage", window, cx));
+            let off = cx.new(|cx| crate::controls::web_textarea(10, 40, window, cx));
+            off.update(cx, |s, cx| s.set_value("You are the team's agent.", window, cx));
+            Self { area, empty, code, name, plain, off }
+        }
+    }
+
+    impl Render for Ide {
+        fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let muted = cx.theme().muted_foreground;
+            let name_row = crate::surface::glass_row_shell().child(gpui_component::Icon::from(crate::icons::registry::UI_DOCS).text_color(muted)).child(
+                div().flex_1().min_w_0().font_family(theme::terminal::FONT_FAMILY).child(crate::controls::glass_input(&self.name, window, cx).appearance(false).h_auto().px_0().py_0()),
+            );
+            let plain_row = crate::surface::glass_row_shell().gap_2().child(
+                div().flex_1().min_w_0().child(crate::surface::glass_row_input(crate::controls::glass_input(&self.plain, window, cx)).text_left()),
+            );
+            gpui_component::v_flex().w_full().gap_4()
+                .child(crate::surface::glass_group().child(Textarea::new(&self.area).appearance(false).w_full().px_4().py_3()))
+                .child(crate::surface::glass_group().child(Textarea::new(&self.empty).appearance(false).w_full().px_4().py_3().text_sm()))
+                .child(crate::surface::glass_group().child(Textarea::new(&self.code).appearance(false).w_full().min_h(px(256.)).px_4().py_3().text_xs().font_family(theme::terminal::FONT_FAMILY)))
+                .child(crate::surface::glass_group_rows(vec![name_row, plain_row]))
+                .child(crate::surface::glass_group().child(Textarea::new(&self.off).appearance(false).w_full().px_4().py_3().font_family(theme::terminal::FONT_FAMILY).text_xs().disabled(true)))
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+    }
+
+    impl Eui {
+        fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let ink = crate::settings::doc_ink(cx);
+            let state = json!({"area": AREA, "empty": "", "code": CODE, "name": NAME, "plain": "Triage", "off": "You are the team's agent."});
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", state, |s: &serde_json::Value, _| s.clone()));
+            let group = |id: &str, child: serde_json::Value| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [child]});
+            let glyph = ink.2 * 1.0;
+            let shell = |id: &str, gap: f32, children: Vec<serde_json::Value>| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": gap, "paddingHorizontal": ink.2, "paddingVertical": ink.2 * 0.75}, "children": children});
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.2, "width": "100%"}, "children": [
+                group("g1", json!({"id": "area", "component": "Textarea", "props": {"label": "Instructions", "name": "area", "variant": "row", "rows": 4, "autosize": true, "maxRows": 16, "placeholder": "Instructions", "value": {"@path": "/pane/area"}}})),
+                group("g2", json!({"id": "empty", "component": "Textarea", "props": {"label": "Description", "name": "empty", "variant": "row", "rows": 2, "autosize": true, "maxRows": 6, "placeholder": "What it does", "value": {"@path": "/pane/empty"}}})),
+                group("g3", json!({"id": "code", "component": "Textarea", "props": {"label": "Body", "name": "code", "variant": "code", "rows": 14, "autosize": true, "maxRows": 40, "placeholder": "SKILL.md", "value": {"@path": "/pane/code"}}})),
+                {"id": "g4", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [
+                    shell("r1", ink.2 * 0.75, vec![
+                        json!({"id": "r1_icon", "component": "Icon", "props": {"name": "ui-docs"}, "style": {"width": glyph, "height": glyph, "color": ink.3, "flexShrink": 0}}),
+                        json!({"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "variant": "code", "placeholder": "name", "value": {"@path": "/pane/name"}}, "style": {"flexGrow": 1, "minWidth": 0}}),
+                    ]),
+                    {"id": "div", "component": "Box", "style": {"height": 1, "flexShrink": 0, "backgroundColor": ink.4}},
+                    shell("r2", ink.2 * 0.5, vec![
+                        json!({"id": "plain", "component": "Input", "props": {"label": "Name", "name": "plain", "variant": "bare", "placeholder": "Agent name", "value": {"@path": "/pane/plain"}}, "style": {"flexGrow": 1, "minWidth": 0}}),
+                    ]),
+                ]},
+                group("g5", json!({"id": "off", "component": "Textarea", "props": {"label": "Prompt", "name": "off", "variant": "code", "rows": 10, "autosize": true, "maxRows": 40, "disabled": true, "value": {"@path": "/pane/off"}}})),
+            ]});
+            let view = crate::settings::doc_mount("bench-fields", tree, &binding, window, cx);
+            Self { view }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_fields_ide() {
+        shoot_pane("fields", Ide::new, |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_fields_eui() {
+        shoot_pane("fields", Eui::new, |_, _| {});
+    }
+}
+
+fn skill_row(id: &str, name: &str, description: &str, enabled_by_default: bool, builtin: bool) -> domain::rows::SkillRow {
+    serde_json::from_value(serde_json::json!({"id": id, "team_id": "team-shots", "name": name, "description": description, "enabled_by_default": enabled_by_default, "builtin": builtin})).expect("a skill row")
+}
+
+fn skill_rows() -> Vec<domain::rows::SkillRow> {
+    vec![
+        skill_row("s1", "exponential-pr", "Open, update and land pull requests the Exponential way.", false, true),
+        skill_row("s2", "review", "Run the checks, then summarise the diff for the reviewer.", true, false),
+        skill_row("s3", "release-notes", "Draft the changelog entry from the merged pull requests since the last tag, grouped by area, in the house style.", false, false),
+        skill_row("s4", "triage", "", false, false),
+    ]
+}
+
+fn skills_list(name: &str, team: bool, ready: bool, owner: bool, rows: Vec<domain::rows::SkillRow>) {
+    shoot_pane(name, SkillsPane::for_shots, move |pane, cx| pane.show(SkillsListShot { team, ready, owner, rows }, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skills_rows() {
+    skills_list("skills-rows", true, true, true, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_member() {
+    skills_list("skills-member", true, true, false, skill_rows());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_empty() {
+    skills_list("skills-empty", true, true, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_loading() {
+    skills_list("skills-loading", true, false, true, Vec::new());
+}
+
+#[test]
+#[ignore]
+fn settings_skills_no_team() {
+    skills_list("skills-no-team", false, true, true, Vec::new());
+}
+
+fn skill(builtin: bool) -> api::skills::Skill {
+    serde_json::from_value(serde_json::json!({"id": "s2", "teamId": "team-shots", "name": "review", "description": "Run the checks, then summarise the diff for the reviewer.", "enabledByDefault": true, "builtin": builtin})).expect("a skill")
+}
+
+const SKILL_BODY: &str = "---\nname: review\ndescription: Run the checks, then summarise the diff.\n---\n\n# Review\n\n1. Run `bun run typecheck` and the tests.\n2. Read the diff file by file.\n3. Summarise what changed and what to look at.";
+
+fn skill_page(name: &str, skill: Option<api::skills::Skill>, owner: bool, body: Option<Result<String, ()>>, touched: bool, taken: bool) {
+    shoot_pane_acted(name, move |window, cx| SkillPage::new("team-shots".into(), skill, window, cx), |_, _| {}, None, &[], move |page, window, cx| page.show(owner, body, touched, taken, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_skill_page() {
+    skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_loading() {
+    skill_page("skill-loading", Some(skill(false)), true, None, false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_failed() {
+    skill_page("skill-failed", Some(skill(false)), true, Some(Err(())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_builtin() {
+    skill_page("skill-builtin", Some(skill(true)), true, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_member() {
+    skill_page("skill-member", Some(skill(false)), false, Some(Ok(SKILL_BODY.into())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new() {
+    skill_page("skill-new", None, true, Some(Ok(String::new())), false, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_new_touched() {
+    skill_page("skill-new-touched", None, true, Some(Ok(String::new())), true, false);
+}
+
+#[test]
+#[ignore]
+fn settings_skill_name_taken() {
+    skill_page("skill-name-taken", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, true);
 }
 
 fn board(repository: Option<&str>, branch: Option<&str>) -> domain::rows::Board {

@@ -748,10 +748,17 @@ final class StyleguideScreenshots: XCTestCase {
             // (NEW-7; web's `typeSlashInSessionComposer` on APP-15's chat):
             // the builtins, then the team's prompts. Nothing is sent.
             if ScreenshotShots.isWanted("sg_session-slash-menu") {
-                let capsule = anyElement(app, identified: "chat-composer-collapsed")
-                expect(capsule, within: Wait.nav, "APP-15's chat has no composer capsule")
-                capsule.tap()
-                _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
+                // #EXP-1732: the chat is THE session screen; its composer
+                // (`agent-composer-*`) may sit collapsed or already open.
+                let capsule = anyElement(app, identified: "agent-composer-collapsed")
+                if capsule.waitForExistence(timeout: 2), capsule.isHittable { capsule.tap() }
+                let field = anyElement(app, identified: "agent-composer-field")
+                expect(field, within: Wait.nav, "APP-15's chat has no composer field")
+                for dy in [0.5, 0.25, 0.75] where !app.keyboards.firstMatch.exists {
+                    field.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
+                    _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
+                }
+                expect(app.keyboards.firstMatch, within: Wait.nav, "APP-15's chat composer never took focus for the / shot")
                 app.typeText("/")
                 expect(
                     app.descendants(matching: .any)
@@ -770,7 +777,7 @@ final class StyleguideScreenshots: XCTestCase {
                     "The / menu closed with the keyboard — it follows the draft"
                 )
                 snapshot("sg_session-slash-menu", settle: 2)
-                clearSlashDraft(app, field: anyElement(app, identified: "chat-composer-field"))
+                clearSlashDraft(app, field: anyElement(app, identified: "agent-composer-field"))
             }
             // Chat → issue → board.
             goBack(app)
@@ -1550,6 +1557,9 @@ final class StyleguideScreenshots: XCTestCase {
         expect(appsTab, within: Wait.nav, "Apps tab missing")
         appsTab.tap()
         let appRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
+        // #EXP-1757: the first tab tap right after launch sometimes lands
+        // before the bar takes taps (the home stays up): tap it again.
+        if !appRow.waitForExistence(timeout: Wait.nav) { appsTab.tap() }
         expect(appRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         snapshot("sg_apps", settle: 2)
         if ScreenshotShots.isWanted("sg_app-import") {
@@ -1883,6 +1893,40 @@ final class StyleguideScreenshots: XCTestCase {
         )
         // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
+        // #EXP-1759: while the item's feed still sits pinned to the bottom
+        // (nothing scrolled yet) the edge swipe pops it, the header owns its
+        // area (Back's hit point is its centre, not a corner the feed left
+        // free) and Back pops it; the row opens it again after each.
+        let itemTitle = anyElement(app, identified: "session-item-title")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+            .withOffset(CGVector(dx: 2, dy: 0))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+        XCTAssertTrue(
+            itemTitle.waitForNonExistence(timeout: Wait.nav),
+            "The edge swipe did not pop the session item while its feed was pinned to the bottom (#EXP-1759)"
+        )
+        expect(sessionRow, within: Wait.sync, "The edge swipe from the session item left no Sessions tab row")
+        sessionRow.tap()
+        expect(itemTitle, within: Wait.sync, "The Sessions tab row did not open the session again")
+        settle(2)
+        let back = app.buttons.matching(identifier: "BackButton").firstMatch
+        expect(back, within: Wait.nav, "The session item has no Back")
+        if back.responds(to: NSSelectorFromString("hitPointCoordinate")),
+           let hit = back.value(forKey: "hitPointCoordinate") as? XCUICoordinate {
+            let point = hit.screenPoint
+            XCTAssertTrue(
+                abs(point.x - back.frame.midX) < 4 && abs(point.y - back.frame.midY) < 4,
+                "The feed under the header shadows Back's centre: its hit point is \(point), its frame \(back.frame) (#EXP-1759)"
+            )
+        }
+        goBack(app)
+        XCTAssertTrue(
+            itemTitle.waitForNonExistence(timeout: Wait.nav),
+            "Back did not pop the session item while its feed was pinned to the bottom (#EXP-1759)"
+        )
+        expect(sessionRow, within: Wait.sync, "Back from the session item left no Sessions tab row")
+        sessionRow.tap()
+        expect(itemTitle, within: Wait.sync, "The Sessions tab row did not open the session again")
         // ── sg_script-card · sg_work-card (EXP-1654): the SAME relay feed
         // web and desktop photograph, dragged up from its tail to the
         // code-mode call's Script card, then the `cold-start-review`
@@ -1919,6 +1963,7 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
         goBack(app)
         settle(1)
+        expect(chatsTab, within: Wait.nav, "Did not get back to the Chats list")
     }
 
     /// A Chats row whose (combined) label contains `fragment`.

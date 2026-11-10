@@ -106,6 +106,10 @@ function TextFieldNative({ node, props, rootProps, emit, scope, domId, multiline
   // wrapping the leading `label` part and the bare, end-aligned input (the
   // label span stays its accessible name; a click anywhere focuses it).
   const row = !multiline && str(props.variant) === `row`
+  // #EXP-1629: a `bare`/`code` Input and a `row`/`code` Textarea draw no
+  // label (the field inside a Group row): it stays the accessible name.
+  const unlabelled = !row && str(props.variant, `field`) !== `field`
+  const named = unlabelled && label ? { "aria-label": label } : {}
   void ctx
   const input = (attrs: Record<string, unknown>) => (
     <input
@@ -125,16 +129,16 @@ function TextFieldNative({ node, props, rootProps, emit, scope, domId, multiline
   )
   return (
     <div {...(rootProps as Record<string, unknown>)} data-pending={field.pending ? `true` : undefined} data-revision={field.revision}>
-      {row ? null : <TextPart part={part(`label`)} text={label} as="label" htmlFor={id} />}
+      {row || unlabelled ? null : <TextPart part={part(`label`)} text={label} as="label" htmlFor={id} />}
       {multiline ? (
-        <textarea ref={focusRef as React.Ref<HTMLTextAreaElement>} {...(part(`field`, ...fieldStates) as Record<string, string>)} {...shared} rows={rows} data-autosize={auto ? `true` : undefined} />
+        <textarea ref={focusRef as React.Ref<HTMLTextAreaElement>} {...(part(`field`, ...fieldStates) as Record<string, string>)} {...named} {...shared} rows={rows} data-autosize={auto ? `true` : undefined} />
       ) : row ? (
         <label {...(part(`field`, ...fieldStates) as Record<string, string>)} htmlFor={id}>
           <TextPart part={part(`label`)} text={label} id={`${id}-l`} />
           {input({ className: `xui-Input-rowfield`, "aria-labelledby": label ? `${id}-l` : undefined })}
         </label>
       ) : (
-        input(part(`field`, ...fieldStates) as Record<string, unknown>)
+        input({ ...(part(`field`, ...fieldStates) as Record<string, unknown>), ...named })
       )}
       <TextPart part={part(`description`)} text={description} id={`${id}-d`} />
       <FieldErrors part={part} field={f} />

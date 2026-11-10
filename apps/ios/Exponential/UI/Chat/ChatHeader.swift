@@ -52,7 +52,9 @@ struct ChatHeaderGhostGlyph: View {
         AppIcon(icon, size: CGFloat(Measures.glyph), weight: .medium)
             .foregroundStyle(.white.opacity(opacity))
             .frame(width: CGFloat(Measures.button), height: CGFloat(Measures.button))
-            .contentShape(Circle())
+            // #EXP-1759: the WHOLE 36pt square takes the tap; a circle
+            // dropped its corners.
+            .contentShape(Rectangle())
     }
 }
 

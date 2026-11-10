@@ -1038,6 +1038,18 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `language`, component: `Select`, props: { label: `Language`, description: `Spoken replies and dictation use it`, name: `language`, triggerVariant: `row`, value: `en`, options: [{ label: `English`, value: `en` }, { label: `Deutsch`, value: `de` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: the IDE's Branch picker row: the repo's default reads
+    // `main · default` in the popup (option `trailing`), the trigger only
+    // `main`; opening fires `open` (the lazy branch fetch).
+    label: `triggerVariant · row + option trailing`,
+    node: {
+      id: `board_prefs`,
+      component: `Group`,
+      children: [
+        { id: `branch`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
@@ -1243,6 +1255,36 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       children: [
         { id: `wake`, component: `Input`, props: { label: `Wake phrase`, name: `wake`, variant: `row`, placeholder: `Hey Exponential` } },
         { id: `cli`, component: `Input`, props: { label: `CLI path`, name: `cli`, variant: `row`, value: `/usr/local/bin/claude` } },
+      ],
+    },
+  }, {
+    // #EXP-1629: a name typed inline in a Group row (the agent and skill
+    // pages): `bare`, and `code` after the row's own glyph.
+    label: `variant · bare, code (in a Group)`,
+    node: {
+      id: `identity`,
+      component: `Group`,
+      children: [
+        { id: `agent`, component: `Box`, style: { display: `flex`, flexDirection: `row`, alignItems: `center`, gap: `$spacing.sm`, paddingHorizontal: `$spacing.lg`, paddingVertical: `$spacing.md` }, children: [
+          { id: `agent-name`, component: `Input`, props: { label: `Name`, name: `agent`, variant: `bare`, value: `Triage` }, style: { flexGrow: 1, minWidth: 0 } },
+        ] },
+        { id: `skill`, component: `Box`, style: { display: `flex`, flexDirection: `row`, alignItems: `center`, gap: `$spacing.md`, paddingHorizontal: `$spacing.lg`, paddingVertical: `$spacing.md` }, children: [
+          { id: `skill-icon`, component: `Icon`, props: { name: `book-open` } },
+          { id: `skill-name`, component: `Input`, props: { label: `Name`, name: `skill`, variant: `code`, placeholder: `skill-name` }, style: { flexGrow: 1, minWidth: 0 } },
+        ] },
+      ],
+    },
+  }],
+  Textarea: [{
+    // #EXP-1629: the settings pages' text bodies inside a Group: `row`
+    // (an agent's instructions) and `code` (a SKILL.md).
+    label: `variant · row, code (in a Group)`,
+    node: {
+      id: `bodies`,
+      component: `Group`,
+      children: [
+        { id: `instructions`, component: `Textarea`, props: { label: `Instructions`, name: `instructions`, variant: `row`, rows: 3, value: `Triage new issues every morning.\nLabel them and ping the board's owner.` } },
+        { id: `body`, component: `Textarea`, props: { label: `SKILL.md`, name: `body`, variant: `code`, rows: 4, value: `---\nname: review\n---\nRun the checks, then summarise the diff.` } },
       ],
     },
   }],

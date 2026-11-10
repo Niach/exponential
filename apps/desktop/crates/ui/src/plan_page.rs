@@ -98,7 +98,7 @@ pub(crate) fn prime_session(session_id: &str, cx: &mut App) {
 /// The plan `session_id` waits on (`planPageFor` over its synced messages,
 /// else its conversation's digest).
 pub(crate) fn waiting_plan_of(session_id: &str, cx: &App) -> Option<String> {
-    let mut messages = crate::session_data::messages_of_session(session_id, cx);
+    let mut messages = crate::session_data::messages_of_session(session_id, cx).to_vec();
     if messages.is_empty() {
         messages = crate::session_data::digest_messages(cx, |id| id == session_id);
     }

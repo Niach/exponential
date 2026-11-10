@@ -189,8 +189,8 @@
       "label": [ { "when": { "variant": "bar", "state": "selected" }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ]
     },
     "Toggle": { "root": [ { "style": { "borderRadius": "$radius.full", "fontWeight": "$type.weight.bold" } } ] },
-    "Input": { "field": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "paddingHorizontal": "$spacing.lg", "boxShadow": "$shadow.none" } } ] },
-    "Textarea": { "field": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ] },
+    "Input": { "field": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "paddingHorizontal": "$spacing.lg", "boxShadow": "$shadow.none" } }, { "when": { "variant": ["bare", "code"] }, "style": { "borderRadius": "$radius.none", "borderWidth": 0, "paddingHorizontal": 0 } } ] },
+    "Textarea": { "field": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } }, { "when": { "variant": ["row", "code"] }, "style": { "borderRadius": "$radius.none", "borderWidth": 0 } } ] },
     "Select": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "paddingHorizontal": "$spacing.lg", "boxShadow": "$shadow.none" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
     "DatePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "day": [ { "style": { "borderRadius": "$radius.full" } } ] },
     "Checkbox": { "box": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "borderColor": "$color.primary", "boxShadow": "$shadow.none" } } ] },

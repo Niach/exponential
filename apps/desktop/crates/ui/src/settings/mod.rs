@@ -37,6 +37,9 @@
 pub(crate) mod about;
 // #EXP-1629: what the panes' eUI documents share.
 mod doc;
+// #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
+#[cfg(test)]
+pub(crate) mod branch_row_shots;
 pub(crate) mod account;
 mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
@@ -770,8 +773,8 @@ impl SettingsView {
         let agent_detail =
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
-        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
-        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
+        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
+        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), window, cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
@@ -2320,4 +2323,19 @@ mod tests {
         }
         assert!(!nav_lit(&SettingsSection::Prompts, &SettingsSection::Repositories));
     }
+}
+
+/// #EXP-1629: the field bench's (`settings_bench::field_variants`) read of
+/// [`doc::Ink`]: the group radius and fill, the rem, the muted glyph and the
+/// row hairline.
+#[cfg(test)]
+pub(crate) fn doc_ink(cx: &App) -> (f32, String, f32, String, String) {
+    let ink = doc::Ink::of(cx);
+    (ink.radius_lg, ink.fill_row.clone(), ink.rem, ink.muted.clone(), ink.stroke_row.clone())
+}
+
+/// #EXP-1629: [`doc::mount`] for the field bench.
+#[cfg(test)]
+pub(crate) fn doc_mount<S: 'static>(id: &str, tree: serde_json::Value, binding: &gpui::Entity<eui_gpui::binding::Binding<S>>, window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<eui_gpui::view::SurfaceView> {
+    doc::mount(id, tree, binding, window, cx)
 }

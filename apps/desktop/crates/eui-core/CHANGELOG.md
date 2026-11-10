@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `trailing` + event `open` (#EXP-1629): a popup `item`'s `text` is `"{label} {trailing}"` when the option carries `trailing` (the search still matches the label); `set_open` fires the Select's `open` on the closed → open transition only, and `event(<a Select node>, "open")` fires it for a host's platform menu that opens outside the core's layers.
+- Input `bare` / `code` and Textarea `row` / `code` (#EXP-1629): no `label` part (the field's accessibility `label` carries it).
+- Template items build cheaper (#LOGS-7): an item instantiates its template by reference (no copy per item) and `with_suffix` copies each node once instead of its whole subtree at every depth. A long chat's List re-windows in about half the time; the built trees are the same.
 - Select `description` (#EXP-1629): a `field` Select shows it under the trigger (the form description); a `row` trigger with one is the `labels` column (the `label`, then the `description` at most `layout::SELECT_ROW_DESCRIPTION_MAX_WIDTH` 460, wrapping; it shrinks) and the trailing `control` column (the `value` + `chevron`, end-aligned; its recipe `minWidth` holds it). The row trigger's recipes take `minHeight` + `paddingVertical` instead of `height`, so the row grows with the hint.
 
 - Composer slots (#EDE-65 R): a Composer with `leading` / `trailing` stays one measured leaf and gets a `bar` row at the bottom of its content box (the send disc's height): `leading`, a spacer, `trailing`, then `sendSpace` (the disc's `$control.buttonIcon` square, unpainted). A measured leaf with children now lays them out as a flex box at its measured size inside its padding + border (`Engine::set_inset`); they never size it. `interactions-round1.json` `composerSlots` + `composerPaste` replayed.

@@ -7629,9 +7629,11 @@
         "variant": {
           "enum": [
             "field",
-            "row"
+            "row",
+            "bare",
+            "code"
           ],
-          "description": "`row` = a Group row: label, value.",
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono.",
           "default": "field"
         },
         "disabled": {
@@ -7722,6 +7724,15 @@
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Text; bind it to a data path."
+        },
+        "variant": {
+          "enum": [
+            "field",
+            "row",
+            "code"
+          ],
+          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type.",
+          "default": "field"
         },
         "disabled": {
           "type": "boolean",
@@ -8184,7 +8195,8 @@
             "children": "none",
             "events": [
               "change",
-              "search"
+              "search",
+              "open"
             ]
           }
         }
@@ -17734,6 +17746,10 @@
           "type": "string",
           "description": "Second line."
         },
+        "trailing": {
+          "type": "string",
+          "description": "Text after the label (Select popup)."
+        },
         "image": {
           "type": "string",
           "format": "uri-reference",
@@ -21688,6 +21704,9 @@
           "$ref": "#/$defs/EuiAction"
         },
         "search": {
+          "$ref": "#/$defs/EuiAction"
+        },
+        "open": {
           "$ref": "#/$defs/EuiAction"
         }
       },

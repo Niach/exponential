@@ -347,14 +347,22 @@ impl Builder<'_, '_> {
     /// Input / Textarea: label, the host-measured field, description, error.
     pub(crate) fn field(&mut self, index: u32) {
         // #EXP-1629: a `row` Input IS a Group row: the label leads inside it.
-        let row = self.nodes[index as usize].component == "Input" && self.nodes[index as usize].props.get("variant").and_then(Value::as_str) == Some("row");
-        let owner = self.field_open_with(index, !row);
+        // A `bare`/`code` Input and a `row`/`code` Textarea draw no label:
+        // it stays the field's accessible name.
+        let node = &self.nodes[index as usize];
+        let variant = node.props.get("variant").and_then(Value::as_str).unwrap_or("field");
+        let row = node.component == "Input" && variant == "row";
+        let unlabelled = variant != "field" && !row;
+        let owner = self.field_open_with(index, !row && !unlabelled);
         let mut props = Self::control_props(&owner);
         if let Some(label) = str_prop(&owner.props, "label").filter(|_| row) {
             props["label"] = json!(label);
         }
         let f = self.part(&owner, "field", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), props);
         self.nodes[f as usize].pressable = !bool_prop(&owner.props, "disabled");
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| unlabelled && !l.is_empty()) {
+            self.default_a11y(f, "label", json!(label));
+        }
         self.field_close(&owner, Some(f));
     }
 
@@ -436,7 +444,14 @@ impl Builder<'_, '_> {
             let v = option.get("value").map(js).unwrap_or_default();
             let selected = chosen.contains(&v);
             let disabled = option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
-            let mut props = json!({"text": label, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+            // #EXP-1629: an option's `trailing` reads on after its label in
+            // the item's own style (the IDE branch picker's `main · default`);
+            // the search still matches the label alone.
+            let text = match option.get("trailing").map(js).filter(|t| !t.is_empty()) {
+                Some(trailing) => format!("{label} {trailing}"),
+                None => label,
+            };
+            let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
             if let Some(icon) = option.get("icon") {
                 props["icon"] = icon.clone();
             }
