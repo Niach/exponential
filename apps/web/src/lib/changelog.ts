@@ -30,6 +30,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `No more freezes with many sessions`,
     summary: `The desktop app no longer freezes for seconds when you have many sessions: the sidebar and a chat that streams elsewhere update only what changed.`,
     body: `- **No more freezes**: with thousands of sessions the desktop app's sidebar and session list update only what changed, so another chat streaming or a new event no longer freezes the window.
+- **Live replies in long chats**: an agent's streamed reply now just adds to the open chat, so even a very long chat keeps up while it writes.
 - **Exponential Desktop 0.2.15**: the same fix, plus the chat and genUI changes since 0.2.14.`,
   },
   {
