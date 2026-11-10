@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `description` (#EXP-1629): an option's glyph sits in the `itemIcon` part (its recipe size), a described option draws `itemText` holding `itemLabel` and the muted `itemDescription`. `popupMinWidth` lets the popup fit its options (the core's layer minimum).
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
 - Select option `trailing` + event `open` (#EXP-1629): the popup row reads `label trailing` (Radix's `ItemText` keeps the label alone), the trigger the label; `open` fires as the popup opens.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): no label part, the field's `aria-label` is the label. Snapshots re-recorded (every Textarea gains `data-r-variant="field"`).

@@ -1050,6 +1050,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `branch`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } },
       ],
     },
+  }, {
+    // #EXP-1629: the IDE's device picker: each option's glyph, an offline
+    // one's muted `description`; the popup fits its options, at least 170.
+    label: `triggerVariant · row + option icon, description`,
+    node: {
+      id: `agent_prefs`,
+      component: `Group`,
+      children: [
+        { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).

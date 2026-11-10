@@ -983,7 +983,7 @@ mod select_variants {
     use serde_json::json;
     use std::rc::Rc;
 
-    fn rows() -> Vec<crate::picker::device_picker::DevicePickerDevice> {
+    fn rows(long: bool) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
         let device = |id: &str, name: &str, icon: &str, server: bool, offline: bool| crate::picker::device_picker::DevicePickerDevice {
             id: id.into(),
             name: name.into(),
@@ -992,14 +992,15 @@ mod select_variants {
             description: offline.then(|| "Offline".to_string()),
             disabled: false,
         };
-        vec![device("d1", "mint", "monitor", false, false), device("d2", "build-server", "server", true, false), device("d3", "macbook", "laptop", false, true)]
+        let server = if long { "build-server-eu-central-hetzner-2026" } else { "build-server" };
+        vec![device("d1", "mint", "monitor", false, false), device("d2", server, "server", true, false), device("d3", "macbook", "laptop", false, true)]
     }
 
-    pub(super) struct Ide(bool);
+    pub(super) struct Ide(bool, bool);
 
     impl Render for Ide {
         fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-            let rows = rows();
+            let rows = rows(self.1);
             let trigger = crate::trigger_editor::picker_trigger("bench-device".into(), "mint", cx).into_any_element();
             let open = self.0;
             let control = crate::picker::deferred(move |window, cx| {
@@ -1019,10 +1020,10 @@ mod select_variants {
     }
 
     impl Eui {
-        fn new(open: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        fn new(open: bool, long: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
             let ink = crate::settings::doc_ink(cx);
             let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
-            let options: Vec<serde_json::Value> = rows().iter().map(|d| {
+            let options: Vec<serde_json::Value> = rows(long).iter().map(|d| {
                 let mut o = json!({"label": d.name, "value": d.id, "icon": crate::icons::device_icon_name(d.icon.as_deref(), d.server)});
                 if let Some(description) = &d.description {
                     o["description"] = json!(description);
@@ -1030,7 +1031,7 @@ mod select_variants {
                 o
             }).collect();
             let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [
-                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "popupWidth": 170, "options": options}},
+                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "popupMinWidth": 170, "options": options}},
             ]});
             let view = crate::settings::doc_mount_lifted("bench-select", tree, &binding, window, cx);
             Self { view, open: open.then_some(2) }
@@ -1066,24 +1067,36 @@ mod select_variants {
     #[test]
     #[ignore]
     fn settings_select_ide() {
-        shoot_pane("select", |_, _| Ide(false), |_, _| {});
+        shoot_pane("select", |_, _| Ide(false, false), |_, _| {});
     }
 
     #[test]
     #[ignore]
     fn settings_select_ide_open() {
-        shoot_pane_settled("select-open", |_, _| Ide(true), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+        shoot_pane_settled("select-open", |_, _| Ide(true, false), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
     }
 
     #[test]
     #[ignore]
     fn settings_select_eui() {
-        shoot_pane("select", |window, cx| Eui::new(false, window, cx), |_, _| {});
+        shoot_pane("select", |window, cx| Eui::new(false, false, window, cx), |_, _| {});
     }
 
     #[test]
     #[ignore]
     fn settings_select_eui_open() {
-        shoot_pane_settled("select-open", |window, cx| Eui::new(true, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+        shoot_pane_settled("select-open", |window, cx| Eui::new(true, false, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide_open_long() {
+        shoot_pane_settled("select-open-long", |_, _| Ide(true, true), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui_open_long() {
+        shoot_pane_settled("select-open-long", |window, cx| Eui::new(true, true, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
     }
 }

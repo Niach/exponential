@@ -4117,6 +4117,9 @@
         "popupWidth": {
           "type": "number"
         },
+        "popupMinWidth": {
+          "type": "number"
+        },
         "disabled": {
           "type": "boolean",
           "default": false

@@ -266,6 +266,10 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-item>span:not(.xui-Select-check){min-width:0;overflow:clip;text-overflow:ellipsis}
+.xui-Select-itemIcon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.xui-Select-itemIcon>svg{width:100%;height:100%}
+.xui-Select-item>.xui-Select-itemText{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+.xui-Select-itemLabel,.xui-Select-itemDescription{display:block;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
 .xui-Checkbox-check{display:inline-flex;align-items:center;justify-content:center}
 .xui-Checkbox-check>svg{width:100%;height:100%}

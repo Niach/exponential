@@ -415,11 +415,16 @@ impl Builder<'_, '_> {
         // #EXP-1629: `align` (row: end), `popupWidth` (row: the layout's
         // selectRowPopupWidth; a field without one: at least the trigger).
         let align = owner.props.get("align").and_then(Value::as_str).and_then(OverlayAlign::parse).unwrap_or(OverlayAlign::Start);
-        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| row.then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
+        // `popupMinWidth`: the popup fits its options, at least that wide
+        // (the IDE's non-searchable picker: content-fit, 168 px minimum).
+        let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
+        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| (row && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
         if let Some(w) = width {
             style["width"] = json!(w);
+        } else if let Some(w) = min_width {
+            style["minWidth"] = json!(w);
         }
         let (layer, root) = self.popup(&owner, "content", trigger, style);
         let query = self.ctx.local.query.get(&owner.id).cloned().unwrap_or_default();
@@ -496,7 +501,7 @@ impl Builder<'_, '_> {
         }
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
-        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
+        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
         if value_node.is_some() {
             if let Some(spec) = self.layers.last_mut() {
                 spec.offset = Some(crate::layout::SELECT_ROW_POPUP_OFFSET);

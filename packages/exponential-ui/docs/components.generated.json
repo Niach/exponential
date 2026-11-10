@@ -6458,6 +6458,14 @@
           "description": "Px (`row`: 260)."
         },
         {
+          "name": "popupMinWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        {
           "name": "disabled",
           "type": "boolean",
           "required": false,

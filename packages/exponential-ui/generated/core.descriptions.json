@@ -2291,6 +2291,9 @@
         "popupWidth": {
           "description": "Px (`row`: 260)."
         },
+        "popupMinWidth": {
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
         "disabled": {
           "description": "Shows it inert."
         },

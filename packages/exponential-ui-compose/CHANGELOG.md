@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `description` + `popupMinWidth` (#EXP-1629): the popup's option rows take the `itemIcon` size and draw the muted `itemDescription` under the label; an item is at least its `minHeight` and grows; `popupMinWidth` gives the popup a minimum width instead of a row's fixed one.
 - Icon `size: xl` (#EXP-1629): 28 dp from the recipe (`$control.iconXl`). Snapshot `components.json` gains `Icon/size=xl`.
 - Select option `trailing` + event `open` (#EXP-1629): the core's popup item carries the text; the native popup's option reads `label trailing` (filtered by the label); opening the native popup fires the core's `open` (`fire(trigger, "open")`). `InteractionTest.selectTrailingAndOpen`.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): painted from the core's parts (no label part; the field's accessibility label is the owner's `label`). Snapshots re-recorded.
