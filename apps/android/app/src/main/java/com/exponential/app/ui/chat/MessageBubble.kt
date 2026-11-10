@@ -225,7 +225,7 @@ fun FeedMarkerRow(
             )
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         // #EXP-1772: THE marker ×4, a centred label between two hairlines.
         val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
@@ -240,13 +240,10 @@ fun FeedMarkerRow(
                 lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
             ),
             color = muted,
-            maxLines = 2,
+            // One line like web: the hairlines take the rest of the row.
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
         )
-        if (onClick != null) {
-            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
-        }
         Box(Modifier.weight(1f).height(1.dp).background(hairline))
     }
 }
