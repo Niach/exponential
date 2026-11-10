@@ -202,47 +202,56 @@ fn open_then(kind: Kind, cx: &mut gpui::TestAppContext, lose: impl FnOnce(&mut H
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_context_menu_closes_when_its_row_scrolls(cx: &mut gpui::TestAppContext) {
     open_then(Kind::ContextMenu, cx, |h| h.scroll_by_content(60.));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_context_menu_closes_when_its_row_moves(cx: &mut gpui::TestAppContext) {
     open_then(Kind::ContextMenu, cx, |h| h.update(|scene| scene.offset = 30.));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_context_menu_closes_when_its_row_is_removed(cx: &mut gpui::TestAppContext) {
     open_then(Kind::ContextMenu, cx, |h| h.update(|scene| scene.row = false));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_menu_on_chat_text_closes_when_the_text_scrolls(cx: &mut gpui::TestAppContext) {
     open_then(Kind::TextMenu, cx, |h| h.scroll_by_content(60.));
 }
 
 /// The message goes (deleted, re-rendered) while the transcript stays.
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_menu_on_chat_text_closes_when_the_text_is_removed(cx: &mut gpui::TestAppContext) {
     open_then(Kind::TextMenu, cx, |h| h.update(|scene| scene.text = false));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_tooltip_closes_when_its_button_scrolls(cx: &mut gpui::TestAppContext) {
     open_then(Kind::Tooltip, cx, |h| h.scroll_by_wheel(60.));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_tooltip_closes_when_its_button_is_removed(cx: &mut gpui::TestAppContext) {
     open_then(Kind::Tooltip, cx, |h| h.update(|scene| scene.row = false));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_popover_closes_when_its_trigger_scrolls(cx: &mut gpui::TestAppContext) {
     open_then(Kind::Popover, cx, |h| h.scroll_by_content(60.));
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn a_popover_closes_when_its_trigger_is_removed(cx: &mut gpui::TestAppContext) {
     open_then(Kind::Popover, cx, |h| h.update(|scene| scene.row = false));
 }
