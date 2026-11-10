@@ -27,6 +27,7 @@ use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPa
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
+use crate::settings::statuses::{DeleteStatusContent, StatusesPane, StatusesShot};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -2057,6 +2058,112 @@ mod app_detail {
         // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
         shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
     }
+}
+
+fn status(id: &str, category: &str, name: &str, color: Option<&str>, order: f64, builtin: Option<&str>) -> domain::rows::IssueStatusRow {
+    domain::rows::IssueStatusRow { id: id.into(), team_id: "team-shots".into(), category: category.into(), name: name.into(), color: color.map(str::to_string), sort_order: Some(order), builtin_key: builtin.map(str::to_string), created_at: None, updated_at: None }
+}
+
+/// The builtins plus two custom statuses (Unstarted stays empty).
+fn status_rows() -> Vec<domain::rows::IssueStatusRow> {
+    vec![
+        status("s-backlog", "backlog", "Backlog", None, 0., Some("backlog")),
+        status("s-progress", "started", "In Progress", None, 0., Some("in_progress")),
+        status("s-blocked", "started", "Blocked", Some("#ef4444"), 1., None),
+        status("s-review", "started", "In Review", None, 2., Some("in_review")),
+        status("s-done", "completed", "Done", None, 0., Some("done")),
+        status("s-verified", "completed", "Verified", Some("#8b5cf6"), 1., None),
+        status("s-cancelled", "cancelled", "Cancelled", None, 0., Some("cancelled")),
+        status("s-duplicate", "duplicate", "Duplicate", None, 0., Some("duplicate")),
+    ]
+}
+
+fn status_counts() -> HashMap<String, usize> {
+    HashMap::from([("s-backlog".to_string(), 12), ("s-progress".to_string(), 3), ("s-blocked".to_string(), 1), ("s-done".to_string(), 48)])
+}
+
+fn statuses_shot(rows: Vec<domain::rows::IssueStatusRow>) -> StatusesShot {
+    StatusesShot { counts: status_counts(), ready: true, creating: None, row_error: None, press: Vec::new(), rows }
+}
+
+fn statuses(name: &str, shot: StatusesShot, clicks: &'static [(f32, f32)]) {
+    shoot_pane_clicked(name, StatusesPane::for_shots, move |pane, cx| pane.show(shot, cx), None, clicks);
+}
+
+
+#[test]
+#[ignore]
+fn settings_statuses_rows() {
+    statuses("statuses-rows", statuses_shot(status_rows()), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_color_open() {
+    // Before: a click at the Blocked row's glyph (46, 415) opened today's popover.
+    let press = vec!["started_row_color.s-blocked.customTrigger|started_row_color.customTrigger.s-blocked".into()];
+    statuses("statuses-color-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_menu_open() {
+    // Before: a click at the Blocked row's ⋯ (709, 415) only hovered it (the
+    // pointer menu does not open headless).
+    let press = vec!["started_row_more.s-blocked".into()];
+    statuses("statuses-menu-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Unstarted, String::new())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create_duplicate() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Completed, "done".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create-duplicate", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_row_error() {
+    let shot = StatusesShot { row_error: Some(("s-blocked".into(), "A status with this name already exists.".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-row-error", shot, &[]);
+}
+
+/// Started at its cap: the band's "+" disabled and the cap line.
+#[test]
+#[ignore]
+fn settings_statuses_capped() {
+    let mut rows = status_rows();
+    rows.push(status("s-qa", "started", "QA", Some("#eab308"), 3., None));
+    rows.push(status("s-ready", "unstarted", "Ready", Some("#3b82f6"), 0., None));
+    statuses("statuses-capped", statuses_shot(rows), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_loading() {
+    statuses("statuses-loading", StatusesShot { ready: false, ..statuses_shot(Vec::new()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_empty() {
+    statuses("statuses-empty", statuses_shot(Vec::new()), &[]);
+}
+
+/// The delete dialog's body (native, unchanged by the document): the
+/// server count, the PR-pin notice and the target picker.
+#[test]
+#[ignore]
+fn settings_statuses_delete_pin() {
+    let notice = "This status is where issues move when a pull request merges. That automation will fall back to Done.";
+    shoot_pane("statuses-delete-pin", move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice)), |_, _| {});
 }
 
 /// #EXP-1629: Settings → MCP › Servers in every state (owner, member, a
