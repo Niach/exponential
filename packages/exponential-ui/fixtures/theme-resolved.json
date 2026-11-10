@@ -3579,13 +3579,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -3744,6 +3745,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -12454,13 +12472,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -12491,7 +12510,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -12501,9 +12520,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -12890,6 +12910,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -21567,13 +21622,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -21737,6 +21793,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -30776,13 +30849,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -30813,7 +30887,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -30823,9 +30897,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -31212,6 +31287,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],

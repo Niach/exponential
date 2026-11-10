@@ -116,7 +116,7 @@ impl BoardDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["repo", "branch", "branchOpen", "archive", "trash"] {
+            for name in ["repo", "branch", "branchOpen", "archive", "trash", "icon", "color"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
@@ -518,6 +518,23 @@ impl BoardDetailPane {
                     self.ensure_branches(repository_id, cx);
                 }
             }
+            // EXP-862: the icon and colour save IMMEDIATELY (web parity).
+            "icon" if !value.is_empty() => {
+                let board_id = board.id.clone();
+                spawn_trpc(cx, "boards.update(icon)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.icon = Some(value);
+                    api::boards::boards_update(trpc, &input)
+                });
+            }
+            "color" if !value.is_empty() => {
+                let board_id = board.id.clone();
+                spawn_trpc(cx, "boards.update(color)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.color = Some(value);
+                    api::boards::boards_update(trpc, &input)
+                });
+            }
             "archive" => Self::open_archive_dialog(board.id.clone(), board.name.clone(), window, cx),
             "trash" => Self::open_trash_dialog(board.id.clone(), board.name.clone(), window, cx),
             _ => {}
@@ -588,9 +605,15 @@ impl BoardDetailPane {
             }
             json!({"value": value, "options": options})
         });
-        let _ = cx;
         json!({
             "name": board.name,
+            // A row from before the icon backfill carries no `icon`: the
+            // board's fallback glyph (the rail's and web's rule), not the
+            // create form's dashed "nothing picked" placeholder.
+            "icon": board.icon.clone().unwrap_or_else(|| if board.repository_id.is_some() { "code" } else { "square-kanban" }.to_string()),
+            "color": board.color.clone().unwrap_or_default(),
+            // No colour yet: the swatch shows the muted fill (today's rule).
+            "swatch": board.color.clone().filter(|color| super::parse_hex_color(color).is_some()).unwrap_or_else(|| hex(cx.theme().muted_foreground)[..7].to_string()),
             "prefix": board.prefix.clone().unwrap_or_default(),
             "repo": {"ready": label.is_some(), "loading": label.is_none(), "value": board.repository_id.clone().unwrap_or_else(|| REPO_NONE.to_string()), "options": options},
             "hasBranch": branch.is_some(),
@@ -670,15 +693,11 @@ const REPO_NONE: &str = "none";
 const REPO_RETRY: &str = "retry";
 const REPO_CONNECT: &str = "connect";
 
-/// The pane's plugin: the IDE's, the identity row's two pickers drawn by
-/// the IDE itself (`board_form`), and the Name field's edits for the pane.
+/// The pane's plugin: the IDE's, and the Name field's edits for the pane.
 struct PanePlugin {
     pane: gpui::WeakEntity<BoardDetailPane>,
     inner: crate::exponential_ui_host::IdePlugin,
 }
-
-/// The identity row's pickers: the 32 px control rung (`CTL_MD_H`).
-const PICKER_IDS: [&str; 2] = ["icon_picker", "color_picker"];
 
 impl HostPlugin for PanePlugin {
     fn icon(&self, name: &str) -> Option<SharedString> {
@@ -696,65 +715,6 @@ impl HostPlugin for PanePlugin {
         cx.defer(move |cx| {
             let _ = pane.update(cx, |pane, cx| pane.edited(value, commit, cx));
         });
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut gpui::App) -> Option<f32> {
-        PICKER_IDS.contains(&component_id).then_some(crate::controls::CTL_MD_H)
-    }
-
-    // drop with EXP-1760: the icon and colour pickers are the IDE's own
-    // (`board_form::icon_picker` / `color_picker`) until genUI has them.
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut gpui::App) -> Option<gpui::AnyElement> {
-        let board = self.pane.upgrade()?.read(cx).board(cx)?;
-        match component_id {
-            "icon_picker" => {
-                let board_id = board.id.clone();
-                // A row from before the icon backfill carries no `icon`: the
-                // board's fallback glyph (the rail's and web's rule), not the
-                // create form's dashed "nothing picked" placeholder.
-                let fallback = if board.repository_id.is_some() { "code" } else { "square-kanban" };
-                Some(
-                    crate::board_form::icon_picker(
-                        "board-detail",
-                        crate::icons::registry::PICKABLE_ICONS,
-                        Some(board.icon.as_deref().unwrap_or(fallback)),
-                        board.color.as_deref(),
-                        false,
-                        move |name, _, cx| {
-                            let Some(name) = name else { return };
-                            let board_id = board_id.clone();
-                            spawn_trpc(cx, "boards.update(icon)", move |trpc| {
-                                let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                                input.icon = Some(name.to_string());
-                                api::boards::boards_update(trpc, &input)
-                            });
-                        },
-                        cx,
-                    )
-                    .into_any_element(),
-                )
-            }
-            "color_picker" => {
-                let board_id = board.id.clone();
-                Some(
-                    crate::board_form::color_picker(
-                        "board-detail",
-                        board.color.as_deref().unwrap_or_default(),
-                        move |color, _, cx| {
-                            let board_id = board_id.clone();
-                            spawn_trpc(cx, "boards.update(color)", move |trpc| {
-                                let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                                input.color = Some(color.to_string());
-                                api::boards::boards_update(trpc, &input)
-                            });
-                        },
-                        cx,
-                    )
-                    .into_any_element(),
-                )
-            }
-            _ => None,
-        }
     }
 }
 
@@ -793,10 +753,11 @@ impl Chrome {
 /// straight into the row (saved on blur / Enter). Then the read-only Prefix
 /// row (its value the mono readonly pill).
 fn identity(ink: &Ink) -> Value {
-    let picker = |id: &str| json!({"id": id, "component": "Embed", "props": {"surface": {}}, "style": {"width": crate::controls::CTL_MD_H, "height": crate::controls::CTL_MD_H, "flexShrink": 0}});
+    let icon = json!({"id": "icon_picker", "component": "IconPicker", "props": {"value": path("/pane/icon"), "color": path("/pane/color")}, "style": {"flexShrink": 0}, "on": {"change": {"event": {"name": "icon"}}}});
+    let color = json!({"id": "color_picker", "component": "ColorPicker", "props": {"value": path("/pane/swatch")}, "style": {"flexShrink": 0}, "on": {"change": {"event": {"name": "color"}}}});
     let name = json!({"id": "name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "placeholder": "Board name", "value": path("/pane/name")},
         "style": {"flexGrow": 1, "minWidth": 0}});
-    let mut row = ink.shell("identity", false, json!(true), vec![picker("icon_picker"), picker("color_picker"), name]);
+    let mut row = ink.shell("identity", false, json!(true), vec![icon, color, name]);
     row["style"]["gap"] = json!(ink.r(0.5));
     let mut label = ink.text("prefix_label", json!("Prefix"), SM, &ink.foreground);
     label["style"]["flexGrow"] = json!(1);

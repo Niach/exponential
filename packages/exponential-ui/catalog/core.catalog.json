@@ -5374,6 +5374,10 @@
           "type": "number",
           "description": "Px (`row`: 260)."
         },
+        "popupMinWidth": {
+          "type": "number",
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
         "loading": {
           "type": "boolean",
           "default": false,
