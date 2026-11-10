@@ -262,36 +262,58 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     let collections = store.collections();
     // #EXP-1380 PERF: the tab strip asks this for every chat tab on every
     // frame (twice: measure + paint); memoised per store change, it used to
-    // walk and clone every synced message each time.
+    // walk and clone every synced message each time. #LOGS-11: ONE memo per
+    // store change (Needs you titles every session of the team: a per-entry
+    // cap thrashed past 512 sessions).
     let revisions = [
         collections.sessions.read(cx).revision(),
         collections.session_issues.read(cx).revision(),
         collections.issues.read(cx).revision(),
     ];
     if let Some(title) = TITLE_MEMO.with(|memo| {
-        memo.borrow()
-            .get(session_id)
-            .filter(|(at, _)| *at == revisions)
-            .map(|(_, title)| title.clone())
+        let mut memo = memo.borrow_mut();
+        if memo.0 != revisions {
+            *memo = (revisions, HashMap::new());
+        }
+        memo.1.get(session_id).cloned()
     }) {
         return title;
     }
     let title = derive_session_title(session_id, cx);
-    TITLE_MEMO.with(|memo| {
-        let mut memo = memo.borrow_mut();
-        if memo.len() > 512 {
-            memo.clear();
-        }
-        memo.insert(session_id.to_string(), (revisions, title.clone()));
-    });
+    TITLE_MEMO.with(|memo| memo.borrow_mut().1.insert(session_id.to_string(), title.clone()));
     title
 }
 
 thread_local! {
-    /// [`session_title_of`]'s memo: session id → (the store revisions it
-    /// was derived at, the title).
-    static TITLE_MEMO: std::cell::RefCell<HashMap<String, ([u64; 3], Option<String>)>> =
-        std::cell::RefCell::new(HashMap::new());
+    /// [`session_title_of`]'s memo: the store revisions it holds for, and
+    /// session id → title.
+    static TITLE_MEMO: std::cell::RefCell<([u64; 3], HashMap<String, Option<String>>)> = Default::default();
+}
+
+/// #LOGS-11: the `session_issues` rows of one session, through an index
+/// built once per change of the collection (a per-session scan made every
+/// title of a large team O(sessions × links)).
+pub(crate) fn links_of_session(session_id: &str, cx: &App) -> Vec<SessionIssueRow> {
+    thread_local! {
+        static INDEX: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, Rc<HashMap<String, Vec<SessionIssueRow>>>)> = Default::default();
+    }
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collection = &store.collections().session_issues;
+    let stamp = (collection.entity_id(), collection.read(cx).revision());
+    let index = INDEX.with(|index| {
+        let mut index = index.borrow_mut();
+        if index.0 != Some(stamp) {
+            let mut by_session: HashMap<String, Vec<SessionIssueRow>> = HashMap::new();
+            for link in collection.read(cx).iter() {
+                by_session.entry(link.session_id.clone()).or_default().push(link.clone());
+            }
+            *index = (Some(stamp), Rc::new(by_session));
+        }
+        index.1.clone()
+    });
+    index.get(session_id).cloned().unwrap_or_default()
 }
 
 fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
@@ -299,13 +321,7 @@ fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
     let collections = store.collections();
     let row = collections.sessions.read(cx).get(session_id)?.clone();
     // NEW-1: a session titles from its OWN rows (the row sits on its holder).
-    let links: Vec<SessionIssueRow> = collections
-        .session_issues
-        .read(cx)
-        .iter()
-        .filter(|link| link.session_id == session_id)
-        .cloned()
-        .collect();
+    let links = links_of_session(session_id, cx);
     let all_issues = collections.issues.read(cx);
     let issues: Vec<TreeIssue> = links
         .iter()
@@ -313,8 +329,9 @@ fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
         .map(TreeIssue::from_issue)
         .collect();
     // Session e4a04d22: the first prompt is the conversation digest's
-    // `first` (no read of a long chat's messages at all).
-    let messages: Vec<MessageRow> = digest_messages(cx, |owner| owner == session_id)
+    // `first` (no read of a long chat's messages at all), off the row itself.
+    let digest = domain::chats::ConversationDigest::decode(row.digest.as_ref());
+    let messages: Vec<MessageRow> = domain::chats::digest_messages(&row.id, digest.as_ref())
         .into_iter()
         .filter(|message| is_first_prompt_candidate(message, session_id))
         .collect();
@@ -1447,16 +1464,24 @@ pub(crate) fn live_roots_from(
     sessions: &[&SessionRow],
     team_pulls: &[PullRequestRow],
 ) -> Vec<LiveRootRow> {
+    let mut trees: Option<HashMap<&str, Vec<&SessionRow>>> = None;
     domain::session_tree::rail_chats(groups, |row| {
         crate::chats_view::chat_word(&row.session_id, row.busy, row.needs_you, row.offline, team_pulls)
     })
     .into_iter()
     .map(|row| {
-        let tree: Vec<&SessionRow> = sessions
-            .iter()
-            .copied()
-            .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
-            .collect();
+        // #LOGS-11: the trees grouped once, not one scan per row.
+        let trees = trees.get_or_insert_with(|| {
+            let mut trees: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
+            for session in sessions.iter().copied() {
+                trees.entry(session.root_id_or_self()).or_default().push(session);
+                if session.root_id_or_self() != session.id {
+                    trees.entry(session.id.as_str()).or_default().push(session);
+                }
+            }
+            trees
+        });
+        let tree: Vec<&SessionRow> = trees.get(row.session_id.as_str()).cloned().unwrap_or_default();
         LiveRootRow {
             session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
             root_id: row.session_id,
@@ -1489,6 +1514,19 @@ pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRo
 /// Re-render a view whenever one of the five session collections (or the
 /// issues they name) changes — the observe set every session surface needs.
 pub(crate) fn observe_session_collections<V: 'static>(cx: &mut gpui::Context<V>) -> Vec<gpui::Subscription> {
+    let mut subscriptions = observe_session_rows(cx);
+    if let Some(store) = Store::try_global(cx) {
+        let messages = store.collections().messages.clone();
+        subscriptions.push(cx.observe(&messages, |_, _, cx| cx.notify()));
+    }
+    subscriptions
+}
+
+/// [`observe_session_collections`] without the transcripts (`messages`):
+/// for a view that reads only the rows and their digests (#LOGS-11: the
+/// rail, which a busy account's streaming messages re-rendered on every
+/// delta).
+pub(crate) fn observe_session_rows<V: 'static>(cx: &mut gpui::Context<V>) -> Vec<gpui::Subscription> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -1496,7 +1534,6 @@ pub(crate) fn observe_session_collections<V: 'static>(cx: &mut gpui::Context<V>)
     vec![
         cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
         cx.observe(&collections.session_issues, |_, _, cx| cx.notify()),
-        cx.observe(&collections.messages, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
         cx.observe(&collections.issues, |_, _, cx| cx.notify()),

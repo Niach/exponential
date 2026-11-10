@@ -720,6 +720,38 @@ final class Round1ModelTests: XCTestCase {
         }
     }
 
+    // MARK: - interactions-round1.json pickerPick (#EXP-1760, #EXP-1775)
+
+    /// Every pickerPick case through the MODEL: IconPicker / ColorPicker are
+    /// macros over a Popover; the trigger (or a child trigger) opens it, a
+    /// pick writes /value, fires `change` {value} and closes it; an inline
+    /// ColorPicker picks with no popover. The actions fired {name, context},
+    /// /value and whether the macro root's Popover is open.
+    func testPickerPickCasesOpenPickAndCloseThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["pickerPick"])
+        let surfaces = try XCTUnwrap(f["surfaces"]?.object)
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 7)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let surface = try XCTUnwrap(surfaces[c["surface"]?.string ?? ""], name)
+            let rootId = try XCTUnwrap(surface["id"]?.string, name)
+            let host = Round1Host()
+            let m = try model(surface, host: host)
+            for (key, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(key)", value: value) }
+            for step in c["steps"]?.array ?? [] {
+                let id = try XCTUnwrap(step["press"]?.string, "\(name): unknown step \(step.json)")
+                XCTAssertNotNil(m.index(of: id), "\(name): \(id)")
+                m.press(id: id)
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(m.data["value"] ?? .null, c["value"] ?? .null, "\(name): /value")
+            XCTAssertEqual(m.layers.contains { $0.owner == rootId && $0.kind == "Popover" }, c["open"]?.bool == true, "\(name): open")
+        }
+    }
+
     // MARK: - interactions-round1.json keyRecorder (#EXP-1629)
 
     /// Every keyRecorder case through the MODEL: `press` = the generic press
@@ -860,7 +892,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 7)
+        XCTAssertEqual(cases.count, 10)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"

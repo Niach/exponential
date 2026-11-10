@@ -34,7 +34,7 @@ export interface ChatGroup {
   avatar?: string | null
   /** An `in` row right of the avatar column (the avatar or its spacer). */
   indent?: boolean
-  /** The session a press opens. */
+  /** The session the relay's name line opens (#EXP-1772: set = a relay, another session's message). */
   link?: string | null
   /** The space above it in px (0, 3, 8, 12, 16); without a group a row sits 16 below the row before it. */
   gap?: number
@@ -56,6 +56,8 @@ export type ChatRowInput =
   | { id: string; type: `host` }
   | { id: string; type: `pill`; icon: string; label: string }
   | { id: string; type: `line`; icon: string; text: string }
+  /** #EXP-1772: THE inline marker (an event line, a system note): a centred muted label between two hairlines. */
+  | { id: string; type: `marker`; label: string }
   | { id: string; type: `card`; icon: string; title: string; text: string; target: string | null; surface?: ChatSurface | null }
   | { id: string; type: `question`; question: string; options: ChatOptionInput[]; custom: boolean; multi: boolean; waiting: boolean; answer: string | null; surface?: ChatSurface | null }
   | { id: string; type: `picture`; attachmentId: string; caption: string | null }
@@ -76,7 +78,7 @@ export interface ChatInput {
   rows: ChatRowInput[]
 }
 
-export type ChatRowKind = `user` | `agent` | `line` | `pill` | `card` | `question` | `picture` | `host`
+export type ChatRowKind = `user` | `agent` | `line` | `marker` | `pill` | `card` | `question` | `picture` | `host`
 
 export interface ChatRow {
   id: string
@@ -99,6 +101,8 @@ export interface ChatRow {
   /** #EDE-65 lane O: a bubble's MessageBubble props (bubbles only). */
   side: string
   author: string
+  /** #EXP-1772: a relay's name line ABOVE the bubble (the name + `copy.linkChevron`), the press that opens `link`; blank otherwise. */
+  relay: string
   time: string
   /** The message's ChatGroup, passed through. */
   avatar: string
@@ -139,6 +143,7 @@ const blank = (id: string, kind: ChatRowKind): ChatRow => ({
   surface: null,
   side: ``,
   author: ``,
+  relay: ``,
   time: ``,
   avatar: ``,
   indent: false,
@@ -155,9 +160,12 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
     case `message`: {
       const group = input.group ?? {}
       const side = group.side === `in` || group.side === `out` ? group.side : input.author === `user` ? `out` : `in`
+      const relay = (group.link ?? ``) !== ``
+      const name = bubbles && side === `in` ? (input.name ?? ``) : ``
       const grouped = (kind: ChatRowKind): ChatRow => ({
         ...blank(input.id, kind),
-        author: bubbles && side === `in` ? (input.name ?? ``) : ``,
+        author: relay ? `` : name,
+        relay: relay && name.trim() !== `` ? `${name.trim()} ${COPY.linkChevron}` : ``,
         time: bubbles ? input.time.trim() : ``,
         side: bubbles ? side : ``,
         avatar: group.avatar ?? ``,
@@ -171,7 +179,7 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
       if (input.author === `agent`) {
         return { ...grouped(`agent`), bubble: bubbles, body: input.body, caption: bubbles ? caption(input.time) : `` }
       }
-      return { ...blank(input.id, `line`), icon: COPY.systemIcon, text: input.body }
+      return { ...blank(input.id, `marker`), text: input.body }
     }
     case `host`:
       return blank(input.id, `host`)
@@ -179,6 +187,8 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
       return { ...blank(input.id, `pill`), icon: input.icon, text: input.label }
     case `line`:
       return { ...blank(input.id, `line`), icon: input.icon, text: input.text }
+    case `marker`:
+      return { ...blank(input.id, `marker`), text: input.label }
     case `card`:
       return { ...blank(input.id, `card`), icon: input.icon, title: input.title, text: input.text, target: input.target, surface: input.surface ?? null }
     case `question`:

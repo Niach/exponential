@@ -14138,7 +14138,7 @@
     },
     "ColorPicker": {
       "type": "object",
-      "description": "Colour field: a swatch opens the palette grid.",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
       "properties": {
         "component": {
           "const": "ColorPicker"
@@ -14159,6 +14159,14 @@
           "description": "Grid shows; bind it.",
           "default": false
         },
+        "inline": {
+          "type": "boolean",
+          "description": "The grid alone, no trigger.",
+          "default": false
+        },
+        "children": {
+          "$ref": "#/$defs/ChildList"
+        },
         "on": {
           "$ref": "#/$defs/On_ColorPicker"
         },
@@ -14172,14 +14180,13 @@
       "required": [
         "component"
       ],
-      "allowedChildren": [],
       "metadata": {
         "extensions": {
           "at_exponential_component": {
             "kind": "macro",
             "group": "input",
             "lite": false,
-            "children": "none",
+            "children": "one",
             "events": [
               "change"
             ]
@@ -14586,6 +14593,14 @@
           "type": "boolean",
           "description": "Turns submit into a stop while a reply streams.",
           "default": false
+        },
+        "layout": {
+          "enum": [
+            "stacked",
+            "flat"
+          ],
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward.",
+          "default": "stacked"
         },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",

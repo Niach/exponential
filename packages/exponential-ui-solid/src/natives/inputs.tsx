@@ -829,8 +829,16 @@ export function ComposerNative(props: NativeProps): JSX.Element {
   }
   const placeholder = () => str(props.props.placeholder)
   const submitLabel = () => str(props.props.submitLabel) || ctx.t(`send`)
+  // #EXP-1762: `flat` = one row: the leading slot LEFT of the field, the
+  // controls right of it (bottom-aligned while the field grows upward).
+  const flat = () => str(props.props.layout) === `flat`
   return (
     <div {...props.rootProps} data-busy={busy() ? `true` : undefined}>
+      <Show when={flat() && props.node.slots?.leading}>
+        <div class="xui-composer-bar">
+          <div class="xui-composer-leading">{props.slots.leading}</div>
+        </div>
+      </Show>
       <textarea
         ref={ref}
         {...part(`field`, field.focused && `focus`)}
@@ -873,7 +881,7 @@ export function ComposerNative(props: NativeProps): JSX.Element {
         }}
       />
       <div class="xui-composer-bar">
-        <Show when={props.node.slots?.leading}>
+        <Show when={!flat() && props.node.slots?.leading}>
           <div class="xui-composer-leading">{props.slots.leading}</div>
         </Show>
         {bool(props.props.attachments) ? (

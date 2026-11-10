@@ -36193,7 +36193,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#ef4444"
                     },
@@ -36206,11 +36208,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36238,7 +36242,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#22c55e"
                     },
@@ -36251,11 +36257,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36283,7 +36291,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#3b82f6"
                     },
@@ -36296,11 +36306,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36328,7 +36340,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#a855f7"
                     },
@@ -36341,11 +36355,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36366,7 +36382,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "recipe": {
               "macro": "ColorPicker",
@@ -36477,7 +36493,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#ef4444"
                     },
@@ -36490,11 +36508,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36522,7 +36542,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#22c55e"
                     },
@@ -36535,11 +36557,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36567,7 +36591,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#3b82f6"
                     },
@@ -36580,11 +36606,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36612,7 +36640,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#a855f7"
                     },
@@ -36625,11 +36655,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36650,7 +36682,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "recipe": {
               "macro": "ColorPicker",
@@ -36761,7 +36793,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#ef4444"
                     },
@@ -36774,11 +36808,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36806,7 +36842,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#22c55e"
                     },
@@ -36819,11 +36857,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36851,7 +36891,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#3b82f6"
                     },
@@ -36864,11 +36906,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36896,7 +36940,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#a855f7"
                     },
@@ -36909,11 +36955,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -36934,7 +36982,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "recipe": {
               "macro": "ColorPicker",
@@ -36985,6 +37033,836 @@
             "recipe": {
               "macro": "ColorPicker",
               "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/inline=true",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "inline": true
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "color_picker.swatch.0",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "color_picker.swatch.0.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 20,
+                  "height": 20,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#ef4444"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "fill",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 28,
+              "height": 28,
+              "flexShrink": 0,
+              "borderRadius": "$radius.full",
+              "borderWidth": "$border.thick"
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "swatch",
+              "props": {
+                "selected": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "#ef4444",
+              "pressed": false
+            }
+          },
+          {
+            "id": "color_picker.swatch.1",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "color_picker.swatch.1.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 20,
+                  "height": 20,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#22c55e"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "fill",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 28,
+              "height": 28,
+              "flexShrink": 0,
+              "borderRadius": "$radius.full",
+              "borderWidth": "$border.thick"
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "swatch",
+              "props": {
+                "selected": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "#22c55e",
+              "pressed": false
+            }
+          },
+          {
+            "id": "color_picker.swatch.2",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "color_picker.swatch.2.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 20,
+                  "height": 20,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "fill",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 28,
+              "height": 28,
+              "flexShrink": 0,
+              "borderRadius": "$radius.full",
+              "borderWidth": "$border.thick"
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "swatch",
+              "props": {
+                "selected": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "#3b82f6",
+              "pressed": true
+            }
+          },
+          {
+            "id": "color_picker.swatch.3",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "color_picker.swatch.3.fill",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 20,
+                  "height": 20,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#a855f7"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "fill",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 28,
+              "height": 28,
+              "flexShrink": 0,
+              "borderRadius": "$radius.full",
+              "borderWidth": "$border.thick"
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "swatch",
+              "props": {
+                "selected": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "#a855f7",
+              "pressed": false
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 6,
+          "width": 232
+        },
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "grid",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/inline=false",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "inline": false
+        }
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 266
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.trigger",
+            "component": "Button",
+            "props": {
+              "variant": "outline"
+            },
+            "children": [
+              {
+                "id": "color_picker.trigger.dot",
+                "component": "Box",
+                "props": {},
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "backgroundColor": "#3b82f6"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "dot",
+                  "props": {}
+                }
+              }
+            ],
+            "style": {
+              "width": "$control.buttonMd",
+              "height": "$control.buttonMd",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "trigger",
+              "props": {}
+            },
+            "accessibility": {
+              "label": {
+                "@call": "fill",
+                "args": {
+                  "template": "$string.colorValue",
+                  "params": {
+                    "color": "#3b82f6"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/child",
+      "input": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        },
+        "children": [
+          {
+            "id": "color_picker_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "color_picker",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "color_picker.grid",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "color_picker.grid.swatch.0",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.0.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#ef4444"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#ef4444",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.1",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.1.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#22c55e"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#22c55e",
+                  "pressed": false
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.2",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.2.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#3b82f6"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#3b82f6",
+                  "pressed": true
+                }
+              },
+              {
+                "id": "color_picker.grid.swatch.3",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "color_picker.grid.swatch.3.fill",
+                    "component": "Box",
+                    "props": {},
+                    "children": [],
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "#a855f7"
+                    },
+                    "recipe": {
+                      "macro": "ColorPicker",
+                      "part": "fill",
+                      "props": {}
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "recipe": {
+                  "macro": "ColorPicker",
+                  "part": "swatch",
+                  "props": {
+                    "selected": false
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "label": "#a855f7",
+                  "pressed": false
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 266
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "grid",
+              "props": {}
+            }
+          }
+        ],
+        "recipe": {
+          "macro": "ColorPicker",
+          "part": "root",
+          "props": {}
+        },
+        "slots": {
+          "trigger": {
+            "id": "color_picker.customTrigger",
+            "component": "Button",
+            "props": {
+              "variant": "ghost",
+              "size": "icon"
+            },
+            "children": [
+              {
+                "id": "color_picker_child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "width": "$control.pill",
+              "height": "$control.pill",
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "borderRadius": "$radius.full",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "ColorPicker",
+              "part": "customTrigger",
               "props": {}
             },
             "accessibility": {
@@ -71169,7 +72047,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#ef4444"
                     },
@@ -71182,11 +72062,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71241,7 +72123,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#22c55e"
                     },
@@ -71254,11 +72138,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71313,7 +72199,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#3b82f6"
                     },
@@ -71326,11 +72214,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71385,7 +72275,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#a855f7"
                     },
@@ -71398,11 +72290,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71450,7 +72344,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "recipe": {
               "macro": "ColorPicker",
@@ -71578,7 +72472,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#ef4444"
                     },
@@ -71591,11 +72487,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71623,7 +72521,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#22c55e"
                     },
@@ -71636,11 +72536,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71668,7 +72570,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#3b82f6"
                     },
@@ -71681,11 +72585,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71713,7 +72619,9 @@
                     "props": {},
                     "children": [],
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "#a855f7"
                     },
@@ -71726,11 +72634,13 @@
                 ],
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "recipe": {
                   "macro": "ColorPicker",
@@ -71751,7 +72661,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "recipe": {
               "macro": "ColorPicker",

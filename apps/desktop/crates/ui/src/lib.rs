@@ -279,6 +279,8 @@ mod transcript_bench;
 #[cfg(test)]
 mod shell_bench;
 #[cfg(test)]
+mod rail_bench;
+#[cfg(test)]
 mod settings_bench;
 #[cfg(test)]
 mod picker_bench;

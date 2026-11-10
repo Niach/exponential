@@ -249,7 +249,7 @@ fn hovering_plays_in_and_out_and_completes(cx: &mut TestAppContext) {
 /// states follow the bound `inputs.level` the Slider writes.
 #[gpui::test]
 fn the_styleguide_level_bar_follows_its_bound_input(cx: &mut TestAppContext) {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../styleguide/src/entries/motion.specimens.json");
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../packages/exponential-ui/fixtures/motion.specimens.json");
     let doc: Value = serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap();
     cx.update(gpui_component::init);
     let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("exponential"), mode: eui_core::theme::Mode::Dark, ..Default::default() };

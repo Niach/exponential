@@ -4109,6 +4109,7 @@
         "fill",
         "trigger",
         "dot",
+        "customTrigger",
         "content"
       ],
       "props": [
@@ -4215,7 +4216,8 @@
       ],
       "props": [
         "attachments",
-        "busy"
+        "busy",
+        "layout"
       ]
     },
     {

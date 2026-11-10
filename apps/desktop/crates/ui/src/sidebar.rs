@@ -695,7 +695,39 @@ pub struct RailView {
     last_branch: Option<String>,
     /// #EXP-1725: the rows, the shared sidebar document.
     region: Entity<crate::shell_regions::SidebarRegion>,
+    /// #LOGS-11: what the rows were last derived from; a render with the
+    /// same inputs (a hover, a glyph's region, the Computer button) does
+    /// not derive them again.
+    derived: Option<RailInputs>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// #LOGS-11: everything the rail's rows read
+/// ([`crate::shell_regions::SidebarRegion::refresh`]): the synced store
+/// (all but the transcripts and the event stream, which no row reads), the
+/// window's screen, team and board, the account and the minute (Needs you's
+/// stuck rows and the list bands move with the clock).
+#[derive(PartialEq)]
+struct RailInputs {
+    revisions: Vec<u64>,
+    screen: Option<Screen>,
+    team: Option<String>,
+    board: Option<String>,
+    account: Option<String>,
+    minute: i64,
+}
+
+impl RailInputs {
+    fn read(nav: &Entity<Navigation>, cx: &App) -> Self {
+        Self {
+            revisions: Store::global(cx).collections().revisions_except(&["messages", "events"], cx),
+            screen: resolved_screen(nav, cx),
+            team: crate::navigation::active_team_id(nav, cx),
+            board: crate::navigation::active_board_id(nav, cx),
+            account: crate::queries::active_account(cx).map(|account| account.id),
+            minute: crate::session_data::now_ms() / 60_000,
+        }
+    }
 }
 
 impl RailView {
@@ -748,7 +780,8 @@ impl RailView {
         ];
         // EXP-1294: the Chats dot, the Agents rows and the Running section
         // are live reads over the session tree (+ the issues that title it).
-        subscriptions.extend(crate::session_data::observe_session_collections(cx));
+        // #LOGS-11: never the transcripts — no row reads a message.
+        subscriptions.extend(crate::session_data::observe_session_rows(cx));
         // #NEW-97: the footer's voice button follows the tray (its host, the
         // wake word's microphone, Mute and the switches).
         if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
@@ -760,6 +793,7 @@ impl RailView {
             shared,
             last_branch: None,
             region,
+            derived: None,
             _subscriptions: subscriptions,
         }
     }
@@ -901,12 +935,17 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::chat_row_mark_state(needs_you, busy)
 }
 
-impl RailView {
+/// #LOGS-11: the rail's renders, for the bench.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RAIL_RENDERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "RailView").entered();
+        #[cfg(test)]
+        RAIL_RENDERS.with(|n| n.set(n.get() + 1));
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -991,10 +1030,19 @@ impl Render for RailView {
             active: matches!(resolved_screen(&self.nav, cx), Some(Screen::Files) | Some(Screen::SourceControl)),
         };
         let nav = self.nav.clone();
+        let inputs = RailInputs::read(&nav, cx);
+        let stale = self.derived.as_ref() != Some(&inputs);
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
-            region.refresh(&nav, cx);
+            if stale {
+                region.refresh(&nav, cx);
+            } else {
+                region.repaint_computer(cx);
+            }
         });
+        if stale {
+            self.derived = Some(inputs);
+        }
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
