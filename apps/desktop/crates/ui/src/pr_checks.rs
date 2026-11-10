@@ -38,7 +38,7 @@ pub(crate) fn tone_color(tone: CheckTone, cx: &App) -> Hsla {
 pub(crate) fn check_glyph(glyph: CheckGlyph, tone: CheckTone, size: f32, cx: &App) -> AnyElement {
     let color = tone_color(tone, cx);
     if glyph == CheckGlyph::Running {
-        return crate::feedback::arc_spinner_colored(size, color, cx);
+        return crate::feedback::spinner_colored(size, color, cx);
     }
     Icon::new(glyph_icon(glyph))
         .size(px(size))

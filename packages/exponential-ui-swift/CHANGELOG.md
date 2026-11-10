@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Icon `size: xl` (#EXP-1629): 28 pt from the recipe (`$control.iconXl`). Snapshot `components.json` gains `Icon/size=xl`.
 - An autosize Textarea and the Composer are measured at their laid-out width (#EXP-1629, from eui-core) instead of a guessed 160 px / 320 px; CoreText wraps a word wider than the row by character, so a 12k-char URL or hash grows rows 10 to maxRows 40.
 - Select option `trailing` + event `open` (#EXP-1629): both come from the core (the popup item's text, `open` through `set_open`); snapshots re-recorded for the specimen's Branch row.
 - Textarea `variant` + Input `bare` / `code` (#EXP-1629): painted from the core's parts (no label part; the field's accessibility label is the owner's `label`). Snapshot `components.json` gains the five cases.
