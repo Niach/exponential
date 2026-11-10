@@ -33,10 +33,10 @@
         { "style": { "backgroundColor": "$color.secondary", "borderColor": "$color.border" } },
         { "when": { "shape": "rect" }, "style": { "backgroundColor": "$color.secondary" } },
         { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } },
-        { "when": { "tone": "neutral", "shape": "pill" }, "style": { "backgroundColor": "$color.card", "borderColor": "$color.border", "fontSize": 12.25 } },
+        { "when": { "tone": "neutral", "shape": "pill" }, "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } },
         { "when": { "tone": "neutral", "shape": "pill", "state": "hover" }, "style": { "backgroundColor": "$color.accent" } }
       ],
-      "label": [ { "when": { "tone": "neutral", "shape": "pill" }, "style": { "color": "$color.foreground", "opacity": 0.7, "fontSize": 12.25 } } ]
+      "label": [ { "when": { "tone": "neutral", "shape": "pill" }, "style": { "color": "$color.foreground", "opacity": 0.7, "fontSize": 10.5 } } ]
     },
     "Row": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent" } } ] },
     "Menu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },

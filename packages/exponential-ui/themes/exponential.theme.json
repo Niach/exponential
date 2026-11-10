@@ -1662,8 +1662,7 @@
           },
           "style": {
             "backgroundColor": "$color.card",
-            "borderColor": "$color.border",
-            "fontSize": 12.25
+            "borderColor": "$color.border"
           }
         },
         {
@@ -1686,7 +1685,7 @@
           "style": {
             "color": "$color.foreground",
             "opacity": 0.7,
-            "fontSize": 12.25
+            "fontSize": 10.5
           }
         }
       ]
