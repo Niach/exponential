@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Icon `size: xl` (#EXP-1629): the `iconSize` enum and the `iconXl` control token (28) in the generated catalog and themes.
 - Select option `trailing` + event `open` (#EXP-1629): a popup `item`'s `text` is `"{label} {trailing}"` when the option carries `trailing` (the search still matches the label); `set_open` fires the Select's `open` on the closed → open transition only, and `event(<a Select node>, "open")` fires it for a host's platform menu that opens outside the core's layers.
 - Input `bare` / `code` and Textarea `row` / `code` (#EXP-1629): no `label` part (the field's accessibility `label` carries it).
 - Template items build cheaper (#LOGS-7): an item instantiates its template by reference (no copy per item) and `with_suffix` copies each node once instead of its whole subtree at every depth. A long chat's List re-windows in about half the time; the built trees are the same.
