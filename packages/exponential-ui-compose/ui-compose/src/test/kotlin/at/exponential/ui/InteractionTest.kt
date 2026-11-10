@@ -437,6 +437,25 @@ class InteractionTest {
         }
     }
 
+    /** #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is one block (`joinTop` / `joinBottom`). */
+    @Test
+    fun selectItemJoinsRules() {
+        val picked = listOf(true, true, true, false, true)
+        val joins = picked.indices.map { at.exponential.ui.compose.selectItemJoins(true, picked, it) }
+        assertEquals(listOf(false to true, true to true, true to false, false to false, false to false), joins)
+        assertEquals(false to false, at.exponential.ui.compose.selectItemJoins(false, picked, 1))
+        // The model resolves the joined edge: no top stroke, no top corners, the IDE's 5 of padding.
+        val owner = mapOf("multiple" to JsonValue.Bool(true), "triggerVariant" to JsonValue.Str("row"))
+        val theme = at.exponential.ui.theme.ThemeHandle.builtin("exponential")!!
+        val top = theme.part("Select", "item", owner + ("joinTop" to JsonValue.Bool(true)), listOf("selected"), mode = at.exponential.ui.theme.Mode.Dark)
+        assertEquals(0f, top.style.sides[0])
+        assertEquals(0f, top.style.corners[0])
+        assertEquals(5f, top.px("paddingTop"))
+        val free = theme.part("Select", "item", owner, listOf("selected"), mode = at.exponential.ui.theme.Mode.Dark)
+        assertEquals(1f, free.style.sides[0])
+        assertTrue(free.style.corners[0] > 0f)
+    }
+
     /** #EXP-1629: the popup's cursor rules, alignment, spacing and width (a row: under its value, `start`, layout `selectRowPopupWidth`). */
     @Test
     fun selectPopupRules() {
