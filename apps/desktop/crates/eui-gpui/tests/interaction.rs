@@ -1755,7 +1755,8 @@ fn a_composer_attaches_a_pasted_image_like_the_fixture(cx: &mut TestAppContext) 
     }
 }
 
-/// The laid-out height of a 400 px surface holding one Textarea (`props`).
+/// The laid-out height of a 400 px surface holding one 360 px wide Textarea
+/// (`props`; a width-less one measures its hard lines only).
 fn textarea_height(cx: &mut TestAppContext, mut props: Value) -> f32 {
     init(cx);
     props["label"] = json!("Prompt");
@@ -1766,7 +1767,7 @@ fn textarea_height(cx: &mut TestAppContext, mut props: Value) -> f32 {
     let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
     view.update(vcx, |v, cx| {
         v.set_width(400.0, cx);
-        let out = v.set_nested(serde_json::from_value::<NestedNode>(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Textarea", "props": props}]})).unwrap(), cx);
+        let out = v.set_nested(serde_json::from_value::<NestedNode>(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Textarea", "style": {"width": 360}, "props": props}]})).unwrap(), cx);
         assert!(out.issues.is_empty(), "{:?}", out.issues);
     });
     draw(vcx);

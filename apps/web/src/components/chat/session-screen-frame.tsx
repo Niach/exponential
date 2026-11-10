@@ -24,10 +24,11 @@ import { cn } from "@/lib/utils"
 // or the Assistant's conversation, an app's editor session). It draws:
 //
 //   HEADER   the lead avatar, the title over ONE subtitle line, then the
+//            tabs (#EXP-1762: ONE SegmentedControl `session-tabs` ON the
+//            title row on wide, each label followed by its muted count;
+//            phones keep it under the header, scrolling sideways), the
 //            trailing slot (merge pill / Publish / call), THE gear (agent,
-//            Assistant, app) and the `…`; under it ONE SegmentedControl
-//            (`session-tabs`), each label followed by its muted count; it
-//            scrolls sideways on a phone when it overflows.
+//            Assistant, app) and the `…`.
 //   BODY     `sessionScreen().layout`: `beside` = the chat pane (5fr, min
 //            360px) : the tab pane (7fr; the active tab's body or the
 //            opened item over it), a hairline between; `chat` = the chat
@@ -268,7 +269,7 @@ export function SessionScreenFrame({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid={testId} data-layout={screen.layout}>
-      <div className="shrink-0 border-b border-border px-6 pt-5 pb-3">
+      <div className="shrink-0 border-b border-border px-6 py-3">
         <div className="flex items-center gap-3">
           <BackStackButton onPop={onPop} className="-ml-2" />
           {avatar}
@@ -285,11 +286,13 @@ export function SessionScreenFrame({
               </p>
             )}
           </div>
+          {/* #EXP-1762: ONE header line on wide: the tabs sit on the title
+              row, before the merge pill, the gear and the `…`. */}
+          <div className="shrink-0">{tabs}</div>
           {trailing}
           {gear}
           {menu?.(`shrink-0 text-muted-foreground`)}
         </div>
-        <div className="mt-3">{tabs}</div>
       </div>
       {overlay}
       {body}

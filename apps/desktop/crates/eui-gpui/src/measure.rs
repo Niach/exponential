@@ -1065,13 +1065,15 @@ impl<'a> GpuiMeasure<'a> {
         }
         let value = self.live.get(leaf.id).cloned().unwrap_or_else(|| str_prop(props, "value").to_string());
         let max = num_prop(props, "maxRows").map(|m| m as f32).unwrap_or(f32::INFINITY);
-        let at = match inner {
-            Some(x) if x > 0.0 => x,
-            _ => w,
-        };
+        // An intrinsic pass (no width yet) counts the hard lines only: a
+        // guessed wrap width would grow the rows the real width never needs.
+        let at = inner.filter(|x| *x > 0.0);
         let font = self.fonts.for_style(ts);
         let mut s = self.shaper();
-        let lines = s.field_lines(&value, &font, ts.font_size, at).len() as f32;
+        let lines = match at {
+            Some(at) => s.field_lines(&value, &font, ts.font_size, at).len(),
+            None => value.split('\n').count(),
+        } as f32;
         self.shaped += s.calls;
         (w, lines.max(rows).min(max.max(rows)) * ts.line_height)
     }
