@@ -12848,6 +12848,60 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_select_case_7",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_7_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + option icon, description",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c7_agent_prefs",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c7_device",
+                    "component": "Select",
+                    "props": {
+                      "label": "Device",
+                      "name": "device",
+                      "triggerVariant": "row",
+                      "popupMinWidth": 170,
+                      "value": "mint",
+                      "options": [
+                        {
+                          "label": "mint",
+                          "value": "mint",
+                          "icon": "monitor"
+                        },
+                        {
+                          "label": "build-server",
+                          "value": "build",
+                          "icon": "server"
+                        },
+                        {
+                          "label": "macbook",
+                          "value": "macbook",
+                          "icon": "laptop",
+                          "description": "Offline"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

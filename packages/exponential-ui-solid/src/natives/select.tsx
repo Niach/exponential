@@ -44,6 +44,8 @@ export interface SelectOption {
   trailing?: string
   /** #EXP-1765: the label in the mono type, the `trailing` its own muted run. */
   mono?: boolean
+  /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
+  description?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -507,8 +509,13 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                     if (e.key === ` `) e.preventDefault()
                   }}
                 >
-                  {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  {trailingText(o) ? (
+                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {str(o.description) ? (
+                    <span {...part(`itemText`)}>
+                      <span {...part(`itemLabel`)}><span id={textId}>{str(o.label)}</span>{trailingText(o)}</span>
+                      <span {...part(`itemDescription`)}>{str(o.description)}</span>
+                    </span>
+                  ) : trailingText(o) ? (
                     <span>
                       <span id={textId}>{str(o.label)}</span>
                       {trailingText(o)}
@@ -771,8 +778,15 @@ function ComboboxContent(props: {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => props.pick(i())}
                 >
-                  {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  <span>{str(o.label)}{trailingText(o)}</span>
+                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {str(o.description) ? (
+                    <span {...part(`itemText`)}>
+                      <span {...part(`itemLabel`)}>{str(o.label)}{trailingText(o)}</span>
+                      <span {...part(`itemDescription`)}>{str(o.description)}</span>
+                    </span>
+                  ) : (
+                    <span>{str(o.label)}{trailingText(o)}</span>
+                  )}
                   <TrailingRun o={o} />
                   {isSel() ? (
                     <span {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
