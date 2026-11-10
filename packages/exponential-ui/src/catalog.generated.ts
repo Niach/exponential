@@ -88,7 +88,8 @@ export const ENUMS = {
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
   selectTrigger: ["field","row","pill"],
-  inputVariant: ["field","row","bare","code"],
+  inputVariant: ["field","row","bare","code","box"],
+  inputSize: ["default","sm"],
   textareaVariant: ["field","row","code"],
 } as const
 export type VariantValue = (typeof ENUMS)["variant"][number]
@@ -154,6 +155,7 @@ export type CalendarViewValue = (typeof ENUMS)["calendarView"][number]
 export type StepperCollapseValue = (typeof ENUMS)["stepperCollapse"][number]
 export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
 export type InputVariantValue = (typeof ENUMS)["inputVariant"][number]
+export type InputSizeValue = (typeof ENUMS)["inputSize"][number]
 export type TextareaVariantValue = (typeof ENUMS)["textareaVariant"][number]
 
 /** Token NAMES by group (values come from a theme). */
@@ -289,7 +291,7 @@ export interface ComponentProps {
   FieldGroup: { columns?: number }
   FormActions: { submit: string | Dynamic; cancel?: boolean; destructive?: boolean }
   SettingsRow: { label: string | Dynamic; description?: string | Dynamic; stackBelow?: CollapseBelowValue }
-  Input: { label: string; name: string; type?: InputTypeValue; placeholder?: string; value?: string | Dynamic; variant?: InputVariantValue; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Input: { label: string; name: string; type?: InputTypeValue; placeholder?: string; value?: string | Dynamic; variant?: InputVariantValue; size?: InputSizeValue; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   Textarea: { label: string; name: string; placeholder?: string; rows?: number; autosize?: boolean; maxRows?: number; value?: string | Dynamic; variant?: TextareaVariantValue; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   NumberField: { label: string; name: string; value?: number | Dynamic; min?: number; max?: number; step?: number; precision?: number; unit?: string; placeholder?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   Checkbox: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; indeterminate?: boolean | Dynamic; disabled?: boolean; checks?: Shapes["check"][] }

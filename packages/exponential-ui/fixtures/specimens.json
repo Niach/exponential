@@ -10977,7 +10977,7 @@
                 "id": "specimen_input_case_5_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · text",
+                  "text": "variant · box",
                   "variant": "caption"
                 }
               },
@@ -10987,8 +10987,9 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "text",
-                  "placeholder": "you@example.com"
+                  "type": "email",
+                  "placeholder": "you@example.com",
+                  "variant": "box"
                 }
               }
             ]
@@ -11006,7 +11007,7 @@
                 "id": "specimen_input_case_6_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · password",
+                  "text": "type · text",
                   "variant": "caption"
                 }
               },
@@ -11016,7 +11017,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "password",
+                  "type": "text",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11035,7 +11036,7 @@
                 "id": "specimen_input_case_7_label",
                 "component": "Text",
                 "props": {
-                  "text": "type · number",
+                  "text": "type · password",
                   "variant": "caption"
                 }
               },
@@ -11045,7 +11046,7 @@
                 "props": {
                   "label": "Email",
                   "name": "email",
-                  "type": "number",
+                  "type": "password",
                   "placeholder": "you@example.com"
                 }
               }
@@ -11208,6 +11209,88 @@
                         }
                       }
                     ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_input_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · box, size sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_invite",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "id": "c11_invite_sm",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "id": "c11_invite_name",
+                        "component": "Input",
+                        "props": {
+                          "label": "Name",
+                          "name": "name",
+                          "variant": "box",
+                          "size": "sm",
+                          "placeholder": "Name"
+                        },
+                        "style": {
+                          "width": 176,
+                          "flexShrink": 0
+                        }
+                      },
+                      {
+                        "id": "c11_invite_email",
+                        "component": "Input",
+                        "props": {
+                          "label": "Email",
+                          "name": "email",
+                          "variant": "box",
+                          "size": "sm",
+                          "value": "ada@example.com"
+                        },
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c11_invite_md",
+                    "component": "Input",
+                    "props": {
+                      "label": "Email",
+                      "name": "email-md",
+                      "variant": "box",
+                      "placeholder": "teammate@example.com"
+                    }
                   }
                 ]
               }

@@ -1290,6 +1290,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         ] },
       ],
     },
+  }, {
+    // #EXP-1629: the IDE's boxed field (the invite form): `box`, the label
+    // unshown, at `size` sm beside the default.
+    label: `variant · box, size sm`,
+    node: {
+      id: `invite`,
+      component: `Box`,
+      style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+      children: [
+        { id: `invite-sm`, component: `Box`, style: { display: `flex`, flexDirection: `row`, alignItems: `center`, gap: `$spacing.sm` }, children: [
+          { id: `invite-name`, component: `Input`, props: { label: `Name`, name: `name`, variant: `box`, size: `sm`, placeholder: `Name` }, style: { width: 176, flexShrink: 0 } },
+          { id: `invite-email`, component: `Input`, props: { label: `Email`, name: `email`, variant: `box`, size: `sm`, value: `ada@example.com` }, style: { flexGrow: 1, minWidth: 0 } },
+        ] },
+        { id: `invite-md`, component: `Input`, props: { label: `Email`, name: `email-md`, variant: `box`, placeholder: `teammate@example.com` } },
+      ],
+    },
   }],
   Textarea: [{
     // #EXP-1629: the settings pages' text bodies inside a Group: `row`
