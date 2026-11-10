@@ -13190,6 +13190,217 @@
       }
     },
     {
+      "id": "exponential-ui-icon-picker",
+      "component": "IconPicker",
+      "title": "IconPicker",
+      "node": {
+        "id": "specimen_icon_picker",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_icon_picker_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "value · color",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_icon",
+                "component": "IconPicker",
+                "props": {
+                  "value": "rocket",
+                  "color": "#3b82f6"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_icon_picker_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "empty",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_icon_none",
+                "component": "IconPicker",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "id": "specimen_icon_picker_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_icon_picker_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "open · the board set, allowNone",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_icon_open_box",
+                "component": "Box",
+                "style": {
+                  "height": 400
+                },
+                "children": [
+                  {
+                    "id": "c2_icon_open",
+                    "component": "IconPicker",
+                    "props": {
+                      "value": "rocket",
+                      "color": "#3b82f6",
+                      "allowNone": true,
+                      "open": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-color-picker",
+      "component": "ColorPicker",
+      "title": "ColorPicker",
+      "node": {
+        "id": "specimen_color_picker",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen_color_picker_case_0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_0_label",
+                "component": "Text",
+                "props": {
+                  "text": "value",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0_color",
+                "component": "ColorPicker",
+                "props": {
+                  "value": "#3b82f6"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_1_label",
+                "component": "Text",
+                "props": {
+                  "text": "empty",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1_color_none",
+                "component": "ColorPicker",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "id": "specimen_color_picker_case_2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_color_picker_case_2_label",
+                "component": "Text",
+                "props": {
+                  "text": "open · the label palette",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2_color_open_box",
+                "component": "Box",
+                "style": {
+                  "height": 160
+                },
+                "children": [
+                  {
+                    "id": "c2_color_open",
+                    "component": "ColorPicker",
+                    "props": {
+                      "value": "#3b82f6",
+                      "open": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-date-picker",
       "component": "DatePicker",
       "title": "DatePicker",

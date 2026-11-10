@@ -2898,6 +2898,36 @@
         "sha256": "1b1640d3e7bb40584f13a134c4e43ac45e43e5ec9d282749dad4a0b16b41789e"
       }
     },
+    "exponential-ui-color-picker": {
+      "android": {
+        "file": "shots/exponential-ui-color-picker/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 13234,
+        "sha256": "ea041f065ac644c68f3d80096e873243074bfd8047246fb2aed6f944bcafd155"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-color-picker/desktop.webp",
+        "width": 1440,
+        "height": 1520,
+        "bytes": 13402,
+        "sha256": "41395987cb7307c8b6c4ca5e63a279d16bee9289d3227efed481f1ebb52d1520"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-color-picker/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 13874,
+        "sha256": "7754b88314012fafee6a46698a011acab28662b36f8df40f98d47bb4ef656120"
+      },
+      "web": {
+        "file": "shots/exponential-ui-color-picker/web.webp",
+        "width": 1800,
+        "height": 1266,
+        "bytes": 11598,
+        "sha256": "7c7b778161b49f1366169008a204b50000b79c9fd87dbae5173592f4bb7fff6d"
+      }
+    },
     "exponential-ui-composer": {
       "android": {
         "file": "shots/exponential-ui-composer/android.webp",
@@ -3455,6 +3485,36 @@
         "height": 1800,
         "bytes": 15336,
         "sha256": "696535c6773e62ec6778bf1632899de43d93e4945db9de9e8259b5fe2dab2ae3"
+      }
+    },
+    "exponential-ui-icon-picker": {
+      "android": {
+        "file": "shots/exponential-ui-icon-picker/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 28414,
+        "sha256": "ae2e7787b720a2ba3f538c9953a8dcddb57aa345a7f62fe7216f87fa8ab8377d"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-icon-picker/desktop.webp",
+        "width": 1440,
+        "height": 1520,
+        "bytes": 29274,
+        "sha256": "cd653ac5735aa17ef131d360bdd29920afe887cfad2ddbadd6ac267d02e408ee"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-icon-picker/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 29194,
+        "sha256": "c791fcced8a704dc9441594699e08fe57ab578365fac5f3820d86c809b16b247"
+      },
+      "web": {
+        "file": "shots/exponential-ui-icon-picker/web.webp",
+        "width": 1800,
+        "height": 1266,
+        "bytes": 22656,
+        "sha256": "98ab75097df950dba8cd539b04707425bd72e4a3a33732306e698ce750fa1188"
       }
     },
     "exponential-ui-image": {

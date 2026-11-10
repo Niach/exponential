@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
 - Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.
 - Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`), React's.
 - Input `variant: "box"` + `size` (#EXP-1629): React's: no label part, `aria-label` on the field. Parity case (Input box sm, typing).

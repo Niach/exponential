@@ -579,6 +579,21 @@
         "While recording every key, modifier change and mouse button 3-5 goes to `key`; Tab and Escape included (the host decides)"
       ]
     },
+    "IconPicker": {
+      "role": "button",
+      "notes": "trigger = button named by the pick (`Icon: rocket`, else `Pick an icon`) opening a dialog; each cell a toggle button named by its icon, aria-pressed on the pick",
+      "keys": [
+        "Enter, Space: open; Tab moves through the cells",
+        "Enter, Space on a cell: pick it and close; Escape: close"
+      ]
+    },
+    "ColorPicker": {
+      "role": "button",
+      "notes": "as IconPicker: the trigger is named `Color: #hex`, each swatch a toggle button named by its hex",
+      "keys": [
+        "As IconPicker"
+      ]
+    },
     "DatePicker": {
       "role": "combobox",
       "notes": "combobox opening a dialog with a grid of days",
