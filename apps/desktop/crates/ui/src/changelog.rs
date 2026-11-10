@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-chat-ends-at-composer",
+    date: "2026-11-10",
+    title: "The chat ends at the composer",
+    summary: "No more shadow over the composer: the conversation scrolls up to the composer's top edge and stops there, and the newest message sits fully visible just above it.",
+    body: r#"- **No shadow**: the dark fade over the bottom of a chat is gone, on every platform.
+- **A clean edge**: the conversation ends at the top of the composer (or the cards above it), so nothing scrolls behind the composer."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_246: ChangelogEntry = ChangelogEntry {
     id: "2026-11-10-quieter-agent-chats",
     date: "2026-11-10",
     title: "Quieter agent chats",
