@@ -160,10 +160,12 @@ fun GlyphView(glyph: Glyph, size: Float, color: Color, modifier: Modifier = Modi
 /**
  * A catalog icon by NAME through the host (`HostPlugin.icon`, drawn in
  * [color] as the `LocalContentColor`); the placeholder circle (a 1.5 dp
- * ring at 80 %, half alpha) when the host has none.
+ * ring at 80 %, half alpha) when the host has none. #EXP-1764: a mark with
+ * its OWN colour (`brand-claude`) is drawn in it, never in [color].
  */
 @Composable
-fun IconView(name: String, size: Float, color: Color, model: SurfaceModel, modifier: Modifier = Modifier, rtl: Boolean = false) {
+fun IconView(name: String, size: Float, ink: Color, model: SurfaceModel, modifier: Modifier = Modifier, rtl: Boolean = false) {
+    val color = CatalogConstants.iconFills[name]?.let { Color(it) } ?: ink
     val s = max(size, 0f)
     val icon = model.host.icon(name, s)
     // Round 1 §4: under rtl ONLY the directional glyphs mirror, outermost.

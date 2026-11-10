@@ -413,6 +413,11 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("maxWidth", &["control", "spacing"]),
     // #EXP-1629: recipe-only (`padding-box` = the fill paints inside the border).
     ("backgroundClip", &[]),
+    // #EXP-1765: a part's one-sided inset (the pill popup's search row).
+    ("paddingTop", &["spacing"]),
+    ("paddingBottom", &["spacing"]),
+    // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
+    ("textAlign", &[]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -427,7 +432,7 @@ fn is_percent(value: &Value) -> bool {
 pub const BACKGROUND_CLIPS: [&str; 2] = ["border-box", "padding-box"];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
 const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
-const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
+const ENUM_KEYS: [&str; 6] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation", "textAlign"];
 const THEME_KEYS: [&str; 10] = ["$schema", "$comment", "id", "name", "extends", "modes", "contrast", "tokens", "fonts", "recipes"];
 
 /// The enum a style key takes (`borderStyle` → solid|dashed|dotted).
@@ -1098,6 +1103,12 @@ fn derive_colors(theme: &mut ResolvedTheme) {
                 }
             }
         }
+        // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
+        if !m.shadow.contains_key("popoverRing") {
+            if let Some(value) = m.shadow.get("popover").cloned() {
+                m.shadow.insert("popoverRing".to_string(), value);
+            }
+        }
     }
 }
 
@@ -1601,6 +1612,21 @@ mod tests {
             let t = builtin_theme(id).unwrap();
             assert_eq!(t.modes.light.color["borderStrong"], t.modes.light.color["border"]);
             assert_eq!(t.modes.dark.color["borderStrong"], t.modes.dark.color["border"]);
+        }
+    }
+
+    #[test]
+    fn popover_ring_is_gpui_components_popover_surface_in_exponential_and_popover_elsewhere() {
+        // #EXP-1760 (catalog/tokens.json `shadow.popoverRing`): the 1 px ring
+        // of the foreground at 10 % outside the box, then shadcn's md.
+        let exp = builtin_theme("exponential").unwrap();
+        let ring = &exp.modes.dark.shadow["popoverRing"];
+        assert_eq!(ring.len(), 3);
+        assert_eq!((ring[0].blur, ring[0].spread), (0.0, 1.0));
+        for id in ["neutral", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.shadow["popoverRing"], t.modes.light.shadow["popover"]);
+            assert_eq!(t.modes.dark.shadow["popoverRing"], t.modes.dark.shadow["popover"]);
         }
     }
 

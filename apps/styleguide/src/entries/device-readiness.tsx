@@ -43,8 +43,8 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `ok`,
-      symbol: `render_sections`,
-      file: `apps/desktop/crates/ui/src/device_readiness.rs`,
+      symbol: `ReadinessBlock`,
+      file: `apps/desktop/crates/ui/src/settings/readiness.rs`,
     },
     ios: {
       state: `ok`,

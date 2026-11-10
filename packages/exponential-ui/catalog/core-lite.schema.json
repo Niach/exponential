@@ -1263,6 +1263,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -2385,6 +2387,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -3374,6 +3378,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -4312,6 +4318,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -5031,6 +5039,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -5689,6 +5699,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -6684,6 +6696,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -7632,10 +7646,19 @@
             "field",
             "row",
             "bare",
-            "code"
+            "code",
+            "box"
           ],
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono.",
+          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown.",
           "default": "field"
+        },
+        "size": {
+          "enum": [
+            "default",
+            "sm"
+          ],
+          "description": "sm = compact.",
+          "default": "default"
         },
         "disabled": {
           "type": "boolean",
@@ -8138,13 +8161,24 @@
           "description": "Shown on no match.",
           "default": "$string.noResults"
         },
+        "searchPlaceholder": {
+          "type": "string",
+          "description": "Hint in the filter field.",
+          "default": "$string.search"
+        },
         "triggerVariant": {
           "enum": [
             "field",
-            "row"
+            "row",
+            "pill"
           ],
-          "description": "`row` = a Group row: label, value, chevron.",
+          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule.",
           "default": "field"
+        },
+        "triggerIcon": {
+          "type": "boolean",
+          "description": "`row`: the chosen option's `icon` before the value.",
+          "default": false
         },
         "align": {
           "enum": [
@@ -8157,6 +8191,15 @@
         "popupWidth": {
           "type": "number",
           "description": "Px (`row`: 260)."
+        },
+        "popupMinWidth": {
+          "type": "number",
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
+        "loading": {
+          "$ref": "common_types.json#/$defs/DynamicBoolean",
+          "description": "Options still loading: skeleton rows in the popup.",
+          "default": false
         },
         "disabled": {
           "type": "boolean",
@@ -8826,6 +8869,8 @@
                 "boxes",
                 "braces",
                 "brain",
+                "brand-claude",
+                "brand-codex",
                 "brand-exponential",
                 "briefcase",
                 "brush-cleaning",
@@ -16954,7 +16999,8 @@
               "md",
               "lg",
               "xl",
-              "popover"
+              "popover",
+              "popoverRing"
             ]
           }
         },
@@ -17182,6 +17228,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -17752,6 +17800,10 @@
           "type": "string",
           "description": "Text after the label (Select popup)."
         },
+        "mono": {
+          "type": "boolean",
+          "description": "Label in the mono type (Select popup)."
+        },
         "image": {
           "type": "string",
           "format": "uri-reference",
@@ -17844,6 +17896,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -18475,6 +18529,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -19128,6 +19184,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -20036,6 +20094,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",
@@ -20729,6 +20789,8 @@
             "boxes",
             "braces",
             "brain",
+            "brand-claude",
+            "brand-codex",
             "brand-exponential",
             "briefcase",
             "brush-cleaning",

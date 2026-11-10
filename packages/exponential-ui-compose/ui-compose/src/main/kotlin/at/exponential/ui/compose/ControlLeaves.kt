@@ -280,15 +280,24 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
  * placeholder) and the `chevron` part (`Select.trigger`); the parts'
  * opacity and size are the recipe's. A `row` trigger is the core's
  * container of parts (label, spacer, value, chevron), painted generically.
+ * #EXP-1765: a `pill` is the same parts content-sized (the core's), its
+ * glyph the `Select.dropdown` slot at the `chevron` part's size and colour
+ * (opacity 1 unless the recipe fades it); the trigger's `disabled` reaches
+ * the value / placeholder parts. Its `label` is the trigger's accessible
+ * name only ([triggerGestures]).
  */
 @Composable
 private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholderInk: Color?) {
-    val value = cx.part("Select", "value")
+    val pill = selectPillVariant(cx.props, cx.ownerProps)
+    val states = if (cx.model.isDisabled(cx.index)) listOf("disabled") else emptyList()
+    val value = cx.part("Select", "value", states)
     val chevron = cx.part("Select", "chevron")
-    val glyphSize = chevron.width ?: 16f
+    val glyphSize = chevron.width ?: chevron.height ?: 16f
     // A field's glyph keeps its 60 % ink unless the recipe says otherwise.
-    val glyphInk = (chevron.color ?: cx.ink).let { it.copy(alpha = it.alpha * (chevron.style.opacity ?: 0.6f)) }
-    val valueInk = (placeholderInk ?: value.color ?: cx.ink).let { it.copy(alpha = it.alpha * (value.style.opacity ?: 1f)) }
+    val glyphInk = (chevron.color ?: cx.ink).let { it.copy(alpha = it.alpha * (chevron.style.opacity ?: if (pill) 1f else 0.6f)) }
+    // A pill's placeholder is its own part (the IDE's: the disabled rule dims it too).
+    val shown = if (pill && placeholderInk != null) cx.part("Select", "placeholder", states) else value
+    val valueInk = ((if (pill) shown.color else null) ?: placeholderInk ?: value.color ?: cx.ink).let { it.copy(alpha = it.alpha * (shown.style.opacity ?: 1f)) }
     val r = cx.inner
     LeafFrame {
         Row(
@@ -297,7 +306,8 @@ private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholde
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk)
-            GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)
+            if (pill) IconOrGlyph(cx.props.str("icon").ifEmpty { builtinIcon("Select.dropdown", "ui-chevron-down") }, Glyph.ChevronDown, glyphSize, cx, glyphInk)
+            else GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)
         }
     }
 }
@@ -305,6 +315,10 @@ private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholde
 /** #EXP-1629: is this Select a `row` trigger (the trigger's props, else the owner's)? */
 internal fun selectRowVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
     props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "row"
+
+/** #EXP-1765: is this Select a `pill` trigger (the trigger's props, else the owner's)? */
+internal fun selectPillVariant(props: Props, ownerProps: Props = emptyMap()): Boolean =
+    props.str("triggerVariant").ifEmpty { ownerProps.str("triggerVariant") } == "pill"
 
 /** The gap between a Select trigger's text and glyph (the recipe's, at least `$spacing.sm`; the measurer's rule). */
 internal fun selectTriggerGap(recipeGap: Float, sm: Float): Float = max(recipeGap, max(sm, 0f))

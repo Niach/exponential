@@ -51,7 +51,7 @@ export type { TabSwipeDrag, TabSpan, TabSwipeSource, TabSwipeHandlers } from "./
 export type { ListAxis } from "./list"
 export { layoutSize, visualScale, elementScale } from "./primitives/measure"
 export type { LayoutSize } from "./primitives/measure"
-export { nextEnabledIndex, typeaheadStep, TYPEAHEAD_RESET_MS, selectPopupGeometry, revealOption, valueAnchorOffsets, firstEnabledIndex, openingCursorIndex, listMoreBelow } from "./listbox"
+export { nextEnabledIndex, typeaheadStep, TYPEAHEAD_RESET_MS, selectPopupGeometry, revealOption, valueAnchorOffsets, firstEnabledIndex, openingCursorIndex, listMoreBelow, selectLoadingNode, selectOpensWithoutCursor, selectClearSize } from "./listbox"
 export type { TypeaheadBuffer } from "./listbox"
 export { PLACED, placedPartId } from "./parts"
 export { share } from "./share"
@@ -71,6 +71,7 @@ export { treeKeyTarget } from "./tree-keys"
 // #EXP-1629: the KeyRecorder field's DOM capture (React + Solid Box).
 export { keyRecorderKey, keyRecorderCode, keyRecorderKeyPayload, keyRecorderMousePayload, isKeyRecorderField } from "./key-recorder"
 export type { KeyRecorderPayload } from "./key-recorder"
+export { isPickerPick, isPickerPopover } from "./picker"
 // #EDE-65 lane M: Embed's sandboxed host plugin + box (React + Solid).
 export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"
 // #EDE-65: the Composer's `menuKeys` (React + Solid Composer).

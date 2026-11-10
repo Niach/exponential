@@ -719,7 +719,7 @@ mod tests {
             primary_button_fg: "#18181bff".into(),
         };
         let tree = document(&ink, "#ffffff10", "#ffffff0a");
-        let bound = super::super::doc::bound_styles(&tree);
+        let bound = super::super::doc::bound_values(&tree);
         let mut surface = eui_core::surface::Surface::new("settings-storage", Default::default());
         let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
         let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);

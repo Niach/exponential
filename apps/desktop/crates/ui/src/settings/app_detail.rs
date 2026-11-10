@@ -10,29 +10,35 @@
 //! typed action the head package declares, its title, the function name
 //! muted and a switch = the app's grant (`apps.granted_tools`). VAPP-176:
 //! no create mode (New app = a draft and its editor).
+//!
+//! #EXP-1629: the tab is a document on the native binding (projection at
+//! `/pane`): the identity row (genUI IconPicker, ColorPicker and a `bare`
+//! Input), the description (a `row` Textarea), the records line, Record
+//! access, Tools, then `app_mcp`'s groups and the Export / Delete buttons.
+//! The share rows' ⋯ menus, the Accounts rows' server Selects and the
+//! webhook rows' middle-truncated URL / secret stay the IDE's own
+//! (`host_leaf` Embeds); the Export dialog and every confirm stay native.
 
-use gpui::{
-    div, App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
+use gpui::{div, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 use sync::Store;
 
 use domain::app_actions::{action_grantable, action_title, can_grant_actions, declared_actions, flat_action, APP_ACTIONS_COPY};
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
-use super::{section, SettingsSection};
-use crate::sidebar::select_settings_section;
+use super::app_mcp::{AccountSelect, MidText, ShareMenu, ACCOUNT_SELECT, HOOK_SECRET, HOOK_URL, SHARE_MENU};
+use super::doc::{hex, not, path, IdeToasts, Ink, SM, XS};
+use super::SettingsSection;
 use crate::apps_view::AppEntry;
-use crate::controls::{glass_input, WebControl as _};
-use crate::icons::registry;
 use crate::navigation::{navigate, Screen};
+use crate::sidebar::select_settings_section;
 
 /// The web form's defaults (an app saved without an icon or a colour).
 const DEFAULT_ICON: &str = "puzzle";
@@ -110,9 +116,15 @@ enum ShareChange {
 pub struct AppDetailPane {
     /// The `apps` row id this tab edits.
     app_id: String,
-    name_input: Entity<InputState>,
-    description: Entity<TextareaState>,
-    /// The app id the inputs were seeded for.
+    /// The Name and description fields' live text while they differ from
+    /// the row's (their edits); `None` = untouched since the app loaded.
+    name_draft: Option<String>,
+    description_draft: Option<String>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// What the document's host draws itself (the rows' leaves).
+    host: Rc<RefCell<HostState>>,
+    /// The app id the fields were seeded for.
     loaded: Option<String>,
     /// VAPP-122: the team's records quota (`None` = unlimited, or the plan
     /// still loading) and the team it was read for.
@@ -137,37 +149,73 @@ pub struct AppDetailPane {
     hook_secrets: std::collections::HashMap<String, String>,
     /// VAPP-241: the public link being written (every switch waits).
     share_busy: Option<String>,
+    /// The bench's state (headless has no app row, team or server).
+    #[cfg(test)]
+    shot: Option<AppShot>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A state the pictures show (`settings_bench`): the headless store syncs
+/// no app, so the row, the viewer's powers and the server's answers are
+/// pinned.
+#[cfg(test)]
+pub(crate) struct AppShot {
+    pub row: AppRow,
+    pub manage: bool,
+    pub grant: bool,
+    pub records: u64,
+    pub records_max: Option<u64>,
+    pub mcp: Option<api::app_access::AppToolsOut>,
+    pub tool_busy: Option<String>,
+    pub mcp_busy: Option<String>,
+    pub upstream_busy: Option<String>,
+    pub hook_busy: Option<String>,
+    pub share_busy: Option<String>,
+    pub hook_secrets: Vec<(String, String)>,
 }
 
 impl AppDetailPane {
     pub fn new(app_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let copy = &APPS.copy;
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder(copy.name_placeholder.clone()));
-        let description = cx.new(|cx| {
-            crate::controls::web_textarea(3, 12, window, cx).placeholder(copy.description_placeholder.clone())
-        });
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&collections.apps, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.app_records, |_, _, cx| cx.notify()),
-            cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
-                InputEvent::Blur => this.commit_rename(cx),
-                InputEvent::PressEnter { .. } => this.commit_rename(cx),
-                InputEvent::Change => cx.notify(),
-                _ => {}
-            }),
-            cx.subscribe(&description, |this, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Blur) {
-                    this.commit_description(cx);
-                }
-            }),
         ];
+        // Every action leaves the binding for the pane (the dialogs, the
+        // navigation and the toasts need its window), deferred: the binding
+        // is mid-update and the pane writes it.
+        let pane = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for &name in ACTIONS {
+                let pane = pane.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = event.context.clone();
+                    let payload = event.payload.clone().unwrap_or(Value::Null);
+                    let pane = pane.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &context, &payload, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let host = Rc::new(RefCell::new(HostState { pane: Some(pane.clone()), ..Default::default() }));
+        let plugin: Rc<dyn HostPlugin> = Rc::new(PaneHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let view = super::doc::mount_with("settings-app", document(&Ink::of(cx), &Tints::of(cx)), &binding, plugin, true, window, cx);
         Self {
             app_id,
-            name_input,
-            description,
+            name_draft: None,
+            description_draft: None,
+            binding,
+            view,
+            host,
             loaded: None,
             records_max: None,
             records_plan_team: None,
@@ -180,8 +228,65 @@ impl AppDetailPane {
             hook_busy: None,
             hook_secrets: std::collections::HashMap::new(),
             share_busy: None,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new("app-shots".into(), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: AppShot, cx: &mut gpui::Context<Self>) {
+        self.app_id = shot.row.id.clone();
+        self.records_max = shot.records_max;
+        self.mcp = shot.mcp.clone();
+        self.tool_busy = shot.tool_busy.clone();
+        self.mcp_busy = shot.mcp_busy.clone();
+        self.upstream_busy = shot.upstream_busy.clone();
+        self.hook_busy = shot.hook_busy.clone();
+        self.share_busy = shot.share_busy.clone();
+        self.hook_secrets = shot.hook_secrets.iter().cloned().collect();
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The bench's press on a document node (a headless click never
+    /// reaches an eUI popup), its popup's enter fade run out.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(id).expect("the pressed node");
+            view.press(index, window, cx);
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
+    }
+
+    /// Runs an open popup's fade out after the press's frames.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots_settle(&mut self, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+    }
+
+    /// The pane's app row (the bench's, under test).
+    fn row(&self, id: &str, cx: &App) -> Option<AppRow> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return Some(shot.row.clone());
+        }
+        app_row(id, cx)
+    }
+
+    /// The app's live records (the bench's count, under test).
+    fn records(&self, row: &AppRow, cx: &App) -> u64 {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.records;
+        }
+        Store::global(cx).collections().app_records.read(cx).iter().filter(|record| record.app_id == row.id).count() as u64
     }
 
     /// The app id on show.
@@ -190,12 +295,12 @@ impl AppDetailPane {
     }
 
     fn loaded_row(&self, cx: &App) -> Option<AppRow> {
-        self.loaded.as_deref().and_then(|id| app_row(id, cx))
+        self.loaded.as_deref().and_then(|id| self.row(id, cx))
     }
 
     /// Re-seed the inputs when the page changes (another app), flushing the
     /// previous app's pending edits first.
-    fn sync_page(&mut self, page: &str, row: &AppRow, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn sync_page(&mut self, page: &str, row: &AppRow, cx: &mut gpui::Context<Self>) {
         if self.loaded.as_deref() == Some(page) {
             return;
         }
@@ -204,9 +309,8 @@ impl AppDetailPane {
             self.commit_description(cx);
         }
         self.loaded = Some(page.to_string());
-        let (name, description) = (row.name.clone(), row.description.clone().unwrap_or_default());
-        self.name_input.update(cx, |input, cx| input.set_value(name, window, cx));
-        self.description.update(cx, |input, cx| input.set_value(description, window, cx));
+        self.name_draft = None;
+        self.description_draft = None;
         if let Some(team_id) = row.team_id.clone() {
             self.load_records_max(team_id, cx);
         }
@@ -216,6 +320,10 @@ impl AppDetailPane {
     /// web's; a failure keeps the count without a max).
     fn load_records_max(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
         if self.records_plan_team.as_deref() == Some(team_id.as_str()) {
+            return;
+        }
+        #[cfg(test)]
+        if self.shot.is_some() {
             return;
         }
         self.records_plan_team = Some(team_id.clone());
@@ -244,6 +352,10 @@ impl AppDetailPane {
     }
 
     fn can_manage(&self, row: &AppRow, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.manage;
+        }
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let owner = row.team_id.as_deref().is_some_and(|team| super::is_owner(cx, team));
         crate::apps_view::can_manage(&AppEntry::from_row(row), me.as_deref(), owner)
@@ -254,7 +366,7 @@ impl AppDetailPane {
         if !self.can_manage(&row, cx) {
             return;
         }
-        let drafted = self.name_input.read(cx).value().trim().to_string();
+        let Some(drafted) = self.name_draft.as_deref().map(str::trim).map(str::to_string) else { return };
         // A blank name keeps the saved one (the web restores it).
         if drafted.is_empty() || drafted == row.name {
             return;
@@ -268,7 +380,8 @@ impl AppDetailPane {
         if !self.can_manage(&row, cx) {
             return;
         }
-        let drafted: String = self.description.read(cx).value().chars().take(APPS_CAPS.description_max).collect();
+        let Some(drafted) = self.description_draft.as_deref() else { return };
+        let drafted: String = drafted.chars().take(APPS_CAPS.description_max).collect();
         if drafted == row.description.clone().unwrap_or_default() {
             return;
         }
@@ -278,6 +391,10 @@ impl AppDetailPane {
     /// VAPP-120 (the 2026-10-24 ruling): only a team OWNER sets the app's
     /// grants; the creator gets no grant power from creating it.
     fn can_grant(&self, row: &AppRow, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.grant;
+        }
         row.team_id
             .as_deref()
             .is_some_and(|team| can_grant_actions(super::is_owner(cx, team).then_some(domain::app_actions::GRANT_ROLE)))
@@ -333,6 +450,10 @@ impl AppDetailPane {
     fn load_mcp(&mut self, row: &AppRow, cx: &mut gpui::Context<Self>) {
         let key = (row.id.clone(), row.head_version.unwrap_or(0));
         if self.mcp_for.as_ref() == Some(&key) {
+            return;
+        }
+        #[cfg(test)]
+        if self.shot.is_some() {
             return;
         }
         if self.mcp_for.as_ref().map(|(id, _)| id) != Some(&key.0) {
@@ -412,6 +533,7 @@ impl AppDetailPane {
                     let _ = view.update(cx, |this, cx| this.rotate_hook(name, "rotate", cx));
                     true
                 });
+                // dialog stays native: the Rotate secret confirm is the OS alert (prompts.json `rotate-webhook-secret`).
                 crate::native_dialog::open_alert(window, cx, spec);
             }
         }
@@ -632,260 +754,544 @@ impl AppDetailPane {
         .detach();
     }
 
-    /// VAPP-120: the Tools group (the web's `app-settings-tools`): the title
-    /// and hint, then one row per declared action with its switch, or the
-    /// none line.
-    fn tools_group(&self, row: &AppRow, _manage: bool, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let copy = *APP_ACTIONS_COPY;
-        let muted = cx.theme().muted_foreground;
-        let mono = cx.theme().mono_font_family.clone();
-        // eApps V1: the RUNNING package declares the grantable tools (the
-        // published one, else the head's).
-        let declared = declared_tools(row.package.as_ref().filter(|p| p.is_object()).or(row.draft_package.as_ref()));
-        // The ruling: owners grant; a destructive or owner-only action is never grantable.
-        let grant = self.can_grant(row, cx);
-        let group = if declared.is_empty() {
-            crate::surface::glass_group().child(
-                div().px_4().py_3().text_sm().text_color(muted).child(copy.none.clone()),
-            )
-        } else {
-            let rows = declared
-                .into_iter()
-                .map(|name| {
-                    let checked = row.granted_tools.iter().any(|g| flat_action(g) == name);
-                    let busy = self.tool_busy.as_deref() == Some(name.as_str());
-                    let toggle = name.clone();
-                    crate::surface::glass_row_shell()
-                        .justify_between()
-                        .gap_3()
-                        .child(
-                            v_flex()
-                                .min_w_0()
-                                .child(div().text_sm().truncate().child(action_title(&name)))
-                                .child(div().text_xs().font_family(mono.clone()).text_color(muted).truncate().child(name.clone())),
-                        )
-                        .child(if action_grantable(&name) {
-                            crate::controls::web_switch(SharedString::from(format!("app-tool-switch-{name}")))
-                                .checked(checked)
-                                .disabled(!grant || busy)
-                                .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                                    this.toggle_tool(toggle.clone(), *checked, cx)
-                                }))
-                                .into_any_element()
-                        } else {
-                            div().flex_shrink_0().text_sm().text_color(muted).child(copy.always.clone()).into_any_element()
-                        })
-                })
-                .collect::<Vec<_>>();
-            crate::surface::glass_group_rows(rows)
-        };
-        v_flex()
-            .id("app-settings-tools")
-            .gap_1()
-            .child(
-                v_flex()
-                    .px_1()
-                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(copy.title.clone()))
-                    .child(div().text_sm().text_color(muted).child(copy.hint.clone())),
-            )
-            .child(group)
+    /// A text field's edit (the host's): the live text, and on commit (blur;
+    /// Enter is the `rename` action) the save.
+    fn edited(&mut self, name: &str, value: String, commit: bool, cx: &mut gpui::Context<Self>) {
+        match name {
+            "name" => {
+                self.name_draft = Some(value);
+                if commit {
+                    self.commit_rename(cx);
+                }
+            }
+            "description" => {
+                self.description_draft = Some(value);
+                if commit {
+                    self.commit_description(cx);
+                }
+            }
+            _ => {}
+        }
     }
 
-    /// #VAPP-243 (apps.json `policyRowCases`): the Record access group, one
-    /// read-only row per declared kind of the running package (its
-    /// effective policy as the caption); `None` when it declares no kinds.
-    fn policies_group(&self, row: &AppRow, cx: &mut gpui::Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
-        let package = row.package.as_ref().filter(|p| p.is_object()).or(row.draft_package.as_ref());
-        let records = package.and_then(|p| p.get("records"));
-        let kinds = domain::apps::policy_kinds(records);
-        if kinds.is_empty() {
-            return None;
+    /// A document action.
+    fn action(&mut self, name: &str, context: &Value, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let key = context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        let checked = payload.get("checked").and_then(Value::as_bool);
+        let value = context.get("value").or_else(|| payload.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
+        match name {
+            "tool" => {
+                if let Some(on) = checked {
+                    self.toggle_tool(key, on, cx);
+                }
+            }
+            "mcpTool" => {
+                if let Some(on) = checked {
+                    self.toggle_mcp_tool(key, on, cx);
+                }
+            }
+            "share" => {
+                if let Some(on) = checked {
+                    self.set_share(key, if on { "enable" } else { "revoke" }, cx);
+                }
+            }
+            "addServer" => self.add_upstream_server(key, window, cx),
+            "connect" => {
+                let upstream = self.mcp.as_ref().and_then(|data| data.upstreams.iter().find(|u| u.name == key)).cloned();
+                if let Some(upstream) = upstream {
+                    self.connect_upstream(&upstream, window, cx);
+                }
+            }
+            "hook" => {
+                let action = match context.get("action").and_then(Value::as_str) {
+                    Some(a) if a == domain::apps::WebhookAction::Rotate.as_str() => domain::apps::WebhookAction::Rotate,
+                    Some(a) if a == domain::apps::WebhookAction::Mint.as_str() => domain::apps::WebhookAction::Mint,
+                    _ => return,
+                };
+                self.hook_action(key, action, window, cx);
+            }
+            // The copy pills: the clipboard, then the success toast.
+            "copy" => {
+                let text = context.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                crate::toast::show(crate::toast::Toast::success(APPS.copy.webhooks.copied.clone()), window, cx);
+            }
+            // The identity row: icon and colour save at once (an empty pick
+            // keeps the saved one).
+            "icon" | "color" => {
+                let Some(row) = self.loaded_row(cx) else { return };
+                if value.is_empty() || !self.can_manage(&row, cx) {
+                    return;
+                }
+                if name == "icon" {
+                    update_app(cx, "save", &row, |input| input.icon = value);
+                } else {
+                    update_app(cx, "save", &row, |input| input.color = value);
+                }
+            }
+            "rename" => self.commit_rename(cx),
+            "export" => {
+                let Some(row) = self.loaded_row(cx) else { return };
+                // dialog stays native: the Export dialog is its own window.
+                crate::app_export_dialog::open(window, cx, row.id, false);
+            }
+            "delete" => {
+                let Some(row) = self.loaded_row(cx) else { return };
+                if !self.can_manage(&row, cx) {
+                    return;
+                }
+                // dialog stays native: a destructive confirm is the OS alert (prompts fixture).
+                crate::apps_view::confirm_delete(
+                    row.id,
+                    row.name,
+                    // VAPP-242: the delete leaves for the team's home (no
+                    // Apps list page).
+                    |window, cx| navigate(window, cx, Screen::Home),
+                    window,
+                    cx,
+                );
+            }
+            _ => {}
         }
-        let muted = cx.theme().muted_foreground;
-        let mono = cx.theme().mono_font_family.clone();
-        let rows = kinds
+    }
+
+    /// The state as the document binds it (the host's leaves refilled).
+    fn project(&self, row: &AppRow, cx: &App) -> Value {
+        let manage = self.can_manage(row, cx);
+        let grant = self.can_grant(row, cx);
+        // eApps V1: the RUNNING package declares the kinds and the grantable
+        // tools (the published one, else the head's).
+        let package = row.package.as_ref().filter(|p| p.is_object()).or(row.draft_package.as_ref());
+        // #VAPP-243 (apps.json `policyRowCases`): one read-only row per
+        // declared kind, its effective policy as the caption.
+        let records = package.and_then(|p| p.get("records"));
+        let policies: Vec<Value> = domain::apps::policy_kinds(records)
             .into_iter()
-            .map(|kind| {
+            .enumerate()
+            .map(|(ix, kind)| {
                 let policy = eui_core::host::record_policy(records.and_then(|r| r.get(&kind)));
                 let caption = domain::apps::policy_caption([policy.read, policy.create, policy.update, policy.delete]);
-                crate::surface::glass_row_shell().child(
-                    v_flex()
-                        .id(SharedString::from(format!("{}-{}", APPS.test_ids.policy_row, kind)))
-                        .min_w_0()
-                        .child(div().text_sm().font_family(mono.clone()).truncate().child(kind.clone()))
-                        .child(div().text_xs().text_color(muted).truncate().child(caption)),
-                )
+                json!({"key": kind, "divided": ix > 0, "kind": kind, "caption": caption})
             })
-            .collect::<Vec<_>>();
-        Some(
-            v_flex()
-                .id(SharedString::from(APPS.test_ids.policies.clone()))
-                .gap_1()
-                .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(APPS.copy.policies.title.clone()))
-                .child(crate::surface::glass_group_rows(rows)),
-        )
-    }
-
-    /// The identity row: icon and colour save at once.
-    fn identity_row(&self, row: &AppRow, manage: bool, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let icon = row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string());
-        let color = row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string());
-        let icon_row = row.clone();
-        let icon_picker = crate::board_form::icon_picker(
-            "app-detail",
-            registry::PICKABLE_ICONS,
-            Some(icon.as_str()),
-            Some(color.as_str()),
-            false,
-            move |name, _, cx| {
-                let Some(name) = name else { return };
-                if manage {
-                    update_app(cx, "save", &icon_row, |input| input.icon = name.to_string());
-                }
-            },
-            cx,
-        );
-        let color_row = row.clone();
-        let color_picker = crate::board_form::color_picker(
-            "app-detail",
-            &color,
-            move |color, _, cx| {
-                if manage {
-                    update_app(cx, "save", &color_row, |input| input.color = color.to_string());
-                }
-            },
-            cx,
-        );
-        crate::surface::glass_row_shell()
-            .gap_2()
-            .child(icon_picker)
-            .child(color_picker)
-            .child(
-                div().flex_1().min_w_0().child(
-                    crate::surface::glass_row_input(glass_input(&self.name_input, window, cx).disabled(!manage))
-                        .text_left(),
-                ),
-            )
+            .collect();
+        // VAPP-120: one row per declared action; the ruling: owners grant, a
+        // destructive or owner-only action is never grantable ("Always asks").
+        let tools: Vec<Value> = declared_tools(package)
+            .into_iter()
+            .enumerate()
+            .map(|(ix, name)| {
+                let grantable = action_grantable(&name);
+                json!({
+                    "key": name,
+                    "divided": ix > 0,
+                    "title": action_title(&name),
+                    "name": name,
+                    "switch": grantable,
+                    "always": !grantable,
+                    "checked": row.granted_tools.iter().any(|g| flat_action(g) == name),
+                    "disabled": !grant || self.tool_busy.as_deref() == Some(name.as_str()),
+                })
+            })
+            .collect();
+        let mut state = HostState { pane: self.host.borrow().pane.clone(), ..Default::default() };
+        let empty = api::app_access::AppToolsOut::default();
+        let data = self.mcp.as_ref().unwrap_or(&empty);
+        let busy = self.mcp_busy.as_deref();
+        let projection = json!({
+            "manage": manage,
+            "name": row.name,
+            "description": row.description.clone().unwrap_or_default(),
+            "icon": row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string()),
+            "color": row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string()),
+            // VAPP-122: the app's live records against the quota.
+            "records": domain::app_records::records_count_label(self.records(row, cx), self.records_max),
+            "policies": {"show": !policies.is_empty(), "rows": policies},
+            "tools": {"hasRows": !tools.is_empty(), "none": tools.is_empty(), "rows": tools},
+            // VAPP-241: the published package's public links first (the web's order).
+            "shares": super::app_mcp::shares_rows(data, self.share_busy.as_deref(), &mut state.menus),
+            "accounts": super::app_mcp::accounts_rows(data, busy, self.upstream_busy.as_deref(), &mut state.selects),
+            "mcpTools": super::app_mcp::tools_rows(data, busy),
+            // #VAPP-220: the published package's automations, read-only.
+            "automations": super::app_mcp::automations_rows(data),
+            // #VAPP-238: the webhooks those automations listen on.
+            "hooks": super::app_mcp::hooks_rows(data, &self.hook_secrets, self.hook_busy.as_deref(), &mut state.texts),
+            // VAPP-121: any member exports an app that has a version.
+            "export": AppEntry::from_row(row).head_version > 0,
+            "delete": manage,
+        });
+        *self.host.borrow_mut() = state;
+        projection
     }
 }
 
 impl Render for AppDetailPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AppDetailPane").entered();
         let Some(page) = self.page() else {
-            return v_flex().into_any_element();
+            return div().into_any_element();
         };
         // The nav clamps a stale App(id) selection away before this pane
         // shows, so a missing row is only a transient frame.
-        let Some(row) = app_row(&page, cx) else {
-            return v_flex().into_any_element();
+        let Some(row) = self.row(&page, cx) else {
+            return div().into_any_element();
         };
-        self.sync_page(&page, &row, window, cx);
+        self.sync_page(&page, &row, cx);
         self.load_mcp(&row, cx);
-        let manage = self.can_manage(&row, cx);
-        let copy = &APPS.copy;
-        let entry = AppEntry::from_row(&row);
-        let export_id = row.id.clone();
-        let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
-        let actions = h_flex()
-            .pt_2()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            // VAPP-121: any member exports an app that has a version.
-            .when(entry.head_version > 0, |actions| {
-                actions.child(
-                    Button::new("app-export")
-                        .outline()
-                        .cursor_pointer()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_SHARE).small())
-                        .label(copy.menu.export.clone())
-                        .on_click(move |_, window, cx| {
-                            crate::app_export_dialog::open(window, cx, export_id.clone(), false)
-                        }),
-                )
-            })
-            .when(manage, |actions| {
-                actions.child(
-                    Button::new(SharedString::from(format!("app-detail-delete-{}", row.id)))
-                        .danger()
-                        .cursor_pointer()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_DELETE).small())
-                        .label(copy.menu.delete.clone())
-                        .on_click(move |_, window, cx| {
-                            crate::apps_view::confirm_delete(
-                                delete_id.clone(),
-                                delete_name.clone(),
-                                // VAPP-242: the delete leaves for the
-                                // team's home (no Apps list page).
-                                |window, cx| navigate(window, cx, Screen::Home),
-                                window,
-                                cx,
-                            )
-                        }),
-                )
-            });
-        let body = section(cx)
-            .id(SharedString::from(APPS.test_ids.settings.clone()))
-            .max_w(gpui::px(APPS.editor_tabs.settings_max_width as f32))
-            .gap_4()
-            .child(crate::surface::glass_group_rows(vec![self.identity_row(&row, manage, window, cx)]))
-            .child(
-                crate::surface::glass_group().child(
-                    Textarea::new(&self.description)
-                        .appearance(false)
-                        .disabled(!manage)
-                        .w_full()
-                        .px_4()
-                        .py_3(),
-                ),
-            )
-            .when_some(Some(&row), |body, row| {
-                // VAPP-122: the app's live records against the quota.
-                let count = Store::global(cx)
-                    .collections()
-                    .app_records
-                    .read(cx)
-                    .iter()
-                    .filter(|record| record.app_id == row.id)
-                    .count() as u64;
-                body.child(
-                    div()
-                        .id("app-settings-records")
-                        .px_1()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(domain::app_records::records_count_label(count, self.records_max)),
-                )
-                .children(self.policies_group(row, cx))
-                .child(self.tools_group(row, manage, cx))
-            })
-            // VAPP-183: Accounts + MCP tools, each hidden when empty.
-            .when_some(self.mcp.clone(), |body, data| {
-                let busy = self.mcp_busy.clone();
-                // VAPP-241: the published package's public links first (the web's order).
-                body.children(super::app_mcp::shares_group(&data, self.share_busy.as_deref(), cx))
-                    .children(super::app_mcp::accounts_group(&data, busy.as_deref(), self.upstream_busy.as_deref(), cx))
-                    .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
-                    // #VAPP-220: the published package's automations, read-only.
-                    .children(super::app_mcp::automations_group(&data, cx))
-                    // #VAPP-238: the webhooks those automations listen on.
-                    .children(super::app_mcp::webhooks_group(&data, &self.hook_secrets, self.hook_busy.as_deref(), cx))
-            })
-            .child(actions);
-        v_flex().child(body).into_any_element()
+        let projection = self.project(&row, cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone()).into_any_element()
     }
 }
 
-use gpui::prelude::FluentBuilder as _;
-use gpui::InteractiveElement as _;
+/// The data-model path the pane's projection is written at.
+const PATH: &str = "/pane";
+
+/// The document's actions (all the pane's).
+const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "addServer", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
+
+/// What the host draws itself, refilled by every projection.
+#[derive(Default)]
+struct HostState {
+    pane: Option<WeakEntity<AppDetailPane>>,
+    menus: HashMap<String, ShareMenu>,
+    selects: HashMap<String, AccountSelect>,
+    /// Keyed by the painted id (`hook_url.<name>`, `hook_secret.<name>`).
+    texts: HashMap<String, MidText>,
+}
+
+/// The pane's host: the IDE's plugin, the text fields' edits for the pane,
+/// and the rows' leaves drawn by the IDE itself.
+struct PaneHost {
+    ide: crate::exponential_ui_host::IdePlugin,
+    state: Rc<RefCell<HostState>>,
+}
+
+impl HostPlugin for PaneHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.ide.icon(name)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.ide.on_unknown(node)
+    }
+
+    fn on_input(&self, event: &eui_gpui::host::InputEvent, cx: &mut App) {
+        let (name, commit) = (event.name.clone(), event.kind == eui_gpui::host::InputKind::Commit);
+        let value = event.value.as_str().unwrap_or_default().to_string();
+        let Some(pane) = self.state.borrow().pane.clone() else { return };
+        cx.defer(move |cx| {
+            let _ = pane.update(cx, |pane, cx| pane.edited(&name, value, commit, cx));
+        });
+    }
+
+    fn host_leaf_height(&self, component_id: &str, _width: f32, window: &mut Window, _cx: &mut App) -> Option<f32> {
+        let state = self.state.borrow();
+        let (node, key) = component_id.split_once('.')?;
+        match node {
+            SHARE_MENU => state.menus.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
+            ACCOUNT_SELECT => state.selects.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
+            HOOK_URL | HOOK_SECRET => {
+                let text = state.texts.get(component_id)?;
+                Some(f32::from(window.rem_size()) * if text.sm { SM } else { XS } * super::doc::LINE)
+            }
+            _ => None,
+        }
+    }
+
+    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        let state = self.state.borrow();
+        let (node, key) = component_id.split_once('.')?;
+        let pane = state.pane.clone()?;
+        // The IDE's own text style under the leaf (the surface sets its own
+        // size and line): gpui-component's Root family, a rem, `phi` lines.
+        let theme = cx.theme();
+        let ide_text = div().font(gpui::font(theme.font_family.clone())).text_size(gpui::rems(1.)).line_height(gpui::phi()).text_color(theme.foreground);
+        let leaf = match node {
+            SHARE_MENU => super::app_mcp::share_menu(state.menus.get(key)?, pane, cx),
+            ACCOUNT_SELECT => super::app_mcp::account_select(state.selects.get(key)?, pane, cx),
+            HOOK_URL | HOOK_SECRET => super::app_mcp::mid_text(state.texts.get(component_id)?, cx),
+            _ => return None,
+        };
+        Some(ide_text.child(leaf).into_any_element())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The document
+// ---------------------------------------------------------------------------
+
+/// The colours the document needs beyond [`Ink`]: gpui-component's outline
+/// and danger `Button`s.
+pub(super) struct Tints {
+    radius: f32,
+    outline_fill: String,
+    outline_stroke: String,
+    outline_fg: String,
+    outline_hover: String,
+    outline_fill_dim: String,
+    outline_stroke_dim: String,
+    outline_fg_dim: String,
+    danger: String,
+    danger_fg: String,
+    danger_hover: String,
+}
+
+impl Tints {
+    fn of(cx: &App) -> Self {
+        use super::api_keys::premultiplied_hex;
+        use gpui_component::Colorize as _;
+        let theme = cx.theme();
+        Self {
+            radius: f32::from(theme.radius),
+            outline_fill: hex(theme.input_background()),
+            outline_stroke: hex(theme.input),
+            outline_fg: hex(theme.button_foreground),
+            outline_hover: premultiplied_hex(theme.input.mix_oklab(theme.transparent, 0.5)),
+            outline_fill_dim: premultiplied_hex(theme.input_background().opacity(0.5)),
+            outline_stroke_dim: hex(theme.input.opacity(0.5)),
+            outline_fg_dim: hex(theme.muted_foreground.opacity(0.5)),
+            danger: hex(theme.button_danger),
+            danger_fg: hex(theme.button_danger_foreground),
+            danger_hover: hex(theme.button_danger_hover),
+        }
+    }
+}
+
+/// How a [`button`] paints: gpui-component's outline or danger `Button`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Paint {
+    Outline,
+    Danger,
+}
+
+/// A trailing row Switch (`web_switch`): the genUI Switch's box keeps its
+/// label gap (8 px) on its leading side even with no label, which the IDE's
+/// bare track has not.
+pub(super) fn switch(id: &str, name: &str, event: &str) -> Value {
+    json!({"id": id, "component": "Switch", "props": {"label": "", "name": name, "checked": path("checked"), "disabled": path("disabled")},
+        "style": {"marginLeft": -8}, "on": {"change": {"event": {"name": event, "context": {"key": path("key")}}}}})
+}
+
+/// `node` shown where `visible`.
+pub(super) fn visible(mut node: Value, visible: Value) -> Value {
+    node["visible"] = visible;
+    node
+}
+
+/// A `web_sm` `Button` (32 px, `px 12`, the theme radius): the optional
+/// `size_3p5` glyph `gap_1` before the `text_sm` label (line height 1,
+/// which gpui centres half a point lower: `paddingTop: 1`). Drawn twice,
+/// `disabled` picks (the half wash and stroke, the faded muted label; a
+/// `loading` Button without a glyph looks the same).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn button(ink: &Ink, tints: &Tints, id: &str, paint: Paint, icon: Option<&str>, label: Value, disabled: Value, event: Value) -> Value {
+    let size = ink.r(SM);
+    let glyph = ink.r(0.875);
+    let face = |dim: bool| {
+        let id = if dim { format!("{id}_dim") } else { id.to_string() };
+        let (fill, stroke, fg, hover) = match (paint, dim) {
+            (Paint::Outline, false) => (&tints.outline_fill, Some(&tints.outline_stroke), &tints.outline_fg, &tints.outline_hover),
+            (Paint::Outline, true) => (&tints.outline_fill_dim, Some(&tints.outline_stroke_dim), &tints.outline_fg_dim, &tints.outline_hover),
+            (Paint::Danger, _) => (&tints.danger, None, &tints.danger_fg, &tints.danger_hover),
+        };
+        let mut children: Vec<Value> = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": fg, "flexShrink": 0}})).into_iter().collect();
+        let mut text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone(), "lines": 1}, "style": {"fontSize": size, "lineHeight": size * 1.25, "color": fg, "flexShrink": 0}});
+        if paint == Paint::Outline && dim {
+            // The half-muted ink as the node's opacity (a `#rrggbbaa` byte
+            // can't say 0.5).
+            text["style"]["color"] = json!(ink.muted);
+            text["style"]["opacity"] = json!(0.5);
+        }
+        children.push(text);
+        let mut button = json!({"id": id, "component": "Box", "visible": if dim { disabled.clone() } else { not(disabled.clone()) },
+            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": tints.radius, "backgroundColor": fill},
+            "children": children});
+        if let Some(stroke) = stroke {
+            button["style"]["borderWidth"] = json!(1);
+            button["style"]["borderColor"] = json!(stroke);
+        }
+        if !dim {
+            button["props"] = json!({"pressable": true});
+            button["accessibility"] = json!({"label": label.clone()});
+            button["on"] = json!({"press": {"event": event.clone()}});
+            button["style"]["cursor"] = json!("pointer");
+            button["style"][":hover"] = json!({"backgroundColor": hover});
+        }
+        button
+    };
+    json!({"id": format!("{id}_slot"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexShrink": 0}, "children": [face(false), face(true)]})
+}
+
+/// A run cut to one line (`truncate`), in the theme's mono family where
+/// `mono`.
+pub(super) fn text_line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str, mono: bool) -> Value {
+    let mut t = ink.text(id, text, rems, color);
+    t["props"]["lines"] = json!(1);
+    t["style"]["minWidth"] = json!(0);
+    if mono {
+        t["style"]["fontFamily"] = json!(ink.mono);
+    }
+    t
+}
+
+/// A row's leading column (`flex_1`, `min_w_0`): `top` over `bottom`.
+pub(super) fn two_lines(_ink: &Ink, id: &str, top: Value, bottom: Value, extra: Option<Value>) -> Value {
+    let children: Vec<Value> = [top, bottom].into_iter().chain(extra).collect();
+    json!({"id": format!("{id}_text"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0},
+        "children": children})
+}
+
+/// One group row in a List (`glass_row_shell`, `gap_3`): the hairline
+/// above it where `divided`, then `children`.
+pub(super) fn row_shell(ink: &Ink, id: &str, children: Vec<Value>) -> Value {
+    json!({"id": format!("{id}_item"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.divider(&format!("{id}_divider"), path("divided")), ink.shell(&format!("{id}_row"), false, json!(true), children)]})
+}
+
+/// A group's heading (`px_1`, `text_sm` MEDIUM).
+fn heading(ink: &Ink, id: &str, title: &str) -> Value {
+    let mut text = ink.text(id, json!(title), SM, &ink.foreground);
+    text["style"]["fontWeight"] = json!(500);
+    text["style"]["paddingHorizontal"] = json!(ink.r(0.25));
+    text
+}
+
+/// A titled group (`gap_1`) shown where `<data>/show`: the heading over
+/// the `glass_group` of `<data>/rows`, one `item` each.
+pub(super) fn titled(ink: &Ink, id: &str, title: &str, data: &str, item: Value, _tints: &Tints) -> Value {
+    let template = item["id"].as_str().expect("the item's id").to_string();
+    let list = json!({"id": format!("{id}_rows"), "component": "List", "props": {"gap": "none"},
+        "template": {"component": template, "path": format!("{data}/rows"), "key": "key"}, "children": [item]});
+    json!({"id": id, "component": "Box", "visible": path(&format!("{data}/show")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+        "children": [heading(ink, &format!("{id}_title"), title), ink.group(&format!("{id}_group"), vec![list])]})
+}
+
+/// [`titled`] over an item that is not a plain row.
+pub(super) fn titled_item(ink: &Ink, id: &str, title: &str, data: &str, item: Value, tints: &Tints) -> Value {
+    titled(ink, id, title, data, item, tints)
+}
+
+/// The identity row (`gap_2`): the icon and colour pickers (saved at once)
+/// and the name (saved on blur / Enter); then the description card.
+fn identity(ink: &Ink) -> Vec<Value> {
+    let copy = &APPS.copy;
+    let icon = json!({"id": "icon_picker", "component": "IconPicker", "props": {"value": path("/pane/icon"), "color": path("/pane/color")}, "on": {"change": {"event": {"name": "icon"}}}});
+    let color = json!({"id": "color_picker", "component": "ColorPicker", "props": {"value": path("/pane/color")}, "on": {"change": {"event": {"name": "color"}}}});
+    let name = json!({"id": "name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "placeholder": copy.name_placeholder, "value": path("/pane/name"), "disabled": not(path("/pane/manage"))},
+        "style": {"flexGrow": 1, "minWidth": 0}, "on": {"submit": {"event": {"name": "rename"}}}});
+    let mut row = ink.shell("identity", false, json!(true), vec![icon, color, name]);
+    row["style"]["gap"] = json!(ink.r(0.5));
+    let description = json!({"id": "description", "component": "Textarea", "props": {"variant": "row", "label": "Description", "name": "description", "rows": 3, "autosize": true, "maxRows": 12,
+        "placeholder": copy.description_placeholder, "value": path("/pane/description"), "disabled": not(path("/pane/manage"))}});
+    vec![ink.group("identity_group", vec![row]), ink.group("description_group", vec![description])]
+}
+
+/// #VAPP-243: Record access, one read-only row per declared kind.
+fn policies(ink: &Ink, tints: &Tints) -> Value {
+    let row = row_shell(ink, "policy", vec![two_lines(ink, "policy", text_line(ink, "policy_kind", path("kind"), SM, &ink.foreground, true), text_line(ink, "policy_caption", path("caption"), XS, &ink.muted, false), None)]);
+    titled(ink, &APPS.test_ids.policies, &APPS.copy.policies.title, "/pane/policies", row, tints)
+}
+
+/// VAPP-120: the Tools group (`app-settings-tools`): the title and hint,
+/// then one row per declared action with its switch (or "Always asks"),
+/// or the none line.
+fn tools(ink: &Ink) -> Value {
+    let copy = *APP_ACTIONS_COPY;
+    let switch = visible(switch("tool_switch", "tool", "tool"), path("switch"));
+    let mut always = ink.text("tool_always", json!(copy.always), SM, &ink.muted);
+    always["visible"] = path("always");
+    always["style"]["flexShrink"] = json!(0);
+    let row = row_shell(ink, "tool", vec![two_lines(ink, "tool", text_line(ink, "tool_title", path("title"), SM, &ink.foreground, false), text_line(ink, "tool_name", path("name"), XS, &ink.muted, true), None), switch, always]);
+    let list = json!({"id": "tools_rows", "component": "List", "visible": path("/pane/tools/hasRows"), "props": {"gap": "none"},
+        "template": {"component": "tool_item", "path": "/pane/tools/rows", "key": "key"}, "children": [row]});
+    let none = json!({"id": "tools_none", "component": "Box", "visible": path("/pane/tools/none"), "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": ink.r(1.), "paddingVertical": ink.r(0.75)},
+        "children": [ink.text("tools_none_text", json!(copy.none), SM, &ink.muted)]});
+    let mut hint = ink.text("tools_hint", json!(copy.hint), SM, &ink.muted);
+    hint["style"]["paddingHorizontal"] = json!(ink.r(0.25));
+    json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+        "children": [
+            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [heading(ink, "tools_title", &copy.title), hint]},
+            ink.group("tools_group", vec![list, none]),
+        ]})
+}
+
+/// The tab's tree (`gap_4`, at most `editorTabs.settingsMaxWidth` wide).
+fn document(ink: &Ink, tints: &Tints) -> Value {
+    let mut records = ink.text("records", path("/pane/records"), SM, &ink.muted);
+    records["style"]["paddingHorizontal"] = json!(ink.r(0.25));
+    let export = visible(button(ink, tints, "export", Paint::Outline, Some("ui-share"), json!(APPS.copy.menu.export), json!(false), json!({"name": "export"})), path("/pane/export"));
+    let delete = visible(button(ink, tints, "delete", Paint::Danger, Some("ui-delete"), json!(APPS.copy.menu.delete), json!(false), json!({"name": "delete"})), path("/pane/delete"));
+    let actions = json!({"id": "actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5), "paddingTop": ink.r(0.5)}, "children": [export, delete]});
+    let mut children = identity(ink);
+    children.extend([
+        records,
+        policies(ink, tints),
+        tools(ink),
+        super::app_mcp::shares_group(ink, tints),
+        super::app_mcp::accounts_group(ink, tints),
+        super::app_mcp::tools_group(ink, tints),
+        super::app_mcp::automations_group(ink, tints),
+        super::app_mcp::webhooks_group(ink, tints),
+        actions,
+    ]);
+    json!({"id": APPS.test_ids.settings, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": APPS.editor_tabs.settings_max_width, "gap": ink.r(1.)}, "children": children})
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// #EXP-1629: the tab's document raises no issue a debug build's mount
+    /// check refuses (#EXP-1767's class).
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = Ink {
+            rem: 14.,
+            primary: "#fafafaff".into(),
+            foreground: "#ffffffff".into(),
+            hint: "#ffffffff".into(),
+            value: "#ffffffff".into(),
+            muted: "#a1a1aaff".into(),
+            muted_glyph: "#a1a1aaff".into(),
+            fill_row: "#ffffff0a".into(),
+            stroke_row: "#ffffff14".into(),
+            fill_card: "#ffffff0f".into(),
+            stroke_card: "#ffffff1a".into(),
+            code: "#27272aff".into(),
+            radius_lg: 12.,
+            radius_md: 8.,
+            fill_section: "#ffffff0a".into(),
+            fill_active: "#ffffff1a".into(),
+            mono: "$type.family.mono".into(),
+            pill_button_fill: "#ffffff0f".into(),
+            pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
+        };
+        let tints = Tints {
+            radius: 10.,
+            outline_fill: "#ffffff08".into(),
+            outline_stroke: "#ffffff1a".into(),
+            outline_fg: "#fafafaff".into(),
+            outline_hover: "#ffffff0d".into(),
+            outline_fill_dim: "#ffffff04".into(),
+            outline_stroke_dim: "#ffffff0d".into(),
+            outline_fg_dim: "#a1a1aa80".into(),
+            danger: "#dc2626ff".into(),
+            danger_fg: "#ffffffff".into(),
+            danger_hover: "#b91c1cff".into(),
+        };
+        let tree = document(&ink, &tints);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-app", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     #[test]
     fn the_tools_group_lists_the_declared_actions() {

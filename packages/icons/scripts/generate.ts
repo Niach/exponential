@@ -57,7 +57,15 @@ interface Registry {
    * scaled from its own viewBox into the 24-unit grid below and then flows
    * through the same 4-platform emit as a `custom` glyph.
    */
-  imported?: Record<string, { file: string; source: string }>
+  /**
+   * #EXP-1764: `fill` = the mark's OWN colour (`#RRGGBB`, Claude's Anthropic
+   * orange), never the text colour: the web node carries it, and the eUI
+   * catalog lists it (`ICON_FILLS`) so every renderer paints it in that
+   * colour. `grid: "full"` = the mark fills the whole 24-unit box (the agent
+   * marks the clients already draw full-bleed), instead of the 18-unit live
+   * area.
+   */
+  imported?: Record<string, { file: string; source: string; fill?: string; grid?: "full" }>
   /**
    * The MCP catalog's REAL brand marks: selfh.st/icons LIGHT SVGs (CC-BY-4.0)
    * vendored verbatim under packages/icons/brand/. They are trademarks, so
@@ -306,7 +314,10 @@ function transformPath(d: string, scale: number, dx: number, dy: number): string
 /** Three decimals = 1/1000 of a 24-unit grid — below a pixel at any size we draw. */
 const fmtImported = (n: number): string => String(Number.parseFloat(n.toFixed(3)))
 
-function loadImported(name: string, file: string): IconNode[] {
+function loadImported(name: string, file: string, fill?: string, grid?: "full"): IconNode[] {
+  if (fill !== undefined && !/^#[0-9A-F]{6}$/.test(fill)) {
+    throw new Error(`imported icon "${name}": fill must be #RRGGBB (upper case), got ${fill}`)
+  }
   const svg = readFileSync(join(pkgRoot, file), "utf8")
   const viewBox = svg.match(/viewBox="([^"]+)"/)?.[1].trim().split(/[\s,]+/).map(Number)
   const paths = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"/g)]
@@ -314,14 +325,14 @@ function loadImported(name: string, file: string): IconNode[] {
     throw new Error(`imported icon "${name}" (${file}) must be one <path> in a viewBox`)
   }
   const [minX, minY, width, height] = viewBox
-  const scale = IMPORT_LIVE_AREA / Math.max(width, height)
+  const scale = (grid === `full` ? 24 : IMPORT_LIVE_AREA) / Math.max(width, height)
   const d = transformPath(
     paths[0][1],
     scale,
     (24 - width * scale) / 2 - minX * scale,
     (24 - height * scale) / 2 - minY * scale
   )
-  return [["path", { d, fill: "currentColor", stroke: "none", key: "mark" }]]
+  return [["path", { d, fill: fill ?? "currentColor", stroke: "none", key: "mark" }]]
 }
 
 // ---------------------------------------------------------------------------
@@ -467,11 +478,11 @@ const screamingSnake = (name: string): string =>
 
 const semanticKeys = Object.keys(registry.semantic).sort()
 const customIcons: Record<string, IconNode[]> = { ...(registry.custom ?? {}) }
-for (const [name, { file }] of Object.entries(registry.imported ?? {})) {
+for (const [name, { file, fill, grid }] of Object.entries(registry.imported ?? {})) {
   if (name in customIcons) {
     throw new Error(`imported icon "${name}" collides with a custom icon.`)
   }
-  customIcons[name] = loadImported(name, file)
+  customIcons[name] = loadImported(name, file, fill, grid)
 }
 const customNames = Object.keys(customIcons).sort()
 // A custom name shadowing a real Lucide icon (or a hand-maintained desktop

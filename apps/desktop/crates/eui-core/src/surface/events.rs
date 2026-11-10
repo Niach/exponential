@@ -826,6 +826,16 @@ impl Surface {
                 out.extend(self.fire(&owner_id, event, payload));
             }
         }
+        // #EXP-1760: a pick in an IconPicker / ColorPicker grid (a cell, a
+        // swatch, the No icon row) closes the picker's popover, the macro's
+        // root, as the IDE's pickers do.
+        if event == "press" {
+            if let Some(root) = n.part_query.as_ref().and_then(|q| picker_root(&n.id, &q.component, &q.part)) {
+                if self.is_open_now(&root) {
+                    out.extend(self.set_open(&root, false));
+                }
+            }
+        }
         out
     }
 
@@ -873,7 +883,10 @@ impl Surface {
     }
 
     fn is_inert(&self, n: &LNode) -> bool {
-        let flagged = |p: &crate::types::Props| p.get("disabled").and_then(Value::as_bool) == Some(true) || p.get("loading").and_then(Value::as_bool) == Some(true);
+        // #EXP-1765: a `loading` Select stays live (its popup shows the
+        // skeleton rows while the options load); `loading` freezes the rest.
+        let select = n.component == "Select" || n.owner_component.as_deref() == Some("Select");
+        let flagged = |p: &crate::types::Props| p.get("disabled").and_then(Value::as_bool) == Some(true) || (!select && p.get("loading").and_then(Value::as_bool) == Some(true));
         if flagged(&n.props) || self.states.get(&n.id).is_some_and(|s| s.iter().any(|x| x == "disabled")) {
             return true;
         }
@@ -1842,3 +1855,16 @@ impl Surface {
 
 /// What a Resizable event reads: sizes, limits, orientation, rtl, slot.
 type ResizableState = (Vec<f64>, Vec<crate::resizable::PanelLimits>, crate::resizable::Orientation, bool, u32);
+
+/// #EXP-1760: the root (the Popover) of the IconPicker / ColorPicker whose
+/// pick `id` is (`<root>.scroll.grid.cell.<i>`, `<root>.grid.swatch.<i>`,
+/// `<root>.none`), `None` for any other node.
+fn picker_root(id: &str, component: &str, part: &str) -> Option<String> {
+    let marker = match (component, part) {
+        ("IconPicker", "cell") => ".scroll.grid.cell.",
+        ("IconPicker", "none") => ".none",
+        ("ColorPicker", "swatch") => ".grid.swatch.",
+        _ => return None,
+    };
+    id.rfind(marker).map(|at| id[..at].to_string())
+}

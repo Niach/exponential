@@ -58,6 +58,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -80,6 +82,8 @@ import at.exponential.ui.model.composerSubmit
 import at.exponential.ui.model.field
 import at.exponential.ui.model.fieldCommitted
 import at.exponential.ui.model.fieldEdited
+import at.exponential.ui.model.selectSearchClear
+import at.exponential.ui.model.selectSearchClearable
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldSubmitted
 import at.exponential.ui.model.fire
@@ -425,9 +429,16 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
     val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
     // A `search` part leads with its glyph (the measurer's 16 + 8).
     val glyph = cx.node.part == "search" && cx.props["icon"] != null
+    // #EXP-1765: a Select search's glyph is its `searchIcon` part's size, the recipe's gap from the text (else 8).
+    val select = cx.node.ownerComponent == "Select"
+    val glyphSize = if (select) cx.part("Select", "searchIcon").width ?: 16f else 16f
+    val glyphGap = if (select && cx.style.gap > 0f) cx.style.gap else 8f
+    @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
+    val clearable = cx.model.selectSearchClearable(cx.index)
+    val clearBox = glyphSize * SELECT_CLEAR_BOX
     val disabled = cx.model.isDisabled(cx.index)
     InnerBox(cx, contentAlignment = Alignment.CenterStart) {
-        if (glyph) GlyphView(Glyph.Search, 16f, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
+        if (glyph) GlyphView(Glyph.Search, glyphSize, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         OwnedTextField(
             index = cx.index,
             model = cx.model,
@@ -438,11 +449,44 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             disabled = disabled,
             submitsOnReturn = false,
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
-            modifier = if (glyph) Modifier.fillMaxSize().padding(start = 24.dp) else Modifier.fillMaxSize(),
+            modifier = (if (glyph) Modifier.fillMaxSize().padding(start = (glyphSize + glyphGap).dp) else Modifier.fillMaxSize())
+                .padding(end = if (clearable) (clearBox + glyphGap).dp else 0.dp),
             keyboardType = if (cx.node.component == "NumberField") KeyboardType.Decimal else KeyboardType.Text,
         )
+        if (clearable) SelectSearchClearButton(cx, glyphSize, Modifier.align(Alignment.CenterEnd)) { cx.model.selectSearchClear(cx.index) }
     }
 }
+
+/**
+ * #EXP-1765: a `pill` Select search's clear button (while it holds text):
+ * the `Select.clear` glyph 0.75 × the `searchIcon` size in
+ * `mutedForeground`, centred in a square box 1.25 × the `searchIcon` size;
+ * "Clear search", a button.
+ */
+@Composable
+internal fun SelectSearchClearButton(cx: LeafContext, glyphSize: Float, modifier: Modifier = Modifier, onClear: () -> Unit) {
+    val label = cx.string("clearSearch")
+    Box(
+        modifier
+            .size((glyphSize * SELECT_CLEAR_BOX).dp)
+            .clickable(onClick = onClear)
+            .clearAndSetSemantics {
+                contentDescription = label
+                role = Role.Button
+                onClick {
+                    onClear()
+                    true
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        IconOrGlyph(builtinIcon("Select.clear", "ui-clear"), Glyph.Close, glyphSize * SELECT_CLEAR_GLYPH, cx, cx.themeColor("mutedForeground") ?: cx.ink)
+    }
+}
+
+/** #EXP-1765: the clear button's box and its glyph, each over the `searchIcon` size (14 → 17.5 box, 10.5 glyph). */
+internal const val SELECT_CLEAR_BOX = 1.25f
+internal const val SELECT_CLEAR_GLYPH = 0.75f
 
 /**
  * The Composer: the owned multi-line field (the `Composer/field` font)

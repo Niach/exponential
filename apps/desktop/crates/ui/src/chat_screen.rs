@@ -364,6 +364,9 @@ enum Presentation {
 
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,
+    /// #EXP-1770: the readiness row under the composer (the shared
+    /// readiness document, its row alone).
+    readiness_row: Entity<crate::settings::readiness::ReadinessBlock>,
     presentation: Presentation,
     /// EXP-1037: the dialog's seed, applied on the first render that has a
     /// team AND synced shapes (the page takes the same seed off the nav).
@@ -547,8 +550,10 @@ impl ChatScreenView {
                 cx.notify();
             }));
         }
+        let readiness_row = cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("chat-readiness", window, cx));
         let mut this = Self {
             nav,
+            readiness_row,
             presentation: Presentation::Page,
             dialog_seed: None,
             team_id: None,
@@ -1493,20 +1498,16 @@ impl ChatScreenView {
         }
     }
 
-    /// The readiness row under the composer, wired to its action (THIS
-    /// device: every action; another: the remote ones only).
-    fn render_readiness_row(
-        row: &device_readiness::ReadinessRow,
+    /// The readiness row under the composer's wiring (THIS device: every
+    /// action; another: the remote ones only).
+    pub(crate) fn readiness_row_props(
         target: Option<(String, SharedString)>,
         cx: &App,
-    ) -> gpui::Div {
-        let props = match target {
-            None => device_readiness::local_props("chat-readiness", cx),
-            Some((device_id, label)) => {
-                device_readiness::remote_props("chat-readiness", device_id, label, cx)
-            }
-        };
-        device_readiness::render_single(row, props, cx)
+    ) -> device_readiness::BlockProps {
+        match target {
+            None => device_readiness::local_props(cx),
+            Some((device_id, label)) => device_readiness::remote_props(device_id, label),
+        }
     }
 
     // ── the gate ──────────────────────────────────────────────────────────
@@ -2727,7 +2728,10 @@ impl ChatScreenView {
             .filter(|reason| chat_launch::note_for_blocker(Some(reason.as_ref())).is_some());
         let blocker_note = blocker_note.filter(|reason| Some(reason) != readiness_summary.as_ref());
         if let Some((row, target)) = readiness {
-            notes = notes.child(Self::render_readiness_row(&row, target, cx));
+            // #EXP-1770: the shared readiness document, its row alone.
+            let props = Self::readiness_row_props(target, cx);
+            self.readiness_row.update(cx, |block, cx| block.show(crate::settings::readiness::Shape::Single(&row), props, cx));
+            notes = notes.child(self.readiness_row.clone());
         }
         if let Some(reason) = blocker_note {
             // EXP-862: the blocker is a sentence and nothing else — the

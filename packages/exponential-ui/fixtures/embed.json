@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-65 lane M (docs/round-9-contract.md §19): Embed, a nested genUI surface drawn in place, SANDBOXED. HAND-AUTHORED; replayed by src/embed.test.ts (the TS reference src/embed.ts), packages/exponential-ui-react/src/embed.test.tsx, packages/exponential-ui-solid/src/embed.test.tsx, apps/desktop/crates/eui-core/tests/embed_fixture.rs (eui_core::embed), apps/desktop/crates/eui-gpui/tests/embed.rs, the SwiftUI EmbedTests and the Compose EmbedTest. `surface` is a DATA prop: a binding `{\"@path\"}` AT THE TOP resolves against the host (the Embed's scope), nothing inside it ever does. `errorRoot` = what a bad surface paints instead (an error Alert titled `$string.embedInvalid`), the host around it unchanged. `parse`: the resolved `surface` value → `valid` and, when valid, the card's `data` (missing or null = {}); a card is an object with a sound `root` (string non-empty `id` + `component`; `props`, `on`, `style` objects when present; `children` an array of sound nodes; `slots` an object of sound nodes), `data` absent, null or an object, `version` absent or \"1.0\"; an unknown component inside a sound root is valid (the nested surface paints its Unknown placeholder). `render`: mount the host `root` with `data` under the neutral theme: every `texts` entry is painted (in order of the host's pre-order with the nested surface in place of its Embed), no `absent` entry is. `events`: mount, then press the inner node `press.node` of the `press.embed`-th painted Embed (0-based, painted order): the host hears exactly `actions` ({name, context}: the Embed's own `on.action` event with the payload {name: inner event name, context: inner event context} merged over the author's context, like any component payload; no `on.action` = nothing), its host-function handler hears `functions` (an inner host function is DENIED: never forwarded, its action stops), and afterwards every `texts` entry is painted and no `absent` one (an inner `set` writes the nested model only).",
+  "$comment": "#EDE-65 lane M (docs/round-9-contract.md §19): Embed, a nested genUI surface drawn in place, SANDBOXED. HAND-AUTHORED; replayed by src/embed.test.ts (the TS reference src/embed.ts), packages/exponential-ui-react/src/embed.test.tsx, packages/exponential-ui-solid/src/embed.test.tsx, apps/desktop/crates/eui-core/tests/embed_fixture.rs (eui_core::embed), apps/desktop/crates/eui-gpui/tests/embed.rs, the SwiftUI EmbedTests and the Compose EmbedTest. `surface` is a DATA prop: a binding `{\"@path\"}` AT THE TOP resolves against the host (the Embed's scope), nothing inside it ever does. `errorRoot` = what a bad surface paints instead (an error Alert titled `$string.embedInvalid`), the host around it unchanged. `parse`: the resolved `surface` value → `valid` and, when valid, the card's `data` (missing or null = {}); a card is an object with a sound `root` (string non-empty `id` + `component`; `props`, `on`, `style` objects when present; `children` an array of sound nodes; `slots` an object of sound nodes), `data` absent, null or an object, `version` absent or \"1.0\"; an unknown component inside a sound root is valid (the nested surface paints its Unknown placeholder). `render`: mount the host `root` with `data` under the neutral theme: every `texts` entry is painted (in order of the host's pre-order with the nested surface in place of its Embed), no `absent` entry is. `events`: mount, then press the inner node `press.node` of the `press.embed`-th painted Embed (0-based, painted order): the host hears exactly `actions` ({name, context}: the Embed's own `on.action` event with the payload {name: inner event name, context: inner event context} merged over the author's context, like any component payload; no `on.action` = nothing), its host-function handler hears `functions` (an inner host function is DENIED: never forwarded, its action stops), and afterwards every `texts` entry is painted and no `absent` one (an inner `set` writes the nested model only). `layout` (#EXP-1769): mount the host `root` at `width` px under the neutral theme, light: an Embed inside a column takes the column's width and its nested surface FILLS it, so per `fills` entry the inner node `inner` (the card's root, painted in the Embed `embed`) spans the Embed's own width within 1 px (x and width), and every `oneLine` text paints on ONE line (a 0-wide nested surface wraps it a letter per line). Replayed in headless Chromium by packages/exponential-ui-solid/browser/embed.test.ts for React and Solid.",
   "errorRoot": {
     "id": "embed_error",
     "component": "Alert",
@@ -1235,6 +1235,144 @@
       "functions": [],
       "texts": [],
       "absent": []
+    }
+  ],
+  "layout": [
+    {
+      "name": "in-column",
+      "width": 900,
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "label",
+            "component": "Text",
+            "props": {
+              "text": "Card:"
+            }
+          },
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Card",
+                  "children": [
+                    {
+                      "id": "t",
+                      "component": "Text",
+                      "props": {
+                        "text": "Ship the Embed PR now?"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "fills": [
+        {
+          "embed": "card",
+          "inner": "inner"
+        }
+      ],
+      "oneLine": [
+        "t"
+      ]
+    },
+    {
+      "name": "in-column-aligned-start",
+      "width": 900,
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "props": {
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "card",
+            "component": "Embed",
+            "props": {
+              "surface": {
+                "root": {
+                  "id": "inner",
+                  "component": "Card",
+                  "children": [
+                    {
+                      "id": "t",
+                      "component": "Text",
+                      "props": {
+                        "text": "Ship the Embed PR now?"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "fills": [
+        {
+          "embed": "card",
+          "inner": "inner"
+        }
+      ],
+      "oneLine": [
+        "t"
+      ]
+    },
+    {
+      "name": "in-column-in-card",
+      "width": 390,
+      "root": {
+        "id": "host",
+        "component": "Stack",
+        "children": [
+          {
+            "id": "frame",
+            "component": "Card",
+            "children": [
+              {
+                "id": "card",
+                "component": "Embed",
+                "props": {
+                  "surface": {
+                    "root": {
+                      "id": "inner",
+                      "component": "Card",
+                      "children": [
+                        {
+                          "id": "t",
+                          "component": "Text",
+                          "props": {
+                            "text": "Two are open on General"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "fills": [
+        {
+          "embed": "card",
+          "inner": "inner"
+        }
+      ],
+      "oneLine": [
+        "t"
+      ]
     }
   ]
 }

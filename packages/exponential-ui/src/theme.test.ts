@@ -51,7 +51,7 @@ describe(`built-in themes`, () => {
 
 describe(`recipe contract`, () => {
   test(`recipe keys are a subset of the Box visual keys plus the box keys and native`, () => {
-    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `maxWidth`, `backgroundClip`]) // #EXP-1629: backgroundClip is recipe-only
+    const allowed = new Set([...STYLE_VISUAL_KEYS, `padding`, `paddingHorizontal`, `paddingVertical`, `gap`, `width`, `height`, `minWidth`, `minHeight`, `native`, `marginTop`, `marginBottom`, `maxWidth`, `backgroundClip`, `paddingTop`, `paddingBottom`, `textAlign`]) // #EXP-1629: backgroundClip is recipe-only
     for (const key of RECIPE_KEYS) expect(allowed.has(key), key).toBe(true)
     expect(RECIPE_STATES).toContain(`hover`)
   })
@@ -65,7 +65,7 @@ describe(`recipe contract`, () => {
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
-    expect(Object.keys(parts).length).toBe(104) // #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
+    expect(Object.keys(parts).length).toBe(106) // #EXP-1760: + IconPicker, ColorPicker; #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
     expect(parts.CodeBlock.props).toContain(`kind`)
@@ -277,6 +277,14 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     for (const id of [`neutral`, `playful`])
       for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.ghostHover).toBe(builtinTheme(id).modes[mode].color.accent)
     expect(builtinTheme(`orange`).modes.dark.color.ghostHover).toBe(`#ffffff0e`)
+  })
+
+  test(`#EXP-1760 popoverRing: gpui-component's popover surface in exponential, popover elsewhere`, () => {
+    const ring = builtinTheme(`exponential`).modes.dark.shadow.popoverRing!
+    expect(ring[0]).toEqual({ x: 0, y: 0, blur: 0, spread: 1, color: `#fafafa1a` })
+    expect(ring).toHaveLength(3)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
   })
 
   test(`the exponential MessageBubble is the IDE's message_bubble`, () => {
