@@ -23,7 +23,7 @@ use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
-use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
+use crate::settings::branch_picker_shots::{EuiBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -644,11 +644,10 @@ fn settings_branch_menu_eui() {
     shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
 }
 
-/// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
-/// (`repositories::branch_trigger` + its `Popover`) vs genUI's `pill`
-/// Select, closed (normal, disabled) and open (loading, empty, ready with
-/// `main` the default and checked). Shoot `settings_repo_branch_ide`, then
-/// `settings_repo_branch_eui` with `EXP_SETTINGS_BEFORE` at the first.
+/// #EXP-1765: Repositories' per-repo branch picker, genUI's `pill` Select:
+/// closed (normal, disabled) and open (loading, empty, ready with `main`
+/// the default and checked). The IDE's picker it replaced was judged
+/// against it here (#2556) and now in `settings_repositories_branch_*`.
 const REPO_BRANCH_STATES: [(&str, PickerState); 5] = [
     ("repo-branch-trigger", PickerState::Trigger),
     ("repo-branch-disabled", PickerState::Disabled),
@@ -656,14 +655,6 @@ const REPO_BRANCH_STATES: [(&str, PickerState); 5] = [
     ("repo-branch-empty", PickerState::Empty),
     ("repo-branch-ready", PickerState::Ready),
 ];
-
-#[test]
-#[ignore]
-fn settings_repo_branch_ide() {
-    for (name, state) in REPO_BRANCH_STATES {
-        shoot_pane(name, IdeBranchPicker::for_shots(state), |_, _| {});
-    }
-}
 
 #[test]
 #[ignore]
