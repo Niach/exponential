@@ -52,9 +52,9 @@ public struct ColorSwatchPicker: View {
                             selection = next
                             isPresented = false
                         }
-                    ),
-                    swatchSize: 28
+                    )
                 )
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
             }
             .preferredColorScheme(.dark)
@@ -62,33 +62,41 @@ public struct ColorSwatchPicker: View {
     }
 }
 
-/// A tap-to-select swatch grid bound to a hex string. Used by the iOS
-/// label/board color pickers (the `TeamLabelsSection` palette).
+/// A tap-to-select swatch grid bound to a hex string — web's
+/// `ui/color-swatch-grid.tsx` cell for cell (#EXP-1774): a 28pt cell with a
+/// 2pt ring (foreground when picked, clear otherwise) around a 20pt dot,
+/// wrapping with a 6pt gap. The ring sits INSIDE the cell, never a halo.
 public struct ColorSwatchGrid: View {
     @Binding var selection: String
     let colors: [String]
-    let swatchSize: CGFloat
 
-    public init(selection: Binding<String>, colors: [String] = LABEL_COLORS, swatchSize: CGFloat = 22) {
+    public init(selection: Binding<String>, colors: [String] = LABEL_COLORS) {
         self._selection = selection
         self.colors = colors
-        self.swatchSize = swatchSize
     }
 
     public var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: swatchSize + 6), spacing: 6)], spacing: 6) {
+        FlowLayout(spacing: 6) {
             ForEach(colors, id: \.self) { color in
+                let picked = selection.caseInsensitiveCompare(color) == .orderedSame
                 Button {
                     selection = color
                 } label: {
                     Circle()
                         .fill(Color(hex: color) ?? .gray)
-                        .frame(width: swatchSize, height: swatchSize)
+                        .frame(width: 20, height: 20)
+                        .frame(width: 28, height: 28)
                         .overlay(
-                            Circle().stroke(Color.white, lineWidth: selection == color ? 2 : 0)
+                            Circle().strokeBorder(
+                                picked ? DesignTokens.Palette.foreground : Color.clear,
+                                lineWidth: 2
+                            )
                         )
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(color)
+                .accessibilityAddTraits(picked ? .isSelected : [])
             }
         }
     }

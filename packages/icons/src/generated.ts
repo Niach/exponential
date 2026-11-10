@@ -57,6 +57,8 @@ export const ICON_NAMES = [
   `boxes`,
   `braces`,
   `brain`,
+  `brand-claude`,
+  `brand-codex`,
   `brand-exponential`,
   `briefcase`,
   `brush-cleaning`,
@@ -419,6 +421,8 @@ export type DeviceIconName = (typeof DEVICE_ICONS)[number]
 
 /** Hand-authored non-Lucide glyph names (icons.json `custom` — EXP-314). */
 export const CUSTOM_ICONS = [
+  `brand-claude`,
+  `brand-codex`,
   `brand-exponential`,
   `os-apple`,
   `os-linux`,

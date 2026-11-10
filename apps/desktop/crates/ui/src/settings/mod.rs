@@ -40,6 +40,9 @@ mod doc;
 // #EXP-1629: the bench's Branch rows (IDE vs genUI `trailing`).
 #[cfg(test)]
 pub(crate) mod branch_row_shots;
+// #EXP-1764: the bench's Account rows (IDE vs genUI `triggerIcon`).
+#[cfg(test)]
+pub(crate) mod account_row_shots;
 // #EXP-1765: the bench's repo branch pickers (IDE vs genUI `pill` Select).
 #[cfg(test)]
 pub(crate) mod branch_picker_shots;
@@ -81,11 +84,12 @@ pub(crate) mod prompts;
 // #EXP-1660: Settings › Skills (the list + one skill's page).
 pub(crate) mod skills;
 pub(crate) mod board_detail;
+pub(crate) mod readiness;
 pub(crate) mod repositories;
 pub(crate) mod sessions;
 pub(crate) mod storage;
 pub(crate) mod team_general;
-mod tools;
+pub(crate) mod tools;
 pub(crate) mod widget;
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the

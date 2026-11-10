@@ -112,6 +112,12 @@ export function composeExponential(): ThemeSource {
   const active = hex(design.glass.fillActive)
   dark.ghostHover = `${active.slice(0, 7)}${Math.round(parseInt(active.slice(7, 9) || `ff`, 16) / 2).toString(16).padStart(2, `0`)}` as `#${string}`
   light.ghostHover = `#f5f5f5`
+  // A focused box field's stroke (web's FIELD_CHROME_CLASS
+  // `focus-visible:border-glass-stroke-active`, the IDE's `glass_input`
+  // `chrome.stroke_active`): the glass active stroke in dark; light has no
+  // glass ramp, so it takes the light focus colour (`ring`, neutral-400).
+  dark.strokeActive = hex(design.glass.strokeActive)
+  light.strokeActive = light.ring!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)

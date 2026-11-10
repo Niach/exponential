@@ -50,6 +50,9 @@ object CatalogConstants {
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons
 
+    /** #EXP-1764: the icons painted in their OWN colour (`#RRGGBB`, `brand-claude` = Anthropic's orange), never the ink. */
+    val iconFills: Map<String, Long> = ExponentialUICatalog.iconFillNames.zip(ExponentialUICatalog.iconFillColors.map { 0xFF000000L or it.removePrefix("#").toLong(16) }).toMap()
+
     /** `style.json` `animations` names (round 2 §2). */
     val animationNames: List<String> = ExponentialUICatalog.animationNames
 }

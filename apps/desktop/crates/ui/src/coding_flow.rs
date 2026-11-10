@@ -66,7 +66,7 @@ pub struct DoctorState {
     /// `report`; `device_readiness` renders it.
     pub device: Option<coding::device_doctor::DeviceDoctor>,
     pub running: bool,
-    generation: u64,
+    pub(crate) generation: u64,
 }
 
 /// App-global coding state (one per process — the settings file and the local
