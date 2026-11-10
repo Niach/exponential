@@ -2,17 +2,19 @@ import ExpCore
 import SwiftUI
 
 // N-12: THE Dock ×iOS (fixtures/dock.json ×4: web `@exp/ui` dock.tsx, desktop
-// `dock.rs`, Android `Dock.kt`): the floating band over the transcript's
-// bottom edge: the DockCards (a waiting plan or question, THE Queue, the
+// `dock.rs`, Android `Dock.kt`): the band UNDER the transcript's bottom
+// edge: the DockCards (a waiting plan or question, THE Queue, the
 // queued messages, the suggested tasks, a status banner) piled like the toasts (`Dock.layout`,
 // anchored at the bottom: the front card last, the older ones peeking out
 // above it, `visible` at most; a tap fans them `gap` apart, the next tap on a
 // card opens it), then THE composer, which never leaves. An opened card is
 // THE bottom sheet (`DockSheetChrome` inside `GlassSheetChrome`: a pinned
 // header, ONE scrolling body, a pinned footer, fitted up to
-// `sheetMaxHeightFraction`). The host puts the band in its scroller's bottom
-// `safeAreaInset`, so the band's height IS the transcript's inset and the
-// jump button's offset.
+// `sheetMaxHeightFraction`). #EXP-1782: the host stacks the band UNDER its
+// scroller (never a `safeAreaInset`): the transcript's scroll area ends at
+// the band's top edge and clips there, nothing renders behind the band, no
+// edge fade, no shadow; the band's height re-pins a pinned transcript and
+// places the jump button 12pt above it.
 
 extension Dock.Tint {
     /// Web `TINT_CLASS`: plan = primary, question = yellow, muted, warning.

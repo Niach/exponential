@@ -1,8 +1,8 @@
 //! EXP-1654: the committed sample pictures the IDE's SPECIMEN hosts paint
 //! (`packages/exponential-ui/samples/samples.json`, read its `$comment`):
 //! the Exponential UI kitchen sink + specimens (an example `src` →
-//! a `data:` url through the host's `resolve_url`) and the styleguide's
-//! plan-page + results-tab entries (an attachment id → bytes seeded into the
+//! a `data:` url through the host's `resolve_url`) and the dev-only
+//! `crate::specimens` plan-page + results-tab entries (an attachment id → bytes seeded into the
 //! entry's own [`ImageCache`]). Never fetched; the product never reads it.
 
 use std::collections::HashMap;
@@ -76,13 +76,48 @@ pub(crate) fn resolve_url(src: &str) -> String {
     SAMPLES.urls.get(src).cloned().unwrap_or_else(|| src.to_string())
 }
 
-/// Seed a styleguide entry's cache with every sample attachment under the
+/// Seed a specimen's cache with every sample attachment under the
 /// key the page asks for (`/api/attachments/<id>`), so it paints them
 /// without a transport.
 pub(crate) fn seed_attachments(cache: &mut ImageCache) {
     for (id, bytes) in &SAMPLES.attachments {
         cache.insert_bytes(format!("/api/attachments/{id}"), "image/png", bytes.to_vec());
     }
+}
+
+/// The `plan-card` specimen's stand-in picture = the web's SVG: a diagonal
+/// gradient `from` → `to` (top left → bottom right) under a 35% white bar
+/// and a 12% white panel, drawn on an 800 × 500 grid scaled to `w` × `h`.
+pub(crate) fn picture_png(from: [u8; 3], to: [u8; 3], w: u32, h: u32) -> Vec<u8> {
+    // `(x, y, w, h, radius, white alpha)` on the 800 × 500 grid.
+    const SHAPES: [(f32, f32, f32, f32, f32, f32); 2] =
+        [(48., 48., 320., 28., 6., 0.35), (48., 100., 704., 352., 12., 0.12)];
+    let in_rounded_rect = |px: f32, py: f32, (x, y, w, h, r): (f32, f32, f32, f32, f32)| {
+        if px < x || py < y || px > x + w || py > y + h {
+            return false;
+        }
+        let dx = (x + r - px).max(px - (x + w - r)).max(0.);
+        let dy = (y + r - py).max(py - (y + h - r)).max(0.);
+        dx * dx + dy * dy <= r * r
+    };
+    let (sx, sy) = (w as f32 / 800., h as f32 / 500.);
+    let image = image::RgbaImage::from_fn(w, h, |x, y| {
+        let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+        let t = ((cx / w as f32) + (cy / h as f32)) / 2.;
+        let mut rgb: [f32; 3] = std::array::from_fn(|i| from[i] as f32 + (to[i] as f32 - from[i] as f32) * t);
+        for (bx, by, bw, bh, br, alpha) in SHAPES {
+            if in_rounded_rect(cx / sx, cy / sy, (bx, by, bw, bh, br)) {
+                rgb = rgb.map(|c| c + (255. - c) * alpha);
+            }
+        }
+        let [r, g, b] = rgb.map(|c| c.round().clamp(0., 255.) as u8);
+        image::Rgba([r, g, b, 255])
+    });
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .expect("png encodes");
+    bytes
 }
 
 #[cfg(test)]

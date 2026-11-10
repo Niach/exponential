@@ -6019,6 +6019,46 @@
       }
     },
     {
+      "name": "Popover/matchAnchorWidth=true",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "matchAnchorWidth": true
+        },
+        "children": [
+          {
+            "id": "popover_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Popover/matchAnchorWidth=false",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "matchAnchorWidth": false
+        },
+        "children": [
+          {
+            "id": "popover_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Tooltip/example",
       "node": {
         "id": "tooltip",

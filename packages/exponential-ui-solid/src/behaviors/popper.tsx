@@ -8,6 +8,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { insert } from "solid-js/web"
 import { autoUpdate, computePosition, flip, limitShift, offset, shift, size, type Middleware, type Placement, type VirtualElement } from "@floating-ui/dom"
+import { snapInset } from "@exponential_app/eui"
 import { css, type StyleInput } from "../style"
 import { styleWriter, type StyleObject } from "./style-writer"
 
@@ -38,6 +39,13 @@ export const transformOrigin: Middleware = {
     return { data: { x, y } }
   },
 }
+
+/** #EXP-1629: `placeInsetOverlay`'s last step as a middleware (after the
+ *  shift and flip): the box at whole px from the anchor, half away from 0. */
+const insetSnap = (inset: number): Middleware => ({
+  name: `insetSnap`,
+  fn: ({ x, y, rects }) => ({ x: snapInset(x, rects.reference.x, inset), y: snapInset(y, rects.reference.y, inset) }),
+})
 
 export interface PopperState {
   placedSide: Accessor<Side>
@@ -153,13 +161,16 @@ export interface Placed {
 /** Radix's PopperContent: the fixed wrapper (`data-radix-popper-content-
  *  wrapper`, floating-ui's translate, `--radix-popper-*`), the content's
  *  placed side/align. `content` renders the content element; `alignOffset`
- *  = Radix's (#EXP-1765: a pill Select's popup a hairline outside it). */
-export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sideOffset: number; alignOffset?: number; align: `start` | `center` | `end`; collisionPadding: number; dir?: () => `ltr` | `rtl` | `auto` | undefined; onPlaced?: () => void; content: (placed: Accessor<Placed>, ref: (el: HTMLElement) => void) => JSX.Element }): HTMLElement {
+ *  = Radix's (#EXP-1765: a pill Select's popup a hairline outside it);
+ *  #EXP-1629: `inset` (the pill's) = `placeInsetOverlay`'s last step after
+ *  the shift and flip, the box at whole px from the anchor (`snapInset`),
+ *  left unrounded to device px (React's nudge lands it there too). */
+export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sideOffset: number; alignOffset?: number; inset?: number; align: `start` | `center` | `end`; collisionPadding: number; dir?: () => `ltr` | `rtl` | `auto` | undefined; onPlaced?: () => void; content: (placed: Accessor<Placed>, ref: (el: HTMLElement) => void) => JSX.Element }): HTMLElement {
   const [pos, setPos] = createSignal<{ x: number; y: number; placement: Placement; origin: [string, string] } | null>(null)
   const [zIndex, setZIndex] = createSignal<string>()
   let contentEl: HTMLElement | undefined
   const dpr = () => (typeof window === `undefined` ? 1 : window.devicePixelRatio || 1)
-  const round = (v: number) => Math.round(v * dpr()) / dpr()
+  const round = (v: number) => (opts.inset === undefined ? Math.round(v * dpr()) / dpr() : v)
   const placed = createMemo<Placed>(() => {
     const p = pos()
     const [side, align = `center`] = (p?.placement ?? `bottom-${opts.align}`).split(`-`)
@@ -193,6 +204,7 @@ export function popperWrapper(opts: { anchor: () => HTMLElement | undefined; sid
           offset({ mainAxis: opts.sideOffset, alignmentAxis: opts.alignOffset ?? 0 }),
           shift({ mainAxis: true, crossAxis: false, limiter: limitShift(), ...detect }),
           flip({ ...detect }),
+          opts.inset !== undefined && insetSnap(opts.inset),
           size({
             ...detect,
             apply: ({ elements, rects, availableWidth, availableHeight }) => {

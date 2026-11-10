@@ -206,7 +206,7 @@ pub(crate) fn build_screen_content(
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiSpecimen { .. }
-        | Screen::StyleguideEntry { .. } => {
+        | Screen::Specimen { .. } => {
             cx.new(|_| NeverUndocked).into()
         }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -1421,7 +1421,7 @@ impl ScreensPanel {
             | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
-            | Screen::StyleguideEntry { .. }
+            | Screen::Specimen { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -2710,10 +2710,10 @@ impl Render for ScreensPanel {
                 }
                 self.exponential_ui_specimen.clone().expect("built above").into_any_element()
             }
-            // EXP-1259: one IDE styleguide entry, full-window (dev-only).
-            Some(Screen::StyleguideEntry { id }) => match crate::styleguide::entries::find(id) {
+            // EXP-1259: one specimen, full-window (dev-only).
+            Some(Screen::Specimen { id }) => match crate::specimens::entries::find(id) {
                 Some(entry) => div()
-                    .id("styleguide-entry")
+                    .id("specimen")
                     .size_full()
                     .overflow_y_scroll()
                     .p_6()
@@ -3139,6 +3139,7 @@ mod tests {
     /// those stretch-sized parents (the band, the machine and action rows)
     /// resolve fine and stay covered.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     async fn actions_shaped_center_spans_the_panel_at_every_width(
         cx: &mut gpui::TestAppContext,
     ) {

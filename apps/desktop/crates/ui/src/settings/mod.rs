@@ -64,7 +64,7 @@ pub(crate) mod doctor_section;
 mod invite_form;
 mod resend_invite_dialog;
 mod issues;
-mod labels;
+pub(crate) mod labels;
 mod mcp;
 pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
@@ -74,7 +74,7 @@ pub(crate) mod statuses;
 pub(crate) mod local_repos;
 pub(crate) mod members;
 pub(crate) mod all_boards;
-mod change_email_dialog;
+pub(crate) mod change_email_dialog;
 pub(crate) mod sign_in_methods;
 pub(crate) mod notifications_prefs;
 // NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).

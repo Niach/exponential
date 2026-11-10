@@ -455,8 +455,9 @@ export interface TrainVerdict {
 const PASSING = new Set([`success`, `neutral`, `skipped`])
 
 /** COMPOSE's CI mode (`pipeline.checksModes`). A Merge now is untested
- *  only when nothing was resolved and no lockfile drifted from its unit's
- *  head: either way the tree is one nobody tested, so CI runs (#LOGS-2). */
+ *  only when nothing was resolved, no lockfile drifted from its unit's head
+ *  and no PR is behind the base: any of them = the tree is one nobody
+ *  tested, so CI runs (#LOGS-2; behind: #2590 onto #2597, 2026-11-10). */
 export function trainChecksMode(input: {
   mode: `test` | `untested`
   composed: boolean
@@ -466,10 +467,13 @@ export function trainChecksMode(input: {
   drifted: boolean
   /** A lone unit whose composed tree is its tested_sha's. */
   proven: boolean
+  /** Any composed PR whose head does not contain base_sha: its own checks
+   *  ran on an older base. */
+  behind: boolean
   workflows: readonly string[]
 }): TrainChecksMode {
   if (!input.composed) return `none`
-  if (input.mode === `untested` && !input.resolved && !input.drifted) return `skipped`
+  if (input.mode === `untested` && !input.resolved && !input.drifted && !input.behind) return `skipped`
   if (input.proven) return `proven`
   return input.workflows.length > 0 ? `dispatched` : `none`
 }
