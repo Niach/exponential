@@ -297,6 +297,10 @@ pub struct Collection<T> {
     /// wholesale write, which moves every group.
     group_revisions: HashMap<String, u64>,
     group_floor: u64,
+    /// #LOGS-11: the last [`CHANGE_LOG`] row writes, by the revision they
+    /// made; nothing before `log_floor` (a wholesale write) is told.
+    log: std::collections::VecDeque<(u64, RowKey)>,
+    log_floor: u64,
     phase: ShapeSyncPhase,
     revision: u64,
     /// S-3: the shape reached `up-to-date` in THIS process. The persisted
@@ -313,6 +317,8 @@ impl<T> Collection<T> {
             groups: HashMap::new(),
             group_revisions: HashMap::new(),
             group_floor: 0,
+            log: std::collections::VecDeque::new(),
+            log_floor: 0,
             phase: ShapeSyncPhase::Waiting,
             revision: 0,
             caught_up: false,
@@ -384,6 +390,28 @@ impl<T: ShapeRow> Collection<T> {
         self.groups.get(group).into_iter().flatten().filter_map(|key| self.get_key(key))
     }
 
+    /// #LOGS-11: the keys written since `revision` (each once, oldest
+    /// first); `None` = not told that far back (a wholesale write, or more
+    /// than [`CHANGE_LOG`] writes since).
+    pub fn changed_since(&self, revision: u64) -> Option<Vec<&RowKey>> {
+        if revision < self.log_floor {
+            return None;
+        }
+        let first_told = self.log.front().map_or(self.revision + 1, |(at, _)| *at);
+        if first_told > revision + 1 && revision < self.revision {
+            return None;
+        }
+        let mut seen: HashSet<&RowKey> = HashSet::new();
+        Some(self.log.iter().filter(|(at, _)| *at > revision).map(|(_, key)| key).filter(|key| seen.insert(*key)).collect())
+    }
+
+    fn note_write(&mut self, key: &RowKey) {
+        if self.log.len() == CHANGE_LOG {
+            self.log.pop_front();
+        }
+        self.log.push_back((self.revision, key.clone()));
+    }
+
     /// #LOGS-11: when anything in `group` last changed ([`Self::revision`]
     /// terms): a reader of one group skips the writes to every other.
     pub fn group_revision(&self, group: &str) -> u64 {
@@ -419,6 +447,8 @@ impl<T: ShapeRow> Collection<T> {
         self.groups = groups;
         self.group_revisions.clear();
         self.group_floor = self.revision + 1;
+        self.log.clear();
+        self.log_floor = self.revision + 1;
     }
 
     /// Optimistically insert a locally-built row (EXP-470). No-op when sync
@@ -432,6 +462,7 @@ impl<T: ShapeRow> Collection<T> {
             self.unindex_unless_same(&key, &old);
         }
         self.revision += 1;
+        self.note_write(&key);
     }
 
     /// An old row's group entry, unless the row that replaced it under
@@ -461,6 +492,7 @@ impl<T: ShapeRow> Collection<T> {
             self.unindex_unless_same(&key, old);
         }
         self.revision += 1;
+        self.note_write(&key);
     }
 
     fn remove(&mut self, key: &RowKey) {
@@ -471,6 +503,7 @@ impl<T: ShapeRow> Collection<T> {
         }
         if row.is_some() || seeded.is_some() {
             self.revision += 1;
+            self.note_write(key);
         }
     }
 
@@ -480,11 +513,17 @@ impl<T: ShapeRow> Collection<T> {
         self.groups.clear();
         self.group_revisions.clear();
         self.group_floor = self.revision + 1;
+        self.log.clear();
+        self.log_floor = self.revision + 1;
         self.phase = ShapeSyncPhase::Waiting;
         self.revision += 1;
         self.caught_up = false;
     }
 }
+
+/// #LOGS-11: how many row writes a collection tells
+/// ([`Collection::changed_since`]).
+const CHANGE_LOG: usize = 1024;
 
 /// Decode store-hydrated JSON objects into typed rows, dropping (and logging)
 /// anything unhydratable — §5.5: a bad value is caught at hydrate, never at
@@ -786,6 +825,15 @@ impl Collections {
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
         self.observe_all_with(cx, |_, cx| cx.notify())
+    }
+
+    fn observe_all_except<V: 'static>(&self, skip: &'static [&'static str], cx: &mut gpui::Context<V>) -> Vec<Subscription> {
+        fn observe<T: ShapeRow, V: 'static>(entity: &Entity<Collection<T>>, skip: &[&str], cx: &mut gpui::Context<V>) -> Option<Subscription> {
+            (!skip.contains(&T::spec().name)).then(|| cx.observe(entity, |_, _, cx| cx.notify()))
+        }
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
+        for_each_collection!(self, entity => out.extend(observe(entity, skip, cx)));
+        out
     }
 
     /// Run `on_change` on `V` whenever ANY of the 34 collections notifies
@@ -1230,6 +1278,13 @@ impl Store {
     /// collections they read (§5.8 fine-grained rule).
     pub fn observe_collections<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
         self.collections.observe_all(cx)
+    }
+
+    /// [`Self::observe_collections`] without the shapes named in `skip`
+    /// (#LOGS-11: a view that never reads the transcripts or the event
+    /// stream re-rendered on every streamed message).
+    pub fn observe_collections_except<V: 'static>(&self, skip: &'static [&'static str], cx: &mut gpui::Context<V>) -> Vec<Subscription> {
+        self.collections.observe_all_except(skip, cx)
     }
 
     // -- session transitions (§5 state machine) ------------------------------
@@ -1902,6 +1957,29 @@ mod tests {
         collection.clear();
         assert!(ids(&collection, "s1").is_empty());
         assert!(collection.group_revision("s1") > s1);
+    }
+
+    /// #LOGS-11: a reader asks which rows moved since its revision; a
+    /// wholesale write tells nothing older.
+    #[test]
+    fn the_change_log_tells_the_keys_written_since_a_revision() {
+        let message = |id: &str| -> MessageRow { serde_json::from_value(serde_json::json!({"id": id, "session_id": "s1"})).unwrap() };
+        let mut collection: Collection<MessageRow> = Collection::new();
+        collection.replace_all(vec![(message("m1").key(), message("m1"))]);
+        let at = collection.revision();
+        assert_eq!(collection.changed_since(at), Some(vec![]));
+        collection.upsert(message("m2").key(), message("m2"));
+        collection.upsert(message("m2").key(), message("m2"));
+        collection.remove(&message("m1").key());
+        let keys: Vec<RowKey> = collection.changed_since(at).unwrap().into_iter().cloned().collect();
+        assert_eq!(keys, vec![message("m2").key(), message("m1").key()]);
+        assert_eq!(collection.changed_since(at - 1), None, "before the wholesale write");
+        for n in 0..CHANGE_LOG {
+            collection.upsert(message(&format!("x{n}")).key(), message(&format!("x{n}")));
+        }
+        assert_eq!(collection.changed_since(at), None, "past the log");
+        let recent = collection.revision() - 1;
+        assert_eq!(collection.changed_since(recent).map(|keys| keys.len()), Some(1));
     }
 
     #[test]
