@@ -374,6 +374,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -746,6 +747,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -8451,7 +8461,7 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace",
+            "mono": "JetBrains Mono",
             "serif": "ui-serif"
           }
         },
@@ -8477,6 +8487,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -8576,9 +8587,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       },
       "recipes": {
@@ -9189,6 +9200,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -17750,6 +17770,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -18162,6 +18183,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -26563,7 +26593,7 @@
           },
           "family": {
             "sans": "Inter",
-            "mono": "ui-monospace",
+            "mono": "JetBrains Mono",
             "serif": "ui-serif"
           }
         },
@@ -26589,6 +26619,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -26688,9 +26719,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       },
       "recipes": {
@@ -27301,6 +27332,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {

@@ -119,6 +119,12 @@
       "lg",
       "xl"
     ],
+    "iconSize": [
+      "sm",
+      "default",
+      "lg",
+      "xl"
+    ],
     "spinnerSize": [
       "xs",
       "sm",
@@ -2414,7 +2420,7 @@
         },
         "size": {
           "type": "enum",
-          "enum": "controlSize",
+          "enum": "iconSize",
           "default": "default",
           "description": "Glyph size."
         },
@@ -3450,6 +3456,7 @@
         "content": {
           "type": "string",
           "required": true,
+          "bindable": true,
           "description": "Hint text."
         },
         "side": {

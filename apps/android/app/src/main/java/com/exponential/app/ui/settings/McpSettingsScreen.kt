@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import android.net.Uri
+import com.exponential.app.ui.theme.ExpMono
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -264,7 +265,7 @@ private fun RowScope.RowText(
                 title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (mono) FontWeight.Normal else FontWeight.Medium,
-                fontFamily = if (mono) FontFamily.Monospace else null,
+                fontFamily = if (mono) ExpMono else null,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -313,7 +314,7 @@ private fun EndpointSection(url: String) {
                 Text(
                     middleTruncate(url),
                     style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ExpMono,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),

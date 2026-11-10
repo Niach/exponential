@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -60,7 +61,7 @@ object InlineMarks {
                     builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
                 InlineKind.InlineCode -> builder.addStyle(
                     SpanStyle(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = inlineCode.inlineCodeColor ?: Color.Unspecified,
                         background = inlineCode.inlineCodeBg,
                     ),

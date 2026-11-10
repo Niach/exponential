@@ -42,7 +42,7 @@ struct IssueRelationListRow: View {
                 .foregroundStyle(iconColor)
                 .frame(width: 20)
             Text(row.identifier)
-                .font(.caption.monospaced())
+                .font(.expMono(.caption))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
                 .fixedSize()
@@ -198,7 +198,7 @@ struct IssueSubIssuesSection: View {
                 } trailing: {
                     if let progress = subIssues.progress {
                         Text(progress)
-                            .font(.caption.monospaced())
+                            .font(.expMono(.caption))
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                     if let onAdd {

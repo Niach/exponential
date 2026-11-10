@@ -624,3 +624,24 @@ module ships `libsentry.so` (sentry-native, MIT) per ABI. Everything sits in
 No session replay (`sentry-android-replay`) and no Sentry Gradle plugin are
 linked. Events leave only through the signed-in server's `/api/monitoring`
 tunnel, never to a Sentry or GlitchTip host directly.
+
+## JetBrains Mono on every client (#EXP-1629, 2026-11-10)
+
+The genUI `exponential` theme's mono family (`type.family.mono`) is
+**JetBrains Mono** 2.305 (JetBrains/JetBrainsMono, SIL OFL 1.1, Copyright 2020
+The JetBrains Mono Project Authors; no Reserved Font Name), so every client
+ships the same four faces (Regular, Italic, Bold, BoldItalic) and none falls
+back to a system monospace:
+
+- **Desktop:** the TTFs in `apps/desktop/assets/fonts/` (unchanged; the IDE's
+  terminal and code face). The desktop RUNNER still embeds Inter only.
+- **Web:** woff2 conversions of the same TTFs (fonttools, every glyph and
+  feature kept) self-hosted in `apps/web/public/fonts/`, with the OFL text
+  beside them; never fetched from Google Fonts.
+- **iOS / Android:** the TTFs in the app bundle (`UIAppFonts`) and
+  `res/font/`.
+
+The curated supplement (`packages/licenses/curated/supplement.ts`, `FONTS`)
+lists `web`, `ios` and `android` beside `desktop` and `site`, so the OFL text
+(`apps/desktop/assets/fonts/JetBrainsMono-OFL.txt`) is reproduced in each of
+those clients' `NOTICES.txt`.

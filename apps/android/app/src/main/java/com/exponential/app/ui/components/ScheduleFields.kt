@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -176,7 +177,7 @@ internal fun ScheduleFields(
             value = draft.cron,
             onValueChange = { onChange(draft.copy(cron = it.take(DomainContract.agentTriggerCronMax))) },
             placeholder = ScheduleCopy.CRON_PLACEHOLDER,
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace),
+            textStyle = TextStyle(fontFamily = ExpMono),
             modifier = Modifier.testTag(SchedulePicker.TEST_ID_CRON),
         )
     }

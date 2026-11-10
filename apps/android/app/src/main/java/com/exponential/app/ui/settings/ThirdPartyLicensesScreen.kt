@@ -1,6 +1,7 @@
 package com.exponential.app.ui.settings
 
 import android.content.Context
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -151,7 +152,7 @@ private fun SectionBlock(section: ThirdPartyNotices.Section) {
         }
         Text(
             section.body,
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }

@@ -73,9 +73,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       }
     },
@@ -169,9 +169,9 @@
           ],
           "source": "host"
         },
-        "ui-monospace": {
-          "fallback": "SFMono-Regular, Menlo, Consolas, monospace",
-          "source": "system"
+        "JetBrains Mono": {
+          "fallback": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          "source": "host"
         }
       }
     }
@@ -1347,9 +1347,9 @@
         "ref": "$type.family.mono",
         "values": {
           "neutral": "Geist Mono",
-          "exponential": "ui-monospace",
+          "exponential": "JetBrains Mono",
           "playful": "Fira Code",
-          "orange": "ui-monospace"
+          "orange": "JetBrains Mono"
         }
       },
       {
@@ -1642,6 +1642,16 @@
           "exponential": 48,
           "playful": 48,
           "orange": 48
+        }
+      },
+      {
+        "name": "iconXl",
+        "ref": "$control.iconXl",
+        "values": {
+          "neutral": 28,
+          "exponential": 28,
+          "playful": 28,
+          "orange": 28
         }
       }
     ],

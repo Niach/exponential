@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -182,7 +183,7 @@ internal fun AutocompleteRows(
                     Text(
                         target.identifier,
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
@@ -212,7 +213,7 @@ internal fun AutocompleteRows(
                     Text(
                         ":" + (emoji.shortcodes.firstOrNull() ?: emoji.label) + ":",
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(8.dp))

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -112,7 +113,7 @@ fun IssueChip(
         if (identifier.isNotBlank()) {
             Text(
                 identifier,
-                style = IssueChipDefaults.textStyle().copy(fontFamily = FontFamily.Monospace),
+                style = IssueChipDefaults.textStyle().copy(fontFamily = ExpMono),
                 color = MdStyle.ChipToken,
                 maxLines = 1,
             )

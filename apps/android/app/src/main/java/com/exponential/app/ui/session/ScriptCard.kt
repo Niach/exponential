@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import androidx.compose.animation.core.animateFloatAsState
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -121,7 +122,7 @@ fun ScriptCardView(
         if (open && script != null) {
             Text(
                 script,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 modifier = Modifier
                     .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)

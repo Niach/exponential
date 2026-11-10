@@ -2955,7 +2955,8 @@
           "enum": [
             "sm",
             "default",
-            "lg"
+            "lg",
+            "xl"
           ],
           "description": "Glyph size.",
           "default": "default"
@@ -16939,7 +16940,8 @@
               "appBar",
               "tabBar",
               "toast",
-              "avatarXl"
+              "avatarXl",
+              "iconXl"
             ]
           }
         },

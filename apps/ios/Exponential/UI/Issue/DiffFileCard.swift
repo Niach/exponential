@@ -93,7 +93,7 @@ struct DiffFileCard: View {
             // A rename names where it came from, exactly as the web card does.
             if let previous = file.previousPath, !previous.isEmpty, state == .ready {
                 Text("\u{2190} \(previous)")
-                    .font((compact ? Font.caption2 : Font.caption).monospaced())
+                    .font(Font.expMono(compact ? .caption2 : .caption))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -152,7 +152,7 @@ struct DiffStatusLetter: View {
 
     var body: some View {
         Text(DiffPresentation.statusLetter(status))
-            .font((compact ? Font.caption2 : Font.caption).monospaced().weight(.semibold))
+            .font(Font.expMono(compact ? .caption2 : .caption, weight: .semibold))
             .foregroundStyle(color)
     }
 
@@ -183,7 +183,7 @@ struct DiffCountsLabel: View {
             Text(Diff.deletionsLabel(deletions))
                 .foregroundStyle(DesignTokens.Diff.delFg)
         }
-        .font(font ?? (compact ? Font.caption2 : Font.caption).monospaced())
+        .font(font ?? Font.expMono(compact ? .caption2 : .caption))
         .accessibilityElement(children: .combine)
     }
 }
@@ -216,7 +216,7 @@ struct DiffPathLabel: View {
                 .lineLimit(1)
                 .layoutPriority(1)
         }
-        .font((compact ? Font.caption2 : Font.caption).monospaced())
+        .font(Font.expMono(compact ? .caption2 : .caption))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(path)
     }

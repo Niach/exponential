@@ -881,6 +881,9 @@
             },
             "avatarXl": {
               "type": "number"
+            },
+            "iconXl": {
+              "type": "number"
             }
           }
         },

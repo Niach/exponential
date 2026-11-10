@@ -3720,7 +3720,8 @@
           "enum": [
             "sm",
             "default",
-            "lg"
+            "lg",
+            "xl"
           ],
           "description": "Glyph size.",
           "default": "default"
@@ -6398,7 +6399,7 @@
           "const": "Tooltip"
         },
         "content": {
-          "type": "string",
+          "$ref": "common_types.json#/$defs/DynamicString",
           "description": "Hint text."
         },
         "side": {
@@ -23059,7 +23060,8 @@
               "appBar",
               "tabBar",
               "toast",
-              "avatarXl"
+              "avatarXl",
+              "iconXl"
             ]
           }
         },

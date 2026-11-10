@@ -66,3 +66,12 @@ export function buildSecurityHeaders(
       : `max-age=63072000`,
   }
 }
+
+/** #EXP-1766: the self-hosted fonts (public/fonts) are fetched cross-origin by
+ *  the MCP Apps views, which run on the host's sandbox origin (often opaque,
+ *  `null`), and a font load is always a CORS request. Only the font files get
+ *  the wildcard: public OFL binaries, never credentialed. */
+export function fontAssetHeaders(pathname: string): Record<string, string> | null {
+  if (!/^\/fonts\/[^/]+\.woff2$/.test(pathname)) return null
+  return { "Access-Control-Allow-Origin": `*` }
+}
