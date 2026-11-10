@@ -12,23 +12,16 @@
 //! Its own WINDOW (like [`super::resend_invite_dialog`]): the steps re-render
 //! on their own state, and alert content is built once.
 
-use gpui::{
-    div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    WeakEntity, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _,
-};
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use gpui::{div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity, Window};
+use gpui_component::ActiveTheme as _;
+use serde_json::{json, Value};
 
-use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 use crate::session::AuthContext;
 
+use super::doc::{hex, path, IdeToasts, Ink, SM, XS};
 use super::sign_in_methods::SignInMethodsSection;
 
 /// Open the dialog over the Account pane. `current_email` guards the
@@ -74,11 +67,16 @@ pub(crate) struct ChangeEmailDialogView {
     current_email: String,
     section: WeakEntity<SignInMethodsSection>,
     step: Step,
-    email: Entity<InputState>,
-    code: Entity<InputState>,
+    /// The fields as typed, and the text each was last given (its bound
+    /// value: a programmatic write, e.g. the code's digit filter).
+    email: String,
+    code: String,
+    shown_email: String,
+    shown_code: String,
     busy: bool,
     error: Option<SharedString>,
-    _subscriptions: Vec<Subscription>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
 }
 
 impl ChangeEmailDialogView {
@@ -88,44 +86,91 @@ impl ChangeEmailDialogView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let email = cx.new(|cx| InputState::new(window, cx).placeholder("you@example.com"));
-        let code = cx.new(|cx| InputState::new(window, cx).placeholder("123456"));
-        let subscriptions = vec![
-            cx.subscribe_in(&email, window, |this, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    this.submit(window, cx);
-                }
-            }),
-            cx.subscribe_in(&code, window, |this, _, event: &InputEvent, window, cx| {
-                match event {
-                    // Digits only, six at most (web `replace(/\D/g, "")` +
-                    // maxLength 6).
-                    InputEvent::Change => {
-                        let value = this.code.read(cx).value().to_string();
-                        let digits = normalize_code(&value);
-                        if digits != value {
-                            this.code
-                                .update(cx, |state, cx| state.set_value(digits, window, cx));
-                        }
-                        cx.notify();
-                    }
-                    InputEvent::PressEnter { .. } => this.submit(window, cx),
-                    _ => {}
-                }
-            }),
-            cx.observe(&email, |_, _, cx| cx.notify()),
-        ];
-        email.update(cx, |state, cx| state.focus(window, cx));
-        Self {
+        // Every action leaves the binding for the view (the steps' writes
+        // and the window's close need its window).
+        let me = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(std::rc::Rc::new(IdeToasts));
+            for name in ["edit", "submit", "cancel", "resend", "different"] {
+                let me = me.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let field = event.context.get("field").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
+                    let me = me.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = me.update(cx, |view, cx| view.action(name, &field, value, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let theme = cx.theme();
+        let chrome = Chrome {
+            radius: f32::from(theme.radius),
+            danger: hex(theme.danger),
+            button_fg: hex(theme.button_foreground),
+            // The outline `Button`: the input wash (premultiplied: its few
+            // percent alpha has no exact byte) and the input stroke.
+            button_fill: premultiplied_hex(theme.input_background()),
+            button_stroke: hex(theme.input),
+            primary: hex(theme.button_primary),
+            primary_fg: hex(theme.button_primary_foreground),
+            primary_hover: hex(theme.button_primary_hover),
+        };
+        let view = super::doc::mount_with("change-email", document(&Ink::of(cx), &chrome), &binding, std::rc::Rc::new(super::doc::ide_plugin()), true, window, cx);
+        let mut this = Self {
             current_email,
             section,
             step: Step::Address,
-            email,
-            code,
+            email: String::new(),
+            code: String::new(),
+            shown_email: String::new(),
+            shown_code: String::new(),
             busy: false,
             error: None,
-            _subscriptions: subscriptions,
+            binding,
+            view,
+        };
+        this.push(cx);
+        let view = this.view.clone();
+        window.defer(cx, move |window, cx| {
+            view.update(cx, |view, cx| view.focus_field("email", window, cx));
+        });
+        this
+    }
+
+    /// A document action: a field's edit (the code keeps six digits only:
+    /// web `replace(/\D/g, "")` + maxLength 6), Enter, Cancel, Resend code,
+    /// Use a different email.
+    fn action(&mut self, name: &str, field: &str, value: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match name {
+            "edit" => match field {
+                "email" => self.email = value,
+                "code" => {
+                    let digits = normalize_code(&value);
+                    if digits != value {
+                        self.shown_code = digits.clone();
+                    }
+                    self.code = digits;
+                }
+                _ => return,
+            },
+            "submit" => self.submit(window, cx),
+            "cancel" if !self.busy => native_dialog::close_dialog_window(window, cx),
+            "resend" => {
+                if let Step::Code { new_email } = self.step.clone() {
+                    self.send_code(new_email, window, cx);
+                }
+            }
+            "different" => self.back_to_address(cx),
+            _ => {}
         }
+        cx.notify();
     }
 
     #[cfg(test)]
@@ -139,8 +184,9 @@ impl ChangeEmailDialogView {
             Some(address) => Step::Code { new_email: address.to_string() },
             None => Step::Address,
         };
-        self.email.update(cx, |state, cx| state.set_value(shot.email, window, cx));
-        self.code.update(cx, |state, cx| state.set_value(shot.code, window, cx));
+        let _ = window;
+        (self.email, self.shown_email) = (shot.email.to_string(), shot.email.to_string());
+        (self.code, self.shown_code) = (shot.code.to_string(), shot.code.to_string());
         self.busy = shot.busy;
         self.error = shot.error.map(SharedString::from);
         cx.notify();
@@ -150,7 +196,7 @@ impl ChangeEmailDialogView {
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match self.step.clone() {
             Step::Address => {
-                let address = self.email.read(cx).value().to_string();
+                let address = self.email.clone();
                 self.send_code(address, window, cx);
             }
             Step::Code { new_email } => self.confirm(new_email, window, cx),
@@ -190,10 +236,16 @@ impl ChangeEmailDialogView {
                 match result {
                     Ok(()) => {
                         // A fresh code invalidates whatever is in the field.
-                        this.code
-                            .update(cx, |state, cx| state.set_value("", window, cx));
-                        this.code.update(cx, |state, cx| state.focus(window, cx));
+                        // A fresh code invalidates whatever is in the field
+                        // (a programmatic write: it wins over the focus).
+                        this.code.clear();
+                        this.shown_code.clear();
                         this.step = Step::Code { new_email: target };
+                        this.push(cx);
+                        let view = this.view.clone();
+                        window.defer(cx, move |window, cx| {
+                            view.update(cx, |view, cx| view.focus_field("code", window, cx));
+                        });
                     }
                     // FEED-79: the server refusing the ADDRESS stays under the
                     // field; a request that failed otherwise is a toast.
@@ -216,7 +268,7 @@ impl ChangeEmailDialogView {
         if self.busy {
             return;
         }
-        let otp = self.code.read(cx).value().trim().to_string();
+        let otp = self.code.trim().to_string();
         if otp.len() < 6 {
             return;
         }
@@ -283,24 +335,6 @@ impl ChangeEmailDialogView {
         self.step = Step::Address;
         cx.notify();
     }
-
-    fn text_link(
-        id: &'static str,
-        label: &'static str,
-        cx: &mut gpui::Context<Self>,
-        handler: impl Fn(&mut Self, &mut Window, &mut gpui::Context<Self>) + 'static,
-    ) -> impl IntoElement {
-        div()
-            .id(id)
-            .role(gpui::Role::Button)
-            .aria_label(label)
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .cursor_pointer()
-            .hover(|style| style.text_decoration_1())
-            .child(label)
-            .on_click(cx.listener(move |this, _, window, cx| handler(this, window, cx)))
-    }
 }
 
 /// The active account's instance URL + session token + the auth client.
@@ -338,92 +372,141 @@ fn step_description(step: &Step) -> String {
     }
 }
 
-impl Render for ChangeEmailDialogView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "ChangeEmailDialogView").entered();
-        let muted = cx.theme().muted_foreground;
-        let label = |text: &'static str| div().text_xs().text_color(muted).child(text);
-        let mut body = v_flex().gap_3().child(
-            div()
-                .text_sm()
-                .text_color(muted)
-                .child(step_description(&self.step)),
-        );
-        let primary = match &self.step {
-            Step::Address => {
-                body = body.child(
-                    v_flex()
-                        .gap_1()
-                        .child(label("New email"))
-                        .child(glass_input(&self.email, window, cx).web_input()),
-                );
-                let empty = self.email.read(cx).value().trim().is_empty();
-                Button::new("change-email-send")
-                    .primary()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label(if self.busy { "Sending…" } else { "Send code" })
-                    .loading(self.busy)
-                    .disabled(self.busy || empty)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)))
-            }
-            Step::Code { .. } => {
-                body = body
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(label("Code"))
-                            .child(glass_input(&self.code, window, cx).web_input()),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_4()
-                            .child(Self::text_link(
-                                "change-email-resend",
-                                "Resend code",
-                                cx,
-                                |this, window, cx| {
-                                    if let Step::Code { new_email } = this.step.clone() {
-                                        this.send_code(new_email, window, cx);
-                                    }
-                                },
-                            ))
-                            .child(Self::text_link(
-                                "change-email-different",
-                                "Use a different email",
-                                cx,
-                                |this, _window, cx| this.back_to_address(cx),
-                            )),
-                    );
-                let short = self.code.read(cx).value().trim().len() < 6;
-                Button::new("change-email-confirm")
-                    .primary()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label(if self.busy { "Checking…" } else { "Confirm" })
-                    .loading(self.busy)
-                    .disabled(self.busy || short)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx)))
-            }
+impl ChangeEmailDialogView {
+    /// The state as the document binds it.
+    fn project(&self) -> Value {
+        let (code_step, new_email) = match &self.step {
+            Step::Address => (false, String::new()),
+            Step::Code { new_email } => (true, new_email.clone()),
         };
-        if let Some(error) = self.error.clone() {
-            body = body.child(crate::action_error::field_error(error, cx));
-        }
-        let footer = h_flex()
-            .justify_end()
-            .gap_2()
-            .child(
-                Button::new("change-email-cancel")
-                    .outline()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label("Cancel")
-                    .disabled(self.busy)
-                    .on_click(|_, window, cx| native_dialog::close_dialog_window(window, cx)),
-            )
-            .child(primary);
-        v_flex().gap_4().child(body).child(footer)
+        let _ = new_email;
+        let off = self.busy || if code_step { self.code.trim().len() < 6 } else { self.email.trim().is_empty() };
+        json!({
+            "description": step_description(&self.step),
+            "address": !code_step,
+            "codeStep": code_step,
+            "fields": {"email": self.shown_email, "code": self.shown_code},
+            "hasError": self.error.is_some(),
+            "error": self.error.clone().map(|e| e.to_string()).unwrap_or_default(),
+            "primary": match (code_step, self.busy) {
+                (false, false) => "Send code",
+                (false, true) => "Sending…",
+                (true, false) => "Confirm",
+                (true, true) => "Checking…",
+            },
+            "on": !off,
+            "off": off && !self.busy,
+            "busy": self.busy,
+            "cancelOff": self.busy,
+        })
     }
+
+    fn push(&mut self, cx: &mut gpui::Context<Self>) {
+        let projection = self.project();
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+    }
+}
+
+impl Render for ChangeEmailDialogView {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ChangeEmailDialogView").entered();
+        self.push(cx);
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// `#rrggbbaa` of a faint translucent colour that paints like the exact one
+/// (the alpha rounds to its byte, the channels absorb the rounding).
+fn premultiplied_hex(color: gpui::Hsla) -> String {
+    let c = color.to_rgb();
+    let alpha = (c.a.clamp(0., 1.) * 255.).round().max(1.);
+    let channel = |v: f32| ((v * c.a * 255. / alpha) * 255.).round().clamp(0., 255.) as u8;
+    format!("#{:02x}{:02x}{:02x}{:02x}", channel(c.r), channel(c.g), channel(c.b), alpha as u8)
+}
+
+/// The colours the document needs beyond [`Ink`]: the error ink and the
+/// outline / primary `Button`s' paints.
+struct Chrome {
+    radius: f32,
+    danger: String,
+    button_fg: String,
+    button_fill: String,
+    button_stroke: String,
+    primary: String,
+    primary_fg: String,
+    primary_hover: String,
+}
+
+/// A `web_sm` `Button` (32 px, `px 12`, `text_sm` on a line of 1, the theme
+/// radius; `gap_1` before a glyph).
+#[allow(clippy::too_many_arguments)]
+fn sm_button(ink: &Ink, id: &str, glyph: Option<Value>, label: Value, fill: &str, stroke: Option<&str>, fg: &str, event: &str, radius: f32) -> Value {
+    let size = ink.r(SM);
+    let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}});
+    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
+        "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
+    if let Some(stroke) = stroke {
+        button["style"]["borderWidth"] = json!(1);
+        button["style"]["borderColor"] = json!(stroke);
+    }
+    button
+}
+
+/// A field (`gap_1`): the `text_xs` muted label over the boxed Input
+/// (`variant: box`: `glass_input` at `web_input`).
+fn field(ink: &Ink, id: &str, label: &str, placeholder: &str, visible: Value) -> Value {
+    json!({"id": format!("{id}_field"), "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
+        "children": [
+            ink.text(&format!("{id}_label"), json!(label), XS, &ink.muted),
+            {"id": id, "component": "Input", "props": {"label": label, "variant": "box", "name": id, "placeholder": placeholder, "value": path(&format!("/pane/fields/{id}"))},
+                "style": {"width": "100%"},
+                "on": {"change": {"event": {"name": "edit", "context": {"field": id}}}, "submit": {"event": {"name": "submit"}}}},
+        ]})
+}
+
+/// A `text_xs` muted text link (its hover underline).
+fn text_link(ink: &Ink, id: &str, label: &str, event: &str) -> Value {
+    let mut text = ink.text(&format!("{id}_text"), json!(label), XS, &ink.muted);
+    text["style"][":hover"] = json!({"textDecoration": "underline"});
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}}, "style": {"cursor": "pointer"}, "children": [text]})
+}
+
+/// The dialog's tree (`gap_4`): the body (`gap_3`: the step's description,
+/// its field, the code step's links, the inline error), then the footer
+/// (Cancel, the step's primary).
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let description = ink.text("description", path("/pane/description"), SM, &ink.muted);
+    let links = json!({"id": "links", "component": "Box", "visible": path("/pane/codeStep"), "style": {"display": "flex", "flexDirection": "row", "gap": ink.r(1.)},
+        "children": [text_link(ink, "resend", "Resend code", "resend"), text_link(ink, "different", "Use a different email", "different")]});
+    let error = json!({"id": "error", "component": "Text", "visible": path("/pane/hasError"), "props": {"text": path("/pane/error")},
+        "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}});
+    let body = json!({"id": "body", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "width": "100%"},
+        "children": [description, field(ink, "email", "New email", "you@example.com", path("/pane/address")), field(ink, "code", "Code", "123456", path("/pane/codeStep")), links, error]});
+    let mut cancel = sm_button(ink, "cancel", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
+    cancel["visible"] = super::doc::not(path("/pane/cancelOff"));
+    let mut cancel_off = sm_button(ink, "cancel_off", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
+    cancel_off["visible"] = path("/pane/cancelOff");
+    cancel_off["props"]["pressable"] = json!(false);
+    cancel_off["style"]["opacity"] = json!(0.5);
+    let mut primary = sm_button(ink, "primary", None, path("/pane/primary"), &chrome.primary, None, &chrome.primary_fg, "submit", chrome.radius);
+    primary["visible"] = path("/pane/on");
+    primary["style"][":hover"] = json!({"backgroundColor": chrome.primary_hover});
+    // Disabled: the fill at half under the solid label; busy: the spinner too.
+    let off = |id: &str, glyph: Option<Value>, visible: Value| {
+        let mut button = sm_button(ink, id, glyph, path("/pane/primary"), "#00000000", None, &chrome.primary_fg, "submit", chrome.radius);
+        button["visible"] = visible;
+        button["props"]["pressable"] = json!(false);
+        button["style"]["cursor"] = json!("default");
+        button["style"]["position"] = json!("relative");
+        button["children"].as_array_mut().expect("the button's children").insert(0, json!({"id": format!("{id}_fill"), "component": "Box",
+            "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": chrome.radius, "backgroundColor": chrome.primary, "opacity": 0.5}}));
+        button
+    };
+    let spinner = json!({"id": "busy_spinner", "component": "Spinner", "style": {"width": ink.r(SM), "height": ink.r(SM), "color": chrome.primary_fg, "flexShrink": 0}});
+    let footer = json!({"id": "footer", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "gap": ink.r(0.5)},
+        "children": [cancel, cancel_off, primary, off("primary_off", None, path("/pane/off")), off("primary_busy", Some(spinner), path("/pane/busy"))]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0}, "children": [body, footer]})
 }
 
 #[cfg(test)]
