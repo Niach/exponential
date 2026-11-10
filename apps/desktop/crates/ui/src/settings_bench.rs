@@ -20,8 +20,9 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
-use crate::settings::prompts::{PromptsPane, PromptsShot};
+use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
@@ -990,6 +991,14 @@ fn settings_skill_page() {
     skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
 }
 
+/// #EXP-1768: a 30k-char body (no hard break) grows the body to its 40
+/// rows, as the gpui pane did, instead of scrolling at 14.
+#[test]
+#[ignore]
+fn settings_skill_long_body() {
+    skill_page("skill-long-body", Some(skill(false)), true, Some(Ok("word ".repeat(6_000))), false, false);
+}
+
 #[test]
 #[ignore]
 fn settings_skill_loading() {
@@ -1296,4 +1305,158 @@ fn settings_board_unavailable() {
 fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
     board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
+}
+
+const PROMPT_BODY: &str = "Review the open PRs on this board.\n\n- Summarise each diff in two lines.\n- Flag anything that touches `apps/web/src/db`.\n";
+
+fn prompt_row() -> api::prompts::Prompt {
+    serde_json::from_value(serde_json::json!({"id": "p1", "teamId": "team-shots", "name": "Review train", "icon": "rocket"})).expect("a prompt")
+}
+
+fn prompt_page(name: &str, prompt: Option<api::prompts::Prompt>, shot: PromptPageShot) {
+    shoot_pane_acted(name, move |window, cx| PromptPage::new("team-shots".into(), prompt, window, cx), |_, _| {}, None, &[], move |page, window, cx| page.show(shot, window, cx));
+}
+
+fn page_shot(owner: bool, body: Option<Result<String, ()>>) -> PromptPageShot {
+    PromptPageShot { owner, body, name: None, touched: false, name_error: None }
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_page() {
+    prompt_page("prompt-page", Some(prompt_row()), page_shot(true, Some(Ok(PROMPT_BODY.into()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_dirty() {
+    prompt_page("prompt-dirty", Some(prompt_row()), PromptPageShot { name: Some("Review train (weekly)".into()), ..page_shot(true, Some(Ok(PROMPT_BODY.into()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_loading() {
+    prompt_page("prompt-loading", Some(prompt_row()), page_shot(true, None));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_failed() {
+    prompt_page("prompt-failed", Some(prompt_row()), page_shot(true, Some(Err(()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_member() {
+    prompt_page("prompt-member", Some(prompt_row()), page_shot(false, Some(Ok(PROMPT_BODY.into()))));
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_new_touched() {
+    prompt_page("prompt-new-touched", None, PromptPageShot { touched: true, ..page_shot(true, Some(Ok(String::new()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_taken() {
+    prompt_page("prompt-taken", Some(prompt_row()), PromptPageShot { name: Some("Release train".into()), name_error: Some("A prompt with this name already exists".into()), ..page_shot(true, Some(Ok(PROMPT_BODY.into()))) });
+}
+
+#[test]
+#[ignore]
+fn settings_prompt_too_long() {
+    let body = "x ".repeat(crate::settings::prompts::PROMPT_BODY_MAX_CHARS / 2 + 1);
+    prompt_page("prompt-too-long", Some(prompt_row()), page_shot(true, Some(Ok(body))));
+}
+
+
+
+fn team(icon: bool, zone: Option<&str>) -> domain::rows::Team {
+    serde_json::from_value(serde_json::json!({
+        "id": "team-acme", "name": "Acme", "slug": "acme",
+        "icon_url": if icon { serde_json::json!("https://bench.invalid/team.png") } else { serde_json::Value::Null },
+        "time_zone": zone, "merge_mode": "auto",
+    }))
+    .expect("a team")
+}
+
+fn team_plan(plan: &str) -> api::billing::TeamPlanOut {
+    serde_json::from_value(serde_json::json!({"plan": plan, "limits": {"seats": 10.0, "storageMb": 10240.0, "widgetConfigs": null}, "usage": {"members": 4.0, "storageMb": 2355.2, "widgetConfigs": 2.0}})).expect("a plan")
+}
+
+const TEAM_PROMPT: &str = "# Rules\n\n- Keep PRs small: one concern each.\n- Run `bun run typecheck` before you push.\n- Never touch `apps/web/src/db/out` by hand.\n";
+
+fn general_shot() -> GeneralShot {
+    GeneralShot {
+        team: Some(team(true, Some("Europe/Vienna"))),
+        owner: true,
+        picture: Some(picture()),
+        name_draft: None,
+        saving: false,
+        prompt: PromptShot::Ready(TEAM_PROMPT.into(), None, false),
+        billing: Some(team_plan("team")),
+    }
+}
+
+fn general(name: &str, shot: GeneralShot) {
+    shoot_pane_acted(name, GeneralPane::for_shots, |_, _| {}, Some(std::time::Duration::from_millis(1200)), &[], move |pane, window, cx| pane.show(shot, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_general_owner() {
+    general("general-owner", general_shot());
+}
+
+#[test]
+#[ignore]
+fn settings_general_plain() {
+    let shot = GeneralShot {
+        team: Some(team(false, None)),
+        picture: None,
+        name_draft: Some("Acme Labs".into()),
+        prompt: PromptShot::Ready(TEAM_PROMPT.into(), Some("2020-01-01T00:00:00.000Z".into()), true),
+        billing: None,
+        ..general_shot()
+    };
+    general("general-plain", shot);
+}
+
+#[test]
+#[ignore]
+fn settings_general_edited() {
+    let shot = GeneralShot { prompt: PromptShot::Ready(String::new(), Some("2020-01-01T00:00:00.000Z".into()), false), billing: Some(team_plan("free")), ..general_shot() };
+    general("general-edited", shot);
+}
+
+#[test]
+#[ignore]
+fn settings_general_loading() {
+    general("general-loading", GeneralShot { saving: true, name_draft: Some("Acme Labs".into()), prompt: PromptShot::Loading, ..general_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_general_failed() {
+    general("general-failed", GeneralShot { prompt: PromptShot::Failed, billing: Some(team_plan("unlimited")), ..general_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_general_over_cap() {
+    let text = "x".repeat(domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES + 5);
+    general("general-over-cap", GeneralShot { prompt: PromptShot::Ready(text, None, false), billing: None, ..general_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_general_member() {
+    general("general-member", GeneralShot { owner: false, ..general_shot() });
+}
+
+#[test]
+#[ignore]
+fn settings_general_no_team() {
+    general("general-no-team", GeneralShot { team: None, ..general_shot() });
 }

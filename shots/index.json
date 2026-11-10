@@ -3159,6 +3159,36 @@
         "sha256": "7a7254a90415e11f3c87c1baccc2aca60e85d630093374442316cd74b773eafe"
       }
     },
+    "exponential-ui-embed": {
+      "android": {
+        "file": "shots/exponential-ui-embed/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 23566,
+        "sha256": "0c0ddc39e6b0e892eeebf1438174837f97f2c6e411ef93a8caa5d8221e9a72e1"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-embed/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 41808,
+        "sha256": "d35348b441fef15762c75b014ce9eb128a531fe7d3c430087a807fcf5dc8490c"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-embed/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 24190,
+        "sha256": "42e6e1c25ca480ab8dc392df30a3eb7893fba6074e295a387e1d6e85a8671d11"
+      },
+      "web": {
+        "file": "shots/exponential-ui-embed/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 12098,
+        "sha256": "99d9acd456899dea6f0d0b4bf508a15d2f3ddfdbd9279df6106a4f4f75b93373"
+      }
+    },
     "exponential-ui-empty-state": {
       "android": {
         "file": "shots/exponential-ui-empty-state/android.webp",
@@ -3592,12 +3622,26 @@
         "bytes": 5346,
         "sha256": "50a4af21a600949e1df27128ed3dbdf398859b925b93255b76d71929825b1bd1"
       },
+      "desktop": {
+        "file": "shots/exponential-ui-kbd-group/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 30512,
+        "sha256": "3b247b8e139e78145ffa0360e16a34961f56c711bd3313738243d18648478b99"
+      },
       "ios": {
         "file": "shots/exponential-ui-kbd-group/ios.webp",
         "width": 828,
         "height": 1800,
         "bytes": 5694,
         "sha256": "f93e585c32f8060775032bc34de99de9601f1007d2fedbe939dbc9f6408064d7"
+      },
+      "web": {
+        "file": "shots/exponential-ui-kbd-group/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 4604,
+        "sha256": "42d377839d6ce50608896134fb4c2d1919797b2968053054b8b003e7642323ed"
       }
     },
     "exponential-ui-key-recorder": {
@@ -6399,6 +6443,13 @@
         "height": 1800,
         "bytes": 15458,
         "sha256": "714a19264a6ede54366b0a79789800610e56748899dba7df126143cefe1ad688"
+      },
+      "ios": {
+        "file": "shots/record-form-field-states/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 17320,
+        "sha256": "443c1e84e832ef51ccb8d523d363f20e048e52ca410afb12589103ecc4fe876e"
       }
     },
     "results-tab": {
