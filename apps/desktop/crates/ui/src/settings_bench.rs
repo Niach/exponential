@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::tools::{ToolsPane, ToolsShot};
 use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
@@ -1459,4 +1460,30 @@ fn settings_general_member() {
 #[ignore]
 fn settings_general_no_team() {
     general("general-no-team", GeneralShot { team: None, ..general_shot() });
+}
+
+fn tools_shot(doctor: Option<&'static str>) -> ToolsShot {
+    ToolsShot { repos: "~/code/exp", prefix: "exp/", shell: None, typed: None, doctor }
+}
+
+fn tools(name: &str, shot: ToolsShot) {
+    shoot_pane_acted(name, ToolsPane::for_shots, |_, _| {}, None, &[], move |pane, window, cx| pane.show(shot, window, cx));
+}
+
+#[test]
+#[ignore]
+fn settings_tools_ready() {
+    tools("tools-ready", tools_shot(Some("ready: git + claude, codex missing, computer use off")));
+}
+
+#[test]
+#[ignore]
+fn settings_tools_dirty() {
+    tools("tools-dirty", ToolsShot { shell: Some("/bin/zsh"), typed: Some("feature/"), ..tools_shot(Some("git missing, claude signed out, codex ok, computer use on (no OS permissions here)")) });
+}
+
+#[test]
+#[ignore]
+fn settings_tools_doctor_running() {
+    tools("tools-doctor-running", tools_shot(None));
 }
