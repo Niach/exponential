@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -139,7 +140,7 @@ fun PrRow(
             Text(
                 identifier,
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ExpMono,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 maxLines = 1,
                 modifier = Modifier.widthIn(min = 72.dp),
@@ -148,7 +149,7 @@ fun PrRow(
         Text(
             title,
             style = if (base) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
-            fontFamily = if (base) FontFamily.Monospace else null,
+            fontFamily = if (base) ExpMono else null,
             color = if (base) {
                 MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
             } else {

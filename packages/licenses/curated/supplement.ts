@@ -65,9 +65,8 @@ export interface CuratedEntry {
 // Reserved Font Name in its copyright line, so OFL §3 (the rename obligation)
 // does not bite and we may ship the families under their own names.
 //
-// The web app is deliberately absent: it loads Inter from Google Fonts at
-// runtime and distributes no font binary of its own, so it has no OFL
-// obligation to discharge.
+// The web app loads Inter from Google Fonts at runtime (no Inter binary of its
+// own, so no Inter obligation), but self-hosts JetBrains Mono (#EXP-1629).
 
 export const FONTS: CuratedEntry[] = [
   {
@@ -82,9 +81,9 @@ export const FONTS: CuratedEntry[] = [
   },
   {
     title: `JetBrains Mono`,
-    clients: [`desktop`, `site`],
+    clients: [`desktop`, `site`, `web`, `ios`, `android`],
     body: [
-      `Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL Open Font License 1.1.`,
+      `Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL Open Font License 1.1. The desktop, iOS and Android applications bundle the TTFs; the web application self-hosts woff2 conversions of the same faces.`,
     ],
     reproduce: [
       {

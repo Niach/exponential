@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import android.content.Intent
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -289,7 +290,7 @@ private fun ServerCard(
         Box(modifier = Modifier.fillMaxWidth().glassRow().testTag("install-snippet")) {
             Text(
                 breakAnywhere(AppConstants.serverInstallSnippetDisplayed(instanceOrigin, state.token)),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -334,7 +335,7 @@ private fun ServerCard(
                     placeholder = DeviceSetupCopy.CODE_PLACEHOLDER,
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         letterSpacing = 2.sp,
                     ),
                     keyboardOptions = KeyboardOptions(

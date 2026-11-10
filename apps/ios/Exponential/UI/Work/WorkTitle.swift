@@ -53,7 +53,7 @@ struct WorkTitle: View {
     private func collapsedTitle(_ issueTitle: String) -> some View {
         VStack(spacing: 1) {
             Text(text)
-                .font(.caption2.monospaced().weight(.medium))
+                .font(.expMono(.caption2, weight: .medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
             Text(issueTitle)

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.TaskQueue
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.domain.contentType
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
@@ -4416,7 +4417,7 @@ internal fun QuestionOptionButton(
                     // The digit a keyboard client presses — monospace, like
                     // every other key in the app (web `font-mono`).
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         fontWeight = FontWeight.Normal,
                         fontSize = 10.sp,
                         lineHeight = 16.sp,
@@ -4492,7 +4493,7 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
             if (!detail.isNullOrBlank()) {
                 Text(
                     remember(detail) { middleTruncate(detail) },
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono),
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -6405,7 +6406,7 @@ private fun SlashCommandMenu(
                     Text(
                         "/${command.name}",
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = nameColor,
                         maxLines = 1,
                     )
@@ -6427,7 +6428,7 @@ private fun SlashCommandMenu(
                         Text(
                             "<${command.argHint}>",
                             style = MaterialTheme.typography.labelMedium,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ExpMono,
                             color = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = TextEmphasis.Tertiary,
                             ),
@@ -6524,7 +6525,7 @@ private fun CommandRow(command: SlashCommand, text: String) {
             Text(
                 "/${command.name}",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = ExpMono,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (args.isNotEmpty()) {

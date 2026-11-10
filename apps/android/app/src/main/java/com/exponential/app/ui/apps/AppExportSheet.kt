@@ -1,6 +1,7 @@
 package com.exponential.app.ui.apps
 
 import android.content.Context
+import com.exponential.app.ui.theme.ExpMono
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -290,7 +291,7 @@ fun AppImportStep(
             placeholder = AppExport.Copy.IMPORT_PLACEHOLDER,
             minLines = 6,
             maxLines = 12,
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
             modifier = Modifier.fillMaxWidth().testTag("app-import-text"),
         )
         Row {
@@ -308,7 +309,7 @@ fun AppImportStep(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxWidth().testTag("app-import-issues"),
             ) {
-                val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                val style = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono)
                 val tone = MaterialTheme.colorScheme.error
                 issues.take(AppExport.Limits.ISSUES_SHOWN).forEach { Text(AppExport.issueLine(it), style = style, color = tone) }
                 if (issues.size > AppExport.Limits.ISSUES_SHOWN) {

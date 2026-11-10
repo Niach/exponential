@@ -49,6 +49,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         // #LOGS-2: before Hilt injects, so a crash building the graph is reported.
         Observability.start(this)
         super.onCreate()
+        // #EXP-1629: a genUI theme's `JetBrains Mono` = the bundled face.
+        at.exponential.ui.ExponentialUi.registerFont(com.exponential.app.ui.theme.EXP_MONO_FAMILY, com.exponential.app.ui.theme.ExpMono)
         createIssueNotificationChannel()
         cleanupLegacyAccountDatabases()
         // Self-heal a device that already carries a duplicate server row, before

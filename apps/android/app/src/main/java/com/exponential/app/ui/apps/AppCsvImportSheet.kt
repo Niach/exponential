@@ -1,6 +1,7 @@
 package com.exponential.app.ui.apps
 
 import android.net.Uri
+import com.exponential.app.ui.theme.ExpMono
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -138,7 +139,7 @@ fun AppCsvImportSheet(
     }
 
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    val issueStyle = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+    val issueStyle = MaterialTheme.typography.labelSmall.copy(fontFamily = ExpMono)
 
     GlassSheet(
         title = CsvCopy.TITLE.replace("{kind}", kind),
@@ -173,7 +174,7 @@ fun AppCsvImportSheet(
                     placeholder = CsvCopy.PLACEHOLDER,
                     minLines = 6,
                     maxLines = 10,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = ExpMono),
                     modifier = Modifier.fillMaxWidth().testTag(CsvTestIds.TEXT),
                 )
                 Row {
