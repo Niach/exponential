@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-wide-chat`,
+    date: `2026-11-10`,
+    title: `A wider chat and a one-line composer`,
+    summary: `The chat uses the width of the window, the composer is one flat line that grows as you type, and the tabs sit on the header line.`,
+    body: `- **Wider chat**: the conversation spreads across the window like a messenger, with the agent's messages on the left and yours on the right.
+- **One-line composer**: the reply box starts as one flat line with + on the left and the context ring and send on the right, and grows as you type.
+- **One header line**: on a wide screen the Chat, Issues, Sessions and Results tabs sit on the same line as the title, the status and the menu.`,
+  },
+  {
     id: `2026-11-09-smooth-chats-reliable-updates`,
     date: `2026-11-09`,
     title: `Smooth long chats, updates without GitHub's limit`,

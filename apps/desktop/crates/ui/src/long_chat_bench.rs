@@ -251,6 +251,8 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
     let document = steer.read_with(cx, |inner, _| inner.chat_document().cloned()).expect("the document");
     let list = document.read_with(cx, |document, _| document.painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("the list painted");
     let mut scroll = Vec::new();
+    let passes = |cx: &mut gpui::VisualTestContext| document.read_with(cx, |document, _| document.stats().passes);
+    let before = passes(cx);
     for n in 0..60 {
         let dy = if n < 40 { 120. } else { -120. };
         let event = gpui::ScrollWheelEvent { position: list.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(dy))), ..Default::default() };
@@ -262,7 +264,8 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
         cx.run_until_parked();
         scroll.push(started.elapsed());
     }
-    println!("[LOGS-7] scroll: {}", Stats(scroll));
+    // #LOGS-9: the document's layout passes per step (the test draws twice).
+    println!("[LOGS-7] scroll: {} · {:.2} layout passes per step", Stats(scroll), (passes(cx) - before) as f64 / 60.0);
 
     // Typing in the composer: one key, its frame.
     let input = steer.read_with(cx, |inner, _| inner.composer_for_test());
