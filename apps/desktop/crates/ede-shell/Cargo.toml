@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 eui-core = { path = "../eui-core" }
-eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor"] }
+eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor", "vendored-spinner"] }
 ede-protocol = { path = "../ede-protocol" }
 # The shell core both hosts share (#EDE-50): the reducer, what the documents
 # bind, the gpui host (layer-shell surfaces, popups) and the factory documents.
