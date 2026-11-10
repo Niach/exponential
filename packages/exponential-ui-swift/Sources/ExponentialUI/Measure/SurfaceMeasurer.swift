@@ -296,7 +296,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let count = props["count"].map(\.displayText) ?? ""
             // #EXP-1765: a mono Select option's `trailing` (the surface's sans type) counts like a count.
             let trailing = props["trailing"].map(\.displayText) ?? ""
-            let countW = !count.isEmpty ? line(count, ts) : (trailing.isEmpty ? 0 : line(trailing, SelectTrigger.trailingStyle(ts, sans: theme?.sansFamily)))
+            var countW = !count.isEmpty ? line(count, ts) : (trailing.isEmpty ? 0 : line(trailing, SelectTrigger.trailingStyle(ts, sans: theme?.sansFamily)))
+            // #EXP-1778: a `button` menu row's check: its recipe width.
+            if SelectTrigger.checkOnChosenOnly(props) { countW = SelectTrigger.glyphSize(self.part("Select", "check", ["triggerVariant": .string("button")])) }
             // The core names the owner (`FfiLeaf.ownerComponent`, round 2); the
             // part-name guess stays for an owner this table does not know.
             let owner = leaf.ownerComponent.flatMap { Self.chromeOwners.contains($0) ? $0 : nil } ?? Self.textOwner(part, props)
@@ -485,6 +487,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // Round 2 §7: the count is its own muted part after the title.
         case ("Accordion", "trigger"): return (0, (has(props, "count") ? 8 + countWidth : 0) + 16 + max(gap, 8))
         // #EXP-1765: a mono option's `trailing` (`countWidth`) sits before the check slot.
+        // #EXP-1778: a `button`'s menu row (`checkSlot: chosen`): the check
+        // (`countWidth` = its recipe width) after the item `gap` on the chosen row only.
+        case ("Select", "item") where SelectTrigger.checkOnChosenOnly(props): return (icon("icon"), has(props, "check") ? gap + countWidth : 0)
         case ("Select", "item"): return (icon("icon"), 16 + max(gap, 8) + (has(props, "trailing") ? SelectTrigger.trailingGap(gap) + countWidth : 0))
         case ("Menu", "itemLabel"): return (icon("icon"), 0)
         case ("Table", "headerCell"): return (0, has(props, "sortIcon") || props.flag("sortable") ? 16 + 4 : 0)
@@ -924,6 +929,12 @@ enum SelectTrigger {
     /// button stays `isPill` alone.
     static func isPillLike(_ props: Props, owner: Props = [:]) -> Bool {
         isPill(props, owner: owner) || isButton(props, owner: owner)
+    }
+
+    /// #EXP-1778: a `button`'s menu row (the core's `checkSlot: chosen`)
+    /// holds the check on the chosen row only; the others reserve no slot.
+    static func checkOnChosenOnly(_ props: Props) -> Bool {
+        props["checkSlot"]?.string == "chosen"
     }
 
     private static func variant(_ props: Props, owner: Props) -> String? {

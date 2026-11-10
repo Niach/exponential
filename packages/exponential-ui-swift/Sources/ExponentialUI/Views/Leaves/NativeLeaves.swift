@@ -181,7 +181,8 @@ struct PickerTriggerLeaf: View {
 }
 
 /// A Select option (`item`): [icon] label [check], the check slot always
-/// reserved (gpui `text_chrome`). #EXP-1765: a `mono` option (the core
+/// reserved (gpui `text_chrome`; #EXP-1778: a `button`'s rows on the chosen
+/// row only). #EXP-1765: a `mono` option (the core
 /// sets its type) carries its `trailing` as its own muted run in the
 /// theme's sans type, right after the label (`SelectTrigger.trailingGap`
 /// apart); the label keeps its line and truncates first.
@@ -206,10 +207,13 @@ struct SelectItemLeaf: View {
             } else {
                 labelAndTrailing(trailing)
             }
-            ZStack {
-                if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
+            // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+            if selected || !SelectTrigger.checkOnChosenOnly(cx.props) {
+                ZStack {
+                    if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
+                }
+                .frame(width: size, height: size)
             }
-            .frame(width: size, height: size)
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
