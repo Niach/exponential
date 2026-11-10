@@ -3139,6 +3139,7 @@ mod tests {
     /// those stretch-sized parents (the band, the machine and action rows)
     /// resolve fine and stay covered.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     async fn actions_shaped_center_spans_the_panel_at_every_width(
         cx: &mut gpui::TestAppContext,
     ) {

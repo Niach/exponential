@@ -125,7 +125,6 @@ import com.exponential.app.ui.components.FadeEdge
 import com.exponential.app.ui.components.EdgeFade
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.FloatingBarEdge
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
@@ -901,11 +900,12 @@ private fun RunFaceContent(
     LaunchedEffect(feed.isEmpty()) { if (feed.isNotEmpty()) everRendered = true }
 
 
-    // EXP-1162: the transcript runs UNDER the header band and the bottom
-    // band (banners, strips, menus, the composer), which FLOATS over its tail
-    // like iOS's `safeAreaInset(edge: .bottom)`: the list's bottom content
-    // padding tracks the band's measured height, so the last row clears it
-    // and follow-mode still lands on the true end.
+    // EXP-1162: the transcript runs UNDER the header band. #EXP-1782
+    // (dock.json): it ENDS at the bottom band's top edge (the Dock's cards,
+    // the composer's when none waits): the transcript column is padded by
+    // the band's measured height, so its content clips there and nothing
+    // renders below or behind the band; a growing band shrinks the list and
+    // a follower re-pins to its newest row.
     val layoutDirection = LocalLayoutDirection.current
     val topInset = padding.calculateTopPadding()
     val bottomInset = padding.calculateBottomPadding()
@@ -1124,6 +1124,8 @@ private fun RunFaceContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 12.dp)
+                // #EXP-1782: the transcript ends at the band's top edge.
+                .padding(bottom = bandClearance)
                 // The store-screenshot test waits on this tag so it never
                 // captures "Connecting…" / "Waiting for activity…" — the
                 // Run face body in BOTH modes, once it has something to show.
@@ -1137,8 +1139,7 @@ private fun RunFaceContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(bottom = bandClearance),
+                        .weight(1f),
                 ) {
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     // #EXP-1732: the host's rows under the empty-feed placeholder.
@@ -1180,9 +1181,9 @@ private fun RunFaceContent(
                     // by the card's wire id (EXP-249).
                     onAnswer = onAnswer,
                     onPlanFollowUp = onPlanFollowUp,
-                    // EXP-1162: the floating bottom band's height
-                    // (+ the nav bar) clears the tail; the header
-                    // band's height clears the head.
+                    // #EXP-1782: the band's height (+ the nav bar): the
+                    // list already ends above it, a change re-pins a
+                    // follower; the header band's height clears the head.
                     bottomInset = bandClearance,
                     topInset = topInset,
                     // #EXP-1736 (transcript-grouping.json): who sent each
@@ -1228,13 +1229,10 @@ private fun RunFaceContent(
         }
         }
 
-        // ── The bottom band: floats over the transcript's tail
-        FloatingBarEdge(
-            bottomInset = bottomInset,
-            // An expanded composer card is its own surface.
-            visible = !composerExpanded,
-            // EXP-1256: the chat's bottom edge in the page's own ground.
-            ground = true,
+        // ── The bottom band, under the transcript (#EXP-1782: the list ends
+        // at its top edge; no edge fade, no gradient, no backdrop strip).
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -1734,9 +1732,9 @@ private fun ActivityFeed(
      *  whose first token is one of ITS catalog commands renders as a command
      *  pill instead of prose. */
     agent: String? = null,
-    /** EXP-688: how much of the feed's tail the floating Latest-changes bar
-     *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
-     *  the last message is never parked underneath it. */
+    /** #EXP-1782: the bottom band's height. The host already ends this list
+     *  at the band's top edge (nothing scrolls under it); a change re-pins a
+     *  follower to the newest row. */
     bottomInset: Dp = 0.dp,
     /** EXP-1162: the header band the list's head scrolls under. */
     topInset: Dp = 0.dp,
@@ -1903,8 +1901,8 @@ private fun ActivityFeed(
         onFollowChange(false)
         listState.centreOnItem(index)
     }
-    // EXP-1162: the floating bottom band grew or shrank (a banner, the
-    // queue, the keyboard's composer) — a follower stays on the true end.
+    // EXP-1162: the bottom band grew or shrank (a banner, the queue, the
+    // keyboard's composer), so the list did — a follower stays on the true end.
     LaunchedEffect(bottomInset) {
         if (follow) listState.scrollBy(1_000_000f)
     }
@@ -1949,7 +1947,7 @@ private fun ActivityFeed(
             verticalArrangement = Arrangement.Bottom,
             contentPadding = PaddingValues(
                 top = 8.dp,
-                bottom = 8.dp + bottomInset,
+                bottom = 8.dp,
             ),
         ) {
             if (focused != null) {
@@ -2241,9 +2239,9 @@ private fun ActivityFeed(
             }
         }
         // EXP-1191: the shared round scroll-to-bottom button, centred 12dp
-        // above the bar's rung ([bottomInset] = the floating band, whose top
-        // 8dp is the bar's own padding). The tap animates to the true end,
-        // then re-pins follow-mode.
+        // above the bar's rung (the list ends at the band's top edge, whose
+        // top 8dp is the bar's own padding). The tap animates to the true
+        // end, then re-pins follow-mode.
         JumpToBottomButton(
             visible = !follow && feed.isNotEmpty(),
             onClick = {
@@ -2258,7 +2256,7 @@ private fun ActivityFeed(
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = bottomInset + 4.dp),
+                .padding(bottom = 4.dp),
         )
         // EXP-1162: the EXP-698 top fade is the header band's edge strip now
         // (`HeaderEdgeChrome`), over every face alike. EXP-1175: the list
@@ -2595,7 +2593,8 @@ internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
     // #EXP-1383: measured from the CONTENT's end — the bottom content
-    // padding (the floating composer band, ~150dp) is not slack; counting
+    // padding is not slack (it was the floating composer band, ~150dp,
+    // before #EXP-1782 ended the list at the band); counting
     // it kept a reader "at the bottom" for a screen-third, re-pinned short
     // flicks and hid the jump button.
     return last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
