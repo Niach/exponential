@@ -81,9 +81,14 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
         lastTopRef.current = el.scrollTop
       }
     })
-    // The border box: the Dock's band is the column's bottom PADDING, which
-    // a content-box observer never sees grow (the tail card hid under it).
+    // The border box: a column's bottom padding grows it too.
     observer.observe(node, { box: `border-box` })
+    // #EXP-1782: the scroller ends at the Dock band's top edge, so a band
+    // that grows (a card lands, the composer grows a line) SHRINKS the
+    // scroller: re-pin then too, so the last row stays fully visible just
+    // above the composer.
+    const scroller = scrollRef.current ?? node.parentElement
+    if (scroller) observer.observe(scroller)
     observerRef.current = observer
   }, [])
   useEffect(() => () => observerRef.current?.disconnect(), [])
