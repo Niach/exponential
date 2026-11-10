@@ -8173,6 +8173,10 @@
           "type": "number",
           "description": "Px (`row`: 260)."
         },
+        "popupMinWidth": {
+          "type": "number",
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+        },
         "loading": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
           "description": "Options still loading: skeleton rows in the popup.",

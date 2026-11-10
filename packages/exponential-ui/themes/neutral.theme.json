@@ -3534,13 +3534,14 @@
       "item": [
         {
           "style": {
-            "height": "$control.buttonSm",
             "paddingHorizontal": "$spacing.sm",
             "borderRadius": "$radius.sm",
             "fontSize": "$type.size.sm",
             "lineHeight": "$type.lineHeight.sm",
             "color": "$color.popoverForeground",
-            "gap": "$spacing.sm"
+            "gap": "$spacing.sm",
+            "minHeight": "$control.buttonSm",
+            "paddingVertical": "$spacing.xs"
           }
         },
         {
@@ -3699,6 +3700,23 @@
           },
           "style": {
             "gap": "$spacing.md"
+          }
+        }
+      ],
+      "itemIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
+      "itemDescription": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
           }
         }
       ]
