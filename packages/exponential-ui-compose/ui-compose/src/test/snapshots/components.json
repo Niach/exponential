@@ -26608,7 +26608,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          78.5,
+          78,
           12,
           12
         ],
@@ -26621,7 +26621,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          80.5,
+          80,
           56,
           8
         ],
@@ -26634,7 +26634,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          80.5,
+          80,
           120,
           8
         ],
@@ -26658,7 +26658,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          110.5,
+          110,
           12,
           12
         ],
@@ -26671,7 +26671,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          112.5,
+          112,
           56,
           8
         ],
@@ -26684,7 +26684,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          112.5,
+          112,
           192,
           8
         ],
