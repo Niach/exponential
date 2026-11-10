@@ -41,6 +41,8 @@ class TranscriptGroupingTest {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("formerMember"), TranscriptGrouping.Copy.FORMER_MEMBER)
         assertEquals(copy.str("linkChevron"), TranscriptGrouping.Copy.LINK_CHEVRON)
+        val markers = copy.getValue("markers").jsonObject.mapValues { it.value.jsonPrimitive.content }
+        assertEquals(markers, TranscriptGrouping.Copy.MARKERS)
     }
 
     private fun input(o: JsonObject): TranscriptGrouping.Input {
@@ -122,6 +124,40 @@ class TranscriptGroupingTest {
                 )
             }
             assertEquals(case.str("name"), expected, TranscriptGrouping.crossSessionInput(case.str("text")!!))
+        }
+    }
+
+    @Test
+    fun `every feed input case matches the fixture`() {
+        val cases = fixture.getValue("feedInputCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val e = case["expected"]?.takeUnless { it is JsonNull }?.jsonObject
+            val expected = e?.let {
+                when (it.str("kind")) {
+                    "marker" -> TranscriptGrouping.FeedInput.Marker(it.str("key")!!, it.str("label")!!)
+                    else -> TranscriptGrouping.FeedInput.Relay(
+                        name = it.str("name")!!,
+                        sessionId = it.str("sessionId")!!,
+                        body = it.str("body")!!,
+                        report = it.getValue("report").jsonPrimitive.boolean,
+                    )
+                }
+            }
+            assertEquals(case.str("name"), expected, TranscriptGrouping.feedInput(case.str("text")!!))
+        }
+    }
+
+    @Test
+    fun `every marker case matches the fixture`() {
+        val cases = fixture.getValue("markerCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val kinds = case.getValue("kinds").jsonArray.map { k ->
+                TranscriptGrouping.FeedRowKind.entries.first { it.wire == k.jsonPrimitive.content }
+            }
+            val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.boolean }
+            assertEquals(case.str("name"), expected, TranscriptGrouping.markersShown(kinds))
         }
     }
 }

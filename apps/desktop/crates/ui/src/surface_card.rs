@@ -88,6 +88,54 @@ fn transcript_pill(test_id: String, icon: &str, label: String, cx: &App) -> AnyE
         .into_any_element()
 }
 
+/// #EXP-1772 (transcript-grouping.json MARKER): THE inline marker ×4, the
+/// feed's `Context compacted` row: a centred muted label between two
+/// hairlines, full width, never a bubble. A schedule or event firing the
+/// agent answered, a PR or session status line, a system note, the
+/// compaction. `on_press` (an event about a session, chat-row-action.json)
+/// makes the label the button that opens it (`id` = its element id).
+pub(crate) fn transcript_marker(
+    id: SharedString,
+    label: &str,
+    on_press: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    cx: &App,
+) -> AnyElement {
+    use gpui::StatefulInteractiveElement as _;
+    let theme = cx.theme();
+    let (muted, foreground, border) = (theme.muted_foreground.opacity(0.7), theme.foreground, theme.border.opacity(0.6));
+    let rule = || div().flex_1().min_w(px(8.)).h(px(1.)).bg(border);
+    let text = SharedString::from(label.to_string());
+    let label = match on_press {
+        Some(on_press) => div()
+            .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(text.clone())
+            .min_w_0()
+            .flex_shrink(1.)
+            .truncate()
+            .text_color(muted)
+            .cursor_pointer()
+            .rounded(px(theme::tokens::radius::SM))
+            .hover(move |style| style.text_color(foreground))
+            .active(|style| style.opacity(0.7))
+            .child(text)
+            .on_click(move |_, window, cx| on_press(window, cx))
+            .into_any_element(),
+        None => div().min_w_0().flex_shrink(1.).truncate().text_color(muted).child(text).into_any_element(),
+    };
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .text_size(px(theme::tokens::transcript::TOOL_SIZE))
+        .line_height(px(theme::tokens::transcript::TOOL_LINE_HEIGHT))
+        .child(rule())
+        .child(label)
+        .child(rule())
+        .into_any_element()
+}
+
 // ---------------------------------------------------------------------------
 // The surface card
 // ---------------------------------------------------------------------------

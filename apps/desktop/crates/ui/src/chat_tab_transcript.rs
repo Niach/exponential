@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use domain::transcript_grouping::{cross_session_input, TranscriptRowLayout, TranscriptSender, TranscriptSide};
+use domain::transcript_grouping::{feed_input, FeedInput, TranscriptRowLayout, TranscriptSender, TranscriptSide};
 use eui_core::host::{MediaOptions, MediaRequest, TextLink, UrlPolicy};
 use eui_core::theme::Mode;
 use eui_gpui::host::{HostPlugin, MarkdownAttachment, MarkdownOptions};
@@ -47,8 +47,10 @@ pub(crate) const TAIL_ROW: &str = "tail";
 const ESTIMATE: f32 = 40.;
 /// A sender's avatar, painted by the host: `ide:sender:<row key>`.
 pub(crate) const SENDER_ICON: &str = "ide:sender:";
-/// A bubble's link: the session a press opens.
+/// A link to a session (a URL the host opens in place).
 pub(crate) const SESSION_SCHEME: &str = "exp-session";
+/// The document's call (a relay's name line: `ede_chat open {sessionId}`).
+const CHAT_CALL: &str = "ede_chat";
 
 /// The document's row key of a list row (its [`steer::FeedItemId`]).
 pub(crate) fn row_key(id: steer::FeedItemId) -> String {
@@ -99,6 +101,13 @@ pub(crate) fn prompt_is_plain(text: &str) -> bool {
     parsed.files.is_empty() && parsed.attachment_ids.is_empty() && !crate::steer_viewer::clampable(text)
 }
 
+/// #EXP-1772: a relay the document's bubble shows whole (no picture
+/// markers, no file chips; never folded).
+fn plain_relay(text: &str) -> bool {
+    let parsed = steer::parse_steer_message(text);
+    parsed.files.is_empty() && parsed.attachment_ids.is_empty()
+}
+
 /// The document's gap spacers (3, 8, 12, 16 px): the nearest one.
 fn spacer(gap: f32) -> u32 {
     if gap <= 0.5 {
@@ -114,24 +123,35 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     if facts.cards {
         return host();
     }
+    let sender = facts.layout.and_then(|layout| layout.sender.as_ref());
+    let other = facts.layout.is_some_and(|layout| layout.side == TranscriptSide::Other);
+    // #EXP-1772: a relay (a cross-session sender) is never folded.
+    let relay = other && sender.is_some_and(|sender| sender.link.is_some());
     let own = match facts.content {
-        RowContent::Prompt(text) if prompt_is_plain(text) => facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own),
+        // #EXP-1772: a system input is THE marker, the IDE's own row.
+        RowContent::Prompt(text) if matches!(feed_input(text), Some(FeedInput::Marker { .. })) => return host(),
+        RowContent::Prompt(text) if prompt_is_plain(text) || (relay && plain_relay(text)) => {
+            facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own)
+        }
         RowContent::Narration(_) => false,
         _ => return host(),
     };
     let body = match facts.content {
         // A session's input (`Message from …`) reads as its body alone.
-        RowContent::Prompt(text) if !own => cross_session_input(text).map_or_else(|| text.to_string(), |parsed| parsed.body),
+        RowContent::Prompt(text) if !own => match feed_input(text) {
+            Some(FeedInput::Relay { body, .. }) => body,
+            _ => text.to_string(),
+        },
         RowContent::Prompt(text) | RowContent::Narration(text) => text.to_string(),
         RowContent::Other => unreachable!("a host row above"),
     };
-    let sender = facts.layout.and_then(|layout| layout.sender.as_ref());
-    let other = facts.layout.is_some_and(|layout| layout.side == TranscriptSide::Other);
     ChatRowInput::Message {
         id: facts.key.to_string(),
         author: if own { "user" } else { "agent" }.to_string(),
         body,
-        name: facts.layout.filter(|layout| layout.name).and(sender).map(TranscriptSender::display_name),
+        // #EXP-1772: the document draws a relay's name (+ its chevron) above
+        // the bubble itself.
+        name: facts.layout.filter(|layout| layout.name).and(sender).map(|sender| sender.name.clone()),
         time: match facts.content {
             RowContent::Prompt(_) => facts.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
             _ => String::new(),
@@ -141,7 +161,7 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
             side: Some(if own { "out" } else { "in" }.to_string()),
             avatar: (other && facts.layout.is_some_and(|layout| layout.avatar) && sender.is_some()).then(|| format!("{SENDER_ICON}{}", facts.key)),
             indent: other,
-            link: sender.and_then(|sender| sender.link.as_ref()).map(|session| format!("{SESSION_SCHEME}:{session}")),
+            link: sender.filter(|_| other).and_then(|sender| sender.link.clone()),
             gap: spacer(facts.gap),
         }),
     }
@@ -685,6 +705,17 @@ impl HostPlugin for TranscriptHost {
         }
     }
 
+    /// #EXP-1772: a relay's name line (`ede_chat open {sessionId}`) opens
+    /// that session on the back stack.
+    fn on_function_call(&self, event: &eui_gpui::host::FunctionCallEvent, cx: &mut App) {
+        if event.name != CHAT_CALL || event.args.get("action").and_then(Value::as_str) != Some("open") {
+            return;
+        }
+        let Some(session) = event.args.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()) else { return };
+        let session = session.to_string();
+        crate::navigation::on_active_window(cx, move |window, cx| crate::navigation::open_session_link(&session, window, cx));
+    }
+
     fn open_url(&self, url: &str, cx: &mut App) {
         if let Some(session) = url.strip_prefix(SESSION_SCHEME).and_then(|rest| rest.strip_prefix(':')) {
             let session = session.to_string();
@@ -862,8 +893,13 @@ mod tests {
         let text = "Message from Fix login (session s2): All green.";
         let ChatRowInput::Message { author, body, name, group, .. } = chat_row(&facts(RowContent::Prompt(text), Some(&other), 8., false)) else { panic!("a bubble") };
         assert_eq!((author.as_str(), body.as_str()), ("agent", "All green."));
-        assert!(name.is_some_and(|name| name.starts_with("Fix login")));
-        assert_eq!(group.and_then(|group| group.link).as_deref(), Some("exp-session:s2"));
+        assert_eq!(name.as_deref(), Some("Fix login"), "the document adds the chevron above the bubble");
+        assert_eq!(group.and_then(|group| group.link).as_deref(), Some("s2"));
+        // #EXP-1772: a relay is never folded; a tagged system input is the IDE's marker row.
+        let long = format!("Message from Fix login (session s2): {}", "word ".repeat(400));
+        assert!(matches!(chat_row(&facts(RowContent::Prompt(&long), Some(&other), 8., false)), ChatRowInput::Message { .. }));
+        let marker = "[schedule] Schedule `*/30 * * * *` fired.";
+        assert!(matches!(chat_row(&facts(RowContent::Prompt(marker), None, 8., false)), ChatRowInput::Host { .. }));
     }
 
     #[test]

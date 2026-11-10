@@ -593,11 +593,31 @@ pub const RESUMED_IDLE_CAPTION: &str = "Resumed, waiting for a message";
 /// column's own character count), so a capped title is never refused.
 pub const AGENT_TITLE_MAX: usize = 255;
 
+/// #EXP-1772: the keys the device leads a system input with (`[<key>] `,
+/// `coding::pickup::input_text`; transcript-grouping.json `copy.markers`,
+/// gated by `input_tags_match_the_fixture`).
+pub const INPUT_TAGS: &[&str] = &["schedule", "event", "pr_opened", "pr_merged", "pr_merge", "pr_checks", "session"];
+
+/// #EXP-1772: `text` without the device's `[<key>] ` lead (an unknown key
+/// is a person's own text and stays).
+pub fn strip_input_tag(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    if let Some(rest) = trimmed.strip_prefix('[') {
+        if let Some((key, after)) = rest.split_once("] ") {
+            if INPUT_TAGS.contains(&key) {
+                return after;
+            }
+        }
+    }
+    text
+}
+
 /// EXP-905: the ONE title normaliser — trim, collapse every whitespace run
 /// (newlines included) to one space, cap at [`AGENT_TITLE_MAX`] UTF-16 units
 /// on a char boundary. `None` for a title that is blank once normalised.
+/// #EXP-1772: a title derived from a tagged first input drops the tag.
 pub fn normalize_agent_title(raw: &str) -> Option<String> {
-    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let collapsed = strip_input_tag(raw).split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.is_empty() {
         return None;
     }
@@ -870,6 +890,34 @@ pub type AgentTitleSignal = CaptionSignal;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_title_from_a_tagged_first_input_drops_the_tag() {
+        assert_eq!(
+            normalize_agent_title("[schedule] Schedule `*/30 * * * *` fired.").as_deref(),
+            Some("Schedule `*/30 * * * *` fired.")
+        );
+        assert_eq!(
+            normalize_agent_title("  [session] Message from Fix (session c1): Started working.").as_deref(),
+            Some("Message from Fix (session c1): Started working.")
+        );
+        // A person's own brackets stay.
+        assert_eq!(normalize_agent_title("[todo] buy milk").as_deref(), Some("[todo] buy milk"));
+        assert_eq!(normalize_agent_title("[schedule]").as_deref(), Some("[schedule]"));
+    }
+
+    #[test]
+    fn input_tags_match_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/transcript-grouping.json"
+        ))
+        .unwrap();
+        let mut keys: Vec<&str> = fixture["copy"]["markers"].as_object().unwrap().keys().map(String::as_str).collect();
+        let mut tags = INPUT_TAGS.to_vec();
+        keys.sort_unstable();
+        tags.sort_unstable();
+        assert_eq!(tags, keys);
+    }
+
     use super::*;
     use std::process::Command;
 

@@ -4412,7 +4412,8 @@ impl ClaudeSession {
     /// transcript already carries. Never awaited: the answer (a small model
     /// call) lands while the turn runs.
     fn request_title(self: &Arc<Self>, cx: &ConnectionTo<Client>, text: &str) {
-        let trimmed = text.trim();
+        // #EXP-1772: the device's `[<key>] ` lead names nothing.
+        let trimmed = crate::wire::activity::strip_input_tag(text).trim();
         if trimmed.is_empty() || trimmed.starts_with('/') {
             return;
         }

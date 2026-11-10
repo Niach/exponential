@@ -26,7 +26,7 @@ use domain::placeholder_status::PlaceholderStatus;
 
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
-use super::invite_form::{InviteDelivered, InviteForm, InviteFormLayout, ResendTarget};
+use super::invite_form::{InviteDelivered, InviteForm, ResendTarget};
 
 /// Open the dialog over the Members pane. `display_name` leads the
 /// description (web `resendTarget.displayName` / `.name`); `status` picks the
@@ -66,7 +66,7 @@ impl ResendInviteDialogView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let form = cx
-            .new(|cx| InviteForm::new(team_id, Some(target), InviteFormLayout::Stack, false, window, cx));
+            .new(|cx| InviteForm::new(team_id, Some(target), window, cx));
         let subscriptions = vec![
             // A delivered link is the whole errand — the dialog closes on it
             // (web `onInvited`); a failed delivery keeps it open around the
