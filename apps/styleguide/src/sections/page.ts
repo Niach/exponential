@@ -186,6 +186,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`settings-row`]: `Inputs & pickers`,
   [`kbd-group`]: `Inputs & pickers`,
   [`key-recorder`]: `Inputs & pickers`,
+  [`genui-icon-picker`]: `Inputs & pickers`,
+  [`genui-color-picker`]: `Inputs & pickers`,
   embed: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,

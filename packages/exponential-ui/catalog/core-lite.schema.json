@@ -16978,7 +16978,8 @@
               "md",
               "lg",
               "xl",
-              "popover"
+              "popover",
+              "popoverRing"
             ]
           }
         },

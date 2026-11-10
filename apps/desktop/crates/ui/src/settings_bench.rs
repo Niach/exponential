@@ -991,6 +991,14 @@ fn settings_skill_page() {
     skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
 }
 
+/// #EXP-1768: a 30k-char body (no hard break) grows the body to its 40
+/// rows, as the gpui pane did, instead of scrolling at 14.
+#[test]
+#[ignore]
+fn settings_skill_long_body() {
+    skill_page("skill-long-body", Some(skill(false)), true, Some(Ok("word ".repeat(6_000))), false, false);
+}
+
 #[test]
 #[ignore]
 fn settings_skill_loading() {
