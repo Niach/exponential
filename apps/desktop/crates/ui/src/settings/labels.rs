@@ -454,7 +454,7 @@ fn row(ink: &Ink, chrome: &Chrome) -> Value {
     let input = json!({"id": "name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "value": path("name")}, "style": {"flexGrow": 1, "minWidth": 0},
         "on": {"change": {"event": {"name": "rowName", "context": {"key": path("key")}}}, "submit": {"event": {"name": "persist", "context": {"key": path("key")}}}, "blur": {"event": {"name": "persist", "context": {"key": path("key")}}}}});
     let field = json!({"id": "name_box", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "height": 32, "paddingHorizontal": 10}, "children": [input]});
-    // a11y: named by the caller (the third argument is the genUI label)
+    // a11y: named by the caller ("Delete label {name}", the node's accessibility label).
     let delete = ink.ghost_icon_button("delete", "ui-delete", path("deleteLabel"), json!({"name": "delete", "context": {"key": path("key")}}), &chrome.list_hover);
     let row = json!({"id": "row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.375), "borderRadius": ink.radius_md},
         "children": [slot, field, delete]});
