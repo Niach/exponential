@@ -3462,8 +3462,8 @@
         "file": "shots/exponential-ui-icon-picker/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 28754,
-        "sha256": "600c4aac6fb639e0bd153d9c740fc49227a5193fc04b6f0f9ba5e27a00468ba7"
+        "bytes": 28406,
+        "sha256": "5a8409ec74a9c913f35ac3ba6702898227d6430da79d6cd651018d343d0273e6"
       },
       "desktop": {
         "file": "shots/exponential-ui-icon-picker/desktop.webp",
