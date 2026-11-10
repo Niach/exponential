@@ -3564,6 +3564,24 @@
         },
         {
           "when": {
+            "joinTop": true
+          },
+          "style": {
+            "borderTopLeftRadius": 0,
+            "borderTopRightRadius": 0
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true
+          },
+          "style": {
+            "borderBottomLeftRadius": 0,
+            "borderBottomRightRadius": 0
+          }
+        },
+        {
+          "when": {
             "state": "disabled"
           },
           "style": {

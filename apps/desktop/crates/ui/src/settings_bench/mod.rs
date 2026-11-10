@@ -194,6 +194,7 @@ mod prompts;
 mod readiness;
 mod repositories;
 mod row_parity;
+mod select_multi;
 mod select_variants;
 mod sessions;
 mod skills;

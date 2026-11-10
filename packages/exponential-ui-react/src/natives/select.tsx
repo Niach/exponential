@@ -38,7 +38,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -641,7 +641,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     aria-selected={isSel}
                     aria-disabled={bool(o.disabled) || undefined}
                     data-active={isActive ? `` : undefined}
-                    {...(part(`item`, isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
+                    {...(part.with(`item`, selectItemJoins(multiple, shown.length, (j) => selected.includes(shown[j]!.value), i), isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
                     data-mono={bool(o.mono) ? `` : undefined}
                     onPointerMove={() => nav.setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
