@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-quieter-agent-chats`,
+    date: `2026-11-10`,
+    title: `Quieter agent chats`,
+    summary: `Only your messages and the agent's real replies are bubbles: schedule ticks and PR or session updates are small centred markers, and a relayed message names its session above the bubble.`,
+    body: `- **Relayed messages**: a message from another session shows that session's name above the bubble; tap the name to open the session. The whole message shows, never folded.
+- **Small markers**: schedule ticks, merged or opened pull requests, CI and session updates are a small centred line instead of a bubble. A schedule tick only shows when the agent answered it.
+- **No empty replies**: an agent turn with nothing to say shows nothing.`,
+  },
+  {
     id: `2026-11-10-smoother-scrolling`,
     date: `2026-11-10`,
     title: `Smoother scrolling through chats and lists`,

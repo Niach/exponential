@@ -49,6 +49,8 @@ pub struct TranscriptCopy {
     pub former_member: String,
     /// The mark a cross-session sender's name ends with.
     pub link_chevron: String,
+    /// #EXP-1772: the inline marker's label per system-input key.
+    pub markers: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -427,6 +429,101 @@ pub fn cross_session_input(text: &str) -> Option<CrossSessionInput> {
     })
 }
 
+// #EXP-1772: only real messages are bubbles. A system input (a schedule or
+// event firing, a PR or session status line) is THE inline marker, drawn
+// only above the agent's reply to it.
+
+/// A feed input read back (`feedInput`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeedInput {
+    /// A device-tagged (or the server's own untagged firing) system line:
+    /// `key` of `copy.markers`, `label` its copy.
+    Marker { key: String, label: String },
+    /// Another session's message or a child's report.
+    Relay { name: String, session_id: String, body: String, report: bool },
+}
+
+static TAG_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\[([a-z_]+)\] ").expect("the tag pattern compiles"));
+static SCHEDULE_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^Schedule `[^`\n]+`[^\n]* fired").expect("the schedule pattern compiles"));
+static EVENT_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^Event `[^`\n]+` \(from ").expect("the event pattern compiles"));
+
+fn marker(key: &str) -> Option<FeedInput> {
+    let label = copy().markers.get(key)?;
+    Some(FeedInput::Marker { key: key.to_string(), label: label.clone() })
+}
+
+/// A feed input: the device's tagged system line = a marker, another
+/// session's input = a relay, else `None` (a person's prompt).
+pub fn feed_input(text: &str) -> Option<FeedInput> {
+    if let Some(found) = TAG_PATTERN.captures(text).and_then(|tag| marker(&tag[1])) {
+        return Some(found);
+    }
+    if SCHEDULE_PATTERN.is_match(text) {
+        return marker("schedule");
+    }
+    if EVENT_PATTERN.is_match(text) {
+        return marker("event");
+    }
+    let cross = cross_session_input(text)?;
+    Some(FeedInput::Relay {
+        name: cross.name,
+        session_id: cross.session_id,
+        body: cross.body,
+        report: cross.kind == CrossSessionKind::Report,
+    })
+}
+
+/// What a feed row is to `markers_shown`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedRowKind {
+    /// A system input (`feed_input` = a marker).
+    Marker,
+    /// Any other input (a person's prompt, a relay).
+    Input,
+    /// Agent prose with text.
+    Reply,
+    /// Work, cards, everything else.
+    Other,
+}
+
+impl FeedRowKind {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "marker" => Some(Self::Marker),
+            "input" => Some(Self::Input),
+            "reply" => Some(Self::Reply),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
+/// Per row: is it drawn? A marker only when a reply follows it before the
+/// next input or marker; every other row always.
+pub fn markers_shown(kinds: &[FeedRowKind]) -> Vec<bool> {
+    let mut shown = vec![true; kinds.len()];
+    let mut pending: Option<usize> = None;
+    for (index, kind) in kinds.iter().enumerate() {
+        match kind {
+            FeedRowKind::Marker | FeedRowKind::Input => {
+                if let Some(at) = pending {
+                    shown[at] = false;
+                }
+                pending = (*kind == FeedRowKind::Marker).then_some(index);
+            }
+            FeedRowKind::Reply => pending = None,
+            FeedRowKind::Other => {}
+        }
+    }
+    if let Some(at) = pending {
+        shown[at] = false;
+    }
+    shown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +643,46 @@ mod tests {
                 })
             });
             assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_feed_input_case_reads() {
+        let fixture = fixture();
+        let cases = fixture["feedInputCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let got = feed_input(case["text"].as_str().unwrap()).map(|input| match input {
+                FeedInput::Marker { key, label } => json!({"kind": "marker", "key": key, "label": label}),
+                FeedInput::Relay { name, session_id, body, report } => json!({
+                    "kind": "relay",
+                    "name": name,
+                    "sessionId": session_id,
+                    "body": body,
+                    "report": report,
+                }),
+            });
+            assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_marker_case_matches() {
+        let fixture = fixture();
+        let cases = fixture["markerCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let kinds: Vec<FeedRowKind> = case["kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|kind| FeedRowKind::parse(kind.as_str().unwrap()).unwrap())
+                .collect();
+            let expected: Vec<bool> =
+                case["expected"].as_array().unwrap().iter().map(|v| v.as_bool().unwrap()).collect();
+            assert_eq!(markers_shown(&kinds), expected, "{name}");
         }
     }
 

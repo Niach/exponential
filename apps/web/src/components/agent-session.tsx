@@ -46,6 +46,7 @@ import { linkSegments } from "@/lib/linkify"
 import { Check, X } from "lucide-react"
 import {
   AskCard,
+  TranscriptMarker,
   DockSheetBody,
   markDockOpen,
   AskPrompt,
@@ -102,7 +103,7 @@ import {
   type WorkCardLaneTarget,
 } from "@exp/ui"
 import {
-  crossSessionInput,
+  feedInput,
   transcriptLayout,
   type TranscriptItem,
   type TranscriptRowLayout,
@@ -127,6 +128,7 @@ import {
   freeAnswerFor,
   BACK_TO_CURRENT_STEP,
   groupFeedRows,
+  shownFeedRows,
   groupLaneRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
@@ -422,8 +424,9 @@ export function AgentSessionView({
   }, [feed, windowFrom])
   /** Render rows: tool runs collapse, one ask's questions become a stepper,
    *  a subagent's work its own group — a projection only. */
+  // #EXP-1772: a system input only above the reply it got, no blank turns.
   const rows = useMemo(
-    () => groupFeedRows(feed, windowStart),
+    () => shownFeedRows(groupFeedRows(feed, windowStart)),
     [feed, windowStart]
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
@@ -826,22 +829,31 @@ export function AgentSessionView({
         // EXP-724: a steered slash command renders as a compact pill.
         const command = parseSteerCommand(item.text, agentCommands)
         if (command) return wrap(<CommandRow name={command.command.name} args={command.args} />)
+        // #EXP-1772: a system input (a firing, a PR or session line) is
+        // THE inline marker (`shownFeedRows` kept it: a reply follows).
+        const input = feedInput(item.text)
+        if (input?.kind === `marker`) return wrap(<TranscriptMarker label={input.label} />)
         // #EXP-1736: another session's input = that session's bubble.
         // (ONE origin rule: the first prompt may be the origin's.)
-        const cross = crossSessionInput(item.text)
+        // #EXP-1772: a relay's name sits above it, the one link; never folded.
         const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
           <UserMessageBubble
-            text={cross ? cross.body : item.text}
+            text={input?.kind === `relay` ? input.body : item.text}
             side={layout?.side === `other` ? `in` : `out`}
-            author={bubbleName}
-            onPress={link && onOpenSession ? () => onOpenSession(link) : undefined}
+            author={link ? null : bubbleName}
+            relay={
+              link && layout?.name && sender
+                ? { name: sender.name, onPress: onOpenSession ? () => onOpenSession(link) : undefined }
+                : null
+            }
+            fold={!link}
             time={item.at ? userMessageTime(item.at) : null}
           />
         )
       }
       case `compaction`:
-        return wrap(<CompactionRow />)
+        return wrap(<TranscriptMarker label={COMPACTED_LABEL} />)
       case `api_error`:
         return wrap(
           <ApiErrorRow message={item.message} errorType={item.errorType} />
@@ -1291,7 +1303,8 @@ export function feedTranscriptLayout(
         return { id, kind: `message`, authorKind: `agent` }
       case `user_message`: {
         if (commandDivider(item.text ?? ``) || options.isCommand?.(item.text ?? ``)) return { id, kind: `full` }
-        const cross = crossSessionInput(item.text ?? ``)
+        const cross = feedInput(item.text ?? ``)
+        if (cross?.kind === `marker`) return { id, kind: `full` }
         if (cross) {
           if (!sessions.has(cross.sessionId)) {
             sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
@@ -1859,8 +1872,14 @@ const UserMessageBubble = memo(function UserMessageBubble({
   side = `out`,
   author = null,
   onPress,
+  relay = null,
+  fold = true,
   time = null,
 }: {
+  /** #EXP-1772: a relay's session name above the bubble (its one link). */
+  relay?: { name: string; onPress?: () => void } | null
+  /** #EXP-1772: false = never folded (a relay shows its whole text). */
+  fold?: boolean
   text: string
   /** #EXP-1736: `in` = another session's input (its bubble, its name). */
   side?: `in` | `out`
@@ -1877,9 +1896,9 @@ const UserMessageBubble = memo(function UserMessageBubble({
   // Clamp the PROSE, never the wire message: four embed lines are four more
   // "lines" of nothing, and they used to push a two-line steer into the fold
   // — which then hid the images the fold was measuring.
-  const { expanded, setExpanded, clampable } = useClampToggle(
-    hasAttachments ? body : text
-  )
+  const clamp = useClampToggle(hasAttachments ? body : text)
+  const { expanded, setExpanded } = clamp
+  const clampable = fold && clamp.clampable
   const [preview, setPreview] = useState<number | null>(null)
   const openMarker = (index: number) => {
     if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
@@ -1888,7 +1907,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
     <>
       {/* #EXP-1736: THE message bubble (EXP-696's neutral glass for the
           viewer's own turn). */}
-      <MessageBubble side={side} author={author} onPress={onPress} time={time}>
+      <MessageBubble side={side} author={author} onPress={onPress} relay={relay} time={time}>
       <div className={TRANSCRIPT_BODY_TEXT}>
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
@@ -1988,18 +2007,6 @@ function CommandRow({ name, args }: { name: string; args: string }) {
 
 /** EXP-724: the hairline a finished compaction leaves in the transcript —
  *  everything above it is no longer in the agent's context. */
-function CompactionRow() {
-  return (
-    <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>
-      <span className="h-px flex-1 bg-border/60" />
-      <span className="shrink-0 text-muted-foreground/70">
-        {COMPACTED_LABEL}
-      </span>
-      <span className="h-px flex-1 bg-border/60" />
-    </div>
-  )
-}
-
 type AnswerHandler = (
   item: QuestionItem,
   keys: string[],

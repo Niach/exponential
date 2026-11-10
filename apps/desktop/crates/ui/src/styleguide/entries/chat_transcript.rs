@@ -18,7 +18,7 @@ use gpui_component::v_flex;
 use serde_json::json;
 
 use domain::chats::{DividerKind, CHATS};
-use domain::session_tree::{CardSurface, SessionChatRow};
+use domain::session_tree::{CardSurface, SessionChatRow, SessionXref};
 
 use crate::markdown::ImageCache;
 use crate::session_chat::{card_row, message_bubble, message_markdown, ChatText, MessageBubble};
@@ -60,6 +60,10 @@ pub(crate) fn message(id: &str, author: &str, body: &str) -> SessionChatRow {
     }
 }
 
+fn event(id: &str, kind: &str, text: &str) -> SessionChatRow {
+    SessionChatRow::Event { id: id.into(), event: kind.into(), text: text.into(), session_id: None }
+}
+
 fn plan(id: &str, text: &str, decision: Option<&str>) -> SessionChatRow {
     SessionChatRow::Plan {
         id: id.into(),
@@ -93,6 +97,28 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
         (SessionChatRow::Divider { id: "d1".into(), kind: DividerKind::Compact, at: String::new() }, "18:20"),
         (message("m3", "user", "Anything new overnight?"), "09:02"),
         (message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."), ""),
+        // #EXP-1772: a busy agent chat: a schedule firing the agent answered
+        // (THE marker above the reply), a merge line, a relay (its name above).
+        (event("e1", "trigger_fired", "Schedule"), ""),
+        (message("m6", "agent", "PR #412 merged overnight; the iPad sign-in reports stopped."), "07:00"),
+        (event("e2", "pr_merged", "Merged PR #412"), ""),
+        (
+            SessionChatRow::Message {
+                id: "x2".into(),
+                author: "agent".into(),
+                author_id: None,
+                body: "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.".into(),
+                queued: false,
+                author_session_id: Some("c-fix".into()),
+                xref: Some(SessionXref {
+                    kind: "message".into(),
+                    session_id: "c-fix".into(),
+                    name: "Fix the sign-in redirect".into(),
+                    agent_id: None,
+                }),
+            },
+            "08:41",
+        ),
         (SessionChatRow::Divider { id: "d2".into(), kind: DividerKind::New, at: String::new() }, "09:30"),
     ]
 }
@@ -101,7 +127,9 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
     let text = ChatText::default().answering(true);
     match row {
         // #EXP-1736: THE bubble: the viewer's own right, the agent's left.
-        SessionChatRow::Message { id, author, body, queued, .. } => {
+        SessionChatRow::Message { id, author, body, queued, xref, .. } => {
+            // A relay (another session's message) names its session, `name ›`.
+            let relay = xref.as_ref().filter(|xref| xref.kind == "message");
             let markdown = message_markdown(SharedString::from(format!("sg-chat-message-{id}")), body, &text, images);
             message_bubble(
                 MessageBubble {
@@ -109,8 +137,8 @@ pub(crate) fn paint(row: &SessionChatRow, time: &str, images: &Entity<ImageCache
                     body: markdown.into_any_element(),
                     time: time.to_string(),
                     own: author == domain::contract::MESSAGE_AUTHOR_KIND_USER,
-                    name: None,
-                    link: None,
+                    name: relay.map(|xref| format!("{} {}", xref.name, domain::transcript_grouping::copy().link_chevron)),
+                    link: relay.map(|xref| xref.session_id.clone()),
                     queued: *queued,
                     unqueue: None,
                     width: None,

@@ -399,10 +399,34 @@ const TRANSCRIPT_ROWS: SessionChatRow[] = [
     summary: `Done: the redirect keeps the return URL now. PR #412 is open, checks are green.`,
     xref: { kind: `report`, sessionId: `c-fix`, name: `Fix the sign-in redirect`, agentId: null },
   },
+  // #EXP-1772: a busy agent chat: a schedule firing the agent answered
+  // (THE marker above the reply), a merge line, a relay (its name above).
+  { type: `event`, id: `e1`, event: `trigger_fired`, text: `Schedule`, sessionId: null },
+  {
+    type: `message`,
+    id: `m6`,
+    author: `agent`,
+    authorId: null,
+    body: `PR #412 merged overnight; the iPad sign-in reports stopped.`,
+    queued: false,
+    authorSessionId: null,
+    xref: null,
+  },
+  { type: `event`, id: `e2`, event: `pr_merged`, text: `Merged PR #412`, sessionId: null },
+  {
+    type: `message`,
+    id: `x2`,
+    author: `agent`,
+    authorId: null,
+    body: `Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.`,
+    queued: false,
+    authorSessionId: `c-fix`,
+    xref: { kind: `message`, sessionId: `c-fix`, name: `Fix the sign-in redirect`, agentId: null },
+  },
   { type: `divider`, id: `d2`, kind: `new`, at: `2026-10-24T09:30:00` },
 ]
 
-const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03` }
+const TIMES: Record<string, string> = { m1: `21:02`, m2: `21:14`, m3: `09:02`, m4: `09:03`, m5: `09:03`, m6: `07:00`, x2: `08:41` }
 
 /** #EXP-1736: the specimens' chat (a plain session) and its people. */
 const SPECIMEN_CHAT = { sessionId: `r`, title: `Reduce cold start`, agentId: null }
