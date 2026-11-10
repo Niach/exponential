@@ -115,9 +115,8 @@ pub const ENTER: Duration = STANDARD;
 /// [`accelerate`], opacity only.
 pub const EXIT: Duration = FAST;
 
-/// EXP-1243: the motion rules, in the web styleguide's `tokens-motion`
-/// order (`apps/styleguide/src/components.tsx`): what moves, and how. The
-/// IDE styleguide lists them under its feedback-states entry.
+/// EXP-1243: the motion rules, in the web's `tokens-motion` order: what
+/// moves, and how.
 pub fn rules() -> Vec<(&'static str, String)> {
     let (fast, standard, slow) = (
         m::duration::FAST_MS,

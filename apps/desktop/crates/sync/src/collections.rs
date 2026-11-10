@@ -24,7 +24,7 @@
 //! the same transitions ([`Store::connect`] / [`Store::sign_out`] /
 //! the drain's `Unauthorized` handling).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -168,6 +168,11 @@ pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn seal_closed(&self) -> bool {
         false
     }
+    /// #LOGS-11: the group the collection indexes the row under
+    /// ([`Collection::in_group`]); `None` = none.
+    fn group(&self) -> Option<&str> {
+        None
+    }
 }
 
 macro_rules! id_shape_row {
@@ -217,6 +222,9 @@ id_shape_row!(SkillRow, "skills");
 /// EXP-1459: the three shapes that carry sealed content.
 macro_rules! sealed_shape_row {
     ($ty:ty, $name:literal, $open:ident, $closed:expr) => {
+        sealed_shape_row!($ty, $name, $open, $closed, |_| None);
+    };
+    ($ty:ty, $name:literal, $open:ident, $closed:expr, $group:expr) => {
         impl ShapeRow for $ty {
             fn spec() -> &'static ShapeSpec {
                 shape_by_name($name).expect("shape registered")
@@ -231,6 +239,10 @@ macro_rules! sealed_shape_row {
                 let closed: fn(&$ty) -> bool = $closed;
                 closed(self)
             }
+            fn group(&self) -> Option<&str> {
+                let group: fn(&$ty) -> Option<&str> = $group;
+                group(self)
+            }
         }
     };
 }
@@ -238,7 +250,8 @@ macro_rules! sealed_shape_row {
 // A title opens through the key cache, which tells no closed state: every
 // session re-opens (one cheap pass over the trees).
 sealed_shape_row!(SessionRow, "sessions", open_session, |_| true);
-sealed_shape_row!(MessageRow, "messages", open_message, |row| domain::sealed::is_closed(row.seal));
+// #LOGS-11: indexed by their session (a chat reads its own rows, never all).
+sealed_shape_row!(MessageRow, "messages", open_message, |row| domain::sealed::is_closed(row.seal), domain::message_session::message_session);
 sealed_shape_row!(ConversationRow, "conversations", open_conversation, |row| {
     domain::chats::ConversationDigest::decode(row.digest.as_ref()).is_some_and(|digest| {
         [&digest.first, &digest.preview, &digest.waiting]
@@ -276,6 +289,18 @@ impl ShapeRow for IssueLabel {
 pub struct Collection<T> {
     rows: HashMap<RowKey, T>,
     seeded: HashMap<RowKey, T>,
+    /// #LOGS-11: [`ShapeRow::group`] → the keys of its rows (both maps),
+    /// kept per write.
+    groups: HashMap<String, HashSet<RowKey>>,
+    /// #LOGS-11: the [`Collection::revision`] each group last changed at
+    /// (a write in it, a row moving in or out); `group_floor` = the last
+    /// wholesale write, which moves every group.
+    group_revisions: HashMap<String, u64>,
+    group_floor: u64,
+    /// #LOGS-11: the last [`CHANGE_LOG`] row writes, by the revision they
+    /// made; nothing before `log_floor` (a wholesale write) is told.
+    log: std::collections::VecDeque<(u64, RowKey)>,
+    log_floor: u64,
     phase: ShapeSyncPhase,
     revision: u64,
     /// S-3: the shape reached `up-to-date` in THIS process. The persisted
@@ -289,6 +314,11 @@ impl<T> Collection<T> {
         Self {
             rows: HashMap::new(),
             seeded: HashMap::new(),
+            groups: HashMap::new(),
+            group_revisions: HashMap::new(),
+            group_floor: 0,
+            log: std::collections::VecDeque::new(),
+            log_floor: 0,
             phase: ShapeSyncPhase::Waiting,
             revision: 0,
             caught_up: false,
@@ -327,15 +357,6 @@ impl<T> Collection<T> {
         self.seeded.contains_key(&RowKey::Single(id.to_string()))
     }
 
-    /// Optimistically insert a locally-built row (EXP-470). No-op when sync
-    /// already delivered the key.
-    pub fn seed(&mut self, key: RowKey, row: T) {
-        if self.rows.contains_key(&key) {
-            return;
-        }
-        self.seeded.insert(key, row);
-        self.revision += 1;
-    }
 
     /// Monotonic change counter — bumps on every applied delta.
     pub fn revision(&self) -> u64 {
@@ -360,36 +381,149 @@ impl<T> Collection<T> {
         self.phase = phase;
     }
 
+}
+
+impl<T: ShapeRow> Collection<T> {
+    /// #LOGS-11: the rows [`ShapeRow::group`] puts under `group` (a chat's
+    /// messages), store order; no scan of the collection.
+    pub fn in_group<'a>(&'a self, group: &str) -> impl Iterator<Item = &'a T> + 'a {
+        self.groups.get(group).into_iter().flatten().filter_map(|key| self.get_key(key))
+    }
+
+    /// #LOGS-11: the keys written since `revision` (each once, oldest
+    /// first); `None` = not told that far back (a wholesale write, or more
+    /// than [`CHANGE_LOG`] writes since).
+    pub fn changed_since(&self, revision: u64) -> Option<Vec<&RowKey>> {
+        if revision < self.log_floor {
+            return None;
+        }
+        let first_told = self.log.front().map_or(self.revision + 1, |(at, _)| *at);
+        if first_told > revision + 1 && revision < self.revision {
+            return None;
+        }
+        let mut seen: HashSet<&RowKey> = HashSet::new();
+        Some(self.log.iter().filter(|(at, _)| *at > revision).map(|(_, key)| key).filter(|key| seen.insert(*key)).collect())
+    }
+
+    fn note_write(&mut self, key: &RowKey) {
+        if self.log.len() == CHANGE_LOG {
+            self.log.pop_front();
+        }
+        self.log.push_back((self.revision, key.clone()));
+    }
+
+    /// #LOGS-11: when anything in `group` last changed ([`Self::revision`]
+    /// terms): a reader of one group skips the writes to every other.
+    pub fn group_revision(&self, group: &str) -> u64 {
+        self.group_revisions.get(group).copied().unwrap_or(0).max(self.group_floor)
+    }
+
+    fn index(&mut self, key: &RowKey, row: &T) {
+        if let Some(group) = row.group() {
+            self.groups.entry(group.to_string()).or_default().insert(key.clone());
+            // The write's revision (the caller bumps it right after).
+            self.group_revisions.insert(group.to_string(), self.revision + 1);
+        }
+    }
+
+    fn unindex(&mut self, key: &RowKey, row: &T) {
+        let Some(group) = row.group() else { return };
+        self.group_revisions.insert(group.to_string(), self.revision + 1);
+        if let Some(keys) = self.groups.get_mut(group) {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.groups.remove(group);
+            }
+        }
+    }
+
+    fn reindex(&mut self) {
+        let mut groups: HashMap<String, HashSet<RowKey>> = HashMap::new();
+        for (key, row) in self.rows.iter().chain(self.seeded.iter()) {
+            if let Some(group) = row.group() {
+                groups.entry(group.to_string()).or_default().insert(key.clone());
+            }
+        }
+        self.groups = groups;
+        self.group_revisions.clear();
+        self.group_floor = self.revision + 1;
+        self.log.clear();
+        self.log_floor = self.revision + 1;
+    }
+
+    /// Optimistically insert a locally-built row (EXP-470). No-op when sync
+    /// already delivered the key.
+    pub fn seed(&mut self, key: RowKey, row: T) {
+        if self.rows.contains_key(&key) {
+            return;
+        }
+        self.index(&key, &row);
+        if let Some(old) = self.seeded.insert(key.clone(), row) {
+            self.unindex_unless_same(&key, &old);
+        }
+        self.revision += 1;
+        self.note_write(&key);
+    }
+
+    /// An old row's group entry, unless the row that replaced it under
+    /// `key` sits in the same group.
+    fn unindex_unless_same(&mut self, key: &RowKey, old: &T) {
+        let current = self.get_key(key).and_then(|row| row.group()).map(str::to_string);
+        if old.group() != current.as_deref() {
+            self.unindex(key, old);
+        }
+    }
+
     fn replace_all(&mut self, rows: Vec<(RowKey, T)>) {
         self.rows = rows.into_iter().collect();
         // Only a snapshot that CONTAINS a seeded key confirms it; a snapshot
         // without it may predate the mutation (stale where clause) and must
         // not evict the optimistic row.
         self.seeded.retain(|key, _| !self.rows.contains_key(key));
+        self.reindex();
         self.revision += 1;
     }
 
     fn upsert(&mut self, key: RowKey, row: T) {
-        self.seeded.remove(&key);
-        self.rows.insert(key, row);
+        self.index(&key, &row);
+        let seeded = self.seeded.remove(&key);
+        let old = self.rows.insert(key.clone(), row);
+        for old in seeded.iter().chain(old.iter()) {
+            self.unindex_unless_same(&key, old);
+        }
         self.revision += 1;
+        self.note_write(&key);
     }
 
     fn remove(&mut self, key: &RowKey) {
-        let seeded = self.seeded.remove(key).is_some();
-        if self.rows.remove(key).is_some() || seeded {
+        let seeded = self.seeded.remove(key);
+        let row = self.rows.remove(key);
+        for old in seeded.iter().chain(row.iter()) {
+            self.unindex(key, old);
+        }
+        if row.is_some() || seeded.is_some() {
             self.revision += 1;
+            self.note_write(key);
         }
     }
 
     fn clear(&mut self) {
         self.rows.clear();
         self.seeded.clear();
+        self.groups.clear();
+        self.group_revisions.clear();
+        self.group_floor = self.revision + 1;
+        self.log.clear();
+        self.log_floor = self.revision + 1;
         self.phase = ShapeSyncPhase::Waiting;
         self.revision += 1;
         self.caught_up = false;
     }
 }
+
+/// #LOGS-11: how many row writes a collection tells
+/// ([`Collection::changed_since`]).
+const CHANGE_LOG: usize = 1024;
 
 /// Decode store-hydrated JSON objects into typed rows, dropping (and logging)
 /// anything unhydratable — §5.5: a bad value is caught at hydrate, never at
@@ -693,6 +827,15 @@ impl Collections {
         self.observe_all_with(cx, |_, cx| cx.notify())
     }
 
+    fn observe_all_except<V: 'static>(&self, skip: &'static [&'static str], cx: &mut gpui::Context<V>) -> Vec<Subscription> {
+        fn observe<T: ShapeRow, V: 'static>(entity: &Entity<Collection<T>>, skip: &[&str], cx: &mut gpui::Context<V>) -> Option<Subscription> {
+            (!skip.contains(&T::spec().name)).then(|| cx.observe(entity, |_, _, cx| cx.notify()))
+        }
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
+        for_each_collection!(self, entity => out.extend(observe(entity, skip, cx)));
+        out
+    }
+
     /// Run `on_change` on `V` whenever ANY of the 34 collections notifies
     /// (EXP-1326: the IDE's cached dock area re-renders on every synced
     /// change this way, so a screen reading a collection without observing
@@ -707,6 +850,18 @@ impl Collections {
             let on_change = on_change.clone();
             out.push(cx.observe(entity, move |this, _, cx| on_change(this, cx)))
         });
+        out
+    }
+
+    /// #LOGS-11: every collection's revision but those of the shapes named
+    /// in `skip`, for a view that derives from many of them: an equal
+    /// answer = nothing it reads moved.
+    pub fn revisions_except(&self, skip: &[&str], cx: &App) -> Vec<u64> {
+        fn revision<T: ShapeRow>(entity: &Entity<Collection<T>>, skip: &[&str], cx: &App) -> Option<u64> {
+            (!skip.contains(&T::spec().name)).then(|| entity.read(cx).revision())
+        }
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
+        for_each_collection!(self, entity => out.extend(revision(entity, skip, cx)));
         out
     }
 }
@@ -1123,6 +1278,13 @@ impl Store {
     /// collections they read (§5.8 fine-grained rule).
     pub fn observe_collections<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
         self.collections.observe_all(cx)
+    }
+
+    /// [`Self::observe_collections`] without the shapes named in `skip`
+    /// (#LOGS-11: a view that never reads the transcripts or the event
+    /// stream re-rendered on every streamed message).
+    pub fn observe_collections_except<V: 'static>(&self, skip: &'static [&'static str], cx: &mut gpui::Context<V>) -> Vec<Subscription> {
+        self.collections.observe_all_except(skip, cx)
     }
 
     // -- session transitions (§5 state machine) ------------------------------
@@ -1759,6 +1921,65 @@ mod tests {
         collection.clear();
         assert!(!collection.is_seeded("t-new"));
         assert!(collection.is_empty());
+    }
+
+    /// #LOGS-11: a chat's messages read through the group index, kept
+    /// through every write (a moved row leaves its old group).
+    #[test]
+    fn messages_group_by_session_through_every_write() {
+        let message = |id: &str, session: &str| -> MessageRow {
+            serde_json::from_value(serde_json::json!({"id": id, "session_id": session})).unwrap()
+        };
+        let ids = |collection: &Collection<MessageRow>, session: &str| {
+            let mut ids: Vec<String> = collection.in_group(session).map(|m| m.id.clone()).collect();
+            ids.sort();
+            ids
+        };
+        let mut collection: Collection<MessageRow> = Collection::new();
+        collection.replace_all(vec![(message("m1", "s1").key(), message("m1", "s1")), (message("m2", "s2").key(), message("m2", "s2"))]);
+        collection.seed(message("m3", "s1").key(), message("m3", "s1"));
+        assert_eq!(ids(&collection, "s1"), ["m1", "m3"]);
+        // The sync echo of a seeded row, and a row that moves session.
+        collection.upsert(message("m3", "s1").key(), message("m3", "s1"));
+        collection.upsert(message("m1", "s2").key(), message("m1", "s2"));
+        assert_eq!(ids(&collection, "s1"), ["m3"]);
+        assert_eq!(ids(&collection, "s2"), ["m1", "m2"]);
+        collection.remove(&message("m2", "s2").key());
+        assert_eq!(ids(&collection, "s2"), ["m1"]);
+        // A session-less row belongs to none.
+        collection.upsert(message("m4", "").key(), message("m4", ""));
+        assert!(ids(&collection, "").is_empty());
+        // A write moves its own group's revision only.
+        let (s1, s2) = (collection.group_revision("s1"), collection.group_revision("s2"));
+        collection.upsert(message("m5", "s2").key(), message("m5", "s2"));
+        assert_eq!(collection.group_revision("s1"), s1);
+        assert!(collection.group_revision("s2") > s2);
+        collection.clear();
+        assert!(ids(&collection, "s1").is_empty());
+        assert!(collection.group_revision("s1") > s1);
+    }
+
+    /// #LOGS-11: a reader asks which rows moved since its revision; a
+    /// wholesale write tells nothing older.
+    #[test]
+    fn the_change_log_tells_the_keys_written_since_a_revision() {
+        let message = |id: &str| -> MessageRow { serde_json::from_value(serde_json::json!({"id": id, "session_id": "s1"})).unwrap() };
+        let mut collection: Collection<MessageRow> = Collection::new();
+        collection.replace_all(vec![(message("m1").key(), message("m1"))]);
+        let at = collection.revision();
+        assert_eq!(collection.changed_since(at), Some(vec![]));
+        collection.upsert(message("m2").key(), message("m2"));
+        collection.upsert(message("m2").key(), message("m2"));
+        collection.remove(&message("m1").key());
+        let keys: Vec<RowKey> = collection.changed_since(at).unwrap().into_iter().cloned().collect();
+        assert_eq!(keys, vec![message("m2").key(), message("m1").key()]);
+        assert_eq!(collection.changed_since(at - 1), None, "before the wholesale write");
+        for n in 0..CHANGE_LOG {
+            collection.upsert(message(&format!("x{n}")).key(), message(&format!("x{n}")));
+        }
+        assert_eq!(collection.changed_since(at), None, "past the log");
+        let recent = collection.revision() - 1;
+        assert_eq!(collection.changed_since(recent).map(|keys| keys.len()), Some(1));
     }
 
     #[test]
