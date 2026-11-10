@@ -538,6 +538,10 @@ mod tests {
             mono: "Lilex".into(),
             pill_button_fill: "#ffffff0f".into(),
             pill_button_fill_disabled: "#ffffff0b".into(),
+            primary_button_fill: "#f4f4f5ff".into(),
+            primary_button_hover: "#e4e4e7ff".into(),
+            primary_button_fill_disabled: "#f4f4f580".into(),
+            primary_button_fg: "#18181bff".into(),
         };
         let tree: eui_core::NestedNode = serde_json::from_value(document(&ink)).expect("parses");
         assert_eq!(tree.id, "root");
