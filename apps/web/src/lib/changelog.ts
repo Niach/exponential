@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-smoother-scrolling`,
+    date: `2026-11-10`,
+    title: `Smoother scrolling through chats and lists`,
+    summary: `Scrolling a long chat or list in the desktop app redraws only what moves, and Exponential Desktop 0.2.14 brings Fable 5.2 and the wider chat.`,
+    body: `- **Smoother scrolling**: a long chat's first cards and a scrolled list in the desktop app redraw only what moves into view.
+- **Exponential Desktop 0.2.14**: Fable 5.2 and the wider chat with the one-line composer, like the desktop app.`,
+  },
+  {
     id: `2026-11-10-fable-5-2`,
     date: `2026-11-10`,
     title: `Fable is always Fable 5.2`,
