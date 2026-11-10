@@ -83,7 +83,29 @@ pub struct StatusesPane {
     create_error: Option<String>,
     /// (status id, message) — inline error under a row.
     row_error: Option<(String, String)>,
+    /// The bench's state (headless has no team, statuses or issues).
+    #[cfg(test)]
+    shot: Option<StatusesShot>,
+    /// The bench's create-form text, applied at the next render (it needs
+    /// the window).
+    #[cfg(test)]
+    shot_name: Option<String>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct StatusesShot {
+    /// The team's statuses (any order: they are sorted as the synced ones).
+    pub rows: Vec<IssueStatusRow>,
+    /// Status id -> its issue count.
+    pub counts: HashMap<String, usize>,
+    /// The statuses shape has synced (no rows + ready = the empty state).
+    pub ready: bool,
+    /// The category whose create form is open, and its typed name.
+    pub creating: Option<(IssueStatusCategory, String)>,
+    /// (status id, message) under a row.
+    pub row_error: Option<(String, String)>,
 }
 
 impl StatusesPane {
@@ -132,14 +154,55 @@ impl StatusesPane {
             submitting: false,
             create_error: None,
             row_error: None,
+            #[cfg(test)]
+            shot: None,
+            #[cfg(test)]
+            shot_name: None,
             _subscriptions: subscriptions,
         };
         this.sync_inputs(window, cx);
         this
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        Self::new(nav, window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: StatusesShot, cx: &mut gpui::Context<Self>) {
+        self.creating = shot.creating.as_ref().map(|(category, _)| *category);
+        self.shot_name = Some(shot.creating.as_ref().map(|(_, name)| name.clone()).unwrap_or_default());
+        self.row_error = shot.row_error.clone();
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
     fn team_id(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return Some("team-shots".to_string());
+        }
         active_team_id(&self.nav, cx)
+    }
+
+    /// The team's statuses in the canonical order.
+    fn sorted_rows(&self, team_id: &str, cx: &App) -> Vec<IssueStatusRow> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return domain::statuses::sort_team_statuses(&shot.rows);
+        }
+        crate::queries::team_statuses(cx, team_id)
+    }
+
+    /// The statuses shape has synced.
+    fn statuses_ready(&self, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.ready;
+        }
+        Store::global(cx).collections().issue_statuses.read(cx).is_ready()
     }
 
     /// The team's statuses in the canonical order, each paired with its
@@ -149,7 +212,7 @@ impl StatusesPane {
         let Some(team_id) = self.team_id(cx) else {
             return Vec::new();
         };
-        let sorted = crate::queries::team_statuses(cx, &team_id);
+        let sorted = self.sorted_rows(&team_id, cx);
         (0..sorted.len())
             .map(|index| (sorted[index].clone(), resolve_row(&sorted, index)))
             .collect()
@@ -160,6 +223,10 @@ impl StatusesPane {
     /// their anchor to the matching builtin).
     fn issue_counts(&self, cx: &App) -> HashMap<String, usize> {
         let mut counts: HashMap<String, usize> = HashMap::new();
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.counts.clone();
+        }
         let Some(team_id) = self.team_id(cx) else {
             return counts;
         };
@@ -970,6 +1037,17 @@ impl StatusesPane {
 impl Render for StatusesPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "StatusesPane").entered();
+        #[cfg(test)]
+        if let Some(name) = self.shot_name.take() {
+            self.sync_inputs(window, cx);
+            let placeholder = self.creating.map(create_placeholder);
+            self.new_name.update(cx, |state, cx| {
+                state.set_value(name, window, cx);
+                if let Some(placeholder) = placeholder {
+                    state.set_placeholder(placeholder, window, cx);
+                }
+            });
+        }
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
@@ -983,7 +1061,7 @@ impl Render for StatusesPane {
         if statuses.is_empty() {
             // The loading/empty state has no category bands to name the
             // pane, so it keeps the header — the web branch does the same.
-            let ready = Store::global(cx).collections().issue_statuses.read(cx).is_ready();
+            let ready = self.statuses_ready(cx);
             let state = if ready {
                 crate::controls::empty_state_list(
                     gpui_component::Icon::new(crate::icons::registry::SETTINGS_STATUSES),
@@ -1116,7 +1194,7 @@ impl Render for StatusesPane {
 /// The delete dialog's body (EXP-320): the live referencing count + the
 /// destination picker. Its own entity so the async `referencingCount` fetch
 /// can re-render just this block (the surrounding alert never re-renders).
-struct DeleteStatusContent {
+pub(crate) struct DeleteStatusContent {
     /// The offered targets — the duplicate category and the deletee
     /// excluded. Resolved rows, so the picker can draw glyph + tint; every
     /// one is SYNCED, so its `group_key` IS its row id (what `selected_id`
@@ -1131,6 +1209,21 @@ struct DeleteStatusContent {
     synced_count: usize,
     /// Web `prPinNotice` — set only when a live PR automation points here.
     pr_pin_notice: Option<SharedString>,
+}
+
+impl DeleteStatusContent {
+    /// The bench's dialog body: `rows` minus the deletee and the duplicate
+    /// as the targets, Backlog picked.
+    #[cfg(test)]
+    pub(crate) fn for_shots(rows: &[IssueStatusRow], deletee: &str, server_count: Option<i64>, pr_pin_notice: Option<&str>) -> Self {
+        let sorted = domain::statuses::sort_team_statuses(rows);
+        let candidates: Vec<ResolvedStatus> = (0..sorted.len())
+            .map(|index| resolve_row(&sorted, index))
+            .filter(|status| status.group_key != deletee && status.category != IssueStatusCategory::Duplicate)
+            .collect();
+        let selected_id = sorted.iter().find(|row| row.builtin_key.as_deref() == Some("backlog")).map(|row| row.id.clone()).unwrap_or_default();
+        Self { candidates, selected_id, server_count, synced_count: 2, pr_pin_notice: pr_pin_notice.map(|notice| SharedString::from(notice.to_string())) }
+    }
 }
 
 impl Render for DeleteStatusContent {
