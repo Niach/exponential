@@ -17,14 +17,16 @@ use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
 use crate::settings::widget::WidgetPane;
 use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::sign_in_methods::SignInShot;
+use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
-use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
+use crate::settings::tools::{ToolsPane, ToolsShot};
 use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
+use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
@@ -644,6 +646,22 @@ fn settings_branch_menu_ide() {
 #[ignore]
 fn settings_branch_menu_eui() {
     shoot_pane("branch-menu", EuiBranchRow::for_shots, |_, _| {});
+}
+
+/// #EXP-1764 (genUI Select `triggerIcon` + the `brand-claude` mark): the
+/// Agent detail Account row closed (the brand mark, the email, the
+/// chevron), today's IDE row vs the genUI row: run each into its own dir,
+/// the second with `EXP_SETTINGS_BEFORE=<the first's dir>`.
+#[test]
+#[ignore]
+fn settings_account_row_ide() {
+    shoot_pane("account-row", IdeAccountRow::for_shots, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_account_row_eui() {
+    shoot_pane("account-row", EuiAccountRow::for_shots, |_, _| {});
 }
 
 /// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
@@ -1460,6 +1478,579 @@ fn settings_general_member() {
 #[ignore]
 fn settings_general_no_team() {
     general("general-no-team", GeneralShot { team: None, ..general_shot() });
+}
+
+/// #EXP-1629: the IDE's device picker (`picker::device_picker` behind a
+/// `glass_picker_row`) vs genUI Select `triggerVariant: row` with option
+/// `icon` + `description`, closed and open. Shoot `settings_select_ide*`,
+/// then `settings_select_eui*` with `EXP_SETTINGS_BEFORE` at the first: 0 px.
+mod select_variants {
+    use super::*;
+    use serde_json::json;
+    use std::rc::Rc;
+
+    fn rows(long: bool) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
+        let device = |id: &str, name: &str, icon: &str, server: bool, offline: bool| crate::picker::device_picker::DevicePickerDevice {
+            id: id.into(),
+            name: name.into(),
+            icon: Some(icon.into()),
+            server,
+            description: offline.then(|| "Offline".to_string()),
+            disabled: false,
+        };
+        let server = if long { "build-server-eu-central-hetzner-2026" } else { "build-server" };
+        vec![device("d1", "mint", "monitor", false, false), device("d2", server, "server", true, false), device("d3", "macbook", "laptop", false, true)]
+    }
+
+    pub(super) struct Ide(bool, bool);
+
+    impl Render for Ide {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let rows = rows(self.1);
+            let trigger = crate::trigger_editor::picker_trigger("bench-device".into(), "mint", cx).into_any_element();
+            let open = self.0;
+            let control = crate::picker::deferred(move |window, cx| {
+                let picker = crate::picker::device_picker::device_picker(&rows, Some("d1".to_string()), trigger, Rc::new(|_: Vec<String>, _: &mut Window, _: &mut gpui::App| {}))
+                    .id(gpui::SharedString::from("bench-device-picker"));
+                let picker = if open { picker.open(Rc::new(|_: &mut Window, _: &mut gpui::App| {})) } else { picker };
+                picker.render(window, cx)
+            })
+            .into_any_element();
+            crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row("Device", None, control, cx)])
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+        open: Option<u8>,
+    }
+
+    impl Eui {
+        fn new(open: bool, long: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let ink = crate::settings::doc_ink(cx);
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
+            let options: Vec<serde_json::Value> = rows(long).iter().map(|d| {
+                let mut o = json!({"label": d.name, "value": d.id, "icon": crate::icons::device_icon_name(d.icon.as_deref(), d.server)});
+                if let Some(description) = &d.description {
+                    o["description"] = json!(description);
+                }
+                o
+            }).collect();
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [
+                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "popupMinWidth": 170, "options": options}},
+            ]});
+            let view = crate::settings::doc_mount_lifted("bench-select", tree, &binding, window, cx);
+            Self { view, open: open.then_some(2) }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            match self.open {
+                Some(0) => {
+                    self.open = None;
+                    self.view.update(cx, |view, cx| {
+                        if let Some(trigger) = view.index_of("device.trigger") {
+                            view.fire(trigger, "press", None, cx);
+                        }
+                    });
+                }
+                Some(n) => {
+                    self.open = Some(n - 1);
+                    cx.notify();
+                }
+                // The headless clock stands still: the popup's enter fade
+                // runs out on the frames after the press.
+                None if self.view.read(cx).layers().iter().any(|layer| layer.owner == "device") => {
+                    self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+                }
+                None => {}
+            }
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide() {
+        shoot_pane("select", |_, _| Ide(false, false), |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide_open() {
+        shoot_pane_settled("select-open", |_, _| Ide(true, false), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui() {
+        shoot_pane("select", |window, cx| Eui::new(false, false, window, cx), |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui_open() {
+        shoot_pane_settled("select-open", |window, cx| Eui::new(true, false, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide_open_long() {
+        shoot_pane_settled("select-open-long", |_, _| Ide(true, true), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui_open_long() {
+        shoot_pane_settled("select-open-long", |window, cx| Eui::new(true, true, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+}
+
+fn tools_shot(doctor: Option<&'static str>) -> ToolsShot {
+    ToolsShot { repos: "~/code/exp", prefix: "exp/", shell: None, typed: None, doctor, path_open: false }
+}
+
+fn tools(name: &str, shot: ToolsShot) {
+    // Pinned before the first frame (the hub's own doctor run is superseded).
+    shoot_pane(name, move |window, cx| {
+        let mut pane = ToolsPane::for_shots(window, cx);
+        pane.show(shot, window, cx);
+        pane
+    }, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_tools_ready() {
+    tools("tools-ready", tools_shot(Some("ready: git + claude, codex missing, computer use off")));
+}
+
+#[test]
+#[ignore]
+fn settings_tools_dirty() {
+    tools("tools-dirty", ToolsShot { shell: Some("/bin/zsh"), typed: Some("feature/"), ..tools_shot(Some("git missing, claude signed out, codex ok, computer use on (no OS permissions here)")) });
+}
+
+#[test]
+#[ignore]
+fn settings_tools_doctor_running() {
+    tools("tools-doctor-running", tools_shot(None));
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1770: the device readiness block in every host
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn settings_tools_path_open() {
+    tools("tools-path-open", ToolsShot { path_open: true, ..tools_shot(Some("ready: git + claude, codex missing, computer use off")) });
+}
+
+/// A `device-doctor.json` case's block.
+fn doctor_case(name: &str) -> coding::device_doctor::DeviceDoctor {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/device-doctor.json")).expect("the fixture");
+    let case = fixture["cases"].as_array().expect("cases").iter().find(|case| case["name"].as_str() == Some(name)).expect("the case");
+    crate::device_readiness::parse(Some(&case["doctor"])).expect("a block")
+}
+
+const CASE_READY: &str = "ready: git + claude, codex missing, computer use off";
+const CASE_TOO_OLD: &str = "claude too old, computer use on with one macOS permission missing";
+const CASE_GIT_MISSING: &str = "git missing, claude signed out, codex ok, computer use on (no OS permissions here)";
+const CASE_LOW_DISK: &str = "EXP-1375: low disk with two kept worktrees: a warning, never a blocker";
+
+/// What a [`BlockShot`] draws.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    /// A fixture case's block (`local` = this device), its switch wired or
+    /// not, `busy` rows spinning.
+    Case { case: &'static str, local: bool, toggle: bool, busy: &'static [&'static str] },
+    /// The device settings dialog: another device's block with the switch
+    /// on, the Computer use model + Work screen rows under it and a
+    /// finished update's note under Codex.
+    Device,
+    /// The device settings dialog for an older build (no doctor): the bare
+    /// switch row and its tail.
+    DeviceBare,
+    /// The chat composer's row: the agent's blocker or the low-disk warning.
+    Composer { case: &'static str, warning: bool },
+    /// No report yet.
+    Loading,
+}
+
+struct BlockShot {
+    kind: BlockKind,
+    model: crate::coding_selects::ChoiceSelect,
+    work_screen: crate::coding_selects::ChoiceSelect,
+    block: gpui::Entity<crate::settings::readiness::ReadinessBlock>,
+}
+
+impl BlockShot {
+    fn new(kind: BlockKind, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let settings = coding::Settings::default();
+        Self {
+            kind,
+            model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
+            work_screen: crate::coding_selects::work_screen_select(&crate::styleguide::entries::work_screen::demo_displays(), None, window, cx),
+            block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
+        }
+    }
+}
+
+fn block(name: &str, kind: BlockKind) {
+    shoot_pane(name, move |window, cx| BlockShot::new(kind, window, cx), |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_primary() {
+    block("readiness-primary", BlockKind::Case { case: CASE_GIT_MISSING, local: true, toggle: true, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_busy() {
+    block("readiness-busy", BlockKind::Case { case: CASE_TOO_OLD, local: true, toggle: true, busy: &["claude"] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_switch_read_only() {
+    block("readiness-switch-read-only", BlockKind::Case { case: CASE_READY, local: false, toggle: false, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_warning() {
+    block("readiness-warning", BlockKind::Case { case: CASE_LOW_DISK, local: false, toggle: false, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_loading() {
+    block("readiness-loading", BlockKind::Loading);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_device() {
+    block("readiness-device", BlockKind::Device);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_device_bare() {
+    block("readiness-device-bare", BlockKind::DeviceBare);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_composer_blocker() {
+    block("readiness-composer-blocker", BlockKind::Composer { case: CASE_TOO_OLD, warning: false });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_composer_warning() {
+    block("readiness-composer-warning", BlockKind::Composer { case: CASE_LOW_DISK, warning: true });
+}
+
+impl Render for BlockShot {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use crate::device_readiness::{self as readiness, BlockProps};
+        use crate::settings::readiness::Shape;
+        let noop_action: readiness::ActionHandler = std::rc::Rc::new(|_, _, _, _| {});
+        let noop_toggle: readiness::ToggleHandler = std::rc::Rc::new(|_, _, _| {});
+        let block = self.block.clone();
+        let mut show = |shape: Shape, props: BlockProps, cx: &mut gpui::Context<Self>| block.update(cx, |block, cx| block.show(shape, props, cx));
+        match self.kind {
+            BlockKind::Case { case, local, toggle, busy } => {
+                let props = BlockProps {
+                    on_action: Some(noop_action),
+                    on_toggle: toggle.then_some(noop_toggle),
+                    busy: busy.iter().map(|key| key.to_string()).collect(),
+                    ..BlockProps::default()
+                };
+                show(Shape::Sections(&readiness::sections(&doctor_case(case), local, None)), props, cx);
+            }
+            BlockKind::Device => {
+                let mut props = BlockProps {
+                    on_action: Some(noop_action),
+                    on_toggle: Some(noop_toggle),
+                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    ..BlockProps::default()
+                };
+                props.notes.insert("codex".into(), "Updated to 0.156.1".into());
+                show(Shape::Sections(&readiness::sections(&doctor_case(CASE_GIT_MISSING), false, Some(true))), props, cx);
+            }
+            BlockKind::DeviceBare => {
+                let props = BlockProps {
+                    on_toggle: Some(noop_toggle),
+                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    ..BlockProps::default()
+                };
+                show(Shape::Single(&readiness::bare_switch_row(true)), props, cx);
+            }
+            BlockKind::Composer { case, warning } => {
+                let doctor = doctor_case(case);
+                let row = if warning { readiness::warning_row(&doctor, true) } else { readiness::blocking_row(&doctor, coding::CodingAgent::Claude, true) }.expect("a row");
+                show(Shape::Single(&row), crate::chat_screen::ChatScreenView::readiness_row_props(None, cx), cx);
+                // The chat's notes column under the composer.
+                return div().w_full().child(gpui_component::v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs().child(self.block.clone()));
+            }
+            BlockKind::Loading => show(Shape::Loading, BlockProps::default(), cx),
+        }
+        div().w_full().child(self.block.clone())
+    }
+}
+
+/// #EXP-1629: the app editor's Settings tab (`settings::app_detail` and the
+/// `app_mcp` groups), in a window tall enough for every group at once.
+mod app_detail {
+    use super::*;
+    use crate::settings::app_detail::{AppDetailPane, AppShot};
+    use serde_json::json;
+
+    const WINDOW: (f32, f32) = (760., 2240.);
+
+    /// Where the pointer goes before the picture.
+    #[derive(Clone, Copy)]
+    enum Pointer {
+        Rest,
+        Hover((f32, f32)),
+        /// A left click (the gpui pane's pictures of the open pickers).
+        #[allow(dead_code)]
+        Click((f32, f32)),
+        /// The document's press on a node (the eUI pane's click).
+        Press(&'static str),
+    }
+
+    fn frames(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext, settle: bool) {
+        for _ in 0..6 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+        if settle {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            for _ in 0..3 {
+                draw(window, cx);
+                cx.run_until_parked();
+            }
+        }
+    }
+
+    fn mouse(window: gpui::AnyWindowHandle, cx: &mut gpui::HeadlessAppContext, event: gpui::PlatformInput) {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(event, cx);
+        })
+        .expect("a pointer event");
+    }
+
+    /// `EXP_APP_POINT=x,y` overrides the state's pointer position.
+    fn point(default: (f32, f32)) -> gpui::Point<gpui::Pixels> {
+        let (x, y) = std::env::var("EXP_APP_POINT").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(default);
+        gpui::point(px(x), px(y))
+    }
+
+    fn shoot(name: &str, shot: AppShot, pointer: Pointer) {
+        let Some(dir) = std::env::var_os("EXP_SETTINGS_SHOTS") else { return };
+        let mut cx = headless();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = sync::Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let mut frame = None;
+        let handle = cx
+            .open_window(size(px(WINDOW.0), px(WINDOW.1)), |window: &mut Window, cx| {
+                let pane = cx.new(|cx| AppDetailPane::for_shots(window, cx));
+                let view = cx.new(|_| Frame { pane: pane.clone().into() });
+                frame = Some(pane);
+                cx.new(|cx| gpui_component::Root::new(view, window, cx))
+            })
+            .expect("a headless window");
+        let window: gpui::AnyWindowHandle = handle.into();
+        let frame = frame.expect("the frame");
+        cx.update(|cx| frame.update(cx, |pane, cx| pane.show(shot, cx)));
+        frames(window, &mut cx, true);
+        match pointer {
+            Pointer::Rest => {}
+            Pointer::Hover(at) => {
+                let position = point(at);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx, true);
+            }
+            Pointer::Press(id) => {
+                cx.update_window(window, |_, window, cx| frame.update(cx, |pane, cx| pane.press_for_shots(id, window, cx))).expect("the press");
+                frames(window, &mut cx, true);
+                cx.update(|cx| frame.update(cx, |pane, cx| pane.press_for_shots_settle(cx)));
+                frames(window, &mut cx, true);
+            }
+            Pointer::Click(at) => {
+                let position = point(at);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position, pressed_button: None, modifiers: Default::default() }));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1, first_mouse: false }));
+                frames(window, &mut cx, false);
+                mouse(window, &mut cx, gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { button: gpui::MouseButton::Left, position, modifiers: Default::default(), click_count: 1 }));
+                frames(window, &mut cx, true);
+                // Park the pointer away so no cell paints its hover.
+                let away = gpui::point(px(WINDOW.0 - 4.), px(WINDOW.1 - 4.));
+                mouse(window, &mut cx, gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position: away, pressed_button: None, modifiers: Default::default() }));
+                frames(window, &mut cx, true);
+            }
+        }
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(std::path::Path::new(&dir).join(format!("{name}.png"))).expect("the PNG");
+        if let Some(before) = std::env::var_os("EXP_SETTINGS_BEFORE") {
+            let before = image::open(std::path::Path::new(&before).join(format!("{name}.png"))).expect("the earlier picture").to_rgba8();
+            let after = image::RgbaImage::from_raw(shot.width(), shot.height(), shot.as_raw().to_vec()).expect("the frame's pixels");
+            assert_eq!(before.dimensions(), after.dimensions());
+            let mut diff = after.clone();
+            let (mut count, mut bounds, mut worst) = (0u32, (u32::MAX, u32::MAX, 0u32, 0u32), 0u8);
+            for (x, y, pixel) in diff.enumerate_pixels_mut() {
+                let a = before.get_pixel(x, y);
+                if a == pixel {
+                    pixel.0 = [pixel.0[0] / 3, pixel.0[1] / 3, pixel.0[2] / 3, 255];
+                    continue;
+                }
+                worst = worst.max((0..3).map(|c| a.0[c].abs_diff(pixel.0[c])).max().unwrap_or(0));
+                count += 1;
+                bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x), bounds.3.max(y));
+                pixel.0 = [255, 0, 0, 255];
+            }
+            eprintln!("{name}: {count} pixels differ (worst level {worst}), within {bounds:?}");
+            diff.save(std::path::Path::new(&dir).join(format!("{name}.diff.png"))).expect("the diff");
+        }
+        std::mem::forget(cx);
+    }
+
+    fn row(package: bool, head: i64) -> domain::rows::AppRow {
+        let package = package.then(|| {
+            json!({
+                "functions": ["exponential_issues_update_status", "exponential_comments_create", "exponential_issues_delete"],
+                "records": {"lead": {"policy": {"read": "author", "update": "author", "delete": "owners"}}, "visit": {}},
+            })
+        });
+        serde_json::from_value(json!({
+            "id": "app-crm", "team_id": "team-acme", "slug": "field-crm", "name": "Field CRM", "icon": "rocket", "color": "#3b82f6",
+            "description": "Tracks leads and follow-ups for the field team.",
+            "package": package, "head_version": head, "published_version": head,
+            "granted_tools": ["exponential_comments_create"],
+        }))
+        .expect("an app row")
+    }
+
+    fn mcp(owner: bool) -> api::app_access::AppToolsOut {
+        serde_json::from_value(json!({
+            "canToggle": owner,
+            "tools": [
+                {"name": "list_leads", "title": "List leads", "access": "read", "enabled": true},
+                {"name": "log_visit", "title": "Log a visit", "access": "write", "enabled": true},
+                {"name": "purge_stale", "title": "Purge stale leads", "access": "write", "enabled": false},
+            ],
+            "upstreams": [
+                {"name": "hubspot", "serverId": null, "auth": "oauth"},
+                {"name": "github", "serverId": "s-gh", "serverName": "github", "auth": "oauth", "state": "connected"},
+                {"name": "crm", "serverId": "s-sf", "serverName": "salesforce", "auth": "oauth", "state": "disconnected"},
+                {"name": "calendar", "serverId": "s-cal", "serverName": "calendar", "auth": "oauth", "state": "reconnect"},
+            ],
+            "servers": if owner { json!([{"id": "s-cal", "name": "calendar"}, {"id": "s-gh", "name": "github"}, {"id": "s-sf", "name": "salesforce"}]) } else { json!([]) },
+            "automations": [
+                {"name": "nightly-digest", "on": {"schedule": {"cron": "0 6 * * *", "tz": "Europe/Vienna"}}, "tool": "digest", "sponsorName": "Ada Lovelace", "lastStatus": "ok"},
+                {"name": "on-new-lead", "on": {"record": {"kind": "lead", "op": "create"}}, "tool": "welcome", "lastStatus": "error", "droppedRuns": 3},
+                {"name": "intake", "on": {"webhook": {"name": "intake"}}, "tool": "intake", "paused": "sponsor_left"},
+            ],
+            "hooks": [
+                {"name": "intake", "url": "https://acme.exponential.at/api/apps/hooks/app-crm/intake", "hasSecret": true},
+                {"name": "billing", "url": "https://acme.exponential.at/api/apps/hooks/app-crm/billing", "hasSecret": false},
+            ],
+            "shares": [
+                {"name": "contact-form", "mode": "submit", "kind": "form", "state": "on", "url": "https://acme.exponential.at/s/7f3k2"},
+                {"name": "lead-board", "mode": "view", "kind": "view", "state": "off"},
+            ],
+        }))
+        .expect("the app's MCP side")
+    }
+
+    fn owner() -> AppShot {
+        AppShot {
+            row: row(true, 3),
+            manage: true,
+            grant: true,
+            records: 12,
+            records_max: Some(1000),
+            mcp: Some(mcp(true)),
+            tool_busy: None,
+            mcp_busy: None,
+            upstream_busy: None,
+            hook_busy: None,
+            share_busy: None,
+            hook_secrets: vec![("intake".into(), "whsec_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d".into())],
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_owner() {
+        shoot("app-detail-owner", owner(), Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_member() {
+        let shot = AppShot { manage: false, grant: false, records_max: None, mcp: Some(mcp(false)), hook_secrets: Vec::new(), ..owner() };
+        shoot("app-detail-member", shot, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_empty() {
+        let shot = AppShot { row: row(false, 0), records: 0, mcp: Some(api::app_access::AppToolsOut::default()), hook_secrets: Vec::new(), ..owner() };
+        shoot("app-detail-empty", shot, Pointer::Rest);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_busy() {
+        let shot = AppShot {
+            tool_busy: Some("exponential_issues_update_status".into()),
+            mcp_busy: Some("s-sf".into()),
+            upstream_busy: Some("crm".into()),
+            hook_busy: Some("billing".into()),
+            share_busy: Some("contact-form".into()),
+            ..owner()
+        };
+        shoot("app-detail-busy", shot, Pointer::Rest);
+    }
+
+    /// The first share row's ⋯ (window points), read off `app-detail-owner`.
+    const SHARE_MENU: (f32, f32) = (588., 670.);
+    /// The identity row's icon and colour pickers.
+    #[allow(dead_code)]
+    const ICON_PICKER: (f32, f32) = (56., 52.);
+    #[allow(dead_code)]
+    const COLOR_PICKER: (f32, f32) = (96., 52.);
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_share_hover() {
+        shoot("app-detail-share-hover", owner(), Pointer::Hover(SHARE_MENU));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_icon_open() {
+        // The gpui pane's pictures: `Pointer::Click(ICON_PICKER)`.
+        shoot("app-detail-icon-open", owner(), Pointer::Press("icon_picker.trigger"));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_app_detail_color_open() {
+        // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
+        shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
+    }
 }
 
 fn email_shot() -> EmailShot {

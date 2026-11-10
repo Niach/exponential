@@ -4130,11 +4130,18 @@
           "enum": "selectTrigger",
           "default": "field"
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false
+        },
         "align": {
           "type": "enum",
           "enum": "overlayAlign"
         },
         "popupWidth": {
+          "type": "number"
+        },
+        "popupMinWidth": {
           "type": "number"
         },
         "loading": {

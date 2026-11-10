@@ -6460,6 +6460,15 @@
           "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
         {
+          "name": "triggerIcon",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
+        {
           "name": "align",
           "type": "start | center | end",
           "required": false,
@@ -6474,6 +6483,14 @@
           "bindable": false,
           "responsive": false,
           "description": "Px (`row`: 260)."
+        },
+        {
+          "name": "popupMinWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
         },
         {
           "name": "loading",

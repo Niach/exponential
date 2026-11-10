@@ -30,6 +30,9 @@
 // (aria-hidden: the label alone names the option);
 // `searchPlaceholder` hints the filter field; the `searchIcon` part sizes
 // its glyph.
+// #EXP-1764: a `triggerIcon` row leads its value with the chosen option's
+// `icon` (the `valueIcon` part: the IDE Account row's agent mark, in the
+// mark's own colour).
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
@@ -53,6 +56,8 @@ export interface SelectOption {
   trailing?: string
   /** #EXP-1765: the label in the mono type, the `trailing` its own muted run. */
   mono?: boolean
+  /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
+  description?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -201,8 +206,11 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     ) : (
       children
     )
+  // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
+  const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
+    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} /> : null,
     field: row || pill ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
     describedBy: joinIds(!pill && description && `${id}-d`, f.describedBy),
     ariaLabel: pill ? str(props.label) || undefined : undefined,
@@ -234,6 +242,8 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
 /** A `description`: the row's `control` wrapper, the field's hint line, the trigger's describedby. */
 interface Hint {
   end: (children: React.ReactNode) => React.ReactNode
+  /** #EXP-1764: the chosen option's icon before the value (`triggerIcon`). */
+  valueIcon: React.ReactNode
   field: React.ReactNode
   describedBy: string | undefined
   /** #EXP-1765: a pill's label names its trigger. */
@@ -326,6 +336,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
             {spacer}
             {hint.end(
               <>
+                {hint.valueIcon}
                 <span ref={valueRef}>{chosen ? <span {...(part.with(`value`, { disabled }, inButton) as Record<string, string>)} style={{ pointerEvents: `none` }}>{chosenLabel}</span> : <span {...(part.with(`placeholder`, { disabled }, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
                 <SelectPrimitive.Icon asChild>
                   <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
@@ -366,8 +377,13 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                 {(loading ? [] : options).map((o) => (
                   // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
                   <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
-                    {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    {trailingText(o) ? (
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {str(o.description) ? (
+                      <span {...(part(`itemText`) as Record<string, string>)}>
+                        <span {...(part(`itemLabel`) as Record<string, string>)}><SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>{trailingText(o)}</span>
+                        <span {...(part(`itemDescription`) as Record<string, string>)}>{str(o.description)}</span>
+                      </span>
+                    ) : trailingText(o) ? (
                       <span>
                         <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                         {trailingText(o)}
@@ -501,6 +517,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
           {spacer}
           {hint.end(
             <>
+              {hint.valueIcon}
               {geometry.anchorValue ? <PopoverPrimitive.Anchor asChild>{shownValue}</PopoverPrimitive.Anchor> : shownValue}
               <BuiltinIcon slot={chevronSlot} part={part(`chevron`, inButton)} />
             </>
@@ -589,8 +606,15 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(i)}
                   >
-                    {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    <span>{str(o.label)}{trailingText(o)}</span>
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {str(o.description) ? (
+                      <span {...(part(`itemText`) as Record<string, string>)}>
+                        <span {...(part(`itemLabel`) as Record<string, string>)}>{str(o.label)}{trailingText(o)}</span>
+                        <span {...(part(`itemDescription`) as Record<string, string>)}>{str(o.description)}</span>
+                      </span>
+                    ) : (
+                      <span>{str(o.label)}{trailingText(o)}</span>
+                    )}
                     <TrailingRun o={o} />
                     {isSel ? (
                       <span {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>

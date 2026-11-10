@@ -3985,7 +3985,12 @@
         "labels",
         "control",
         "button",
-        "searchIcon"
+        "valueIcon",
+        "searchIcon",
+        "itemIcon",
+        "itemText",
+        "itemLabel",
+        "itemDescription"
       ],
       "props": [
         "multiple",

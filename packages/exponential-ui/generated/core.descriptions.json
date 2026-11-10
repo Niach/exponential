@@ -2291,11 +2291,17 @@
         "triggerVariant": {
           "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
         },
+        "triggerIcon": {
+          "description": "`row`: the chosen option's `icon` before the value."
+        },
         "align": {
           "description": "Popup alignment (`row`: `end`)."
         },
         "popupWidth": {
           "description": "Px (`row`: 260)."
+        },
+        "popupMinWidth": {
+          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
         },
         "loading": {
           "description": "Options still loading: skeleton rows in the popup."

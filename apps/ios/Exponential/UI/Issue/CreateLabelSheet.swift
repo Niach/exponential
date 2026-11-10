@@ -51,26 +51,7 @@ struct LabelEditorSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     GlassTextField("Label name", text: $name)
 
-                    FlowLayout(spacing: 8) {
-                        ForEach(suggestedLabelColors, id: \.self) { swatch in
-                            Button {
-                                color = swatch
-                            } label: {
-                                Circle()
-                                    .fill(Color(hex: swatch) ?? .gray)
-                                    .frame(
-                                        width: swatch == color ? 28 : 22,
-                                        height: swatch == color ? 28 : 22
-                                    )
-                                    .overlay {
-                                        if swatch == color {
-                                            Circle().strokeBorder(.white, lineWidth: 2)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    ColorSwatchGrid(selection: $color, colors: suggestedLabelColors)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
