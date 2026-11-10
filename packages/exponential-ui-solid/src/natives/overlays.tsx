@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, propColor, findAnchor, isPickerPopover, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -437,7 +437,12 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           contentEl = el
           presence.ref(el)
           popper.setContent(el)
-          bindStyle(el, () => popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned()))
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, the popper's anchor-width variable (re-measured on a resize).
+          bindStyle(el, () => {
+            const width = popoverPanelWidth(props.props, `--radix-popover-trigger-width`)
+            return popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned(), width ? { width } : {})
+          })
           onMount(() => {
             layer.attach(el)
             setRegistered(true)

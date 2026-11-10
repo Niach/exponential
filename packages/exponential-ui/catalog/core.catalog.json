@@ -3454,6 +3454,11 @@
           "enum": "openOn",
           "default": "press",
           "description": "Press, or hover (press on touch)."
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Panel exactly as wide as its anchor/trigger."
         }
       },
       "events": [

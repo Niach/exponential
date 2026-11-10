@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
+- Popover `matchAnchorWidth` (parity with React): the content's `width` = `var(--radix-popover-trigger-width)` (the popper's anchor width, re-measured by `autoUpdate`). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases.
 - Select `pill` popup EXACTLY where `placeInsetOverlay` puts it (#EXP-1629): `popperWrapper` gains `inset`, a middleware after the shift and flip moving the box to whole px from the pill (`snapInset`, half away from zero), its translate then not rounded to device px; lands where React's nudge does. The browser overlay suite replays the `overlay-geometry.json` `inset` cases with no tolerance, plain and searchable (harness `?view=inset`).
 - Composer `layout: "flat"` (#EXP-1762), like React: the leading slot in its own bar before the field, one row.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only (parity with React).

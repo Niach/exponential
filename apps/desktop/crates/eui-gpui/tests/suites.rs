@@ -428,17 +428,21 @@ fn overlay_suite(p: &mut Painter) -> Vec<Case> {
             // Popover names a SIBLING in `anchor`.
             let align = c["align"].as_str().unwrap_or("center");
             let at = json!({"position": "absolute", "left": a["x"], "top": a["y"], "width": a["width"], "height": a["height"]});
-            let content = json!([{"id": "content", "component": "Box", "style": {"width": s["width"], "height": s["height"], "backgroundColor": "$color.success"}}]);
+            // `matchAnchorWidth`: the content at `contentWidth`, the panel
+            // at the anchor's width.
+            let matched = c["matchAnchorWidth"].as_bool() == Some(true);
+            let content_width = c.get("contentWidth").cloned().unwrap_or_else(|| s["width"].clone());
+            let content = json!([{"id": "content", "component": "Box", "style": {"width": content_width, "height": s["height"], "backgroundColor": "$color.success"}}]);
             let children = if c["byId"].as_bool() == Some(true) {
                 let mut at = at.clone();
                 at["backgroundColor"] = json!("$color.primary");
                 json!([
                     {"id": "anchor", "component": "Box", "style": at},
-                    {"id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align, "anchor": "anchor"}, "children": content}
+                    {"id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align, "anchor": "anchor", "matchAnchorWidth": matched}, "children": content}
                 ])
             } else {
                 json!([{
-                    "id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align},
+                    "id": "pop", "component": "Popover", "props": {"open": true, "side": c["side"], "align": align, "matchAnchorWidth": matched},
                     "style": at,
                     "slots": {"trigger": {"id": "anchor", "component": "Box", "style": {"width": a["width"], "height": a["height"], "backgroundColor": "$color.primary"}}},
                     "children": content
@@ -464,6 +468,7 @@ fn overlay_suite(p: &mut Painter) -> Vec<Case> {
                 let want = place_overlay(&rect(a), &Size { width: got.w as f64, height: got.h as f64 }, &Size { width: vp["width"].as_f64().unwrap(), height: vp["height"].as_f64().unwrap() }, &PlaceOptions::placement(OverlaySide::parse(c["side"].as_str().unwrap()).ok_or("bad side")?, OverlayAlign::parse(align).ok_or("bad align")?));
                 let e = &c["expected"];
                 ensure(side == e["side"].as_str().unwrap() && want.side.as_str() == e["side"].as_str().unwrap(), || format!("side {side}"))?;
+                ensure(!matched || (got.w as f64 - a["width"].as_f64().unwrap()).abs() <= tolerance, || format!("width {} vs the anchor's {}", got.w, a["width"]))?;
                 ensure((got.x as f64 - want.x).abs() <= tolerance && (got.y as f64 - want.y).abs() <= tolerance, || format!("at {},{} want {},{}", got.x, got.y, want.x, want.y))
             })
         })();
