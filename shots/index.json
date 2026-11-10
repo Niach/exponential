@@ -3155,8 +3155,8 @@
         "file": "shots/exponential-ui-embed/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 12098,
-        "sha256": "99d9acd456899dea6f0d0b4bf508a15d2f3ddfdbd9279df6106a4f4f75b93373"
+        "bytes": 19464,
+        "sha256": "f8ff2fdabf01c306c0e4adc22a5b287c2ed5f96c0698df33932bbb55557b8972"
       }
     },
     "exponential-ui-empty-state": {
