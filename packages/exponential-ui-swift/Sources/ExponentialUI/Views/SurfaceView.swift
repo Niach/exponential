@@ -42,6 +42,12 @@ private struct SurfaceBody: View {
     @Environment(\.xuiReducedMotion) private var enclosingReducedMotion
     @FocusState private var rootFocused: Bool
     @State private var safeArea = EdgeInsets()
+    #if os(iOS)
+    /// #EXP-1629: the surface's origin in its window and that window's size
+    /// (nil until the probe hears it: the screen's).
+    @State private var windowOrigin = CGPoint.zero
+    @State private var windowSize: CGSize?
+    #endif
 
     var body: some View {
         let size = model.surfaceSize
@@ -77,9 +83,16 @@ private struct SurfaceBody: View {
         }
         #if os(iOS)
         // #EXP-1629: anchored popups fit into the window around the surface.
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            model.setPopupWindow(CGRect(origin: CGPoint(x: -frame.minX, y: -frame.minY), size: UIScreen.main.bounds.size))
+        // The hosting UIWindow, not the screen: a window can be larger
+        // (an offscreen or test window) or smaller (iPad split view).
+        .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { origin in
+            windowOrigin = origin
+            reportPopupWindow()
         }
+        .background(WindowSizeProbe { size in
+            windowSize = size
+            reportPopupWindow()
+        })
         #endif
         // Round 2: a `formatRelativeTime` without `now` re-binds once a minute.
         .task {
@@ -116,7 +129,52 @@ private struct SurfaceBody: View {
     private func syncPlatform() {
         model.setPlatform(traits)
     }
+    #if os(iOS)
+    private func reportPopupWindow() {
+        let size = windowSize ?? UIScreen.main.bounds.size
+        model.setPopupWindow(CGRect(origin: CGPoint(x: -windowOrigin.x, y: -windowOrigin.y), size: size))
+    }
+    #endif
 }
+
+#if os(iOS)
+/// #EXP-1629: reports the bounds size of the UIWindow it sits in.
+private struct WindowSizeProbe: UIViewRepresentable {
+    let onChange: (CGSize) -> Void
+
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe()
+        view.isUserInteractionEnabled = false
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ view: Probe, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class Probe: UIView {
+        var onChange: ((CGSize) -> Void)?
+        private var reported: CGSize?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            report()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            report()
+        }
+
+        private func report() {
+            guard let size = window?.bounds.size, size != reported else { return }
+            reported = size
+            onChange?(size)
+        }
+    }
+}
+#endif
 
 /// The hardware keyboard: the surface root takes keyboard focus for the
 /// nodes the model focuses (non-field nodes keep a VIRTUAL focus the core

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -161,7 +162,7 @@ private fun DiffTreeFolderRow(
         Spacer(Modifier.width(8.dp))
         Text(
             node.name,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = TreeFontSize,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
@@ -205,7 +206,7 @@ private fun DiffTreeFileRow(
         DiffStatusLetter(file?.status ?: Diff.Status.MODIFIED)
         Text(
             node.name,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = ExpMono,
             fontSize = TreeFontSize,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,

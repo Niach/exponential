@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import com.exponential.app.domain.AgentSettings
+import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.ui.components.AgentAvatar
 import androidx.compose.foundation.layout.PaddingValues
 import com.exponential.app.ui.components.IssueRowContent
@@ -192,7 +193,7 @@ fun SubIssuesSection(
                     Text(
                         progress,
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = ExpMono,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         maxLines = 1,
                     )
@@ -375,7 +376,7 @@ internal fun RelationBandFrame(
                 Text(
                     count.toString(),
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = ExpMono,
                     color = muted,
                     maxLines = 1,
                 )

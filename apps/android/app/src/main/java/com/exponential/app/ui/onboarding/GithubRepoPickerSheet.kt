@@ -1,6 +1,7 @@
 package com.exponential.app.ui.onboarding
 
 import androidx.browser.customtabs.CustomTabsIntent
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -501,7 +502,7 @@ private fun PickerFooter(
                     imeAction = ImeAction.Go,
                 ),
                 keyboardActions = KeyboardActions(onGo = { onLookup() }),
-                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                textStyle = LocalTextStyle.current.copy(fontFamily = ExpMono),
                 modifier = Modifier
                     .weight(1f)
                     .semantics { contentDescription = GithubCopy.LOOKUP_A11Y },

@@ -179,7 +179,7 @@ struct AgentLoginSheet: View {
                     if let code = parsed.code {
                         HStack(spacing: 8) {
                             Text(code)
-                                .font(.caption.monospaced())
+                                .font(.expMono(.caption))
                             Button {
                                 Platform.copyToPasteboard(code)
                             } label: {
@@ -224,7 +224,7 @@ struct AgentLoginSheet: View {
         let typed = codeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         return HStack(spacing: 8) {
             GlassTextField("Code from the browser", text: $codeDraft)
-                .font(.caption.monospaced())
+                .font(.expMono(.caption))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .onSubmit { submitCode() }

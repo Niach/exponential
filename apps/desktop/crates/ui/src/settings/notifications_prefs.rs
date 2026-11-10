@@ -195,7 +195,7 @@ fn document(ink: &Ink) -> Value {
     // names as `text_xs` mono chips (`px_1`, radius 4, `muted`).
     let code = |id: &str, name: &str| {
         let mut text = ink.text(&format!("{id}_text"), json!(name), XS, &ink.foreground);
-        text["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+        text["style"]["fontFamily"] = json!("$type.family.mono");
         json!({"id": id, "component": "Box", "style": {"borderRadius": 4, "paddingHorizontal": ink.r(0.25), "backgroundColor": ink.code}, "children": [text]})
     };
     let words = |id: &str, text: &str| -> Vec<Value> {

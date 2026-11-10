@@ -77,7 +77,7 @@ struct AppCsvImportSheet: View {
                     lines: 6...12,
                     accessibilityIdentifier: AppRecords.CsvImport.TestIds.text
                 )
-                .font(.system(.footnote, design: .monospaced))
+                .font(.expMono(.footnote))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 HStack {
@@ -295,7 +295,7 @@ struct AppCsvImportSheet: View {
                         Text(csvFill(AppRecords.CsvImport.Copy.moreIssues, "{n}", String(record.issues.count - shown)))
                     }
                 }
-                .font(.system(.caption, design: .monospaced))
+                .font(.expMono(.caption))
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 2)

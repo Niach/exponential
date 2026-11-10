@@ -76,17 +76,24 @@ function readBuiltApp(): string | null {
 
 const NOT_BUILT_HTML = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="exp-view" content="issues" /></head><body style="font:14px system-ui;color:#a1a1aa;padding:16px">The Exponential views are not built on this server (bun run build:mcp-apps).</body></html>`
 
-/** The view's document: the built app with its view stamped in. */
-export function mcpAppHtml(view: McpAppView, built = readBuiltApp()): string {
-  return (built ?? NOT_BUILT_HTML).replace(
+/** The view's document: the built app with its view stamped in. #EXP-1766:
+ *  the stylesheet's root-relative `/fonts/` urls (the self-hosted JetBrains
+ *  Mono) would resolve against the host's sandbox origin, so they point at
+ *  `appOrigin`, which serves them with CORS (`fontAssetHeaders`). */
+export function mcpAppHtml(view: McpAppView, built = readBuiltApp(), appOrigin?: string): string {
+  const html = (built ?? NOT_BUILT_HTML).replace(
     /<meta name="exp-view" content="[a-z]+"\s*\/?>/,
     `<meta name="exp-view" content="${view}" />`
   )
+  if (!appOrigin) return html
+  const origin = appOrigin.replace(/\/+$/, ``)
+  return html.replace(/url\((["']?)\/fonts\//g, (_, quote: string) => `url(${quote}${origin}/fonts/`)
 }
 
 /** What a view may load beyond its own document (MCP Apps `_meta.ui.csp`):
- *  pictures from the app's signed attachment URLs and Inter from Google Fonts
- *  (the web app's own font source). No connect or frame domains: data only
+ *  pictures from the app's signed attachment URLs, the self-hosted JetBrains
+ *  Mono from the app (#EXP-1766) and Inter from Google Fonts (the web app's
+ *  own font source). No connect or frame domains: data only
  *  ever arrives through the host's tools/call. */
 export function mcpAppCsp(appOrigin: string) {
   return {
@@ -120,7 +127,7 @@ export function registerExponentialApps(
           {
             uri,
             mimeType: MCP_APP_MIME_TYPE,
-            text: mcpAppHtml(view),
+            text: mcpAppHtml(view, undefined, appOrigin),
             _meta: { ui: { prefersBorder: true, csp: mcpAppCsp(appOrigin) } },
           },
         ],

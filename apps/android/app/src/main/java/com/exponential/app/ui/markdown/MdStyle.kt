@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -108,7 +109,7 @@ object MdStyle {
         )
     }
 
-    val mono = body.copy(fontFamily = FontFamily.Monospace, fontSize = bodySize * 0.9f)
+    val mono = body.copy(fontFamily = ExpMono, fontSize = bodySize * 0.9f)
 
     // List indentation (iOS firstLineHeadIndent = depth*20, headIndent =
     // depth*20 + 24). The glyph (bullet / number / checkbox) occupies a

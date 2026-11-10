@@ -1,6 +1,7 @@
 package com.exponential.app.ui.apps
 
 import android.net.Uri
+import com.exponential.app.ui.theme.ExpMono
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -238,7 +239,7 @@ internal fun AppSettingsBody(
                         Text(
                             policy.kind,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ExpMono,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -284,7 +285,7 @@ internal fun AppSettingsBody(
                         Text(
                             tool,
                             style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = ExpMono,
                             color = muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -504,7 +505,7 @@ internal fun AppSettingsBody(
                             Text(
                                 tool.name,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ExpMono,
                                 color = muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -604,14 +605,14 @@ internal fun AppSettingsBody(
                             Text(
                                 hook.name,
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ExpMono,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 remember(hook.url) { middleTruncate(hook.url) },
                                 style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = ExpMono,
                                 color = muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -666,7 +667,7 @@ internal fun AppSettingsBody(
                                 Text(
                                     remember(secret) { middleTruncate(secret) },
                                     style = MaterialTheme.typography.bodyMedium,
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = ExpMono,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
