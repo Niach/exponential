@@ -1008,6 +1008,15 @@
               "height": 24
             }
           },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 28
+            }
+          },
           "tone=neutral": {
             "props": {
               "size": "default",
@@ -2538,6 +2547,15 @@
             "geometry": {
               "width": 24,
               "height": 24
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 28
             }
           },
           "tone=neutral": {
@@ -4074,6 +4092,15 @@
               "height": 24
             }
           },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 28
+            }
+          },
           "tone=neutral": {
             "props": {
               "size": "default",
@@ -5604,6 +5631,15 @@
             "geometry": {
               "width": 24,
               "height": 24
+            }
+          },
+          "size=xl": {
+            "props": {
+              "size": "xl"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 28
             }
           },
           "tone=neutral": {

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `controls::spinner` draws THE Spinner's arc (#EXP-1629): `paint::natives::spinner_glyph` (Lucide `loader-circle`, one linear turn per 0.8 s, stepped), the glyph genUI `Spinner` paints, so the IDE's spinners match web, iOS and Android (0 px vs genUI `Spinner` headless). `ChromeIcons.refresh` is gone (it only fed the spinner).
+- Icon `size: xl` (#EXP-1629): 28 px from the recipe (`$control.iconXl`).
 - Input `variant: "box"` + `size` (#EXP-1629): from the recipe alone. Against the IDE's `glass_input(..).web_input_sm()` / `.web_input()` (`settings_bench::box_fields`): 160 px, all ±1 on the rounded corners' antialiasing (the IDE fill is `input` × 0.3 = white 7.8/255, a theme hex says 8/255; the IDE drawn with `#ffffff08` is 0 px).
 - Textarea autosize (#EXP-1629): an intrinsic measure pass (no width yet) counts the value's hard lines only, instead of wrapping it at a guessed 160 px, which left an enabled one-line `row` Textarea a row taller than its rows (the Skills page's description, 3 rows for 2).
 - Textarea `row` / `code` (#EXP-1629): the gpui-component Textarea is placed its own editor inset (`Size::Medium` input_px × input_py) outside the field's content box, so the recipe padding is the whole inset, as the IDE's `Textarea.appearance(false).px_4().py_3()` draws it. 0 px against the IDE's agent instructions, skill description, SKILL.md / prompt body and the disabled team prompt; Input `bare` / `code` against `glass_row_input` and the skill name row.

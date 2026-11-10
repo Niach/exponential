@@ -342,6 +342,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -714,6 +715,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -8324,6 +8334,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -9036,6 +9047,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -17419,6 +17439,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -17831,6 +17852,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {
@@ -26137,6 +26167,7 @@
           "avatarMd": 32,
           "avatarLg": 40,
           "avatarXl": 48,
+          "iconXl": 28,
           "iconSm": 16,
           "iconMd": 20,
           "iconLg": 24,
@@ -26849,6 +26880,15 @@
               "style": {
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
+              }
+            },
+            {
+              "when": {
+                "size": "xl"
+              },
+              "style": {
+                "width": "$control.iconXl",
+                "height": "$control.iconXl"
               }
             },
             {

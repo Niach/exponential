@@ -40,7 +40,6 @@ use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui_component::button::Button;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Icon};
 
-use eui_gpui::chrome::Chrome;
 
 // ---------------------------------------------------------------------------
 // The fixture's numbers and copy (locked by the tests below)
@@ -186,41 +185,20 @@ pub(crate) fn remote_start_title(name: &str) -> String {
 // 1. Inline
 // ---------------------------------------------------------------------------
 
-/// THE spinner glyph: the SDK's one spinner (`controls::spinner`, the
-/// chrome's refresh glyph spinning) in `color`. The EXP-1274 band spinner
-/// (`controls::band_loading_glyph`) IS the inline one below.
+/// THE spinner glyph: the SDK's one spinner (`controls::spinner` = genUI
+/// `Spinner`'s arc, the `ui-loading` concept, one linear turn per 0.8 s,
+/// stepped) in `color`. #EXP-1629: the IDE draws the arc web, iOS and
+/// Android draw (it was the chrome's `ui-refresh` arrows); the refresh
+/// glyph stays only where it means "reload". The EXP-1274 band spinner
+/// (`controls::band_loading_glyph`), the CI glyphs (pr-checks.json
+/// `ci-running`) and the pending Merge pill are this one too.
 pub(crate) fn spinner_colored(size: f32, color: Hsla, cx: &App) -> AnyElement {
     eui_gpui::controls::spinner(size, color, cx)
 }
 
-/// #EXP-1611 — the ARC spinner: the `ui-loading` concept (Lucide
-/// `loader-circle`, a thin open arc) turning exactly like [`spinner_colored`]
-/// (0.8 s ease-in-out, stepped). The CI glyphs draw it where web and the
-/// natives draw THE Spinner's arc (pr-checks.json: `ci-running` and the
-/// pending Merge pill). [`spinner_colored`] itself stays the chrome's
-/// `ui-refresh` glyph app-wide (`controls::ide_chrome`).
-pub(crate) fn arc_spinner_colored(size: f32, color: Hsla, _cx: &App) -> AnyElement {
-    use gpui::{percentage, Transformation};
-    div()
-        .flex_shrink_0()
-        .child(eui_gpui::controls::stepped_glyph(
-            "arc-spinner",
-            gpui::size(px(size), px(size)),
-            Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
-            SMOOTH_STEP,
-            move |delta, _, _| {
-                Icon::new(crate::icons::registry::UI_LOADING)
-                    .size(px(size))
-                    .text_color(color)
-                    .transform(Transformation::rotate(percentage(delta)))
-                    .into_any_element()
-            },
-        ))
-        .into_any_element()
-}
-
 /// #LOGS-3 — gpui-component's `Spinner` (same builder, same face: its icon
-/// turning once per 0.8 s, ease-in-out) on the stepped budget. Upstream's
+/// turning once per 0.8 s; #EXP-1629: linear, THE spinner's timing) on the
+/// stepped budget. Upstream's
 /// asks gpui for a frame on EVERY frame it paints, so one "Checks running"
 /// row redrew the whole window at the display's rate while focused.
 #[derive(IntoElement)]
@@ -271,7 +249,7 @@ impl gpui::RenderOnce for Spinner {
         div().child(eui_gpui::controls::stepped_glyph(
             "circle",
             gpui::size(side, side),
-            Animation::new(Duration::from_millis(800)).repeat().with_easing(gpui::ease_in_out),
+            Animation::new(Duration::from_millis(800)).repeat(),
             SMOOTH_STEP,
             move |delta, _, _| {
                 icon.clone()
@@ -362,7 +340,7 @@ impl Pending {
         let shown = self.shown();
         let idle_w = self.idle_w.clone();
         let min_w = self.idle_w.get();
-        let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
+        let icon = Icon::new(crate::icons::registry::UI_LOADING);
         let button = if shown {
             button
                 .loading(true)

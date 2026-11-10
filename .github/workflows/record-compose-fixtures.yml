@@ -58,6 +58,8 @@ name: record-compose-fixtures
 # laid out at the Embed's width: `Embed/example` at the Approve button's
 # height, not 0).
 # EDE-65 lane R (2026-11-09): re-recorded for the Composer slots (#2503).
+# EXP-1629 (2026-11-09): re-recorded for Icon `size: xl` (28, `$control.iconXl`;
+# the `Icon/size=xl` case of the Compose snapshot `components.json`).
 # EXP-1629 (2026-11-10): re-recorded for Input `variant: box` + `size`
 # (the catalog cases + the Input specimen in `components.json`).
 # EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by

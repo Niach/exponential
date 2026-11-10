@@ -95,7 +95,6 @@ pub(crate) fn ide_chrome() -> &'static Chrome {
                 chevron_down: registry::UI_CHEVRON_DOWN.path(),
                 check: registry::UI_CHECK.path(),
                 minus: registry::UI_MINUS.path(),
-                refresh: registry::UI_REFRESH.path(),
             },
             ease_standard: t::motion::ease::STANDARD,
         }
