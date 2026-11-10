@@ -37,7 +37,7 @@ use std::collections::HashMap;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
+    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window, WindowId,
 };
@@ -634,51 +634,6 @@ pub(crate) fn rail_trailing_slot() -> gpui::Div {
         .flex()
         .items_center()
         .justify_center()
-}
-
-/// A rail section's muted label row ("Agents", "Boards"…); a trailing `+`
-/// child lands in the rows' trailing column.
-pub(crate) fn rail_section_label(text: &'static str, cx: &App) -> gpui::Div {
-    h_flex()
-        .w_full()
-        .h(px(24.))
-        .pl_1p5()
-        // EXP-1477: the `+` sits in the rows' trailing column.
-        .pr_1()
-        .items_center()
-        .child(
-            div()
-                .flex_1()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().sidebar_foreground.opacity(0.5))
-                .child(text),
-        )
-}
-
-/// [`rail_trailing_slot`] holding a row's hover gear over its badge: the
-/// gear shows while `group` is hovered and the badge (if any) yields the
-/// column to it — the web's `yieldsOnHover`.
-pub(crate) fn rail_trailing_hover_action(
-    group: &'static str,
-    badge: Option<gpui::AnyElement>,
-    action: impl IntoElement,
-) -> gpui::Div {
-    rail_trailing_slot()
-        .when_some(badge, |slot, badge| {
-            slot.child(div().group_hover(group, |style| style.invisible()).child(badge))
-        })
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .invisible()
-                .group_hover(group, |style| style.visible())
-                .child(action),
-        )
 }
 
 // ---------------------------------------------------------------------------

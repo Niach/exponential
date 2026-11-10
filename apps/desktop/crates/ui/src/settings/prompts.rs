@@ -313,6 +313,12 @@ pub(crate) struct PageShot {
 const PAGE_PATH: &str = "/pane";
 
 impl PromptPage {
+    /// The page's document (its focus, for tests).
+    #[cfg(test)]
+    pub(crate) fn surface(&self) -> Entity<SurfaceView> {
+        self.view.clone()
+    }
+
     /// The page over `prompt` (the synced row), or create mode in `team_id`.
     pub(crate) fn new(
         team_id: String,
@@ -407,10 +413,7 @@ impl PromptPage {
             // The name field takes the focus on a NEW page, once the
             // projection has made it.
             this.push(cx);
-            let view = this.view.clone();
-            window.defer(cx, move |window, cx| {
-                view.update(cx, |view, cx| view.focus_field("name", window, cx));
-            });
+            super::doc::focus_input(this.view.clone(), "name", window, cx);
         } else {
             this.fetch_body(window, cx);
         }

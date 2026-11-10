@@ -1239,6 +1239,24 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
       ],
     },
+  }, {
+    // `matchAnchorWidth`: the IDE's `/` typeahead floats above the composer
+    // card at the card's full width (anchor = the card, top-start).
+    label: `matchAnchorWidth`,
+    node: {
+      id: `chat`,
+      component: `Box`,
+      style: { position: `relative`, width: `100%`, height: 260, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      children: [
+        {
+          id: `composer_card`,
+          component: `Box`,
+          style: { position: `absolute`, left: 16, right: 16, bottom: 16, height: 72, padding: `$spacing.md`, borderRadius: `$radius.lg`, borderWidth: `$border.hairline`, borderColor: `$color.border`, backgroundColor: `$color.card` },
+          children: [text(`draft`, `/rev`)],
+        },
+        { id: `commands`, component: `Popover`, props: { anchor: `composer_card`, side: `top`, align: `start`, matchAnchorWidth: true, open: true }, children: [text(`review`, `/review`), text(`revert`, `/revert`)] },
+      ],
+    },
   }],
   // EXP-1556: a vertical Separator between two items of a row (alone in a
   // column it has no height to draw).

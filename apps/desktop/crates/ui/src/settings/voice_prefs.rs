@@ -954,18 +954,6 @@ impl VoicePrefsPane {
         Self::build(true, None, window, cx)
     }
 
-    /// The styleguide twin: `settings` over `fixed`, inert.
-    pub(crate) fn twin(settings: VoiceSettings, fixed: Fixed, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let mut pane = Self::build(false, Some(fixed), window, cx);
-        pane.binding.update(cx, |binding, cx| binding.update_state(|state| state.load = Load::Ready(settings), cx));
-        pane.options = options(pane.binding.read(cx).state(), cx);
-        let tree: eui_core::NestedNode = serde_json::from_value(document(&Inks::of(cx), &pane.options)).expect("the voice document parses");
-        pane.view.update(cx, |view, cx| {
-            view.set_nested(tree, cx);
-        });
-        pane
-    }
-
     fn build(assistant_block: bool, fixed: Option<Fixed>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let live = fixed.is_none();
         let state = Voice {
