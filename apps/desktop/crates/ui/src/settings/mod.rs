@@ -64,7 +64,7 @@ pub(crate) mod doctor_section;
 mod invite_form;
 mod resend_invite_dialog;
 mod issues;
-mod labels;
+pub(crate) mod labels;
 mod mcp;
 mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
