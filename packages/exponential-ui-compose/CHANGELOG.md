@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Menu item `iconColor` (#EXP-1629): `MenuItemLeaf` paints the glyph in `LeafContext.propColor` (a `$color.<name>` token, else the host's hex), else the ink.
+- Skeleton `rows` (#EXP-1629): no hairline between rows (from eui-core, and the native Select popup's loading rows); the Skeleton pulse eases on CSS `ease-in-out` (cubic-bezier 0.42, 0, 0.58, 1) instead of `FastOutSlowInEasing`. Snapshot `components.json` re-recorded (`RecordTable/loading=true`).
 - Popover `matchAnchorWidth` (the core's exact layer width; the popup paints `layer.frame`): `GeometryTest` replays the fixture's `matchAnchorWidth` cases through the model (width = the anchor's, x as recorded). Snapshots: + `Popover/matchAnchorWidth=true|false`.
 - A Select `pill`'s popup snaps like the core's (#EXP-1629): after the inset and the window clamp, its offset from the pill rounds to whole dp, half away from zero (`selectPopupOrigin`; `GeometryTest.insetOverlayPlacement` replays `overlay-geometry.json` `inset` at density 2).
 - Composer `layout: "flat"` (#EXP-1762): `ComposerLeaf` places the field between the core-laid `leading` slot and the controls (centred on the disc while one line, full height once it grows); the measurer wraps it at the width left of the disc and the attach control. Snapshots + `Composer/layout=flat|stacked`.
