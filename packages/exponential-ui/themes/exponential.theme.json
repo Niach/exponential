@@ -1093,6 +1093,15 @@
         },
         {
           "when": {
+            "triggerVariant": "row",
+            "triggerIcon": true
+          },
+          "style": {
+            "gap": 3.5
+          }
+        },
+        {
+          "when": {
             "state": "hover",
             "triggerVariant": "row"
           },

@@ -12570,6 +12570,15 @@
             },
             {
               "when": {
+                "triggerVariant": "row",
+                "triggerIcon": true
+              },
+              "style": {
+                "gap": 3.5
+              }
+            },
+            {
+              "when": {
                 "state": "hover",
                 "triggerVariant": "row"
               },
@@ -30385,6 +30394,15 @@
                 "height": 15.5,
                 "gap": 7,
                 "borderRadius": "$radius.md"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "triggerIcon": true
+              },
+              "style": {
+                "gap": 3.5
               }
             },
             {

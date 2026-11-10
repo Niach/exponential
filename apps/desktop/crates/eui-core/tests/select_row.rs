@@ -283,7 +283,7 @@ fn a_trigger_icon_row_leads_its_value_with_the_chosen_options_icon() {
     let icon = frame(&s, &out, "sel.valueIcon");
     let value = frame(&s, &out, "sel.value");
     assert!((icon.w - 12.25).abs() < 0.01 && (icon.h - 12.25).abs() < 0.01, "the recipe's 12.25 square: {icon:?}");
-    assert!((value.x - (icon.x + icon.w + 7.0)).abs() < 0.01, "the button's gap before the value");
+    assert!((value.x - (icon.x + icon.w + 3.5)).abs() < 0.01, "the IDE trigger's icon gap (the exponential recipe's `triggerIcon` button gap 3.5)");
     assert_eq!(eui_core::layout_tree::icon_fill("brand-claude"), Some("#D97757"), "Claude's own orange");
     assert_eq!(eui_core::layout_tree::icon_fill("brand-codex"), None, "Codex rides the ink");
 

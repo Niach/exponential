@@ -692,7 +692,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -706,7 +707,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -720,7 +722,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "row"
+              "triggerVariant": "row",
+              "triggerIcon": false
             },
             "geometry": {
               "minHeight": 44,
@@ -2179,7 +2182,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -2193,7 +2197,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -2207,7 +2212,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "row"
+              "triggerVariant": "row",
+              "triggerIcon": false
             },
             "geometry": {
               "minHeight": 40.82,
@@ -3665,7 +3671,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 44,
@@ -3679,7 +3686,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 44,
@@ -3693,7 +3701,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "row"
+              "triggerVariant": "row",
+              "triggerIcon": false
             },
             "geometry": {
               "minHeight": 44,
@@ -5155,7 +5164,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -5169,7 +5179,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "field"
+              "triggerVariant": "field",
+              "triggerIcon": false
             },
             "geometry": {
               "height": 36,
@@ -5183,7 +5194,8 @@
               "multiple": false,
               "searchable": false,
               "disabled": false,
-              "triggerVariant": "row"
+              "triggerVariant": "row",
+              "triggerIcon": false
             },
             "geometry": {
               "minHeight": 40.82,

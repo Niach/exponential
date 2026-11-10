@@ -3817,7 +3817,8 @@
         "multiple",
         "searchable",
         "disabled",
-        "triggerVariant"
+        "triggerVariant",
+        "triggerIcon"
       ]
     },
     {
