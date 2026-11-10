@@ -162,7 +162,7 @@ enum Load {
 /// One repo's lazily-fetched branch list for the default-branch picker
 /// (EXP-462). Fetched on first menu open, cached until the pane reloads.
 #[derive(Clone)]
-enum BranchLoad {
+pub(crate) enum BranchLoad {
     Loading,
     /// The fetch failed (a toast said so); the picker reads empty and the
     /// next open fetches again.
@@ -1278,25 +1278,7 @@ impl RepositoriesPane {
         repo: &RepoRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
-
-        // Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
-        // chevron-down (the chip opens a dropdown, it is not a picker row).
-        let button = crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
-            .accessibility_label(format!("Default branch for {}", repo.full_name))
-            .max_w(px(240.))
-            .font_family(theme::terminal::FONT_FAMILY)
-            .child(crate::surface::picker_value_label(SharedString::from(
-                repo.default_branch.clone(),
-            )))
-            .child(
-                Icon::new(registry::UI_CHEVRON_DOWN)
-                    .size_3()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .disabled(self.busy);
-
+        let button = branch_trigger(index, &repo.full_name, &repo.default_branch, self.busy, cx);
         let pane = cx.entity().clone();
         let repo_id = repo.id.clone();
         let effective = repo.default_branch.clone();
@@ -1325,122 +1307,152 @@ impl RepositoriesPane {
             .content(move |_, window, cx| {
                 let popover_state = cx.entity();
                 let load = pane.read(cx).branches.get(&repo_id).cloned();
-                let filter = query.read(cx).value().trim().to_lowercase();
-
-                let mut column = v_flex()
-                    .w_full()
-                    .child(
-                        search_field(&query, SearchFieldSize::Sm, window, cx).appearance(false),
-                    )
-                    .child(
-                        div()
-                            .h(px(1.))
-                            .w_full()
-                            .my_1()
-                            .bg(cx.theme().border.opacity(0.5)),
-                    );
-                match load {
-                    // First load: the picker's rows as placeholders (D8).
-                    None | Some(BranchLoad::Loading) => {
-                        column = column.child(crate::feedback::skeleton_rows(
-                            ("repo-branch-skeleton", index),
-                            crate::feedback::SKELETON_ROWS,
-                            crate::controls::MENU_ROW_H,
-                            cx,
-                        ));
-                    }
-                    // A failed load is quiet (FEED-79): the empty list.
-                    Some(BranchLoad::Failed) => {
-                        column = column
-                            .child(crate::pickers::empty_picker_row("No branches found.", cx));
-                    }
-                    Some(BranchLoad::Ready(branches)) => {
-                        // The effective branch always renders even when GitHub
-                        // no longer has it (a pinned branch deleted upstream) —
-                        // the list must show what the row is set to.
-                        let mut names: Vec<String> = Vec::new();
-                        if !branches.contains(&effective) {
-                            names.push(effective.clone());
-                        }
-                        names.extend(branches);
-                        names.retain(|name| {
-                            filter.is_empty() || name.to_lowercase().contains(&filter)
-                        });
-                        if names.is_empty() {
-                            return column
-                                .child(crate::pickers::empty_picker_row("No branches found.", cx));
-                        }
-
-                        let handle = window.window_handle();
-                        let mut rows = v_flex()
-                            .id(("repo-branch-rows", index))
-                            .w_full()
-                            .max_h(px(240.))
-                            .overflow_y_scroll();
-                        for name in names {
-                            let is_github_default = github_default.as_deref() == Some(&name);
-                            let checked = name == effective;
-                            let mut row = crate::pickers::picker_row(
-                                ElementId::Name(SharedString::from(format!(
-                                    "repo-branch-{repo_id}-{name}"
-                                ))),
-                                cx,
-                            )
-                            .role(gpui::Role::ListItem)
-                            .aria_selected(checked)
-                            .aria_label(SharedString::from(name.clone()))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .whitespace_nowrap()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .text_xs()
-                                    .child(SharedString::from(name.clone())),
-                            );
-                            if is_github_default {
-                                row = row.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .flex_shrink_0()
-                                        .child("default"),
-                                );
-                            }
-                            if checked {
-                                row = row.child(
-                                    Icon::new(registry::UI_CHECK)
-                                        .size_3()
-                                        .flex_shrink_0()
-                                        .text_color(cx.theme().muted_foreground),
-                                );
-                            } else {
-                                let pane = pane.clone();
-                                let repo_id = repo_id.clone();
-                                let popover_state = popover_state.clone();
-                                row = row.on_click(move |_, window, cx| {
-                                    let pick = if is_github_default {
-                                        None
-                                    } else {
-                                        Some(name.clone())
-                                    };
-                                    pane.update(cx, |this, cx| {
-                                        this.set_default_branch(repo_id.clone(), pick, handle, cx);
-                                    });
-                                    popover_state.update(cx, |state, cx| state.dismiss(window, cx));
-                                });
-                            }
-                            rows = rows.child(row);
-                        }
-                        column = column.child(rows);
-                    }
-                }
-                column
+                let handle = window.window_handle();
+                let (pane, repo_id) = (pane.clone(), repo_id.clone());
+                let pick: BranchPick = std::rc::Rc::new(move |pick, window, cx| {
+                    pane.update(cx, |this, cx| {
+                        this.set_default_branch(repo_id.clone(), pick, handle, cx);
+                    });
+                    popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                });
+                branch_picker_column(index, load, &effective, github_default.as_deref(), &query, pick, window, cx)
             })
             .into_any_element()
     }
+}
+
+/// What picking a branch row does: `None` = GitHub's default (the pin is
+/// cleared), else the branch to pin.
+pub(crate) type BranchPick = std::rc::Rc<dyn Fn(Option<String>, &mut Window, &mut gpui::App)>;
+
+/// The row's branch chip as a picker (EXP-462, web parity:
+/// `DefaultBranchMenu`): shows the effective default branch; the popover
+/// lists the repo's branches (fetched live from GitHub on first open)
+/// behind a search input (EXP-469 — repos routinely carry more branches
+/// than a scrollable menu can be skimmed for), "default" marks GitHub's
+/// own — picking it clears the pin so the repo follows GitHub again.
+///
+/// Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
+/// chevron-down (the chip opens a dropdown, it is not a picker row).
+pub(crate) fn branch_trigger(index: usize, full_name: &str, branch: &str, busy: bool, cx: &gpui::App) -> Button {
+    crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
+        .accessibility_label(format!("Default branch for {full_name}"))
+        .max_w(px(240.))
+        .font_family(theme::terminal::FONT_FAMILY)
+        .child(crate::surface::picker_value_label(SharedString::from(branch.to_string())))
+        .child(
+            Icon::new(registry::UI_CHEVRON_DOWN)
+                .size_3()
+                .flex_shrink_0()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .disabled(busy)
+}
+
+/// The branch picker's popover column: the search row, a hairline, then
+/// the skeleton rows while the list loads, "No branches found." for an
+/// empty or failed one, else the (filtered) branches, "default" trailing
+/// GitHub's own and a check on the effective one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn branch_picker_column(
+    index: usize,
+    load: Option<BranchLoad>,
+    effective: &str,
+    github_default: Option<&str>,
+    query: &Entity<InputState>,
+    pick: BranchPick,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) -> gpui::Div {
+    use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
+    let filter = query.read(cx).value().trim().to_lowercase();
+    let column = v_flex()
+        .w_full()
+        .child(search_field(query, SearchFieldSize::Sm, window, cx).appearance(false))
+        .child(
+            div()
+                .h(px(1.))
+                .w_full()
+                .my_1()
+                .bg(cx.theme().border.opacity(0.5)),
+        );
+    let branches = match load {
+        // First load: the picker's rows as placeholders (D8).
+        None | Some(BranchLoad::Loading) => {
+            return column.child(crate::feedback::skeleton_rows(
+                ("repo-branch-skeleton", index),
+                crate::feedback::SKELETON_ROWS,
+                crate::controls::MENU_ROW_H,
+                cx,
+            ));
+        }
+        // A failed load is quiet (FEED-79): the empty list.
+        Some(BranchLoad::Failed) => Vec::new(),
+        Some(BranchLoad::Ready(branches)) => branches,
+    };
+    // The effective branch always renders even when GitHub no longer has
+    // it (a pinned branch deleted upstream) — the list must show what the
+    // row is set to.
+    let mut names: Vec<String> = Vec::new();
+    if !branches.iter().any(|b| b == effective) {
+        names.push(effective.to_string());
+    }
+    names.extend(branches);
+    names.retain(|name| filter.is_empty() || name.to_lowercase().contains(&filter));
+    if names.is_empty() {
+        return column.child(crate::pickers::empty_picker_row("No branches found.", cx));
+    }
+    let mut rows = v_flex()
+        .id(("repo-branch-rows", index))
+        .w_full()
+        .max_h(px(240.))
+        .overflow_y_scroll();
+    for name in names {
+        let is_github_default = github_default == Some(name.as_str());
+        let checked = name == effective;
+        let mut row = crate::pickers::picker_row(
+            ElementId::Name(SharedString::from(format!("repo-branch-{index}-{name}"))),
+            cx,
+        )
+        .role(gpui::Role::ListItem)
+        .aria_selected(checked)
+        .aria_label(SharedString::from(name.clone()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .text_xs()
+                .child(SharedString::from(name.clone())),
+        );
+        if is_github_default {
+            row = row.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .flex_shrink_0()
+                    .child("default"),
+            );
+        }
+        if checked {
+            row = row.child(
+                Icon::new(registry::UI_CHECK)
+                    .size_3()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground),
+            );
+        } else {
+            let pick = pick.clone();
+            row = row.on_click(move |_, window, cx| {
+                pick(if is_github_default { None } else { Some(name.clone()) }, window, cx);
+            });
+        }
+        rows = rows.child(row);
+    }
+    column.child(rows)
 }
 
 /// The "Private" chip — same outline chip with the lock glyph, so private

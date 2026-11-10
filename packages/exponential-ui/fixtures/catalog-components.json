@@ -11209,6 +11209,29 @@
       }
     },
     {
+      "name": "Select/triggerVariant=pill",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "pill"
+        }
+      }
+    },
+    {
       "name": "Select/align=start",
       "node": {
         "id": "select",
@@ -11274,6 +11297,52 @@
           ],
           "value": "sprint",
           "align": "end"
+        }
+      }
+    },
+    {
+      "name": "Select/loading=true",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "loading": true
+        }
+      }
+    },
+    {
+      "name": "Select/loading=false",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "loading": false
         }
       }
     },

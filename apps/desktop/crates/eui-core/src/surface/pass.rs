@@ -589,7 +589,15 @@ impl Surface {
                 let size = self.shrink_to_content(root, if hosted { unbounded(view) } else { view }, pad, spec.match_anchor_width.then_some(a.w), guesses);
                 let physical = physical_align(align, rtl);
                 aligned = Some(physical);
-                let p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
+                let mut p = if hosted { hosted_place(a, size, side, physical) } else { self.anchor_place_with(a, size, view, side, align, rtl, spec.offset.map(f64::from), spec.margin.map(f64::from)) };
+                // #EXP-1765: the aligned edge pushed out past the anchor's.
+                if let (Some(inset), false) = (spec.inset, hosted) {
+                    match physical {
+                        OverlayAlign::Start => p.x -= inset as f64,
+                        OverlayAlign::End => p.x += inset as f64,
+                        OverlayAlign::Center => {}
+                    }
+                }
                 let pos = p.side.as_str().to_string();
                 (Some(p), pos, Some(a), p.x as f32, p.y as f32)
             }

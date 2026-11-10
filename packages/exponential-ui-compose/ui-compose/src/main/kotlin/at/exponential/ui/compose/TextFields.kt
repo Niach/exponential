@@ -425,9 +425,13 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
     val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
     // A `search` part leads with its glyph (the measurer's 16 + 8).
     val glyph = cx.node.part == "search" && cx.props["icon"] != null
+    // #EXP-1765: a Select search's glyph is its `searchIcon` part's size, the recipe's gap from the text (else 8).
+    val select = cx.node.ownerComponent == "Select"
+    val glyphSize = if (select) cx.part("Select", "searchIcon").width ?: 16f else 16f
+    val glyphGap = if (select && cx.style.gap > 0f) cx.style.gap else 8f
     val disabled = cx.model.isDisabled(cx.index)
     InnerBox(cx, contentAlignment = Alignment.CenterStart) {
-        if (glyph) GlyphView(Glyph.Search, 16f, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
+        if (glyph) GlyphView(Glyph.Search, glyphSize, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         OwnedTextField(
             index = cx.index,
             model = cx.model,
@@ -438,7 +442,7 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             disabled = disabled,
             submitsOnReturn = false,
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
-            modifier = if (glyph) Modifier.fillMaxSize().padding(start = 24.dp) else Modifier.fillMaxSize(),
+            modifier = if (glyph) Modifier.fillMaxSize().padding(start = (glyphSize + glyphGap).dp) else Modifier.fillMaxSize(),
             keyboardType = if (cx.node.component == "NumberField") KeyboardType.Decimal else KeyboardType.Text,
         )
     }

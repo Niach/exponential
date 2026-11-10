@@ -39,6 +39,7 @@ import at.exponential.ui.model.press
 import at.exponential.ui.model.scrollTo
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
+import at.exponential.ui.model.selectWakeCursor
 import at.exponential.ui.model.setSelectCursor
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.model.searchKey
@@ -253,6 +254,8 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         return model.escape()
     }
     val n = focused ?: return false
+    // #EXP-1765: the first key in a pointer-opened pill popup brings its cursor (↓ lands on the first option).
+    if (model.selectWakeCursor(n) && key == "down") return true
     if (key == "f10" && shift) {
         var p: Int? = n.index
         while (p != null) {

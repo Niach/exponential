@@ -233,6 +233,10 @@ pub struct LayerSpec {
     /// #EXP-1629: how close to the view's edges it may go when not the
     /// overlay default (`selectRowPopupMargin`).
     pub margin: Option<f32>,
+    /// #EXP-1765: how far the popup's aligned edge sits OUTSIDE its anchor's
+    /// (a `pill` Select's border box starts a hairline before the pill:
+    /// `selectPillPopupInset`, the IDE popover's ring outside its content).
+    pub inset: Option<f32>,
     /// The side is LOGICAL (a submenu opens at the inline end): right in
     /// LTR, left in RTL.
     pub mirror: bool,
@@ -1373,7 +1377,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
-        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, mirror: false });
+        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, inset: None, mirror: false });
     }
 }
 

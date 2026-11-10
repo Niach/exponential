@@ -86,7 +86,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
-  selectTrigger: ["field","row"],
+  selectTrigger: ["field","row","pill"],
   inputVariant: ["field","row","bare","code"],
   textareaVariant: ["field","row","code"],
 } as const
@@ -191,7 +191,7 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; mono?: boolean; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
   menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
@@ -296,7 +296,7 @@ export interface ComponentProps {
   Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic; icon?: IconName; endLabel?: string | Dynamic; showValue?: boolean }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
-  Select: { label?: string; description?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
+  Select: { label?: string; description?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; searchPlaceholder?: string; triggerVariant?: SelectTriggerValue; align?: OverlayAlignValue; popupWidth?: number; loading?: boolean | Dynamic; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }
   SearchList: { items: Shapes["searchItem"][] | Dynamic; query?: string | Dynamic; placeholder?: string; value?: string | Dynamic; emptyText?: string; maxRows?: number; showCount?: boolean }
   ChipInput: { label?: string; name: string; values?: string[] | Dynamic; suggestions?: Shapes["option"][] | Dynamic; placeholder?: string; max?: number; disabled?: boolean; checks?: Shapes["check"][] }
   KeyRecorder: { label: string; value?: string[] | Dynamic; recording?: boolean | Dynamic; pending?: string[] | Dynamic; placeholder?: string; error?: string }
