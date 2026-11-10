@@ -972,6 +972,8 @@ fn settings_board_unavailable() {
 fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
     board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
+}
+
 /// #EXP-1629: the IDE's device picker (`picker::device_picker` behind a
 /// `glass_picker_row`) vs genUI Select `triggerVariant: row` with option
 /// `icon` + `description`, closed and open. Shoot `settings_select_ide*`,
