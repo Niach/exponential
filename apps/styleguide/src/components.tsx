@@ -1548,7 +1548,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `FEED-42: the same block on all four clients. The status sits BEFORE the repo list, every inline action is an sm action pill, the ✕ is always visible and confirms, and accounts + stale marks come from integrations.github.status.`,
     status: {
       web: ok(`GithubStatusLine`, `apps/web/src/components/team/repositories-section.tsx`),
-      desktop: ok(`RepositoriesPane::github_status_line`, `apps/desktop/crates/ui/src/settings/repositories.rs`),
+      desktop: ok(`status_block`, `apps/desktop/crates/ui/src/settings/repositories.rs`),
       ios: ok(`TeamRepositoriesSection`, `apps/ios/Exponential/UI/Settings/TeamRepositoriesSection.swift`, `Lives in the native Team settings screen.`),
       android: ok(`RepositoriesSection`, `apps/android/app/src/main/java/com/exponential/app/ui/settings/TeamSettingsScreen.kt`, `Lives in the native Team settings screen.`),
     },
