@@ -97,17 +97,17 @@ fn settings_statuses_empty() {
     statuses("statuses-empty", statuses_shot(Vec::new()), &[]);
 }
 
-/// The delete dialog's body (native, unchanged by the document): the
-/// server count, the PR-pin notice and the target picker.
+/// The delete dialog's body: the server count, the PR-pin notice and the
+/// target list.
 #[test]
 #[ignore]
 fn settings_statuses_delete_pin() {
     let notice = "This status is where issues move when a pull request merges. That automation will fall back to Done.";
-    shoot_pane("statuses-delete-pin", move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice)), |_, _| {});
+    shoot_pane("statuses-delete-pin", move |window, cx| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice), window, cx), |_, _| {});
 }
 
 fn delete_body(name: &'static str, count: Option<i64>) {
-    shoot_pane(name, move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", count, None), |_, _| {});
+    shoot_pane(name, move |window, cx| DeleteStatusContent::for_shots(&status_rows(), "s-verified", count, None, window, cx), |_, _| {});
 }
 
 /// The count still in flight (or failed): no count line.
@@ -134,4 +134,12 @@ fn settings_statuses_delete_n() {
 #[ignore]
 fn settings_statuses_delete_trashed() {
     delete_body("statuses-delete-trashed", Some(5));
+}
+
+/// The second row pressed: it takes the selection from Backlog.
+#[test]
+#[ignore]
+fn settings_statuses_delete_second() {
+    let build = move |window: &mut Window, cx: &mut gpui::Context<DeleteStatusContent>| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(2), None, window, cx);
+    shoot_pane_acted("statuses-delete-second", build, |_, _| {}, None, &[], |pane, _, cx| pane.press_target("s-progress", cx));
 }
