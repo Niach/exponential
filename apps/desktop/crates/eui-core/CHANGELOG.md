@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- An autosize Textarea's `field` and the Composer are measured at their LAID-OUT width (#EXP-1629, `measure::follows_width`, `MeasureMemo::width_dependent`). Their intrinsic width is fixed (min = max content), so the memo used to answer every width from the max-content height and never asked the host at the real width. A long line now grows the field as it wraps at that width (a 12k-char URL or hash grows rows 10 to maxRows 40). No catalog, schema or FFI change: every renderer on the core layout (eui-gpui, SwiftUI, Compose) gets it.
 - Select option `trailing` + event `open` (#EXP-1629): a popup `item`'s `text` is `"{label} {trailing}"` when the option carries `trailing` (the search still matches the label); `set_open` fires the Select's `open` on the closed → open transition only, and `event(<a Select node>, "open")` fires it for a host's platform menu that opens outside the core's layers.
 - Input `bare` / `code` and Textarea `row` / `code` (#EXP-1629): no `label` part (the field's accessibility `label` carries it).
 - Template items build cheaper (#LOGS-7): an item instantiates its template by reference (no copy per item) and `with_suffix` copies each node once instead of its whole subtree at every depth. A long chat's List re-windows in about half the time; the built trees are the same.

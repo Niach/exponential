@@ -247,6 +247,12 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(auto.height, 80)
         let short = measurer.measureLeaf(LeafRequest(component: "Textarea", part: "field", props: ["rows": .number(2), "autosize": .bool(true), "value": .string("hi")]), wrap: nil)
         XCTAssertEqual(short.height, 40)
+        // #EXP-1629: a 12k-char line without a break opportunity (a long URL,
+        // a hash) wraps by character at the field's laid-out width (the core
+        // asks an autosize field at that width): rows 10 grow to maxRows 40.
+        let hash = String(repeating: "a", count: 12_000)
+        let grown = measurer.measureLeaf(LeafRequest(component: "Textarea", part: "field", props: ["rows": .number(10), "maxRows": .number(40), "autosize": .bool(true), "value": .string(hash)]), wrap: 360)
+        XCTAssertEqual(grown.height, 800)
         // Markdown `lines` clamps; a sparkline is 120 × 32.
         let md = measurer.measureLeaf(LeafRequest(component: "Markdown", props: ["text": .string("a\n\nb\n\nc\n\nd"), "lines": .number(2)]), wrap: 300)
         XCTAssertEqual(md.height, 40)
