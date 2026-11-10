@@ -94,30 +94,6 @@
         "typescript": "^7.0.2",
       },
     },
-    "apps/styleguide": {
-      "name": "@exp/styleguide",
-      "version": "0.0.0",
-      "dependencies": {
-        "@exp/design-tokens": "workspace:*",
-        "@exp/domain-contract": "workspace:*",
-        "@exp/eengine": "workspace:*",
-        "@exp/etalk": "workspace:*",
-        "@exp/icons": "workspace:*",
-        "@exp/mcp-apps": "workspace:*",
-        "@exp/ui": "workspace:*",
-        "@exp/view-catalog": "workspace:*",
-        "@exponential_app/eui": "workspace:*",
-        "react": "^19.2.0",
-        "react-dom": "^19.2.0",
-      },
-      "devDependencies": {
-        "@exp/tsconfig": "workspace:*",
-        "@types/bun": "latest",
-        "@types/react": "^19.2.0",
-        "@types/react-dom": "^19.2.0",
-        "typescript": "^7.0.2",
-      },
-    },
     "apps/web": {
       "name": "@exp/web",
       "version": "0.20.54",
@@ -1023,8 +999,6 @@
     "@exp/steer-ticket": ["@exp/steer-ticket@workspace:packages/steer-ticket"],
 
     "@exp/store-shots": ["@exp/store-shots@workspace:packages/store-shots"],
-
-    "@exp/styleguide": ["@exp/styleguide@workspace:apps/styleguide"],
 
     "@exp/tsconfig": ["@exp/tsconfig@workspace:packages/tsconfig"],
 

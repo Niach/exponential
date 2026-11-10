@@ -5,9 +5,10 @@ planned `exp` A2UI catalog (VAPP-5). Per EXP-1174 round 3 this table **is the
 catalog list** (VAPP-82, VAPP-83): every row becomes one `exp` catalog
 component, rendered on web WITH the `@exp/ui` component in the web column.
 
-Snapshot of 2026-10-04 (master `574bf1023b`). The per-platform `status` tables
-in `apps/styleguide/src/components.tsx` stay the live record; this file is the
-cross-cut by primitive.
+Snapshot of 2026-10-04 (master `574bf1023b`). The styleguide app that held the
+per-platform `status` tables retired (#EXP-1779); the genUI catalogue
+(exponential.at/sdk/genui) is the live record of the low-level set, and this
+file is a historical cross-cut by primitive.
 
 Paths: web `packages/ui/src/` (`@exp/ui`) unless prefixed `web:` (=
 `apps/web/src/`); iOS `apps/ios/ExpUI/Sources/` unless prefixed `app:` (=
