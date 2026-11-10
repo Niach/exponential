@@ -11,6 +11,7 @@
   "scripts": {
     "capture": "bun src/capture-all.ts",
     "affected": "bun src/affected.ts",
+    "check": "bun src/check-store.ts",
     "index": "bun src/index-store.ts",
     "readme-hero": "bun src/readme-hero.ts",
     "test": "bun test",
