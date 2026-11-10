@@ -27,6 +27,16 @@ public enum TranscriptGrouping {
     public enum Copy {
         public static let formerMember = "Former member"
         public static let linkChevron = "›"
+        /// #EXP-1772 `copy.markers`: a system input's marker label by key.
+        public static let markers: [String: String] = [
+            "schedule": "Schedule",
+            "event": "Event",
+            "pr_opened": "Pull request opened",
+            "pr_merged": "Pull request merged",
+            "pr_merge": "Merge",
+            "pr_checks": "CI",
+            "session": "Session update",
+        ]
     }
 
     public enum ItemKind: String, Equatable, Sendable {
@@ -314,5 +324,65 @@ public enum TranscriptGrouping {
             sessionId: sessionId,
             body: group(5) ?? ""
         )
+    }
+
+    // #EXP-1772: only real messages are bubbles. A system input (a schedule
+    // or event firing, a PR or session status line) is THE inline marker,
+    // drawn only above the agent's reply to it.
+
+    /// A feed input: a marker (`key`, `label`) or another session's relay.
+    public enum FeedInput: Equatable, Sendable {
+        case marker(key: String, label: String)
+        case relay(name: String, sessionId: String, body: String, report: Bool)
+    }
+
+    private static let tagPattern = try? NSRegularExpression(pattern: #"^\[([a-z_]+)\] "#)
+    private static let schedulePattern = try? NSRegularExpression(pattern: #"^Schedule `[^`\n]+`[^\n]* fired"#)
+    private static let eventPattern = try? NSRegularExpression(pattern: #"^Event `[^`\n]+` \(from "#)
+
+    private static func marker(_ key: String) -> FeedInput {
+        .marker(key: key, label: Copy.markers[key] ?? key)
+    }
+
+    /// The device's tagged system line = a marker, another session's input =
+    /// a relay, else nil (a person's prompt).
+    public static func feedInput(_ text: String) -> FeedInput? {
+        let ns = text as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        if let match = tagPattern?.firstMatch(in: text, range: all) {
+            let key = ns.substring(with: match.range(at: 1))
+            if Copy.markers[key] != nil { return marker(key) }
+        }
+        if schedulePattern?.firstMatch(in: text, range: all) != nil { return marker("schedule") }
+        if eventPattern?.firstMatch(in: text, range: all) != nil { return marker("event") }
+        guard let cross = crossSessionInput(text) else { return nil }
+        return .relay(name: cross.name, sessionId: cross.sessionId, body: cross.body, report: cross.kind == .report)
+    }
+
+    public enum FeedRowKind: String, Equatable, Sendable {
+        case marker
+        case input
+        case reply
+        case other
+    }
+
+    /// Per row: is it drawn? A marker only when a reply follows it before
+    /// the next input or marker; every other row always.
+    public static func markersShown(_ kinds: [FeedRowKind]) -> [Bool] {
+        var shown = kinds.map { _ in true }
+        var pending: Int?
+        for (index, kind) in kinds.enumerated() {
+            switch kind {
+            case .marker, .input:
+                if let pending { shown[pending] = false }
+                pending = kind == .marker ? index : nil
+            case .reply:
+                pending = nil
+            case .other:
+                break
+            }
+        }
+        if let pending { shown[pending] = false }
+        return shown
     }
 }

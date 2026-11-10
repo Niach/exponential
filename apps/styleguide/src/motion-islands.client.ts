@@ -14,7 +14,7 @@ import { DEFAULT_THEME_ID, builtinTheme, type NestedNode } from "@exponential_ap
 import { initMotionWasm } from "@exponential_app/eui/motion"
 import { CanvasView, MotionView } from "@exponential_app/eui/web"
 import { MOTION_WASM_GZ_BASE64 } from "@exponential_app/eui/wasm/motion/bytes.ts"
-import specimens from "./entries/motion.specimens.json"
+import specimens from "@exponential_app/eui/fixtures/motion.specimens.json"
 import canvasSpecimens from "@exponential_app/eui/fixtures/canvas-specimen.json"
 
 type Tree = { data: Record<string, unknown>; cases: NestedNode; illustration: NestedNode; interactive?: NestedNode }

@@ -10,6 +10,7 @@ use gpui_component::ActiveTheme as _;
 use api::notifications::EmailPrefs;
 
 use crate::coding_flow::CodingHub;
+use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
 use crate::settings::about::AboutPane;
 use crate::settings::account::{AccountPane, AccountShot};
 use crate::settings::sessions::SessionsPane;
@@ -17,7 +18,6 @@ use crate::settings::api_keys::{ApiKeysPane, ShotLoad as KeysLoad};
 use crate::settings::widget::WidgetPane;
 use crate::settings::all_boards::AllBoardsPane;
 use crate::settings::sign_in_methods::SignInShot;
-use crate::settings::change_email_dialog::{ChangeEmailDialogView, EmailShot};
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
@@ -28,6 +28,7 @@ use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPa
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
 use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
+use crate::settings::statuses::{DeleteStatusContent, StatusesPane, StatusesShot};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
 use crate::transcript_bench::draw;
@@ -1292,38 +1293,45 @@ fn board_detail(name: &str, shot: BoardShot) {
 #[test]
 #[ignore]
 fn settings_board_unlinked() {
-    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unlinked", BoardShot { board: board(None, None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_linked() {
-    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-linked", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_pinned() {
-    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false });
+    board_detail("board-pinned", BoardShot { board: board(Some("r2"), Some("release/1.2")), repos: Some(board_repos()), failed: false, press: Vec::new() });
+}
+
+/// The identity row's ColorPicker open: the label palette's 28 px cells.
+#[test]
+#[ignore]
+fn settings_board_color_open() {
+    board_detail("board-color-open", BoardShot { board: board(Some("r1"), None), repos: Some(board_repos()), failed: false, press: vec!["color_picker.trigger".into()] });
 }
 
 #[test]
 #[ignore]
 fn settings_board_loading() {
-    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false });
+    board_detail("board-loading", BoardShot { board: board(Some("r1"), None), repos: None, failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_unavailable() {
-    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false });
+    board_detail("board-unavailable", BoardShot { board: board(Some("gone"), None), repos: Some(board_repos()), failed: false, press: Vec::new() });
 }
 
 #[test]
 #[ignore]
 fn settings_board_failed_plain() {
     let plain = domain::rows::Board { icon: None, color: None, prefix: None, ..board(None, None) };
-    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true });
+    board_detail("board-failed-plain", BoardShot { board: plain, repos: None, failed: true, press: Vec::new() });
 }
 
 const PROMPT_BODY: &str = "Review the open PRs on this board.\n\n- Summarise each diff in two lines.\n- Flag anything that touches `apps/web/src/db`.\n";
@@ -2051,6 +2059,385 @@ mod app_detail {
         // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
         shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
     }
+}
+
+fn status(id: &str, category: &str, name: &str, color: Option<&str>, order: f64, builtin: Option<&str>) -> domain::rows::IssueStatusRow {
+    domain::rows::IssueStatusRow { id: id.into(), team_id: "team-shots".into(), category: category.into(), name: name.into(), color: color.map(str::to_string), sort_order: Some(order), builtin_key: builtin.map(str::to_string), created_at: None, updated_at: None }
+}
+
+/// The builtins plus two custom statuses (Unstarted stays empty).
+fn status_rows() -> Vec<domain::rows::IssueStatusRow> {
+    vec![
+        status("s-backlog", "backlog", "Backlog", None, 0., Some("backlog")),
+        status("s-progress", "started", "In Progress", None, 0., Some("in_progress")),
+        status("s-blocked", "started", "Blocked", Some("#ef4444"), 1., None),
+        status("s-review", "started", "In Review", None, 2., Some("in_review")),
+        status("s-done", "completed", "Done", None, 0., Some("done")),
+        status("s-verified", "completed", "Verified", Some("#8b5cf6"), 1., None),
+        status("s-cancelled", "cancelled", "Cancelled", None, 0., Some("cancelled")),
+        status("s-duplicate", "duplicate", "Duplicate", None, 0., Some("duplicate")),
+    ]
+}
+
+fn status_counts() -> HashMap<String, usize> {
+    HashMap::from([("s-backlog".to_string(), 12), ("s-progress".to_string(), 3), ("s-blocked".to_string(), 1), ("s-done".to_string(), 48)])
+}
+
+fn statuses_shot(rows: Vec<domain::rows::IssueStatusRow>) -> StatusesShot {
+    StatusesShot { counts: status_counts(), ready: true, creating: None, row_error: None, press: Vec::new(), rows }
+}
+
+fn statuses(name: &str, shot: StatusesShot, clicks: &'static [(f32, f32)]) {
+    shoot_pane_clicked(name, StatusesPane::for_shots, move |pane, cx| pane.show(shot, cx), None, clicks);
+}
+
+
+#[test]
+#[ignore]
+fn settings_statuses_rows() {
+    statuses("statuses-rows", statuses_shot(status_rows()), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_color_open() {
+    // Before: a click at the Blocked row's glyph (46, 415) opened today's popover.
+    let press = vec!["started_row_color.s-blocked.customTrigger|started_row_color.customTrigger.s-blocked".into()];
+    statuses("statuses-color-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_menu_open() {
+    // Before: a click at the Blocked row's ⋯ (709, 415) only hovered it (the
+    // pointer menu does not open headless).
+    let press = vec!["started_row_more.s-blocked".into()];
+    statuses("statuses-menu-open", StatusesShot { press, ..statuses_shot(status_rows()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Unstarted, String::new())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_create_duplicate() {
+    let shot = StatusesShot { creating: Some((domain::statuses::IssueStatusCategory::Completed, "done".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-create-duplicate", shot, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_row_error() {
+    let shot = StatusesShot { row_error: Some(("s-blocked".into(), "A status with this name already exists.".into())), ..statuses_shot(status_rows()) };
+    statuses("statuses-row-error", shot, &[]);
+}
+
+/// Started at its cap: the band's "+" disabled and the cap line.
+#[test]
+#[ignore]
+fn settings_statuses_capped() {
+    let mut rows = status_rows();
+    rows.push(status("s-qa", "started", "QA", Some("#eab308"), 3., None));
+    rows.push(status("s-ready", "unstarted", "Ready", Some("#3b82f6"), 0., None));
+    statuses("statuses-capped", statuses_shot(rows), &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_loading() {
+    statuses("statuses-loading", StatusesShot { ready: false, ..statuses_shot(Vec::new()) }, &[]);
+}
+
+#[test]
+#[ignore]
+fn settings_statuses_empty() {
+    statuses("statuses-empty", statuses_shot(Vec::new()), &[]);
+}
+
+/// The delete dialog's body (native, unchanged by the document): the
+/// server count, the PR-pin notice and the target picker.
+#[test]
+#[ignore]
+fn settings_statuses_delete_pin() {
+    let notice = "This status is where issues move when a pull request merges. That automation will fall back to Done.";
+    shoot_pane("statuses-delete-pin", move |_, _| DeleteStatusContent::for_shots(&status_rows(), "s-verified", Some(3), Some(notice)), |_, _| {});
+}
+
+/// #EXP-1629: Settings → MCP › Servers in every state (owner, member, a
+/// Connect waiting + a Reconnect in flight, reloading, loading, failed,
+/// empty, no team, a row's ⋯ menu open).
+mod mcp_servers {
+    use super::*;
+    use crate::settings::mcp_servers::{McpServersPane, McpShot};
+    use api::mcp_servers::{McpConnection, McpServerConfig, McpServerDevice, McpServerListEntry};
+
+    fn entry(id: &str, name: &str, url: Option<&str>, auth: &str, status: &str) -> McpServerListEntry {
+        McpServerListEntry {
+            config: McpServerConfig { id: id.into(), team_id: "t".into(), name: name.into(), url: url.map(str::to_string), auth: auth.into(), ..Default::default() },
+            connection: McpConnection { status: status.into(), expires_at: None, error: None },
+            ..Default::default()
+        }
+    }
+
+    fn rows() -> Vec<McpServerListEntry> {
+        let mut linear = entry("s1", "Linear", Some("https://mcp.linear.app/mcp"), "oauth", "connected");
+        linear.config.enabled_by_default = true;
+        linear.shared = true;
+        linear.used_by = vec!["Triage".into()];
+        let notion = entry("s2", "Notion", Some("https://mcp.notion.com/mcp"), "oauth", "expired");
+        let docs = entry("s3", "Internal docs", Some("https://mcp.docs.acme.dev/sse"), "oauth", "not_connected");
+        let mut keys = entry("s4", "Stripe", Some("https://mcp.stripe.com"), "secret", "not_connected");
+        keys.config.header_names = vec!["Authorization".into()];
+        let mut files = entry("s5", "Filesystem", None, "none", "not_needed");
+        files.config.transport = "stdio".into();
+        files.config.command = Some("npx".into());
+        files.config.args = vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into(), "/srv/shared".into()];
+        files.device = Some(McpServerDevice { id: "d1".into(), label: "studio-mac".into(), owner_id: "u".into(), kind: "desktop".into(), icon: None });
+        vec![linear, notion, docs, keys, files]
+    }
+
+    fn mcp(name: &str, team: bool, owner: bool, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&'static str>, connecting: Option<&'static str>, clicks: &'static [(f32, f32)]) {
+        let shot = McpShot { team: team.then(|| "t".to_string()), owner };
+        shoot_pane_clicked(name, McpServersPane::for_shots, move |pane, cx| pane.show(shot, load, reloading, pending, connecting, cx), None, clicks);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_owner() {
+        mcp("mcp-servers-owner", true, true, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_member() {
+        mcp("mcp-servers-member", true, false, Some(Ok(rows())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_busy() {
+        mcp("mcp-servers-busy", true, true, Some(Ok(rows())), false, Some("s2"), Some("s3"), &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_reloading() {
+        mcp("mcp-servers-reloading", true, true, Some(Ok(rows())), true, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_loading() {
+        mcp("mcp-servers-loading", true, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_failed() {
+        mcp("mcp-servers-failed", true, true, Some(Err("offline".into())), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_empty() {
+        mcp("mcp-servers-empty", true, true, Some(Ok(vec![])), false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_no_team() {
+        mcp("mcp-servers-no-team", false, true, None, false, None, None, &[]);
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_mcp_servers_menu_open() {
+        mcp("mcp-servers-menu-open", true, true, Some(Ok(rows())), false, None, None, &[(MENU_X, MENU_Y)]);
+    }
+
+    /// The first row's ⋯ (window points), read off `mcp-servers-owner`.
+    const MENU_X: f32 = 709.;
+    const MENU_Y: f32 = 97.5;
+}
+
+/// #EXP-1629: Settings → Members in every state (an owner's roster with
+/// owners, members, the three placeholder pills, a name-less email row and
+/// a row with no synced user, plus the pending invites; a member's view;
+/// the invite form typed, sending, adding, with its own notices; the link
+/// path's seat-cap notice, generated link and generating; no team; a row's
+/// ⋯ under the pointer).
+mod members {
+    use super::*;
+    use crate::settings::members::{MembersPane, MembersShot};
+    use serde_json::json;
+
+    fn members() -> Vec<domain::rows::TeamMember> {
+        let m = |id: &str, user: &str, role: &str, at: &str| json!({"id": id, "team_id": "t", "user_id": user, "role": role, "created_at": at});
+        serde_json::from_value(json!([
+            m("m1", "u-me", "owner", "2026-01-01T00:00:00Z"),
+            m("m2", "u-fox", "owner", "2026-01-02T00:00:00Z"),
+            m("m3", "u-sam", "member", "2026-01-03T00:00:00Z"),
+            m("m4", "u-ada", "member", "2026-11-01T00:00:00Z"),
+            m("m5", "u-bob", "member", "2026-01-04T00:00:00Z"),
+            m("m6", "u-cy", "member", "2026-02-01T00:00:00Z"),
+            m("m7", "u-apple", "member", "2026-03-01T00:00:00Z"),
+            m("m8", "u-gone-7f3a", "member", "2026-04-01T00:00:00Z"),
+        ]))
+        .expect("members")
+    }
+
+    fn users() -> Vec<domain::rows::User> {
+        let u = |id: &str, name: &str, email: &str| json!({"id": id, "name": name, "email": email});
+        serde_json::from_value(json!([
+            u("u-me", "Dana Scully", "dana@acme.dev"),
+            u("u-fox", "Fox Mulder", "fox@acme.dev"),
+            u("u-sam", "Sam Rivera", "sam@acme.dev"),
+            u("u-ada", "Ada Lovelace", "ada@example.com"),
+            u("u-bob", "Bob Ross", "bob@example.com"),
+            u("u-cy", "Cy Linear", "cy@example.com"),
+            u("u-apple", "", "x7k2@privaterelay.appleid.com"),
+        ]))
+        .expect("users")
+    }
+
+    fn invites() -> Vec<domain::rows::TeamInvite> {
+        serde_json::from_value(json!([
+            {"id": "i1", "team_id": "t", "role": "member", "email": "ada@example.com", "placeholder_user_id": "u-ada", "sent_at": "2026-11-01T00:00:00Z", "expires_at": "2099-11-08T00:00:00Z", "created_at": "2026-11-01T00:00:00Z"},
+            {"id": "i2", "team_id": "t", "role": "member", "email": "bob@example.com", "placeholder_user_id": "u-bob", "sent_at": "2026-01-04T00:00:00Z", "expires_at": "2026-01-11T00:00:00Z", "created_at": "2026-01-04T00:00:00Z"},
+            {"id": "i3", "team_id": "t", "role": "member", "email": "cy@example.com", "placeholder_user_id": "u-cy", "expires_at": "2026-02-01T00:00:00Z", "created_at": "2026-02-01T00:00:00Z"},
+            {"id": "i4", "team_id": "t", "role": "member", "sent_at": "2026-11-05T00:00:00Z", "expires_at": "2099-12-01T00:00:00Z", "created_at": "2026-11-05T00:00:00Z"},
+            {"id": "i5", "team_id": "t", "role": "owner", "email": "eve@other.dev", "sent_at": "2026-11-03T00:00:00Z", "expires_at": "2099-11-20T00:00:00Z", "created_at": "2026-11-03T00:00:00Z"},
+        ]))
+        .expect("invites")
+    }
+
+    const LINK: &str = "https://exponential.at/invite/9f2c4e7a1b3d5f6e8a0c2e4b6d8f0a1c3e5b7d9f";
+
+    fn shot() -> MembersShot {
+        MembersShot {
+            team: Some("t".into()),
+            owner: true,
+            me: "u-me".into(),
+            members: members(),
+            users: users(),
+            invites: invites(),
+            name: String::new(),
+            email: String::new(),
+            sending: false,
+            adding: false,
+            form_out_of_seats: false,
+            form_link: None,
+            email_error: None,
+            link: None,
+            out_of_seats: false,
+            generating: false,
+        }
+    }
+
+    fn typed() -> MembersShot {
+        MembersShot { name: "Grace Hopper".into(), email: "grace@example.com".into(), ..shot() }
+    }
+
+    fn members_shot(name: &str, shot: MembersShot) {
+        members_hover(name, shot, None);
+    }
+
+    /// The pane, then the form filled; `hover` = the pointer moved there
+    /// (window points) after it.
+    fn members_hover(name: &str, shot: MembersShot, hover: Option<(f32, f32)>) {
+        shoot_pane_acted(name, MembersPane::for_shots, move |pane, cx| pane.show(shot, cx), None, &[], move |pane, window, cx| {
+            pane.shot_act(window, cx);
+            if let Some((x, y)) = hover {
+                // After the pane's update: the move repaints it.
+                window.defer(cx, move |window, cx| {
+                    let moved = gpui::MouseMoveEvent { position: gpui::point(px(x), px(y)), pressed_button: None, modifiers: Default::default() };
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(moved), cx);
+                });
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_owner() {
+        members_shot("members-owner", shot());
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_member() {
+        members_shot("members-member", MembersShot { owner: false, me: "u-sam".into(), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_typed() {
+        members_shot("members-typed", typed());
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_sending() {
+        members_shot("members-sending", MembersShot { sending: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_adding() {
+        members_shot("members-adding", MembersShot { adding: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_out_of_seats() {
+        members_shot("members-out-of-seats", MembersShot { out_of_seats: true, ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_link() {
+        members_shot("members-link", MembersShot { link: Some(LINK.into()), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_generating() {
+        members_shot("members-generating", MembersShot { generating: true, ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_form_notices() {
+        members_shot("members-form-notices", MembersShot { form_out_of_seats: true, form_link: Some(LINK.into()), email_error: Some("Enter a full email address".into()), ..typed() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_no_pending() {
+        members_shot("members-no-pending", MembersShot { invites: Vec::new(), ..shot() });
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_members_no_team() {
+        members_shot("members-no-team", MembersShot { team: None, ..shot() });
+    }
+
+    /// The pointer over the second row's ⋯ (`EXP_MEMBERS_HOVER=x,y`
+    /// overrides [`MENU`]).
+    #[test]
+    #[ignore]
+    fn settings_members_menu_hover() {
+        let point = std::env::var("EXP_MEMBERS_HOVER").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))).unwrap_or(MENU);
+        members_hover("members-menu-hover", shot(), Some(point));
+    }
+
+    /// The second row's ⋯ (window points), read off `members-owner`.
+    const MENU: (f32, f32) = (700., 140.);
 }
 
 fn email_shot() -> EmailShot {

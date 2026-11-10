@@ -1,7 +1,7 @@
 import { ExponentialUiTree } from "@exp/ui"
 import type { NestedNode } from "@exponential_app/eui"
 
-import specimens from "./motion.specimens.json"
+import specimens from "@exponential_app/eui/fixtures/motion.specimens.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1604 — Exponential UI's `Motion`: a vector animation painted from the

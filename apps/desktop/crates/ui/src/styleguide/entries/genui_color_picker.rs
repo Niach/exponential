@@ -1,7 +1,8 @@
 //! #EXP-1760: `genui-color-picker` (General components): THE Exponential UI ColorPicker
 //! macro, painted by the gpui painter from the catalog specimen
 //! (`packages/exponential-ui/fixtures/specimens.json`
-//! `exponential-ui-color-picker`: a pick, none, the open grid), so the twin cannot
+//! `exponential-ui-color-picker`: a pick, none, a child trigger, the inline
+//! grid, the open grid; #EXP-1775), so the twin cannot
 //! drift from the web entry (`apps/styleguide/src/entries/genui-color-picker.tsx`).
 
 use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};

@@ -3420,6 +3420,391 @@
       "rootParts": [
         "content"
       ],
+      "alternatives": [
+        {
+          "$if": "props.inline",
+          "root": {
+            "part": "grid",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "gap": 6,
+              "width": 232
+            },
+            "children": [
+              {
+                "part": "swatch",
+                "component": "Box",
+                "$if": "props.colors",
+                "$each": "props.colors",
+                "$as": "color",
+                "props": {
+                  "pressable": true
+                },
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "$recipe": {
+                  "selected": {
+                    "$eq": [
+                      "{color}",
+                      "{props.value}"
+                    ]
+                  }
+                },
+                "$a11y": {
+                  "role": "button",
+                  "label": "{color}",
+                  "pressed": {
+                    "$eq": [
+                      "{color}",
+                      "{props.value}"
+                    ]
+                  }
+                },
+                "$on": {
+                  "press": "change"
+                },
+                "$context": {
+                  "value": "{color}"
+                },
+                "$set": {
+                  "press": {
+                    "prop": "value",
+                    "value": "{color}"
+                  }
+                },
+                "children": [
+                  {
+                    "part": "fill",
+                    "component": "Box",
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "{color}"
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "swatch",
+                "component": "Box",
+                "$if": {
+                  "$not": "props.colors"
+                },
+                "$each": [
+                  "#ef4444",
+                  "#dc2626",
+                  "#f97316",
+                  "#f59e0b",
+                  "#eab308",
+                  "#84cc16",
+                  "#22c55e",
+                  "#10b981",
+                  "#14b8a6",
+                  "#06b6d4",
+                  "#0ea5e9",
+                  "#3b82f6",
+                  "#6366f1",
+                  "#8b5cf6",
+                  "#a855f7",
+                  "#ec4899",
+                  "#f43f5e",
+                  "#78716c",
+                  "#64748b",
+                  "#a3a3a3"
+                ],
+                "$as": "color",
+                "props": {
+                  "pressable": true
+                },
+                "style": {
+                  "display": "flex",
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
+                  "borderRadius": "$radius.full",
+                  "borderWidth": "$border.thick"
+                },
+                "$recipe": {
+                  "selected": {
+                    "$eq": [
+                      "{color}",
+                      "{props.value}"
+                    ]
+                  }
+                },
+                "$a11y": {
+                  "role": "button",
+                  "label": "{color}",
+                  "pressed": {
+                    "$eq": [
+                      "{color}",
+                      "{props.value}"
+                    ]
+                  }
+                },
+                "$on": {
+                  "press": "change"
+                },
+                "$context": {
+                  "value": "{color}"
+                },
+                "$set": {
+                  "press": {
+                    "prop": "value",
+                    "value": "{color}"
+                  }
+                },
+                "children": [
+                  {
+                    "part": "fill",
+                    "component": "Box",
+                    "style": {
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "backgroundColor": "{color}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "$if": {
+            "$lt": [
+              0,
+              "{childCount}"
+            ]
+          },
+          "root": {
+            "part": "root",
+            "component": "Popover",
+            "props": {
+              "side": "bottom",
+              "align": "start",
+              "open": "{props.open}"
+            },
+            "slots": {
+              "trigger": {
+                "part": "customTrigger",
+                "component": "Button",
+                "props": {
+                  "variant": "ghost",
+                  "size": "icon"
+                },
+                "$a11y": {
+                  "label": {
+                    "$cond": [
+                      "props.value",
+                      {
+                        "$fill": [
+                          "$string.colorValue",
+                          {
+                            "color": "{props.value}"
+                          }
+                        ]
+                      },
+                      "$string.pickColor"
+                    ]
+                  }
+                },
+                "style": {
+                  "width": "$control.pill",
+                  "height": "$control.pill",
+                  "paddingHorizontal": 0,
+                  "paddingVertical": 0,
+                  "borderRadius": "$radius.full",
+                  "flexShrink": 0
+                },
+                "children": [
+                  "$children"
+                ]
+              }
+            },
+            "children": [
+              {
+                "part": "grid",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "flexWrap": "wrap",
+                  "gap": 6,
+                  "width": 266
+                },
+                "children": [
+                  {
+                    "part": "swatch",
+                    "component": "Box",
+                    "$if": "props.colors",
+                    "$each": "props.colors",
+                    "$as": "color",
+                    "props": {
+                      "pressable": true
+                    },
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "borderWidth": "$border.thick"
+                    },
+                    "$recipe": {
+                      "selected": {
+                        "$eq": [
+                          "{color}",
+                          "{props.value}"
+                        ]
+                      }
+                    },
+                    "$a11y": {
+                      "role": "button",
+                      "label": "{color}",
+                      "pressed": {
+                        "$eq": [
+                          "{color}",
+                          "{props.value}"
+                        ]
+                      }
+                    },
+                    "$on": {
+                      "press": "change"
+                    },
+                    "$context": {
+                      "value": "{color}"
+                    },
+                    "$set": {
+                      "press": {
+                        "prop": "value",
+                        "value": "{color}"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "fill",
+                        "component": "Box",
+                        "style": {
+                          "width": 20,
+                          "height": 20,
+                          "flexShrink": 0,
+                          "borderRadius": "$radius.full",
+                          "backgroundColor": "{color}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "part": "swatch",
+                    "component": "Box",
+                    "$if": {
+                      "$not": "props.colors"
+                    },
+                    "$each": [
+                      "#ef4444",
+                      "#dc2626",
+                      "#f97316",
+                      "#f59e0b",
+                      "#eab308",
+                      "#84cc16",
+                      "#22c55e",
+                      "#10b981",
+                      "#14b8a6",
+                      "#06b6d4",
+                      "#0ea5e9",
+                      "#3b82f6",
+                      "#6366f1",
+                      "#8b5cf6",
+                      "#a855f7",
+                      "#ec4899",
+                      "#f43f5e",
+                      "#78716c",
+                      "#64748b",
+                      "#a3a3a3"
+                    ],
+                    "$as": "color",
+                    "props": {
+                      "pressable": true
+                    },
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 28,
+                      "height": 28,
+                      "flexShrink": 0,
+                      "borderRadius": "$radius.full",
+                      "borderWidth": "$border.thick"
+                    },
+                    "$recipe": {
+                      "selected": {
+                        "$eq": [
+                          "{color}",
+                          "{props.value}"
+                        ]
+                      }
+                    },
+                    "$a11y": {
+                      "role": "button",
+                      "label": "{color}",
+                      "pressed": {
+                        "$eq": [
+                          "{color}",
+                          "{props.value}"
+                        ]
+                      }
+                    },
+                    "$on": {
+                      "press": "change"
+                    },
+                    "$context": {
+                      "value": "{color}"
+                    },
+                    "$set": {
+                      "press": {
+                        "prop": "value",
+                        "value": "{color}"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "fill",
+                        "component": "Box",
+                        "style": {
+                          "width": 20,
+                          "height": 20,
+                          "flexShrink": 0,
+                          "borderRadius": "$radius.full",
+                          "backgroundColor": "{color}"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
       "root": {
         "part": "root",
         "component": "Popover",
@@ -3482,7 +3867,7 @@
               "flexDirection": "row",
               "flexWrap": "wrap",
               "gap": 6,
-              "width": 258
+              "width": 266
             },
             "children": [
               {
@@ -3496,11 +3881,13 @@
                 },
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "$recipe": {
                   "selected": {
@@ -3537,7 +3924,9 @@
                     "part": "fill",
                     "component": "Box",
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "{color}"
                     }
@@ -3578,11 +3967,13 @@
                 },
                 "style": {
                   "display": "flex",
-                  "width": 24,
-                  "height": 24,
-                  "padding": 2,
+                  "alignItems": "center",
+                  "justifyContent": "center",
+                  "width": 28,
+                  "height": 28,
+                  "flexShrink": 0,
                   "borderRadius": "$radius.full",
-                  "borderWidth": "$border.hairline"
+                  "borderWidth": "$border.thick"
                 },
                 "$recipe": {
                   "selected": {
@@ -3619,7 +4010,9 @@
                     "part": "fill",
                     "component": "Box",
                     "style": {
-                      "flexGrow": 1,
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
                       "borderRadius": "$radius.full",
                       "backgroundColor": "{color}"
                     }

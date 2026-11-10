@@ -709,6 +709,18 @@ impl Collections {
         });
         out
     }
+
+    /// #LOGS-11: every collection's revision but those of the shapes named
+    /// in `skip`, for a view that derives from many of them: an equal
+    /// answer = nothing it reads moved.
+    pub fn revisions_except(&self, skip: &[&str], cx: &App) -> Vec<u64> {
+        fn revision<T: ShapeRow>(entity: &Entity<Collection<T>>, skip: &[&str], cx: &App) -> Option<u64> {
+            (!skip.contains(&T::spec().name)).then(|| entity.read(cx).revision())
+        }
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
+        for_each_collection!(self, entity => out.extend(revision(entity, skip, cx)));
+        out
+    }
 }
 
 impl Collections {

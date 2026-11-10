@@ -173,7 +173,7 @@ pub(crate) struct SidebarRegion {
     view: Entity<SurfaceView>,
     glyphs: Rc<RefCell<HashMap<String, Glyph>>>,
     hover: Rc<RefCell<Option<String>>>,
-    input: IdeSidebarInput,
+    pub(crate) input: IdeSidebarInput,
     shown: Option<Value>,
     /// The person's Assistant as the active team lists it: `(id, name)`.
     assistant: Option<(String, String)>,
@@ -230,6 +230,13 @@ impl SidebarRegion {
         self.input = input;
         self.push(cx);
         if glyphs_changed || std::mem::take(&mut self.computer_changed) {
+            self.view.update(cx, |_, cx| cx.notify());
+        }
+    }
+
+    /// #LOGS-11: the rows stand; only the Computer button may have moved.
+    pub(crate) fn repaint_computer(&mut self, cx: &mut gpui::Context<Self>) {
+        if std::mem::take(&mut self.computer_changed) {
             self.view.update(cx, |_, cx| cx.notify());
         }
     }

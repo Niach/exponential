@@ -25,3 +25,25 @@
   color: inherit;
   text-decoration: none;
 }
+/* /sdk/genui/'s catalogue (EuiCatalogue): every component's specimen, a
+   tile per component, wide ones span the row. */
+.eui-catalogue {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.eui-catalogue-tile {
+  min-width: 0;
+}
+.eui-catalogue-tile .eui-specimen {
+  margin-top: 0.5rem;
+}
+.eui-catalogue-name {
+  font-weight: 600;
+  color: var(--sl-color-white);
+  text-decoration: none;
+}
+.eui-catalogue-name:hover {
+  text-decoration: underline;
+}

@@ -66,13 +66,13 @@ mod resend_invite_dialog;
 mod issues;
 mod labels;
 mod mcp;
-mod mcp_servers;
+pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
 mod mcp_server_dialog;
-mod statuses;
+pub(crate) mod statuses;
 mod local_repos;
-mod members;
+pub(crate) mod members;
 pub(crate) mod all_boards;
 pub(crate) mod change_email_dialog;
 pub(crate) mod sign_in_methods;

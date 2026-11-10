@@ -1015,6 +1015,7 @@ export function buildSessionChat(input: {
   const rows: SessionChatRow[] = []
   const messagesById = new Map(input.messages.map((m) => [m.id, m]))
   const escalated = new Set<string>()
+  const fires = new Set<string>()
   for (const message of conversation) {
     const card = message.card
     if (message.locked) {
@@ -1119,6 +1120,16 @@ export function buildSessionChat(input: {
         break
       }
       case `event`: {
+        // #EXP-1772: a firing draws nothing of its own; one the agent
+        // answered is THE marker above that reply (`fires`, below).
+        if (card.event === `trigger_fired`) {
+          const named = typeof card.name === `string` && card.name.trim() !== ``
+          const text = named ? eventText(card, issueMap, prMap) : CHAT_COPY.events.trigger_schedule
+          if (!text) break
+          fires.add(message.id)
+          rows.push({ type: `event`, id: message.id, event: `trigger_fired`, text, sessionId: null })
+          break
+        }
         const text = eventText(card, issueMap, prMap, (id) => {
           const target = byId.get(id)
           return target ? sessionCard(target, titles.get(target.id) ?? ``, now).name : null
@@ -1149,6 +1160,17 @@ export function buildSessionChat(input: {
       default:
         break
     }
+  }
+
+  // #EXP-1772: a firing stays only right above the chat's own agent reply.
+  if (fires.size > 0) {
+    const kept = rows.filter((row, index) => {
+      if (!fires.has(row.id)) return true
+      const next = rows[index + 1]
+      return next?.type === `message` && next.author === `agent` && next.xref === null
+    })
+    rows.length = 0
+    rows.push(...kept)
   }
 
   const live = tree.filter((s) => s.status !== `ended`)

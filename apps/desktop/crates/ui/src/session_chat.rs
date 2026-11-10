@@ -585,16 +585,19 @@ fn event_row(
     rows: &[SessionChatRow],
     cx: &App,
 ) -> AnyElement {
+    // #EXP-1772: an event line is THE inline marker; one about a session
+    // keeps its press (chat-row-action.json).
     let action = session_row_action("event", session_id, root_id, rows, cx);
-    match action.session_id {
-        Some(target) if action.chevron => muted_line_button(
-            SharedString::from(format!("{}-{id}", domain::chat_row_action::test_ids().event)),
-            line.to_string(),
-            move |window, cx| open_session_card(&target, window, cx),
-            cx,
-        ),
-        _ => event_line(line.to_string(), cx),
-    }
+    let press: Option<Rc<dyn Fn(&mut Window, &mut App)>> = match action.session_id {
+        Some(target) if action.chevron => Some(Rc::new(move |window, cx| open_session_card(&target, window, cx))),
+        _ => None,
+    };
+    crate::surface_card::transcript_marker(
+        SharedString::from(format!("{}-{id}", domain::chat_row_action::test_ids().event)),
+        line,
+        press,
+        cx,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1141,7 +1144,9 @@ pub(crate) struct MessageBubble {
     pub own: bool,
     /// The sender's name line (the `author` line; `name ›` when it links).
     pub name: Option<String>,
-    /// A cross-session sender: a press anywhere on the bubble opens it.
+    /// #EXP-1772: a cross-session sender (a RELAY): its name line sits
+    /// ABOVE the bubble, outside it, and is the only press (it opens this
+    /// session); the bubble itself is never a link.
     pub link: Option<String>,
     /// A person's row the device has not consumed yet.
     pub queued: bool,
@@ -1161,7 +1166,29 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
     let muted = theme.muted_foreground;
     let sizes = transcript_sizes();
     let MessageBubble { id, body, time, own, name, link, queued, unqueue, width } = bubble;
-    let tip = name.clone().unwrap_or_default();
+    let name = name.filter(|name| !name.is_empty() && !own);
+    // #EXP-1772: a relay's name line goes above the bubble as its press.
+    let relay = link.and_then(|session_id| name.clone().map(|name| (session_id, name)));
+    let inner_name = if relay.is_some() { None } else { name };
+    let relay_line = relay.map(|(session_id, name)| {
+        let foreground = theme.foreground;
+        let label = SharedString::from(name);
+        div()
+            .id(SharedString::from(format!("{id}-relay")))
+            .role(gpui::Role::Button)
+            .aria_label(label.clone())
+            .max_w_full()
+            .min_w_0()
+            .truncate()
+            .text_size(px(sizes.name_size))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(muted)
+            .cursor_pointer()
+            .hover(move |style| style.text_color(foreground))
+            .active(|style| style.opacity(0.85))
+            .child(label)
+            .on_click(move |_, window, cx| crate::navigation::open_session_link(&session_id, window, cx))
+    });
     let card = body_text(div())
         .id(id)
         .min_w_0()
@@ -1184,7 +1211,7 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
         })
         .when(queued, |card| card.opacity(0.7))
         // The sender's name: the bubble's own `author` line, at its top.
-        .when_some(name.filter(|name| !name.is_empty() && !own), |card, name| {
+        .when_some(inner_name, |card, name| {
             card.child(
                 div()
                     .max_w_full()
@@ -1207,24 +1234,13 @@ pub(crate) fn message_bubble(bubble: MessageBubble, cx: &App) -> AnyElement {
                     .text_color(muted)
                     .child(SharedString::from(time)),
             )
-        })
-        .when_some(link, |card, session_id| {
-            let tip = SharedString::from(tip);
-            // EXP-1744: a pressable bubble is a button named by its sender
-            // (what the retired xref row carried).
-            card.role(gpui::Role::Button)
-                .aria_label(tip.clone())
-                .cursor_pointer()
-                .hover(|style| style.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
-                .active(|style| style.opacity(0.85))
-                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
-                .on_click(move |_, window, cx| crate::navigation::open_session_link(&session_id, window, cx))
         });
     v_flex()
         .w_full()
         .min_w_0()
         .gap_1()
         .map(|column| if own { column.items_end() } else { column.items_start() })
+        .children(relay_line)
         .child(card)
         .when(queued || unqueue.is_some(), |column| {
             column.child(
@@ -1441,9 +1457,12 @@ pub(crate) fn transcript_message(
 ) -> Option<AnyElement> {
     use domain::transcript_grouping::TranscriptSide;
     let (id, body, queued) = match row {
-        SessionChatRow::Message { author, body, .. } if author == domain::contract::MESSAGE_AUTHOR_KIND_SYSTEM => {
-            return Some(muted_line(registry::UI_INFO, body.clone(), cx));
+        // #EXP-1772: a system note is THE inline marker, never a bubble.
+        SessionChatRow::Message { id, author, body, .. } if author == domain::contract::MESSAGE_AUTHOR_KIND_SYSTEM => {
+            return Some(crate::surface_card::transcript_marker(SharedString::from(format!("{key}-marker-{id}")), body, None, cx));
         }
+        // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
+        SessionChatRow::Message { body, .. } if body.trim().is_empty() => return Some(div().into_any_element()),
         SessionChatRow::Message { id, body, queued, .. } => (id, body.as_str(), *queued),
         // A child's end report = its session's bubble: the summary (else
         // the line itself).
@@ -1492,51 +1511,6 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .child(Icon::from(glyph).xsmall().flex_shrink_0().text_color(muted.opacity(0.7)))
         .child(div().min_w_0().truncate().child(SharedString::from(text)))
         .into_any_element()
-}
-
-/// An event line (web `session-chat-view` `chat-event`): the muted
-/// text alone, no glyph.
-pub(crate) fn event_line(text: String, cx: &App) -> AnyElement {
-    div()
-        .w_full()
-        .min_w_0()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(SharedString::from(text))
-        .into_any_element()
-}
-
-/// #EXP-1464: [`event_line`] as a button (chat-row-action.json): the
-/// trailing chevron, hover = foreground, press = the pressed wash; it hugs
-/// its text (web `chat-event`, `self-start`).
-pub(crate) fn muted_line_button(
-    id: SharedString,
-    text: String,
-    on_click: impl Fn(&mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let foreground = cx.theme().foreground;
-    h_flex().w_full().min_w_0().child(
-        h_flex()
-            .id(id)
-            .role(gpui::Role::Button)
-            .aria_label(SharedString::from(text.clone()))
-            .max_w_full()
-            .min_w_0()
-            .gap_1()
-            .items_center()
-            .text_xs()
-            .text_color(muted)
-            .cursor_pointer()
-            .rounded(px(theme::tokens::radius::SM))
-            .hover(move |style| style.text_color(foreground))
-            .active(|style| style.opacity(0.7))
-            .child(div().min_w_0().truncate().child(SharedString::from(text)))
-            .child(Icon::new(registry::UI_CHEVRON_RIGHT).with_size(px(14.)).flex_shrink_0())
-            .on_click(move |_, window, cx| on_click(window, cx)),
-    )
-    .into_any_element()
 }
 
 /// `plan-card.json` `copy.answering` while the card's answer is on its way.

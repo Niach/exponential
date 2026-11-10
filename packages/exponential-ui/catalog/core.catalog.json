@@ -5678,8 +5678,8 @@
       "kind": "macro",
       "group": "input",
       "lite": false,
-      "children": "none",
-      "description": "Colour field: a swatch opens the palette grid.",
+      "children": "one",
+      "description": "Colour field: a swatch (or the child) opens the palette grid.",
       "props": {
         "value": {
           "type": "string",
@@ -5698,6 +5698,11 @@
           "default": false,
           "bindable": true,
           "description": "Grid shows; bind it."
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false,
+          "description": "The grid alone, no trigger."
         }
       },
       "events": [
@@ -6017,6 +6022,15 @@
           "type": "boolean",
           "default": false,
           "description": "Turns submit into a stop while a reply streams."
+        },
+        "layout": {
+          "type": "enum",
+          "values": [
+            "stacked",
+            "flat"
+          ],
+          "default": "stacked",
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
         },
         "menuKeys": {
           "type": "boolean",

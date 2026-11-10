@@ -833,7 +833,7 @@ class InteractionTest {
     fun composerSlotCasesSitInTheControlsRow() = runTest {
         val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
         val cases = f["cases"]?.array.orEmpty()
-        assertEquals(7, cases.size)
+        assertEquals(10, cases.size)
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val rtl = c["direction"]?.string == "rtl"
