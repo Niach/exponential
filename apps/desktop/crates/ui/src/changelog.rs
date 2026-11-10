@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-10-no-more-freezes",
+    date: "2026-11-10",
+    title: "No more freezes with many sessions",
+    summary: "The desktop app no longer freezes for seconds when you have many sessions: the sidebar and a chat that streams elsewhere update only what changed.",
+    body: r#"- **No more freezes**: with thousands of sessions the desktop app's sidebar and session list update only what changed, so another chat streaming or a new event no longer freezes the window.
+- **Exponential Desktop 0.2.15**: the same fix, plus the chat and genUI changes since 0.2.14."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_246: ChangelogEntry = ChangelogEntry {
     id: "2026-11-10-quieter-agent-chats",
     date: "2026-11-10",
     title: "Quieter agent chats",
