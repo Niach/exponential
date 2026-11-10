@@ -27,6 +27,15 @@ describe(`overlay-geometry.json`, () => {
     expect(aligned.some((c) => c.expected.x === 800 - fixture.padding - 240)).toBe(true)
     expect(aligned.filter((c) => c.byId).length).toBeGreaterThan(1)
   })
+  test(`matchAnchorWidth: the panel is the anchor's width (a trigger and an anchor by id), painted from a narrower content box`, () => {
+    const matched = fixture.cases.filter((c) => (c as { matchAnchorWidth?: boolean }).matchAnchorWidth) as { anchor: { width: number }; size: { width: number }; contentWidth: number; byId?: boolean }[]
+    expect(matched.some((c) => c.byId)).toBe(true)
+    expect(matched.some((c) => !c.byId)).toBe(true)
+    for (const c of matched) {
+      expect(c.size.width).toBe(c.anchor.width)
+      expect(c.contentWidth).toBeLessThan(c.anchor.width)
+    }
+  })
   test(`VAPP-281: a hosted popup sits against its anchor, no flip, no shift (outside the surface)`, () => {
     expect(fixture.hosted.length).toBeGreaterThan(4)
     for (const c of fixture.hosted) {

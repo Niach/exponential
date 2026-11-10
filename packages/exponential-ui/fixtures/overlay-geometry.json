@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis, or (VAPP-276 `align`, default centre) flush with the anchor's START or END edge along it (top-start, top-end, bottom-start…; the core mirrors start/end under RTL); FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly. VAPP-276: `byId` cases open a Popover with NO trigger whose `anchor` prop names a node elsewhere in the tree (a bottom-panel button): the layer is placed against THAT node's frame, the painters replay them with the anchor as a sibling. VAPP-281: `hosted` = a popup hosted OUTSIDE its surface (the surface's `hostedPopups` setting; eDE maps it to an xdg_popup): `anchorPosition` places it against the anchor in SURFACE coordinates at its unclipped size with NO flip and NO shift (the host's window system constrains it), so it may land outside `surface`. #EXP-1765 / #EXP-1629: `inset` = a popup whose box reaches `inset` OUTSIDE its content on every side (the Select `pill` popup: the IDE Popover's 1 px ring outside its 260 content), placed in gpui-component's Popover order: the inset FIRST (a `start` box begins `inset` before the anchor's start, an `end` one `inset` past its end), THEN the flip and the `padding` clamp, THEN the content's offset from the anchor's origin (x and y) rounded to whole px, half away from zero (gpui's Positioner), so the box may end up half a px past the padding as the IDE's does. The Rust core (`place_inset_overlay`, the layer manager's `inset` layers) and the TS twin (`placeInsetOverlay`) reproduce it exactly, Compose's SelectPopup replays it in dp; React and Solid land on it EXACTLY in headless Chromium (no `tolerancePx`; browser/overlay.test.ts, a pill Select, plain and searchable, replayed with the measured pill and popup): Solid's popper snaps after its shift and flip (`snapInset`), React moves the content from Radix's wrapper onto the box (`insetPopupNudge`).",
+  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis, or (VAPP-276 `align`, default centre) flush with the anchor's START or END edge along it (top-start, top-end, bottom-start…; the core mirrors start/end under RTL); FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly. VAPP-276: `byId` cases open a Popover with NO trigger whose `anchor` prop names a node elsewhere in the tree (a bottom-panel button): the layer is placed against THAT node's frame, the painters replay them with the anchor as a sibling. VAPP-281: `hosted` = a popup hosted OUTSIDE its surface (the surface's `hostedPopups` setting; eDE maps it to an xdg_popup): `anchorPosition` places it against the anchor in SURFACE coordinates at its unclipped size with NO flip and NO shift (the host's window system constrains it), so it may land outside `surface`. #EXP-1765 / #EXP-1629: `minset` = at popup whose box reachAnchorWidth` cases (Popov`insert` `matchAnchorWidth: true`): the panel is OUTSIDEXACTLY its anchor's width, so `size.width` = `anchor.width` (the overlay's size, what the placement rule gets); the renderers paint the content boxn aevery side (the Select `pill` popup: the IDE Popover's 1 px ring outside its 260 contentWidth` (narrower than the anchor) and assert the, placed in gpaui-componelnt's wiPopover order: the =inset FIRST (a `start` box begins `inset` before the anchor's start, an `end` one `inset` past its end), THEN the flip and the `padding` clamp, THEN the content's offset from the anchor's origin (x and y) rounded to whole px, half away from zero (gpui's Positioner), so the box may end up half a px past the padding as the IDE's does. The Rust core (`/place_inset_overlay`, the layer manager's `inset` layers) and the TS twin (`placeInsetOverlay`) reproduce it exactly, Compose's SelectPopup replays it in dp; React and Solid land on it EXACTLY in headless Chromium (no `tolerancePx`; browser/overlay.test.ts, a pill Select, plain and searchable, replayed with the measured pill and popup): Solid's popper snaps after its shift and flip (`snapInset`), React moves the content from Radix's wraposper card'sonto full widthe box (`insetPopupNudge`).",
   "offset": 4,
   "padding": 8,
   "tolerancePx": 2,
@@ -542,6 +542,61 @@
         "x": 532,
         "y": 352,
         "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "matchAnchorWidth, anchor by id: top-start at the composer card's full width",
+      "anchor": {
+        "x": 24,
+        "y": 456,
+        "width": 560,
+        "height": 120
+      },
+      "size": {
+        "width": 560,
+        "height": 180
+      },
+      "contentWidth": 200,
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "start",
+      "byId": true,
+      "matchAnchorWidth": true,
+      "expected": {
+        "x": 24,
+        "y": 272,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "matchAnchorWidth, trigger: bottom-centre as wide as the trigger",
+      "anchor": {
+        "x": 300,
+        "y": 100,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 120,
+        "height": 120
+      },
+      "contentWidth": 40,
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "align": "center",
+      "matchAnchorWidth": true,
+      "expected": {
+        "x": 300,
+        "y": 140,
+        "side": "bottom",
         "flipped": false
       }
     }
