@@ -2224,7 +2224,7 @@ function buildLanes(
       const views = laneViewIds(scope, platform, lane)
       if (views.length === 0) continue
       const device: ResourceClaim =
-        platform === `ios` ? { key: `ios-${lane}-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
+        platform === `ios` ? { key: `ios-lane-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
       add(`${platform}:${lane}`, count(views, `${platform} fastlane ${FASTLANE_LANES[lane]}`), new Map(servedBy(platform).map((served) => [
           served,
           views.filter((id) => scope.get(served)?.has(id) && captureFor(viewById(id)!, served) !== undefined),

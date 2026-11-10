@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Composer matches the app: the send disc draws the catalog's `Composer.send` (`ui-submit`: `Glyph::Submit`, Lucide `circle-arrow-up` painted on a canvas, no `IconName` for it); a flat Composer's Textarea sits so its text starts the field recipe's `paddingTop` below the row's top, one line or grown, reaching the row's bottom (`flat_field_box`: top = paddingTop − the editor inset), and the measure adds the field's paddingTop/paddingBottom before deciding whether the row grows past the disc.
+- Skeleton `rows` (#EXP-1629, from eui-core): no hairline between rows.
 - Popover `matchAnchorWidth` (the core's exact layer width): the overlay suite paints the fixture's `matchAnchorWidth` cases and checks the panel's width against the anchor's.
 - A Select `pill`'s popup lands where the IDE's Popover does when pushed back from the window's right edge (#EXP-1629, from eui-core's `place_inset_overlay`): in Settings, Repositories at 490.5 pt, half a point right of before.
 - Composer `layout: "flat"` (#EXP-1762): the field sits between the `leading` slot and the attach control / `trailing` / send, centred on the disc while one line, the row's full height once it grows; the measure wraps it at that width. A one-line draft's TEXT is centred on the disc: the gpui-component Textarea sits its own editor inset (`Size::Medium` `input_py`) above the line box (it drew the text 8 px low; the IDE composer bench, #EDE-65).

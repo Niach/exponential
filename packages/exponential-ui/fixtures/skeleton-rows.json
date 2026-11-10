@@ -1,0 +1,51 @@
+{
+  "$comment": "#EXP-1629: a Skeleton's `rows` = THE placeholder of packages/domain-contract/fixtures/feedback-states.json (`placeholder`, the web app's `SkeletonRows` in packages/ui/src/skeleton.tsx), HAND-AUTHORED. `placeholder` mirrors that contract's numbers (replayed against it by src/skeleton-rows.test.ts). Each row is `rowHeight` tall (else `$control.row`), a flex row centred on its cross axis, `row.gap` apart and `row.paddingHorizontal` in from both edges (the `Skeleton/row` recipe), holding a `dot` (`placeholder.dot` square, round; none under `dot: false`) and two bars (`placeholder.barHeight` tall at radius `placeholder.radius`): the lead and the title, their widths `bars[row % 3]`; the title shrinks (min 0) when the row is narrower. Rows are BORDERLESS (`row.hairline: false`: no rule between rows, the web app's flat gapless rows). The dot and the bars fill with the `Skeleton/dot|bar` recipe's colour (`fill`): the contract's muted fill is the web app's `bg-muted`, an OPAQUE grey (dark: oklch(0.269 0 0) ≈ #262626 over the ground ≈ #0a0a0a); in the neutral theme and the exponential light mode `accent` = `muted` = that tone, while the exponential theme's dark `muted` is the glass section fill (white 4%, a third of it) and its `accent` the glass active fill (white 11%: #252525 over the ground, the IDE's skeleton fill); the block Skeleton's `root` fill (exponential: `secondary`) never paints under rows. The pulse is `placeholder.opacity` low → high → low over `placeholder.pulseMs` on the cubic-bezier `pulse.easing` (CSS ease-in-out), static at `placeholder.reducedOpacity` under reduce motion; every piece pulses on one shared phase, which reads as the web's one pulse on the whole stack. `cases[].frames` = [x, y, w, h] relative to the case's root Box (no padding), replayed by apps/desktop/crates/eui-core/tests/skeleton_rows.rs (the core: gpui, and SwiftUI + Compose through the FFI), the web base CSS + theme recipes (packages/exponential-ui/src/skeleton-rows.test.ts) and the React native's DOM (packages/exponential-ui-react/src/batch-ui.test.tsx: the row height, the bar widths, no row border; Solid = React's DOM, feedback.parity.test.tsx).",
+  "placeholder": { "rows": 3, "barHeight": 8, "radius": 4, "dot": 12, "pulseMs": 1600, "opacity": [0.45, 0.9], "reducedOpacity": 0.6 },
+  "pulse": { "easing": [0.42, 0, 0.58, 1] },
+  "row": { "gap": 12, "paddingHorizontal": 12, "hairline": false },
+  "bars": [[56, 168], [56, 120], [56, 192]],
+  "fill": "$color.accent",
+  "cases": [
+    {
+      "name": "three rows at the list row height",
+      "width": 320,
+      "skeleton": { "rows": 3, "rowHeight": 44 },
+      "frames": {
+        "sk.row.0": [0, 0, 320, 44],
+        "sk.dot.0": [12, 16, 12, 12],
+        "sk.bar.0.0": [36, 18, 56, 8],
+        "sk.bar.0.1": [104, 18, 168, 8],
+        "sk.row.1": [0, 44, 320, 44],
+        "sk.dot.1": [12, 60, 12, 12],
+        "sk.bar.1.0": [36, 62, 56, 8],
+        "sk.bar.1.1": [104, 62, 120, 8],
+        "sk.row.2": [0, 88, 320, 44],
+        "sk.dot.2": [12, 104, 12, 12],
+        "sk.bar.2.0": [36, 106, 56, 8],
+        "sk.bar.2.1": [104, 106, 192, 8],
+        "sk": [0, 0, 320, 132]
+      }
+    },
+    {
+      "name": "no dot: the lead bar takes the dot's place",
+      "width": 320,
+      "skeleton": { "rows": 1, "rowHeight": 40, "dot": false },
+      "frames": {
+        "sk.row.0": [0, 0, 320, 40],
+        "sk.bar.0.0": [12, 16, 56, 8],
+        "sk.bar.0.1": [80, 16, 168, 8]
+      }
+    },
+    {
+      "name": "a narrow row shrinks the title bar",
+      "width": 200,
+      "skeleton": { "rows": 1, "rowHeight": 32 },
+      "frames": {
+        "sk.row.0": [0, 0, 200, 32],
+        "sk.dot.0": [12, 10, 12, 12],
+        "sk.bar.0.0": [36, 12, 56, 8],
+        "sk.bar.0.1": [104, 12, 84, 8]
+      }
+    }
+  ]
+}

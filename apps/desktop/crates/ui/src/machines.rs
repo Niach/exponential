@@ -234,6 +234,7 @@ const COPY_NEEDS_RELOGIN: &str = "{label} · Needs re-login";
 const COPY_SIGNED_OUT: &str = "{label} · Signed out";
 const COPY_LIMIT_REACHED: &str = "{label} · Limit reached";
 pub(crate) const COPY_UPDATE: &str = "Update";
+#[cfg(test)]
 pub(crate) const COPY_SIGN_IN: &str = "Sign in";
 /// EXP-1627: the sign-in dialog's title (never the agent's name) and its
 /// ONE waiting line (`{device}` = the device label, `{agent}` = the agent).
@@ -359,16 +360,6 @@ pub(crate) enum AttentionKind {
 pub(crate) enum AttentionAction {
     SignIn,
     Update,
-}
-
-impl AttentionAction {
-    /// The pill's label.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            AttentionAction::SignIn => COPY_SIGN_IN,
-            AttentionAction::Update => COPY_UPDATE,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
