@@ -29,7 +29,11 @@ export function embedHost<H extends AnyHostPlugin>(host: H, forward: (event: Sur
 }
 
 /** The Embed root's own style: the full width of its slot (a column
- *  Stack's `align` never shrinks it) unless the author placed it. */
+ *  Stack's `align` never shrinks it) unless the author placed it. Its one
+ *  child, the nested `.xui-surface`, fills it through base-css
+ *  (`[data-xui-c="Embed"].xui-el>.xui-surface`, #EXP-1769): the root is a
+ *  row flex box and the surface's inline-size container has no intrinsic
+ *  width, so without that rule the card lays out at 0 px. */
 export function embedBoxStyle(nodeStyle: Record<string, unknown> | undefined): { alignSelf: `stretch` } | undefined {
   return nodeStyle && nodeStyle.alignSelf !== undefined ? undefined : { alignSelf: `stretch` }
 }

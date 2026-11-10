@@ -88,6 +88,8 @@ struct DeviceSettingsDemo {
     /// NEW-59: the Work screen row under the model row (the `work-screen`
     /// entry's demo displays, Auto picked).
     work_screen: ChoiceSelect,
+    /// #EXP-1770: the shared readiness document.
+    block: Entity<crate::settings::readiness::ReadinessBlock>,
 }
 
 impl DeviceSettingsDemo {
@@ -131,6 +133,7 @@ impl DeviceSettingsDemo {
                 window,
                 cx,
             ),
+            block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("sg-device-settings-readiness", window, cx)),
         }
     }
 
@@ -142,7 +145,6 @@ impl DeviceSettingsDemo {
         let doctor = self.doctor.as_ref()?;
         let view = cx.entity().downgrade();
         let props = device_readiness::BlockProps {
-            id: "sg-device-settings-readiness".into(),
             on_toggle: Some(Rc::new(move |on, _window, cx| {
                 let _ = view.update(cx, |this, cx| {
                     this.computer_use = on;
@@ -150,17 +152,15 @@ impl DeviceSettingsDemo {
                 });
             })),
             computer_use_tail: if self.computer_use {
-                crate::device_settings::computer_use_rows(&self.computer_use_model, &self.work_screen, cx)
+                crate::device_settings::computer_use_rows(&self.computer_use_model, &self.work_screen)
             } else {
                 Vec::new()
             },
             ..device_readiness::BlockProps::default()
         };
-        Some(device_readiness::render_sections(
-            &device_readiness::sections(doctor, false, Some(self.computer_use)),
-            props,
-            cx,
-        ))
+        let sections = device_readiness::sections(doctor, false, Some(self.computer_use));
+        self.block.update(cx, |block, cx| block.show(crate::settings::readiness::Shape::Sections(&sections), props, cx));
+        Some(div().w_full().child(self.block.clone()))
     }
 
     fn defaults_group(&self, cx: &mut Context<Self>) -> Div {

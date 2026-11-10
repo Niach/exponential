@@ -87,9 +87,10 @@ private const val POPUP_MARGIN = 8f
 /**
  * One shown Select option. #EXP-1765: a [mono] option's label is set in the
  * mono type and its [trailing] is its own muted sans run (null otherwise:
- * a plain option's trailing reads on inside [text]).
+ * a plain option's trailing reads on inside [text]). #EXP-1629: a
+ * [description] = the muted second line under its label.
  */
-internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null)
+internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null)
 
 /**
  * A Select's OBJECT options whose label contains [query] (lowercase; empty
@@ -105,7 +106,7 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     val trailing = o["trailing"]?.displayText.orEmpty()
     val mono = o["mono"]?.bool == true
     val text = if (trailing.isEmpty() || mono) label else "$label $trailing"
-    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() })
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() })
 }
 
 /** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */
@@ -155,7 +156,10 @@ internal fun selectMoreBelow(offset: Int, max: Int): Boolean = max > 0 && offset
 
 /** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
 internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
-    owner.num("popupWidth")?.toFloat()?.takeIf { it > 0f } ?: if (row) CatalogConstants.SELECT_ROW_POPUP_WIDTH else null
+    owner.num("popupWidth")?.toFloat()?.takeIf { it > 0f } ?: if (row && selectPopupMinWidth(owner) == null) CatalogConstants.SELECT_ROW_POPUP_WIDTH else null
+
+/** #EXP-1629: `popupMinWidth`: the popup fits its options, at least this wide (the IDE's non-searchable picker). */
+internal fun selectPopupMinWidth(owner: Props): Float? = owner.num("popupMinWidth")?.toFloat()?.takeIf { it > 0f }
 
 /**
  * #EXP-1765: where a Select popup's border box lands (px): [align]ed along
@@ -243,7 +247,8 @@ internal fun SelectPopup(cx: LeafContext) {
     val muted = cx.themeColor("mutedForeground") ?: popupInk.copy(alpha = 0.6f)
     val pad = content.px("padding") ?: cs.padding?.firstOrNull() ?: cx.spacing("xs")
     val shape = RoundedCornerShape(cs.radius.dp)
-    val itemH = cx.part("Select", "item").height ?: cx.control("buttonSm", 32f)
+    // #EXP-1629: an item is `minHeight` + `paddingVertical` (a described one grows).
+    val itemH = cx.part("Select", "item").let { it.height ?: it.px("minHeight") } ?: cx.control("buttonSm", 32f)
     val maxH = content.px("maxHeight") ?: 320f
     val width = selectPopupWidth(owner, row || pill)
     // The popup's type is the surface's, never the trigger recipe's own family (a pill's mono).
@@ -292,7 +297,7 @@ internal fun SelectPopup(cx: LeafContext) {
         Column(
             Modifier
                 .padding(bleed.dp)
-                .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = cx.size.width.dp))
+                .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = selectPopupMinWidth(owner)?.dp ?: cx.size.width.dp))
                 .heightIn(max = maxH.dp)
                 .paintedSurface(fill)
                 .clip(shape)
@@ -442,7 +447,7 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
     Row(
         Modifier
             .fillMaxWidth()
-            .height(height.dp)
+            .heightIn(min = height.dp)
             .alpha(s.opacity ?: 1f)
             .clip(shape)
             .background(s.background ?: Color.Transparent, shape)
@@ -456,12 +461,20 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
                 }
             }
             .selectable(selected = chosen, interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !o.disabled, role = Role.DropdownList, onClick = onPick)
-            .padding(horizontal = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp),
+            .padding(horizontal = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, vertical = (item.px("paddingVertical") ?: 0f).dp),
         horizontalArrangement = Arrangement.spacedBy((s.gap.takeIf { it > 0f } ?: cx.spacing("sm")).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        o.icon?.let { IconView(it, 16f, ink, cx.model, rtl = cx.rtl) }
-        if (o.trailing == null) BasicText(o.text, Modifier.weight(1f), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // #EXP-1629: the `itemIcon` recipe's size; the `itemDescription` under the label.
+        o.icon?.let { IconView(it, cx.part("Select", "itemIcon", states).width ?: 16f, ink, cx.model, rtl = cx.rtl) }
+        if (o.description != null) {
+            val dp = cx.part("Select", "itemDescription", states)
+            val dts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = dp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = dp.style.lineHeight ?: cx.textStyle.lineHeight), color = dp.color ?: cx.themeColor("mutedForeground") ?: ink)
+            Column(Modifier.weight(1f)) {
+                BasicText(o.text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                BasicText(o.description, style = dts, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else if (o.trailing == null) BasicText(o.text, Modifier.weight(1f), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
         else Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(selectTrailingGap(s.gap).dp), verticalAlignment = Alignment.CenterVertically) {
             // The trailing: its own muted run in the surface's sans type.
             BasicText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)

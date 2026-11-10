@@ -40,6 +40,7 @@ export function macroParts(def: MacroDef): PartSpec {
   const props = new Set<string>(def.recipeProps)
   walkTemplate(def.root, parts, props)
   for (const alternative of def.alternatives ?? []) walkTemplate(alternative.root, parts, props)
+  for (const part of def.rootParts ?? []) parts.add(part)
   return { parts: [...parts], props: [...props] }
 }
 
@@ -118,4 +119,14 @@ export function markdownInlineRecipes(part: `paragraph` | `heading`, options: { 
     { component: `Text`, part: `root`, props: { variant: `title` } },
     { component: `Heading`, part: `root`, props: { level: `h${Math.min(Math.max(options.level ?? 2, 1), 4)}` } },
   ]
+}
+
+/** #EXP-1760: the macro whose ROOT a native node is, when that macro styles
+ *  the native's `part` too (`rootParts`: an IconPicker's Popover
+ *  `content`), else null. Web painters add `<Macro>/<part>`'s class beside
+ *  the native's; the core layers the same recipe (`macro_query`). */
+export function rootPartMacro(node: { component: string; recipe?: { macro?: string; part?: string } }, part: string, macros: Readonly<Record<string, MacroDef>> = catalogView().macros): string | null {
+  const macro = node.recipe?.part === `root` ? node.recipe.macro : undefined
+  if (!macro || macro === node.component) return null
+  return macros[macro]?.rootParts?.includes(part) ? macro : null
 }

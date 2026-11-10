@@ -424,11 +424,16 @@ impl Builder<'_, '_> {
         // #EXP-1629: `align` (row: end), `popupWidth` (row: the layout's
         // selectRowPopupWidth; a field without one: at least the trigger).
         let align = owner.props.get("align").and_then(Value::as_str).and_then(OverlayAlign::parse).unwrap_or(OverlayAlign::Start);
-        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| (row || pill).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
+        // `popupMinWidth`: the popup fits its options, at least that wide
+        // (the IDE's non-searchable picker: content-fit, 168 px minimum).
+        let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
+        let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| ((row || pill) && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
         if let Some(w) = width {
             style["width"] = json!(w);
+        } else if let Some(w) = min_width {
+            style["minWidth"] = json!(w);
         }
         let (layer, root) = self.popup(&owner, "content", trigger, style);
         let query = self.ctx.local.query.get(&owner.id).cloned().unwrap_or_default();
@@ -449,7 +454,7 @@ impl Builder<'_, '_> {
         if bool_prop(&owner.props, "loading") {
             let skeleton = self.part_in(list, &owner, "skeleton", "Skeleton", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"rows": crate::layout::SELECT_LOADING_ROWS}), "");
             self.skeleton_rows(skeleton);
-            self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
+            self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
             self.place_select_popup(pill, value_node.is_some());
             return;
         }
@@ -476,24 +481,51 @@ impl Builder<'_, '_> {
                 Some(trailing) if !mono => format!("{label} {trailing}"),
                 _ => label,
             };
-            let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
-            if mono {
-                props["mono"] = json!(true);
-                if let Some(trailing) = trailing {
-                    props["trailing"] = json!(trailing);
+            let suffix = format!(".{i}");
+            let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
+            let description = option.get("description").map(js).filter(|d| !d.is_empty());
+            let item = if icon.is_some() || description.is_some() {
+                // #EXP-1629: an option with a glyph or a `description` is a
+                // row of parts (the IDE picker's row): the `itemIcon`, the
+                // `itemText` column (`itemLabel` over the muted
+                // `itemDescription`), then the chosen one's `check`.
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
                 }
-            }
-            if let Some(icon) = option.get("icon") {
-                props["icon"] = icon.clone();
-            }
-            if selected {
-                props["check"] = json!(super::builtin_icon("Select.check"));
-            }
-            let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
-            if mono {
-                style["fontFamily"] = json!("$type.family.mono");
-            }
-            let item = self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &format!(".{i}"));
+                let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, style, json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
+                if let Some(icon) = icon {
+                    self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                }
+                let column = self.part_in(item, &owner, "itemText", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), &suffix);
+                self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
+                if let Some(description) = description {
+                    self.part_in(column, &owner, "itemDescription", "Text", NodeKind::Leaf, json!({}), json!({"text": description, "lines": 1}), &suffix);
+                }
+                if selected {
+                    self.part_in(item, &owner, "check", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.check")}), &suffix);
+                }
+                item
+            } else {
+                let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+                if mono {
+                    props["mono"] = json!(true);
+                    if let Some(trailing) = trailing {
+                        props["trailing"] = json!(trailing);
+                    }
+                }
+                if let Some(icon) = option.get("icon") {
+                    props["icon"] = icon.clone();
+                }
+                if selected {
+                    props["check"] = json!(super::builtin_icon("Select.check"));
+                }
+                let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
+                if mono {
+                    style["fontFamily"] = json!("$type.family.mono");
+                }
+                self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &suffix)
+            };
             self.nodes[item as usize].pressable = !disabled;
             if selected {
                 self.add_state(item, "selected");
@@ -511,7 +543,7 @@ impl Builder<'_, '_> {
         }
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
-        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none(), Some(list));
+        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
         self.place_select_popup(pill, value_node.is_some());
     }
 

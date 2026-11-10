@@ -12,11 +12,11 @@
 // Toggle paints Radix's Toggle DOM itself (`aria-pressed`, `data-state=
 // "on|off"`): Kobalte's ToggleButton writes `data-pressed` instead.
 
-import { Show, createEffect, createMemo, createSignal, onCleanup, type Accessor, type Component, type JSX } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup, useContext, type Accessor, type Component, type JSX } from "solid-js"
 import { PENDING_DELAY_MS } from "@exponential_app/eui"
-import { ButtonHold, linkHref } from "@exponential_app/eui/web"
+import { ButtonHold, isPickerPick, linkHref } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
-import { useForm } from "../form"
+import { ClosePickerContext, useForm } from "../form"
 import { CHROME, IconGlyph, PaintIcon } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
@@ -57,6 +57,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
   const form = useForm()
+  const closePicker = useContext(ClosePickerContext)
   const submit = () => bool(props.props.submit) && form !== null
   const { pending, track } = createPending()
   const label = () => str(props.props.label)
@@ -118,6 +119,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
         // #EXP-1674: `href` opens like a Link's (the policy decides).
         if (str(props.props.href)) ctx.openUrl(str(props.props.href))
         track(props.emit(`press`))
+        if (isPickerPick(props.node.recipe)) closePicker?.()
         if (submit()) form!.submit()
       }}
     >

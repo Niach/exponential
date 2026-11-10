@@ -20,6 +20,7 @@ use crate::settings::sign_in_methods::SignInShot;
 use crate::settings::notifications_prefs::{NotificationsPrefsPane, ShotLoad};
 use crate::settings::storage::{ShotLoad as StorageLoad, StoragePane};
 use crate::settings::voice_prefs::{VoicePrefsPane, VoiceShot};
+use crate::settings::tools::{ToolsPane, ToolsShot};
 use crate::settings::team_general::{GeneralPane, GeneralShot, PromptShot};
 use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
@@ -991,6 +992,14 @@ fn settings_skill_page() {
     skill_page("skill-page", Some(skill(false)), true, Some(Ok(SKILL_BODY.into())), false, false);
 }
 
+/// #EXP-1768: a 30k-char body (no hard break) grows the body to its 40
+/// rows, as the gpui pane did, instead of scrolling at 14.
+#[test]
+#[ignore]
+fn settings_skill_long_body() {
+    skill_page("skill-long-body", Some(skill(false)), true, Some(Ok("word ".repeat(6_000))), false, false);
+}
+
 #[test]
 #[ignore]
 fn settings_skill_loading() {
@@ -1451,4 +1460,329 @@ fn settings_general_member() {
 #[ignore]
 fn settings_general_no_team() {
     general("general-no-team", GeneralShot { team: None, ..general_shot() });
+}
+
+/// #EXP-1629: the IDE's device picker (`picker::device_picker` behind a
+/// `glass_picker_row`) vs genUI Select `triggerVariant: row` with option
+/// `icon` + `description`, closed and open. Shoot `settings_select_ide*`,
+/// then `settings_select_eui*` with `EXP_SETTINGS_BEFORE` at the first: 0 px.
+mod select_variants {
+    use super::*;
+    use serde_json::json;
+    use std::rc::Rc;
+
+    fn rows(long: bool) -> Vec<crate::picker::device_picker::DevicePickerDevice> {
+        let device = |id: &str, name: &str, icon: &str, server: bool, offline: bool| crate::picker::device_picker::DevicePickerDevice {
+            id: id.into(),
+            name: name.into(),
+            icon: Some(icon.into()),
+            server,
+            description: offline.then(|| "Offline".to_string()),
+            disabled: false,
+        };
+        let server = if long { "build-server-eu-central-hetzner-2026" } else { "build-server" };
+        vec![device("d1", "mint", "monitor", false, false), device("d2", server, "server", true, false), device("d3", "macbook", "laptop", false, true)]
+    }
+
+    pub(super) struct Ide(bool, bool);
+
+    impl Render for Ide {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let rows = rows(self.1);
+            let trigger = crate::trigger_editor::picker_trigger("bench-device".into(), "mint", cx).into_any_element();
+            let open = self.0;
+            let control = crate::picker::deferred(move |window, cx| {
+                let picker = crate::picker::device_picker::device_picker(&rows, Some("d1".to_string()), trigger, Rc::new(|_: Vec<String>, _: &mut Window, _: &mut gpui::App| {}))
+                    .id(gpui::SharedString::from("bench-device-picker"));
+                let picker = if open { picker.open(Rc::new(|_: &mut Window, _: &mut gpui::App| {})) } else { picker };
+                picker.render(window, cx)
+            })
+            .into_any_element();
+            crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row("Device", None, control, cx)])
+        }
+    }
+
+    pub(super) struct Eui {
+        view: gpui::Entity<eui_gpui::view::SurfaceView>,
+        open: Option<u8>,
+    }
+
+    impl Eui {
+        fn new(open: bool, long: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+            let ink = crate::settings::doc_ink(cx);
+            let binding = cx.new(|_| eui_gpui::binding::Binding::new("/pane", json!({}), |s: &serde_json::Value, _| s.clone()));
+            let options: Vec<serde_json::Value> = rows(long).iter().map(|d| {
+                let mut o = json!({"label": d.name, "value": d.id, "icon": crate::icons::device_icon_name(d.icon.as_deref(), d.server)});
+                if let Some(description) = &d.description {
+                    o["description"] = json!(description);
+                }
+                o
+            }).collect();
+            let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "borderRadius": ink.0, "backgroundColor": ink.1, "overflow": "hidden"}, "children": [
+                {"id": "device", "component": "Select", "props": {"label": "Device", "name": "device", "triggerVariant": "row", "value": "d1", "popupMinWidth": 170, "options": options}},
+            ]});
+            let view = crate::settings::doc_mount_lifted("bench-select", tree, &binding, window, cx);
+            Self { view, open: open.then_some(2) }
+        }
+    }
+
+    impl Render for Eui {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            match self.open {
+                Some(0) => {
+                    self.open = None;
+                    self.view.update(cx, |view, cx| {
+                        if let Some(trigger) = view.index_of("device.trigger") {
+                            view.fire(trigger, "press", None, cx);
+                        }
+                    });
+                }
+                Some(n) => {
+                    self.open = Some(n - 1);
+                    cx.notify();
+                }
+                // The headless clock stands still: the popup's enter fade
+                // runs out on the frames after the press.
+                None if self.view.read(cx).layers().iter().any(|layer| layer.owner == "device") => {
+                    self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+                }
+                None => {}
+            }
+            div().w_full().child(self.view.clone())
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide() {
+        shoot_pane("select", |_, _| Ide(false, false), |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide_open() {
+        shoot_pane_settled("select-open", |_, _| Ide(true, false), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui() {
+        shoot_pane("select", |window, cx| Eui::new(false, false, window, cx), |_, _| {});
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui_open() {
+        shoot_pane_settled("select-open", |window, cx| Eui::new(true, false, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_ide_open_long() {
+        shoot_pane_settled("select-open-long", |_, _| Ide(true, true), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+
+    #[test]
+    #[ignore]
+    fn settings_select_eui_open_long() {
+        shoot_pane_settled("select-open-long", |window, cx| Eui::new(true, true, window, cx), |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+    }
+}
+
+fn tools_shot(doctor: Option<&'static str>) -> ToolsShot {
+    ToolsShot { repos: "~/code/exp", prefix: "exp/", shell: None, typed: None, doctor, path_open: false }
+}
+
+fn tools(name: &str, shot: ToolsShot) {
+    // Pinned before the first frame (the hub's own doctor run is superseded).
+    shoot_pane(name, move |window, cx| {
+        let mut pane = ToolsPane::for_shots(window, cx);
+        pane.show(shot, window, cx);
+        pane
+    }, |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_tools_ready() {
+    tools("tools-ready", tools_shot(Some("ready: git + claude, codex missing, computer use off")));
+}
+
+#[test]
+#[ignore]
+fn settings_tools_dirty() {
+    tools("tools-dirty", ToolsShot { shell: Some("/bin/zsh"), typed: Some("feature/"), ..tools_shot(Some("git missing, claude signed out, codex ok, computer use on (no OS permissions here)")) });
+}
+
+#[test]
+#[ignore]
+fn settings_tools_doctor_running() {
+    tools("tools-doctor-running", tools_shot(None));
+}
+
+// ---------------------------------------------------------------------------
+// #EXP-1770: the device readiness block in every host
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn settings_tools_path_open() {
+    tools("tools-path-open", ToolsShot { path_open: true, ..tools_shot(Some("ready: git + claude, codex missing, computer use off")) });
+}
+
+/// A `device-doctor.json` case's block.
+fn doctor_case(name: &str) -> coding::device_doctor::DeviceDoctor {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/device-doctor.json")).expect("the fixture");
+    let case = fixture["cases"].as_array().expect("cases").iter().find(|case| case["name"].as_str() == Some(name)).expect("the case");
+    crate::device_readiness::parse(Some(&case["doctor"])).expect("a block")
+}
+
+const CASE_READY: &str = "ready: git + claude, codex missing, computer use off";
+const CASE_TOO_OLD: &str = "claude too old, computer use on with one macOS permission missing";
+const CASE_GIT_MISSING: &str = "git missing, claude signed out, codex ok, computer use on (no OS permissions here)";
+const CASE_LOW_DISK: &str = "EXP-1375: low disk with two kept worktrees: a warning, never a blocker";
+
+/// What a [`BlockShot`] draws.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    /// A fixture case's block (`local` = this device), its switch wired or
+    /// not, `busy` rows spinning.
+    Case { case: &'static str, local: bool, toggle: bool, busy: &'static [&'static str] },
+    /// The device settings dialog: another device's block with the switch
+    /// on, the Computer use model + Work screen rows under it and a
+    /// finished update's note under Codex.
+    Device,
+    /// The device settings dialog for an older build (no doctor): the bare
+    /// switch row and its tail.
+    DeviceBare,
+    /// The chat composer's row: the agent's blocker or the low-disk warning.
+    Composer { case: &'static str, warning: bool },
+    /// No report yet.
+    Loading,
+}
+
+struct BlockShot {
+    kind: BlockKind,
+    model: crate::coding_selects::ChoiceSelect,
+    work_screen: crate::coding_selects::ChoiceSelect,
+    block: gpui::Entity<crate::settings::readiness::ReadinessBlock>,
+}
+
+impl BlockShot {
+    fn new(kind: BlockKind, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let settings = coding::Settings::default();
+        Self {
+            kind,
+            model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
+            work_screen: crate::coding_selects::work_screen_select(&crate::styleguide::entries::work_screen::demo_displays(), None, window, cx),
+            block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
+        }
+    }
+}
+
+fn block(name: &str, kind: BlockKind) {
+    shoot_pane(name, move |window, cx| BlockShot::new(kind, window, cx), |_, _| {});
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_primary() {
+    block("readiness-primary", BlockKind::Case { case: CASE_GIT_MISSING, local: true, toggle: true, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_busy() {
+    block("readiness-busy", BlockKind::Case { case: CASE_TOO_OLD, local: true, toggle: true, busy: &["claude"] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_switch_read_only() {
+    block("readiness-switch-read-only", BlockKind::Case { case: CASE_READY, local: false, toggle: false, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_warning() {
+    block("readiness-warning", BlockKind::Case { case: CASE_LOW_DISK, local: false, toggle: false, busy: &[] });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_loading() {
+    block("readiness-loading", BlockKind::Loading);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_device() {
+    block("readiness-device", BlockKind::Device);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_device_bare() {
+    block("readiness-device-bare", BlockKind::DeviceBare);
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_composer_blocker() {
+    block("readiness-composer-blocker", BlockKind::Composer { case: CASE_TOO_OLD, warning: false });
+}
+
+#[test]
+#[ignore]
+fn settings_readiness_composer_warning() {
+    block("readiness-composer-warning", BlockKind::Composer { case: CASE_LOW_DISK, warning: true });
+}
+
+impl Render for BlockShot {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use crate::device_readiness::{self as readiness, BlockProps};
+        use crate::settings::readiness::Shape;
+        let noop_action: readiness::ActionHandler = std::rc::Rc::new(|_, _, _, _| {});
+        let noop_toggle: readiness::ToggleHandler = std::rc::Rc::new(|_, _, _| {});
+        let block = self.block.clone();
+        let mut show = |shape: Shape, props: BlockProps, cx: &mut gpui::Context<Self>| block.update(cx, |block, cx| block.show(shape, props, cx));
+        match self.kind {
+            BlockKind::Case { case, local, toggle, busy } => {
+                let props = BlockProps {
+                    on_action: Some(noop_action),
+                    on_toggle: toggle.then_some(noop_toggle),
+                    busy: busy.iter().map(|key| key.to_string()).collect(),
+                    ..BlockProps::default()
+                };
+                show(Shape::Sections(&readiness::sections(&doctor_case(case), local, None)), props, cx);
+            }
+            BlockKind::Device => {
+                let mut props = BlockProps {
+                    on_action: Some(noop_action),
+                    on_toggle: Some(noop_toggle),
+                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    ..BlockProps::default()
+                };
+                props.notes.insert("codex".into(), "Updated to 0.156.1".into());
+                show(Shape::Sections(&readiness::sections(&doctor_case(CASE_GIT_MISSING), false, Some(true))), props, cx);
+            }
+            BlockKind::DeviceBare => {
+                let props = BlockProps {
+                    on_toggle: Some(noop_toggle),
+                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    ..BlockProps::default()
+                };
+                show(Shape::Single(&readiness::bare_switch_row(true)), props, cx);
+            }
+            BlockKind::Composer { case, warning } => {
+                let doctor = doctor_case(case);
+                let row = if warning { readiness::warning_row(&doctor, true) } else { readiness::blocking_row(&doctor, coding::CodingAgent::Claude, true) }.expect("a row");
+                show(Shape::Single(&row), crate::chat_screen::ChatScreenView::readiness_row_props(None, cx), cx);
+                // The chat's notes column under the composer.
+                return div().w_full().child(gpui_component::v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs().child(self.block.clone()));
+            }
+            BlockKind::Loading => show(Shape::Loading, BlockProps::default(), cx),
+        }
+        div().w_full().child(self.block.clone())
+    }
 }

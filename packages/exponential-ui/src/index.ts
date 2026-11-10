@@ -148,7 +148,7 @@ export type { SurfaceNode, TemplateChildren, DefineOptions, DefinedSurface, Fact
 export * from "./theme-types"
 export { parseColor, toHex, toThemeHex, isThemeHex, luminance, contrast } from "./color"
 export type { Rgba } from "./color"
-export { RECIPE_STATES, RECIPE_KEYS, markdownInlineRecipes, recipeParts, macroParts, nativeRecipeProps } from "./recipes"
+export { RECIPE_STATES, RECIPE_KEYS, markdownInlineRecipes, recipeParts, macroParts, nativeRecipeProps, rootPartMacro } from "./recipes"
 export type { PartSpec } from "./recipes"
 export {
   MODES,
