@@ -6,8 +6,9 @@
 //!   a browser's `overflow-wrap: normal` does.
 //! - **Min-content** = the widest unbreakable segment, **max-content** = the
 //!   widest hard line; trailing spaces HANG (they never count), as in CSS.
-//! - **Wrapping** is greedy over those segments; the painter draws the
-//!   resulting lines verbatim (hard breaks, no re-wrapping by gpui).
+//! - **Wrapping** is greedy over those segments, with gpui's `LineWrapper`
+//!   fit rule (a word's trailing space counts, #EXP-1773); the painter draws
+//!   the resulting lines verbatim (hard breaks, no re-wrapping by gpui).
 //! - `text-transform` applies before both.
 //!
 //! Every function here is pure: widths come from a caller closure (gpui's
@@ -146,8 +147,15 @@ pub fn wrap(text: &str, width: Option<f32>, width_of: &mut dyn FnMut(&str) -> f3
     let mut open = false;
     for s in segments(text) {
         let full = width_of(s.text);
-        let trimmed = if hang(s.text).len() == s.text.len() { full } else { width_of(hang(s.text)) };
-        if open && !line.is_empty() && line_full + trimmed > width + 0.5 {
+        // #EXP-1773: gpui's `LineWrapper` (the IDE's own text) adds a word's
+        // trailing spaces BEFORE it tests the fit, with no slack: a word
+        // that ends within a space-width of the edge moves down. A segment
+        // without trailing spaces (a line's last word) is tested on its ink,
+        // with 0.5 px for float noise (a box sized to its own max-content
+        // never wraps).
+        let spaced = hang(s.text).len() != s.text.len();
+        let over = if spaced { line_full + full > width } else { line_full + width_of(hang(s.text)) > width + 0.5 };
+        if open && !line.is_empty() && over {
             lines.push(hang(&line).to_string());
             line.clear();
             line_full = 0.0;
@@ -276,6 +284,22 @@ mod tests {
         assert_eq!(wrap("one\n\ntwo", None, &mut w8), ["one", "", "two"]);
         assert_eq!(wrap("", Some(40.0), &mut w8), [""]);
         assert_eq!(wrap("trailing\n", None, &mut w8), ["trailing"]);
+    }
+
+    /// #EXP-1773: gpui's `LineWrapper` counts the space after a word when it
+    /// tests the fit, so a word ending within a space-width of the edge
+    /// moves down (the IDE's "…your old | address stops…").
+    #[test]
+    fn a_word_ending_within_a_space_of_the_edge_wraps_like_gpui() {
+        // "Hello brave " = 96 px; "Hello brave" = 88 px.
+        assert_eq!(wrap("Hello brave new", Some(95.0), &mut w8), ["Hello", "brave new"], "the trailing space overflows");
+        assert_eq!(wrap("Hello brave new", Some(96.0), &mut w8), ["Hello brave", "new"], "the space fits exactly");
+        assert_eq!(wrap("Hello brave new", Some(95.6), &mut w8), ["Hello", "brave new"], "no float slack on a spaced word");
+        // The last word of a line has no space after it: its ink fits, with
+        // 0.5 px for float noise.
+        assert_eq!(wrap("Hello brave", Some(87.6), &mut w8), ["Hello brave"]);
+        assert_eq!(wrap("Hello brave\nnew", Some(87.6), &mut w8), ["Hello brave", "new"]);
+        assert_eq!(wrap("Hello brave", Some(87.0), &mut w8), ["Hello", "brave"]);
     }
 
     #[test]

@@ -158,13 +158,14 @@ fn session_rows_specimen(images: &Entity<ImageCache>, window: &Window, cx: &mut 
         .w_full()
         .gap_5()
         .child(v_flex().w_full().gap_2().child(header).child(body))
-        .child(crate::session_chat::muted_line_button(
+        // #EXP-1772: event lines are THE inline marker (one about a session opens it).
+        .child(crate::surface_card::transcript_marker(
             SharedString::from("sg-session-chat-event"),
-            "Polish the inbox was not picked up".to_string(),
-            |_, _| {},
+            "Polish the inbox was not picked up",
+            Some(std::rc::Rc::new(|_, _| {})),
             cx,
         ))
-        .child(crate::session_chat::event_line("Danny linked the chat".to_string(), cx))
+        .child(crate::surface_card::transcript_marker(SharedString::from("sg-session-chat-linked"), "Danny linked the chat", None, cx))
         .into_any_element()
 }
 

@@ -22,6 +22,17 @@ object TranscriptGrouping {
     object Copy {
         const val FORMER_MEMBER = "Former member"
         const val LINK_CHEVRON = "›"
+
+        /** #EXP-1772 `copy.markers`: a system input's marker label by key. */
+        val MARKERS: Map<String, String> = linkedMapOf(
+            "schedule" to "Schedule",
+            "event" to "Event",
+            "pr_opened" to "Pull request opened",
+            "pr_merged" to "Pull request merged",
+            "pr_merge" to "Merge",
+            "pr_checks" to "CI",
+            "session" to "Session update",
+        )
     }
 
     enum class ItemKind(val wire: String) { Message("message"), Trace("trace"), Full("full") }
@@ -188,5 +199,57 @@ object TranscriptGrouping {
             sessionId = g[3],
             body = g[5],
         )
+    }
+
+    // #EXP-1772: only real messages are bubbles. A system input (a schedule
+    // or event firing, a PR or session status line) is THE inline marker,
+    // drawn only above the agent's reply to it.
+
+    sealed interface FeedInput {
+        data class Marker(val key: String, val label: String) : FeedInput
+        data class Relay(
+            val name: String,
+            val sessionId: String,
+            val body: String,
+            val report: Boolean,
+        ) : FeedInput
+    }
+
+    private val TAG_PATTERN = Regex("""^\[([a-z_]+)\] """)
+    private val SCHEDULE_PATTERN = Regex("""^Schedule `[^`\n]+`[^\n]* fired""")
+    private val EVENT_PATTERN = Regex("""^Event `[^`\n]+` \(from """)
+
+    private fun marker(key: String): FeedInput = FeedInput.Marker(key, Copy.MARKERS.getValue(key))
+
+    /** A feed input: the device's tagged system line = a marker, another
+     *  session's input = a relay, else null (a person's prompt). */
+    fun feedInput(text: String): FeedInput? {
+        val tag = TAG_PATTERN.find(text)?.groupValues?.get(1)
+        if (tag != null && Copy.MARKERS.containsKey(tag)) return marker(tag)
+        if (SCHEDULE_PATTERN.containsMatchIn(text)) return marker("schedule")
+        if (EVENT_PATTERN.containsMatchIn(text)) return marker("event")
+        val cross = crossSessionInput(text) ?: return null
+        return FeedInput.Relay(cross.name, cross.sessionId, cross.body, cross.kind == InputKind.Report)
+    }
+
+    enum class FeedRowKind(val wire: String) { Marker("marker"), Input("input"), Reply("reply"), Other("other") }
+
+    /** Per row: is it drawn? A marker only when a reply follows it before the
+     *  next input or marker; every other row always. */
+    fun markersShown(kinds: List<FeedRowKind>): List<Boolean> {
+        val shown = BooleanArray(kinds.size) { true }
+        var pending: Int? = null
+        kinds.forEachIndexed { index, kind ->
+            when (kind) {
+                FeedRowKind.Marker, FeedRowKind.Input -> {
+                    pending?.let { shown[it] = false }
+                    pending = if (kind == FeedRowKind.Marker) index else null
+                }
+                FeedRowKind.Reply -> pending = null
+                FeedRowKind.Other -> Unit
+            }
+        }
+        pending?.let { shown[it] = false }
+        return shown.toList()
     }
 }

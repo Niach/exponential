@@ -33,6 +33,7 @@
         "link": "#2b59c8",
         "borderStrong": "#d4d4d4",
         "ghostHover": "#f5f5f5",
+        "strokeActive": "#a1a1a1",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -148,6 +149,7 @@
         "link": "#5f8bea",
         "borderStrong": "#ffffff1f",
         "ghostHover": "#ffffff0e",
+        "strokeActive": "#ffffff29",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -845,6 +847,15 @@
           "style": {
             "height": 32
           }
+        },
+        {
+          "when": {
+            "variant": "box",
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.strokeActive"
+          }
         }
       ],
       "label": [
@@ -1464,14 +1475,6 @@
             "borderWidth": 0,
             "padding": 14,
             "gap": 3.5
-          }
-        }
-      ],
-      "grid": [
-        {
-          "style": {
-            "gap": 5.25,
-            "width": 259
           }
         }
       ]
