@@ -40,6 +40,7 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  shownFeedRows,
   groupLaneRows,
   liveToolRowId,
   hasPendingCard,
@@ -3027,5 +3028,22 @@ describe(`nestedWorkflowId`, () => {
   it(`never nests an ordinary subagent`, () => {
     expect(nestedWorkflowId({ subagentId: `a2` }, agents, held)).toBeNull()
     expect(nestedWorkflowId({}, agents, held)).toBeNull()
+  })
+})
+
+describe(`shownFeedRows (#EXP-1772)`, () => {
+  const item = (id: number, kind: string, text: string) => ({ kind: `single` as const, item: { id, kind, text } })
+  it(`keeps a firing only above the reply it got and drops blank turns`, () => {
+    const rows = [
+      item(1, `user_message`, `[schedule] Schedule \`*/30 * * * *\` fired.`),
+      item(2, `narration`, `  `),
+      item(3, `user_message`, `Schedule \`*/30 * * * *\` fired.`),
+      item(4, `tool`, `Read`),
+      item(5, `narration`, `Two PRs landed.`),
+      item(6, `user_message`, `[pr_checks] CI on #12: success`),
+      item(7, `user_message`, `Ship it`),
+      item(8, `narration`, `On it.`),
+    ]
+    expect(shownFeedRows(rows).map((row) => row.item.id)).toEqual([3, 4, 5, 7, 8])
   })
 })
