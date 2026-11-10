@@ -484,28 +484,55 @@ fn sort_messages(messages: &mut [MessageRow]) {
 pub(crate) fn messages_of_session(session_id: &str, cx: &App) -> Rc<Vec<MessageRow>> {
     thread_local! {
         /// session id → (the collection and the session's group revision
-        /// it was read at, its messages).
-        static MEMO: std::cell::RefCell<HashMap<String, ((gpui::EntityId, u64), Rc<Vec<MessageRow>>)>> = Default::default();
+        /// it was read at, the collection revision, its messages).
+        static MEMO: std::cell::RefCell<HashMap<String, ((gpui::EntityId, u64), u64, Rc<Vec<MessageRow>>)>> = Default::default();
     }
     let Some(store) = Store::try_global(cx) else {
         return Rc::default();
     };
     let collection = &store.collections().messages;
+    let messages = collection.read(cx);
     // #LOGS-11: per session — another chat's streaming no longer re-reads
     // (clones and sorts) this one.
-    let stamp = (collection.entity_id(), collection.read(cx).group_revision(session_id));
-    if let Some(hit) = MEMO.with(|memo| memo.borrow().get(session_id).filter(|(at, _)| *at == stamp).map(|(_, rows)| rows.clone())) {
-        return hit;
+    let stamp = (collection.entity_id(), messages.group_revision(session_id));
+    let cached = MEMO.with(|memo| memo.borrow().get(session_id).cloned());
+    if let Some((at, _, rows)) = &cached {
+        if *at == stamp {
+            return rows.clone();
+        }
     }
-    let mut out: Vec<MessageRow> = keyed_messages(cx, [session_id], |_, _| true);
-    sort_messages(&mut out);
-    let out = Rc::new(out);
+    let order = |a: &MessageRow, b: &MessageRow| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id));
+    // #LOGS-11: new rows at the end (a streaming reply) extend the last
+    // read; anything else (an edit, a delete, an earlier row) reads afresh.
+    let appended = cached.filter(|(at, _, _)| at.0 == stamp.0).and_then(|(_, revision, rows)| {
+        let mut added: Vec<&MessageRow> = Vec::new();
+        for key in messages.changed_since(revision)? {
+            match messages.get_key(key) {
+                Some(message) if message.session_id != session_id => continue,
+                Some(message) if rows.last().is_none_or(|last| order(last, message).is_lt()) => added.push(message),
+                // An earlier or edited row of this session, or a delete.
+                _ => return None,
+            }
+        }
+        added.sort_by(|a, b| order(a, b));
+        let mut next = Vec::with_capacity(rows.len() + added.len());
+        next.extend(rows.iter().cloned());
+        next.extend(added.into_iter().cloned());
+        Some(next)
+    });
+    let out = Rc::new(appended.unwrap_or_else(|| {
+        // Sorted by reference, then cloned once in order (moving whole rows
+        // through the sort cost as much as the clone).
+        let mut rows: Vec<&MessageRow> = messages.in_group(session_id).collect();
+        rows.sort_by(|a, b| order(a, b));
+        rows.into_iter().cloned().collect()
+    }));
     MEMO.with(|memo| {
         let mut memo = memo.borrow_mut();
         if memo.len() > 256 {
             memo.clear();
         }
-        memo.insert(session_id.to_string(), (stamp, out.clone()));
+        memo.insert(session_id.to_string(), (stamp, messages.revision(), out.clone()));
     });
     out
 }
@@ -551,11 +578,8 @@ pub(crate) fn conversation_cards(session_id: &str, cx: &App) -> Rc<Vec<SessionCh
 /// working session's card counts its elapsed seconds), never per frame or
 /// twice per change.
 pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<SessionChatView>> {
-    /// A view and the message groups it read (the tree's sessions and its
-    /// ask mirrors' origins).
-    type Memo = HashMap<String, (([u64; 6], i64), Vec<String>, Option<Rc<SessionChatView>>)>;
     thread_local! {
-        static MEMO: std::cell::RefCell<Memo> = Default::default();
+        static MEMO: std::cell::RefCell<HashMap<String, ChatViewMemo>> = Default::default();
     }
     let store = Store::try_global(cx)?;
     let collections = store.collections();
@@ -583,25 +607,132 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
             now_ms.div_euclid(1000),
         )
     };
+    let mut stale: Option<ChatViewMemo> = None;
     if let Some(hit) = MEMO.with(|memo| {
-        memo.borrow()
-            .get(root_id)
-            .filter(|(stamp, groups, _)| *stamp == at(messages_at(groups)))
-            .map(|(_, _, view)| view.clone())
+        let memo = memo.borrow();
+        let entry = memo.get(root_id)?;
+        let stamp = at(messages_at(&entry.groups));
+        if entry.stamp == stamp {
+            return Some(entry.view.clone());
+        }
+        stale = Some(entry.clone());
+        None
     }) {
         return hit;
+    }
+    // #LOGS-11: new agent replies at the chat's end append their rows to
+    // the last view (a streaming reply re-derived the whole long chat).
+    if let Some(entry) = stale.filter(|entry| {
+        let now = at(messages_at(&entry.groups));
+        let mut was = entry.stamp;
+        was.0[2] = now.0[2];
+        was == now
+    }) {
+        if let Some(appended) = appended_view(root_id, &entry, &messages) {
+            let entry = ChatViewMemo { stamp: at(messages_at(&entry.groups)), ..appended };
+            let view = entry.view.clone();
+            MEMO.with(|memo| memo.borrow_mut().insert(root_id.to_string(), entry));
+            return view;
+        }
     }
     let view = chat_view(root_id, None, now_ms, false, false, cx).map(|(view, _)| Rc::new(view));
     let groups = chat_view_groups(root_id, cx);
     let stamp = at(messages_at(&groups));
+    let tail = chat_tail(root_id, &groups, &messages);
     MEMO.with(|memo| {
         let mut memo = memo.borrow_mut();
         if memo.len() > 64 {
             memo.clear();
         }
-        memo.insert(root_id.to_string(), (stamp, groups, view.clone()));
+        memo.insert(root_id.to_string(), ChatViewMemo { stamp, groups, view: view.clone(), tail });
     });
     view
+}
+
+/// [`root_chat_view`]'s memo of one root.
+#[derive(Clone)]
+struct ChatViewMemo {
+    stamp: ([u64; 6], i64),
+    /// The message groups it read (the tree's sessions and its ask
+    /// mirrors' origins).
+    groups: Vec<String>,
+    view: Option<Rc<SessionChatView>>,
+    tail: ChatTail,
+}
+
+/// #LOGS-11: what an append needs of the messages a view was derived from.
+#[derive(Clone)]
+struct ChatTail {
+    /// The messages collection's revision.
+    revision: u64,
+    /// The newest message's place ([`domain::session_tree::chat_order_key`]).
+    last: (i64, String),
+    /// A trigger firing waits after the last row (THE marker shows only
+    /// right above an agent reply: an append would bring it back).
+    fire_pending: bool,
+}
+
+fn chat_tail(root_id: &str, groups: &[String], messages: &sync::Collection<MessageRow>) -> ChatTail {
+    let mut last: (i64, &str) = (i64::MIN, "");
+    let mut last_row: (i64, &str) = (i64::MIN, "");
+    let mut last_fire: (i64, &str) = (i64::MIN, "");
+    for message in groups.iter().filter(|group| group.as_str() != ANY_GROUP).flat_map(|group| messages.in_group(group)) {
+        let key = domain::session_tree::chat_order_key(message);
+        last = last.max(key);
+        let card = message.card.as_ref().filter(|card| !card.is_null());
+        let fire = card.is_some_and(|card| card.get("kind").and_then(serde_json::Value::as_str) == Some(domain::contract::MESSAGE_CARD_KIND_EVENT) && card.get("event").and_then(serde_json::Value::as_str) == Some("trigger_fired"));
+        if fire {
+            last_fire = last_fire.max(key);
+        } else if message.session_id == root_id && (card.is_some() || !message.body_text().trim().is_empty()) {
+            last_row = last_row.max(key);
+        }
+    }
+    ChatTail { revision: messages.revision(), last: (last.0, last.1.to_string()), fire_pending: last_fire > last_row }
+}
+
+/// The view `entry` holds with the rows of the agent replies written since
+/// it was derived appended, when that is all that moved in its groups: each
+/// a plain, unlocked agent message of the root itself (or a plain message of
+/// another tree session, which draws nothing), newer than every message the
+/// view read. Else `None` (the caller derives afresh).
+fn appended_view(root_id: &str, entry: &ChatViewMemo, messages: &sync::Collection<MessageRow>) -> Option<ChatViewMemo> {
+    if entry.tail.fire_pending || entry.groups.iter().any(|group| group == ANY_GROUP) {
+        return None;
+    }
+    let view = entry.view.as_ref()?;
+    let mut appended: Vec<&MessageRow> = Vec::new();
+    for key in messages.changed_since(entry.tail.revision)? {
+        // A delete: its group is unknown here.
+        let message = messages.get_key(key)?;
+        if !entry.groups.iter().any(|group| *group == message.session_id) {
+            continue;
+        }
+        let card = message.card.as_ref().is_some_and(|card| !card.is_null());
+        let plain_agent = !card
+            && message.locked().is_none()
+            && message.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT)
+            && message.author_session_id.as_deref().is_none_or(str::is_empty);
+        let key = domain::session_tree::chat_order_key(message);
+        if !plain_agent || key <= (entry.tail.last.0, entry.tail.last.1.as_str()) {
+            return None;
+        }
+        if message.session_id == root_id {
+            appended.push(message);
+        }
+    }
+    appended.sort_by(|a, b| domain::session_tree::chat_order_key(a).cmp(&domain::session_tree::chat_order_key(b)));
+    let mut next = (**view).clone();
+    next.rows.extend(appended.iter().filter_map(|message| domain::session_tree::plain_message_row(message, None)));
+    let mut tail = ChatTail { revision: messages.revision(), ..entry.tail.clone() };
+    for message in messages.changed_since(entry.tail.revision)?.into_iter().filter_map(|key| messages.get_key(key)) {
+        if entry.groups.iter().any(|group| *group == message.session_id) {
+            let key = domain::session_tree::chat_order_key(message);
+            if key > (tail.last.0, tail.last.1.as_str()) {
+                tail.last = (key.0, key.1.to_string());
+            }
+        }
+    }
+    Some(ChatViewMemo { stamp: entry.stamp, groups: entry.groups.clone(), view: Some(Rc::new(next)), tail })
 }
 
 /// [`chat_view_groups`]' stand-in for every group: an origin not synced yet
@@ -920,8 +1051,9 @@ fn chat_view(
         .filter(|origin| picked_ids.insert(origin.id.as_str()))
         .collect();
     picked.extend(origins);
-    let keyed: Vec<MessageRow> = domain::message_session::key_messages_by_session(picked);
-    let messages: Vec<&MessageRow> = keyed.iter().collect();
+    // #LOGS-11: by reference (a clone of every picked row per derive).
+    let keyed: Vec<&MessageRow> = picked.into_iter().filter(|message| domain::message_session::message_session(message).is_some()).collect();
+    let messages: Vec<&MessageRow> = keyed.clone();
     // VAPP-110: the tree's plain messages re-homed onto the root (cards stay
     // where they are: a continuation's own session card is not a message).
     let rehomed: Vec<MessageRow> = if whole_tree {
@@ -1043,7 +1175,7 @@ fn chat_view(
         .filter(|message| {
             message.session_id == root_id || (whole_tree && tree_ids.contains(message.session_id.as_str()))
         })
-        .cloned()
+        .map(|message| (*message).clone())
         .collect();
     sort_messages(&mut own);
     Some((view, own))
@@ -1662,6 +1794,55 @@ pub(crate) fn observe_session_rows<V: 'static>(cx: &mut gpui::Context<V>) -> Vec
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// #LOGS-11: a chat's view and messages after agent replies stream in
+    /// (the incremental append) equal a fresh read of the same store; an
+    /// edit reads afresh.
+    #[gpui::test]
+    fn streamed_replies_append_to_the_chat_as_a_fresh_read_would(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        let message = |id: &str, kind: &str, body: &str, at: &str| -> MessageRow {
+            serde_json::from_value(json!({"id": id, "session_id": "r1", "author_kind": kind, "body": body, "created_at": at})).unwrap()
+        };
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(json!({"id": "r1", "team_id": "t1", "root_id": "r1", "status": "running", "shared": true, "created_at": "2026-11-01T09:00:00.000Z"})).unwrap();
+            collections.sessions.update(cx, |c, cx| {
+                c.seed(root.key(), root);
+                cx.notify();
+            });
+            let seed = |rows: Vec<MessageRow>, cx: &mut App| {
+                collections.messages.update(cx, |c, cx| {
+                    for row in rows {
+                        c.seed(row.key(), row);
+                    }
+                    cx.notify();
+                })
+            };
+            seed(vec![message("m1", "user", "Fix the list", "2026-11-01T09:00:01.000Z"), message("m2", "agent", "On it", "2026-11-01T09:00:02.000Z")], cx);
+            let now = 1_793_000_000_000;
+            let fresh = |cx: &App| chat_view(root_id(), None, now, false, false, cx).map(|(view, _)| view);
+            fn root_id() -> &'static str {
+                "r1"
+            }
+            assert_eq!(root_chat_view("r1", now, cx).as_deref(), fresh(cx).as_ref());
+            assert_eq!(messages_of_session("r1", cx).len(), 2);
+            // Two replies stream in, one empty: appended.
+            seed(vec![message("m3", "agent", "Found it", "2026-11-01T09:00:03.000Z"), message("m4", "agent", " ", "2026-11-01T09:00:04.000Z")], cx);
+            seed(vec![message("m5", "agent", "Pushed", "2026-11-01T09:00:05.000Z")], cx);
+            assert_eq!(root_chat_view("r1", now, cx).as_deref(), fresh(cx).as_ref());
+            let ids: Vec<String> = messages_of_session("r1", cx).iter().map(|m| m.id.clone()).collect();
+            assert_eq!(ids, ["m1", "m2", "m3", "m4", "m5"]);
+            // A person's message and an edit of an earlier row: afresh.
+            seed(vec![message("m6", "user", "Thanks", "2026-11-01T09:00:06.000Z"), message("m2", "agent", "On it, edited", "2026-11-01T09:00:02.000Z")], cx);
+            assert_eq!(root_chat_view("r1", now, cx).as_deref(), fresh(cx).as_ref());
+            let bodies: Vec<String> = messages_of_session("r1", cx).iter().map(|m| m.body.clone().unwrap_or_default()).collect();
+            assert_eq!(bodies[1], "On it, edited");
+            assert_eq!(bodies.len(), 6);
+        });
+    }
 
     fn row(value: serde_json::Value) -> SessionRow {
         serde_json::from_value(value).unwrap()
