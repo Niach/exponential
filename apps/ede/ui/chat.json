@@ -2426,7 +2426,10 @@
                     "props": {
                       "direction": "horizontal",
                       "wrap": true,
-                      "gap": "sm"
+                      "gap": "sm",
+                      "style": {
+                        "gap": 5.25
+                      }
                     },
                     "template": {
                       "component": "chat_reply",
@@ -2482,6 +2485,10 @@
                           }
                         }
                       }
+                    },
+                    "style": {
+                      "width": 24,
+                      "height": 24
                     }
                   }
                 ]
@@ -2599,7 +2606,8 @@
                             },
                             "style": {
                               "width": 24,
-                              "height": 24
+                              "height": 24,
+                              "marginTop": 4
                             }
                           }
                         ]

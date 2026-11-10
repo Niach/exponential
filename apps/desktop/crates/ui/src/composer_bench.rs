@@ -26,6 +26,7 @@ const ORIGIN: f32 = 24.;
 /// The context ring's box (THE ring button, `web_icon_xs`), a flat swatch
 /// on both sides: the bench measures the geometry, not the ring.
 const RING: f32 = 24.;
+/// `$color.info` in the exponential dark palette (a document colour is a token).
 const RING_FILL: u32 = 0x3b82f6;
 const PLACEHOLDER: &str = "Reply…";
 const REPLIES: [&str; 3] = ["Yes, go ahead", "Show me the plan first", "No"];
@@ -107,12 +108,12 @@ fn eui_tree() -> Value {
     composer["slots"]["trailing"] = json!({
         "id": "chat_ring",
         "component": "Box",
-        "style": {"width": RING, "height": RING, "backgroundColor": format!("#{RING_FILL:06x}")},
+        "style": {"width": RING, "height": RING, "backgroundColor": "$color.info"},
     });
     json!({
         "id": "bench_footer",
         "component": "Box",
-        "style": {"display": "flex", "flexDirection": "column", "alignItems": "stretch", "width": "100%"},
+        "style": {"display": "flex", "flexDirection": "column", "alignItems": "stretch", "width": "100%", "gap": chat_node("chat_footer")["style"]["gap"].clone()},
         "children": [chat_node("chat_replies"), composer],
     })
 }
@@ -131,13 +132,18 @@ fn eui_data(state: State) -> Value {
 }
 
 fn eui_surface(state: State, window: &mut Window, cx: &mut gpui::App) -> Entity<SurfaceView> {
-    let dark = cx.theme().is_dark();
+    // The IDE's own mount (`chat_tab_composer::ChatTabComposer::mount`):
+    // the document theme, dark, the app's markdown host's icons.
+    let host = Rc::new(crate::markdown::AppMarkdownHost::for_document(None, cx));
+    let theme = uicore_gpui::inline::theme(&eui_core::themes::default_theme());
     cx.new(|cx| {
+        let settings = eui_core::surface::SurfaceSettings { locale: "en-US".into(), mode: eui_core::theme::ModeSetting::Dark, ..Default::default() };
         let options = SurfaceViewOptions {
             surface_id: "composer-bench".to_string(),
-            theme: eui_core::themes::builtin_theme("exponential"),
-            mode: if dark { Mode::Dark } else { Mode::Light },
-            host: Rc::new(crate::exponential_ui_screen::bench_specimen_host()),
+            theme: Some(theme),
+            mode: Mode::Dark,
+            host,
+            settings: Some(settings),
             lift_layers: true,
             ..SurfaceViewOptions::default()
         };

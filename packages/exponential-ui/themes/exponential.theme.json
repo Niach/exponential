@@ -1524,7 +1524,7 @@
             "backgroundColor": "$color.popover",
             "borderWidth": "$border.hairline",
             "borderRadius": "$radius.xl",
-            "paddingTop": 0,
+            "paddingTop": 8.5,
             "paddingBottom": 3.5,
             "paddingHorizontal": 5.25,
             "gap": 3.5
@@ -1661,6 +1661,40 @@
           "style": {
             "backgroundColor": "$color.accent",
             "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "tone": "neutral",
+            "shape": "pill"
+          },
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.border",
+            "fontSize": 12.25
+          }
+        },
+        {
+          "when": {
+            "tone": "neutral",
+            "shape": "pill",
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "label": [
+        {
+          "when": {
+            "tone": "neutral",
+            "shape": "pill"
+          },
+          "style": {
+            "color": "$color.foreground",
+            "opacity": 0.7,
+            "fontSize": 12.25
           }
         }
       ]

@@ -65013,7 +65013,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             },
@@ -65025,7 +65025,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             }
@@ -65039,7 +65039,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             },
@@ -65051,7 +65051,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             }
@@ -65109,7 +65109,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             },
@@ -65121,7 +65121,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             }
@@ -65135,7 +65135,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             },
@@ -65147,7 +65147,7 @@
               "padding": 8,
               "gap": 3.5,
               "boxShadow": [],
-              "paddingTop": 0,
+              "paddingTop": 8.5,
               "paddingBottom": 3.5,
               "paddingHorizontal": 5.25
             }
@@ -75066,9 +75066,23 @@
                 0,
                 1
               ],
+              "backgroundColor": "#ffffff",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
+            },
+            "hover": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#f5f5f5",
               "borderWidth": 1,
-              "borderColor": "#737373"
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
             }
           },
           "dark": {
@@ -75080,9 +75094,23 @@
                 0,
                 1
               ],
+              "backgroundColor": "#ffffff0f",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
+            },
+            "hover": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#ffffff1c",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             }
           }
         },
@@ -75126,9 +75154,23 @@
                 0,
                 1
               ],
+              "backgroundColor": "#ffffff",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
+            },
+            "hover": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#ffedd5",
               "borderWidth": 1,
-              "borderColor": "#737373"
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
             }
           },
           "dark": {
@@ -75140,9 +75182,23 @@
                 0,
                 1
               ],
+              "backgroundColor": "#ffffff0f",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
+            },
+            "hover": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#431407",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             }
           }
         }
@@ -75172,12 +75228,16 @@
         "exponential": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#0a0a0a",
+              "opacity": 0.7,
+              "fontSize": 12.25
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#fafafa",
+              "opacity": 0.7,
+              "fontSize": 12.25
             }
           }
         },
@@ -75198,12 +75258,16 @@
         "orange": {
           "light": {
             "default": {
-              "color": "#737373"
+              "color": "#0a0a0a",
+              "opacity": 0.7,
+              "fontSize": 12.25
             }
           },
           "dark": {
             "default": {
-              "color": "#a1a1a1"
+              "color": "#fafafa",
+              "opacity": 0.7,
+              "fontSize": 12.25
             }
           }
         }
@@ -75476,9 +75540,23 @@
                 0,
                 1
               ],
+              "backgroundColor": "#ffffff",
+              "borderWidth": 1,
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
+            },
+            "hover": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#f5f5f5",
               "borderWidth": 1,
-              "borderColor": "#737373"
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
             }
           },
           "dark": {
@@ -75492,7 +75570,8 @@
               ],
               "backgroundColor": "#ffffff0f",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             },
             "hover": {
               "transition": 120,
@@ -75504,7 +75583,8 @@
               ],
               "backgroundColor": "#ffffff1c",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             }
           }
         },
@@ -75572,9 +75652,10 @@
                 0,
                 1
               ],
-              "backgroundColor": "#f5f5f5",
+              "backgroundColor": "#ffffff",
               "borderWidth": 1,
-              "borderColor": "#737373"
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
             },
             "hover": {
               "transition": 120,
@@ -75586,7 +75667,8 @@
               ],
               "backgroundColor": "#ffedd5",
               "borderWidth": 1,
-              "borderColor": "#737373"
+              "borderColor": "#e5e5e5",
+              "fontSize": 12.25
             }
           },
           "dark": {
@@ -75600,7 +75682,8 @@
               ],
               "backgroundColor": "#ffffff0f",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             },
             "hover": {
               "transition": 120,
@@ -75612,7 +75695,8 @@
               ],
               "backgroundColor": "#431407",
               "borderWidth": 1,
-              "borderColor": "#a1a1a1"
+              "borderColor": "#ffffff1a",
+              "fontSize": 12.25
             }
           }
         }

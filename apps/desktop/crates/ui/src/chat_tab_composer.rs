@@ -1049,7 +1049,7 @@ mod tests {
         assert_eq!(tip["props"]["content"], crate::chat_screen::PLUS_TOOLTIP);
         let plus = node(tip, "chat_plus_button").expect("the + button");
         assert_eq!(plus["props"]["disabled"], json!({"@path": "/chatting/composer/sending"}));
-        assert_eq!(plus["style"], json!({"width": 24, "height": 24}));
+        assert_eq!(plus["style"], json!({"width": 24, "height": 24, "marginTop": 4}));
         let popover = node(&tree, "chat_slash_popover").expect("the / menu's popover");
         assert_eq!(popover["component"], "Popover");
         assert_eq!(popover["props"]["anchor"], COMPOSER);
