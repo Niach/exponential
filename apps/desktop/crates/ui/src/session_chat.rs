@@ -13,8 +13,8 @@
 //!   status pill while the chat's PR is open, an agent's telephone, THE gear
 //!   (agents and the Assistant: the agent's settings page in the pane) and
 //!   the `…`.
-//! * UNDER IT, THE Segmented ([`screen_tabs`], the app editor's): Chat ·
-//!   Issues · Sessions · Results, each with its muted count.
+//! * ON THE TITLE ROW (#EXP-1762), THE Segmented ([`screen_tabs`], the app
+//!   editor's): Chat · Issues · Sessions · Results, each with its muted count.
 //! * THE BODY (the IDE is WIDE: the beside rule, [`screen_beside`]): the
 //!   Chat tab alone = the chat full width; any other tab, or an opened item,
 //!   = the chat pane (5fr, min 360px) beside the tab pane (7fr), a hairline
@@ -2547,8 +2547,9 @@ pub(crate) struct ScreenHeader {
 }
 
 /// THE session screen header: the Back (a link opened it), the avatar, the
-/// title over its subtitle, the trailing slot, the gear, the `…`; THE
-/// Segmented under the row; the hairline spans the content card.
+/// title over its subtitle, THE Segmented (#EXP-1762: ON the title row,
+/// web `session-screen-frame.tsx`), the trailing slot, the gear, the `…`;
+/// the hairline spans the content card.
 pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
     let gear = header.gear.map(|(on_press, open)| gear_button(on_press, open, cx));
     let theme = cx.theme();
@@ -2568,8 +2569,8 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
             v_flex()
                 .w_full()
                 .px(px(HEADER_INSET))
-                .pt_6()
-                .pb_3()
+                // #EXP-1762: ONE header line (web `py-3`).
+                .py_3()
                 .gap_3()
                 .children(header.back)
                 .child(
@@ -2580,11 +2581,11 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         .items_center()
                         .child(div().flex_shrink_0().child(header.avatar))
                         .child(v_flex().flex_1().min_w_0().child(header.title).children(subtitle))
+                        .child(div().flex_shrink_0().child(header.tabs))
                         .children(header.trailing)
                         .children(gear)
                         .children(header.menu),
-                )
-                .child(header.tabs),
+                ),
         )
         .child(div().w_full().h(px(1.)).bg(theme.border))
         .into_any_element()
