@@ -696,7 +696,10 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await lines(w.children[871]!)).map((l) => l.body)).toEqual([`Merged #871 into main.`])
   })
 
-  it(`#FEED-222: a landing no read confirmed is Merged by the next run, which composes nothing; never stuck`, async () => {
+  // Every landing check after the push: confirmLanding's reads.
+  const confirmReads = () => 1 + confirmRetry.delaysMs.length
+
+  it(`#FEED-222: a landing no read confirmed is Merged in the same pass once the base shows it; never stuck`, async () => {
     const w = await world()
     const [agent] = await db
       .insert(agents)
@@ -707,21 +710,14 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const b = await w.pr(882)
     await w.idle()
     await pass(w.repoId)
-    // The first run lands #881 + #882, but every read after its push is
-    // stale; the same pass re-queues them and the next run composes nothing
-    // onto the new base.
-    fake.staleReads = 1 + confirmRetry.delaysMs.length
-    fake.judge = () => ({ empty: true })
+    // The run lands #881 + #882, but every confirmation read is stale.
+    fake.staleReads = confirmReads()
     await pass(w.repoId)
     const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
     expect(fake.branch.get(`main`)).toBe(landed)
-    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `testing`, mergeAttempts: 1 })
-    expect(fake.closed).toEqual([])
-    await pass(w.repoId)
-    expect(fake.dispatches).toHaveLength(2)
-    expect(fake.dispatches[1]!.inputs.base_sha).toBe(landed)
+    expect(fake.dispatches).toHaveLength(1)
     for (const id of [a, b]) {
-      expect(await prRow(id)).toMatchObject({ state: `merged`, mergeState: `merged`, mergeHold: null, mergeTrainId: null })
+      expect(await prRow(id)).toMatchObject({ state: `merged`, mergeState: `merged`, mergeHold: null, mergeTrainId: null, mergeAttempts: 1 })
     }
     expect(fake.closed).toEqual([
       { number: 881, sha: landed },
@@ -732,11 +728,66 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(await outcomes(882)).toEqual([`merged`])
     const root = (await db.select({ rootId: sessions.rootId }).from(sessions).where(eq(sessions.id, conversation)))[0]!.rootId
     expect((await lines(root)).map((l) => l.body)).toEqual([`Merged #881, #882 into main.`])
+    await pass(w.repoId, 2)
+    expect(fake.dispatches).toHaveLength(1)
+  })
+
+  it(`#FEED-222: a PR bounced as a conflict after an unconfirmed landing (re-squashed onto the moved base) is Merged`, async () => {
+    const w = await world()
+    const a = await w.pr(883)
+    await w.idle()
+    await pass(w.repoId)
+    // Stale through the confirmation and the next two looks; the re-run conflicts.
+    fake.staleReads = confirmReads() + 2
+    fake.judge = () => ({ conflicts: [883] })
+    await pass(w.repoId, 2)
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(fake.dispatches).toHaveLength(2)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `conflict`, mergeAttempts: 2 })
+    // The base reads true now: the next pass merges it from `conflict`.
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `merged`, mergeState: `merged` })
+    expect(fake.closed).toEqual([{ number: 883, sha: landed }])
+    expect((await lines(w.children[883]!)).map((l) => (l.card as { mergeOutcome?: string }).mergeOutcome)).toEqual([`conflict`, `merged`])
+    expect(fake.dispatches).toHaveLength(2)
+  })
+
+  it(`#FEED-222: a run that composes nothing lands what an earlier unconfirmed run landed`, async () => {
+    const w = await world()
+    const a = await w.pr(884)
+    await w.idle()
+    await pass(w.repoId)
+    fake.staleReads = confirmReads() + 1
+    fake.judge = () => ({ empty: true })
+    await pass(w.repoId)
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(fake.dispatches[1]!.inputs.base_sha).toBe(landed)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `merged`, mergeState: `merged` })
+    expect(fake.closed).toEqual([{ number: 884, sha: landed }])
     const runs = await db.select({ state: mergeTrains.state }).from(mergeTrains).where(eq(mergeTrains.repositoryId, w.repoId)).orderBy(asc(mergeTrains.createdAt))
     expect(runs.map((r) => r.state)).toEqual([`error`, `landed`])
-    // Nothing left in the train's hands.
-    await pass(w.repoId, 2)
-    expect(fake.dispatches).toHaveLength(2)
+  })
+
+  it(`#FEED-222: a head pushed since the unconfirmed landing never lands from it`, async () => {
+    const w = await world()
+    const a = await w.pr(885)
+    await w.idle()
+    await pass(w.repoId)
+    fake.staleReads = confirmReads() + 1
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `testing`, mergeAttempts: 1 })
+    fake.prs.get(885)!.headSha = `head-885-2`
+    await worker.onPullRequestPush(a)
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId)
+    // It lands only through a run that tested the new head.
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    const last = fake.dispatches.at(-1)!
+    expect(last.units[0]!.prs[0]!.head_sha).toBe(`head-885-2`)
+    expect(fake.closed).not.toContainEqual({ number: 885, sha: landed })
+    expect(fake.closed.every((c) => c.sha === `train-${last.inputs.train_id.slice(0, 8)}`)).toBe(true)
   })
 
   it(`#FEED-222: an empty compose after a landing that never reached the base still bounces`, async () => {
@@ -744,7 +795,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const a = await w.pr(891)
     await w.idle()
     await pass(w.repoId)
-    fake.staleReads = 1 + confirmRetry.delaysMs.length
+    fake.staleReads = confirmReads() + 1
     fake.judge = () => ({ empty: true })
     await pass(w.repoId)
     // The base was put back: the earlier train commit is not on it.
