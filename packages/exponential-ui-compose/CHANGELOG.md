@@ -5,8 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer (#EDE-65): the send/stop glyph takes the `sendIcon` recipe part's size; a disabled send dims by the `send` part's `state: disabled` opacity (0.5 without one); a hidden `above` paints as no slot (the core's layout).
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Menu: a searchable submenu matches a row's `identifier` as well as its label and lays out its `identifier`, `detail` and `iconColor` tint (from eui-core; painted as a normal Menu row's parts, no view change).
-- Composer (#EDE-65): the send/stop glyph takes the `sendIcon` recipe part's size; a hidden `above` paints as no slot (the core's layout).
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a `pill` starts cursorless.
 - Select `button` popup matches web's picker (#EXP-1629): the regenerated theme and layout values.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the leaf and the measurer; the glyph takes the `icon` part's 10.5, the ink the recipe's muted colour. Snapshot `components.json` records the Button `size=icon-xs`, `tone=default|muted` cases.

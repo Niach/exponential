@@ -56641,7 +56641,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56651,7 +56651,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#171717",
               "gap": 7,
@@ -56662,7 +56662,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56673,7 +56673,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56686,7 +56686,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56696,7 +56696,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56707,7 +56707,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56718,7 +56718,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56825,7 +56825,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56835,7 +56835,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#7c2d12",
               "gap": 7,
@@ -56846,7 +56846,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56857,7 +56857,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -56870,7 +56870,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56880,7 +56880,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fed7aa",
               "gap": 7,
@@ -56891,7 +56891,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -56902,7 +56902,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -69525,6 +69525,14 @@
               "borderRadius": 8,
               "backgroundColor": "#171717",
               "color": "#fafafa"
+            },
+            "disabled": {
+              "width": 36,
+              "height": 36,
+              "borderRadius": 8,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "opacity": 0.5
             }
           },
           "dark": {
@@ -69534,6 +69542,14 @@
               "borderRadius": 8,
               "backgroundColor": "#e5e5e5",
               "color": "#171717"
+            },
+            "disabled": {
+              "width": 36,
+              "height": 36,
+              "borderRadius": 8,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "opacity": 0.5
             }
           }
         },
@@ -69545,6 +69561,14 @@
               "borderRadius": 10,
               "backgroundColor": "#171717",
               "color": "#fafafa"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69554,6 +69578,14 @@
               "borderRadius": 10,
               "backgroundColor": "#e5e5e5",
               "color": "#171717"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "opacity": 0.4
             }
           }
         },
@@ -69565,6 +69597,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#7c3aed",
               "color": "#ffffff"
+            },
+            "disabled": {
+              "width": 40,
+              "height": 40,
+              "borderRadius": 9999,
+              "backgroundColor": "#7c3aed",
+              "color": "#ffffff",
+              "opacity": 0.5
             }
           },
           "dark": {
@@ -69574,6 +69614,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#c4b5fd",
               "color": "#2e1065"
+            },
+            "disabled": {
+              "width": 40,
+              "height": 40,
+              "borderRadius": 9999,
+              "backgroundColor": "#c4b5fd",
+              "color": "#2e1065",
+              "opacity": 0.5
             }
           }
         },
@@ -69585,6 +69633,14 @@
               "borderRadius": 10,
               "backgroundColor": "#c2410c",
               "color": "#ffffff"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#c2410c",
+              "color": "#ffffff",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69594,6 +69650,14 @@
               "borderRadius": 10,
               "backgroundColor": "#fb923c",
               "color": "#431407"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#fb923c",
+              "color": "#431407",
+              "opacity": 0.4
             }
           }
         }
@@ -69639,6 +69703,14 @@
               "backgroundColor": "#171717",
               "color": "#fafafa",
               "opacity": 0.5
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69649,6 +69721,14 @@
               "backgroundColor": "#e5e5e5",
               "color": "#171717",
               "opacity": 0.5
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "opacity": 0.4
             }
           }
         },
@@ -69683,6 +69763,14 @@
               "backgroundColor": "#c2410c",
               "color": "#ffffff",
               "opacity": 0.5
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#c2410c",
+              "color": "#ffffff",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69693,6 +69781,14 @@
               "backgroundColor": "#fb923c",
               "color": "#431407",
               "opacity": 0.5
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 10,
+              "backgroundColor": "#fb923c",
+              "color": "#431407",
+              "opacity": 0.4
             }
           }
         }
@@ -69715,6 +69811,14 @@
               "borderRadius": 8,
               "backgroundColor": "#171717",
               "color": "#fafafa"
+            },
+            "disabled": {
+              "width": 36,
+              "height": 36,
+              "borderRadius": 8,
+              "backgroundColor": "#171717",
+              "color": "#fafafa",
+              "opacity": 0.5
             }
           },
           "dark": {
@@ -69724,6 +69828,14 @@
               "borderRadius": 8,
               "backgroundColor": "#e5e5e5",
               "color": "#171717"
+            },
+            "disabled": {
+              "width": 36,
+              "height": 36,
+              "borderRadius": 8,
+              "backgroundColor": "#e5e5e5",
+              "color": "#171717",
+              "opacity": 0.5
             }
           }
         },
@@ -69735,6 +69847,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#00000000",
               "color": "#171717"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 9999,
+              "backgroundColor": "#00000000",
+              "color": "#171717",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69744,6 +69864,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#00000000",
               "color": "#e5e5e5"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 9999,
+              "backgroundColor": "#00000000",
+              "color": "#e5e5e5",
+              "opacity": 0.4
             }
           }
         },
@@ -69755,6 +69883,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#7c3aed",
               "color": "#ffffff"
+            },
+            "disabled": {
+              "width": 40,
+              "height": 40,
+              "borderRadius": 9999,
+              "backgroundColor": "#7c3aed",
+              "color": "#ffffff",
+              "opacity": 0.5
             }
           },
           "dark": {
@@ -69764,6 +69900,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#c4b5fd",
               "color": "#2e1065"
+            },
+            "disabled": {
+              "width": 40,
+              "height": 40,
+              "borderRadius": 9999,
+              "backgroundColor": "#c4b5fd",
+              "color": "#2e1065",
+              "opacity": 0.5
             }
           }
         },
@@ -69775,6 +69919,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#00000000",
               "color": "#c2410c"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 9999,
+              "backgroundColor": "#00000000",
+              "color": "#c2410c",
+              "opacity": 0.4
             }
           },
           "dark": {
@@ -69784,6 +69936,14 @@
               "borderRadius": 9999,
               "backgroundColor": "#00000000",
               "color": "#fb923c"
+            },
+            "disabled": {
+              "width": 32,
+              "height": 32,
+              "borderRadius": 9999,
+              "backgroundColor": "#00000000",
+              "color": "#fb923c",
+              "opacity": 0.4
             }
           }
         }

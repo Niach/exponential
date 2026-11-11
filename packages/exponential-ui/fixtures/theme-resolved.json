@@ -4233,6 +4233,14 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
             }
           ],
           "sendIcon": [
@@ -12839,7 +12847,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },
@@ -13781,6 +13789,22 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
               }
             },
             {
@@ -22844,6 +22868,14 @@
               }
             },
             {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full"
               }
@@ -31758,7 +31790,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },
@@ -32700,6 +32732,22 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
               }
             },
             {
