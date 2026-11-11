@@ -25,10 +25,13 @@ function SettingsAgentsIndex() {
   return (
     // Member-readable: every member sees the team's agents (read-only).
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isMember}>
-      {team && isReady && (
+      {team && (
+        // #EXP-1788 (feedback-states.json `placeholder`, the IDE's
+        // agents_index): the page draws at once; the Agents band shows its
+        // skeleton until the `agents` shape is ready.
         <div className="space-y-6">
           <LeadAssistantRow team={team} isOwner={permissions.isOwner} />
-          <AgentsListBand team={team} isOwner={permissions.isOwner} agents={agents} />
+          <AgentsListBand team={team} isOwner={permissions.isOwner} agents={agents} loading={!isReady} />
           <AgentEventsBand teamId={team.id} />
         </div>
       )}

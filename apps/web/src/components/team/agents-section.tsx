@@ -1076,10 +1076,13 @@ export function AgentsListBand({
   team,
   isOwner,
   agents,
+  loading = false,
 }: {
   team: Team
   isOwner: boolean
   agents: readonly AgentRow[]
+  /** The `agents` shape has not synced yet: skeleton rows, not the empty state. */
+  loading?: boolean
 }) {
   const navigate = useNavigate()
   return (
@@ -1103,7 +1106,9 @@ export function AgentsListBand({
           ) : undefined
         }
       />
-      {agents.length === 0 ? (
+      {agents.length === 0 && loading ? (
+        <SkeletonRows className="py-1" />
+      ) : agents.length === 0 ? (
         <EmptyState icon={SettingsAgentsIcon} title="No agents yet" size="list" />
       ) : (
         <div className={SETTINGS_LIST_CLASS}>
@@ -1223,7 +1228,9 @@ export function AgentEventsBand({ teamId }: { teamId: string }) {
 export function LeadAssistantRow({ team, isOwner }: { team: Team; isOwner: boolean }) {
   const { users } = useTeamUsers(team.id)
   const [busy, setBusy] = useState(false)
-  const [leadUserId, setLeadUserId] = useState<string | null>(null)
+  // `undefined` = not read yet (the row stays disabled, #EXP-1788 like the
+  // IDE's agents_index), `null` = no lead.
+  const [leadUserId, setLeadUserId] = useState<string | null | undefined>(undefined)
   // The lead row is another member's Assistant (never in my synced agents):
   // its member comes from the server, re-read whenever the lead changes.
   const leadAssistantId = team.leadAssistantId ?? null
@@ -1232,15 +1239,18 @@ export function LeadAssistantRow({ team, isOwner }: { team: Team; isOwner: boole
       setLeadUserId(null)
       return
     }
+    setLeadUserId(undefined)
     let live = true
+    // A failed read keeps the row unknown (disabled), never a false None.
     trpc.agents.lead
       .query({ teamId: team.id })
       .then((result) => live && setLeadUserId(result.lead?.userId ?? null))
-      .catch(() => live && setLeadUserId(null))
+      .catch(() => {})
     return () => {
       live = false
     }
   }, [team.id, leadAssistantId])
+  const known = leadUserId !== undefined
   const current = leadAssistantId && leadUserId ? leadUserId : LEAD_NONE
   const items = leadOptions(users.map((user) => ({ userId: user.id, name: displayUserName(user, user.id) }))).map(
     (option) =>
@@ -1276,7 +1286,7 @@ export function LeadAssistantRow({ team, isOwner }: { team: Team; isOwner: boole
         }}
         items={items}
         width="md"
-        disabled={!isOwner || busy}
+        disabled={!isOwner || busy || !known}
         data-testid={LEAD.testIds.row}
       />
     </GlassGroup>
