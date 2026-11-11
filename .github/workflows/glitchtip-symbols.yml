@@ -115,7 +115,11 @@ jobs:
         run: apps/ede/packaging/stage.sh "$RUNNER_TEMP/stage"
       - name: Split the debug info
         run: apps/ede/packaging/split-debug.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/debug"
+      # A mismatching binary's debug file is dropped (it would never match a
+      # crash); the matching ones still upload, then the job fails naming
+      # the rest.
       - name: Match the published .deb's build-ids
+        id: match
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
@@ -126,15 +130,19 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "exponential-desktop_${version}-1_amd64.deb" --clobber
           rm -rf shipped && dpkg-deb -x "exponential-desktop_${version}-1_amd64.deb" shipped
           bid() { readelf -n "$1" | sed -n 's/.*Build ID: //p'; }
-          bad=0
+          bad=""
           for f in stage/usr/bin/* stage/usr/libexec/xdg-desktop-portal-exponential; do
             file -b "$f" | grep -q '^ELF' || continue
             rel="${f#stage/}"
             a=$(bid "$f"); b=$(bid "shipped/$rel" 2>/dev/null || true)
             echo "$rel: shipped ${b:-missing}, rebuilt $a"
-            [ -n "$a" ] && [ "$a" = "$b" ] || bad=1
+            if [ -z "$a" ] || [ "$a" != "$b" ]; then
+              bad="$bad $(basename "$f")"
+              rm -f "debug/$(basename "$f").debug"
+            fi
           done
-          [ "$bad" = 0 ] || { echo "::error::the rebuild does not match $TAG's .deb: nothing uploaded"; exit 1; }
+          echo "mismatch=${bad# }" >> "$GITHUB_OUTPUT"
+          ls debug/*.debug >/dev/null 2>&1 || { echo "::error::no rebuilt binary matches $TAG's .deb: nothing uploaded"; exit 1; }
       - name: Upload to GlitchTip
         env:
           GLITCHTIP_STRICT: 1
@@ -142,3 +150,10 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: '"$RUNNER_TEMP/glitchtip-debug-files.sh" ede "$RUNNER_TEMP/debug"'
+      - name: Report what did not match
+        if: steps.match.outputs.mismatch != ''
+        env:
+          MISMATCH: ${{ steps.match.outputs.mismatch }}
+        run: |
+          echo "::error::no symbols for (the rebuild does not reproduce the shipped build-id): $MISMATCH"
+          exit 1

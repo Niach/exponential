@@ -58,9 +58,12 @@ route to it and the Hetzner firewall stays unchanged. Ways in:
   npx) and three attempts 30 s / 90 s apart (a GlitchTip redeploy = ~30 s of
   Cloudflare 530s). A failed upload only warns, so check a release's
   annotations; backfill with Actions → `glitchtip-symbols` (product + tag):
-  it rebuilds the tag, uploads only when every build-id matches the published
-  asset, and publishes nothing. The Linux desktop leg must run on the runner
-  that built the release (its checkout path is in the debug info).
+  it rebuilds the tag, uploads only the binaries whose build-id matches the
+  published asset (the job fails naming the others), and publishes nothing.
+  The Linux desktop leg must run on the runner that built the release (its
+  checkout path is in the debug info). eDE's `exponential-shell` and
+  `exponential-sealed` do not rebuild reproducibly, so for them only the
+  release's own upload counts.
 - Event ingest never crosses Cloudflare: clients post to our backend's
   `/api/monitoring` tunnel, and the web app forwards to `http://glitchtip-web:8000`
   over the host's shared `coolify` Docker network (the `glitchtip-web` alias on
