@@ -185,6 +185,7 @@ mod field_variants;
 mod focus;
 mod labels;
 mod local_repos;
+mod mcp_server_dialog;
 mod mcp_servers;
 mod members;
 mod menu_icon_color;
