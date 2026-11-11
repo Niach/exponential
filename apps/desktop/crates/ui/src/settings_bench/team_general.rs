@@ -88,3 +88,30 @@ fn settings_general_member() {
 fn settings_general_no_team() {
     general("general-no-team", GeneralShot { team: None, ..general_shot() });
 }
+
+use crate::settings::team_general::DeleteTeamContent;
+
+fn delete_body(name: &'static str, typed: &'static str) {
+    shoot_pane(name, move |window, cx| DeleteTeamContent::for_shots("Acme", typed, window, cx), |_, _| {});
+}
+
+/// The Delete team alert's body: the type-the-name field, empty.
+#[test]
+#[ignore]
+fn settings_general_delete_empty() {
+    delete_body("general-delete-empty", "");
+}
+
+/// Partly typed: the name does not match yet.
+#[test]
+#[ignore]
+fn settings_general_delete_partial() {
+    delete_body("general-delete-partial", "Acm");
+}
+
+/// The name typed in full.
+#[test]
+#[ignore]
+fn settings_general_delete_matching() {
+    delete_body("general-delete-matching", "Acme");
+}
