@@ -3854,6 +3854,15 @@
               }
             }
           ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
           "itemDescription": [
             {
               "style": {
@@ -13322,6 +13331,21 @@
               }
             }
           ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
+              }
+            }
+          ],
           "itemDescription": [
             {
               "style": {
@@ -22333,6 +22357,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ],
@@ -32130,6 +32163,21 @@
               "style": {
                 "width": 14,
                 "height": 14
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],

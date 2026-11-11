@@ -1,11 +1,10 @@
 //! #EXP-1778: App detail's Accounts Select (`app_mcp::upstream_select`, an
 //! outline sm Button opening the pointer menu) closed and open, and the
 //! Webhooks rows' middle-truncated URL and shown-once secret
-//! (`app_mcp::mid_text`) at a narrow width, against genUI's `button` Select
+//! (the IDE twin's `mid_text`) at a narrow width, against genUI's `button` Select
 //! and `truncate: "middle"` Text. Shoot `settings_app_mcp_ide`, then
 //! `settings_app_mcp_eui` with `EXP_SETTINGS_BEFORE` at the first.
 use super::*;
-use crate::settings::app_mcp::MidText;
 use gpui_component::Selectable as _;
 use serde_json::json;
 
@@ -15,6 +14,28 @@ const SECRET: &str = "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa";
 const NARROW: f32 = 220.;
 /// The Select's width (`app_mcp`'s).
 const SELECT_W: f32 = 144.;
+
+/// The IDE's middle-truncated run, as App detail drew it before genUI's
+/// `truncate: "middle"` (kept as this bench's reference).
+struct MidText {
+    text: String,
+    /// `text_sm` (else `text_xs`).
+    sm: bool,
+    muted: bool,
+}
+
+fn mid_text(text: &MidText, cx: &gpui::App) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let run = div()
+        .font_family(theme.mono_font_family.clone())
+        .text_color(if text.muted { theme.muted_foreground } else { theme.foreground })
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis_middle()
+        .child(text.text.clone());
+    let run = if text.sm { run.text_sm() } else { run.text_xs() };
+    div().w_full().line_height(gpui::phi()).child(run).into_any_element()
+}
 
 fn options() -> Vec<(String, String)> {
     vec![("none".into(), "Not set up".into()), ("s1".into(), "GitHub".into()), ("s2".into(), "GitHub (work account)".into()), ("s3".into(), "Linear".into())]
@@ -64,8 +85,8 @@ impl Render for Ide {
             } else {
                 crate::settings::app_mcp::upstream_select("bench-upstream".into(), "github".into(), picker, false, |_, _| {}, cx).into_any_element()
             }))
-            .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(&MidText { text: URL.into(), sm: false, muted: true }, cx)))
-            .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(&MidText { text: SECRET.into(), sm: true, muted: false }, cx)))
+            .child(div().w(px(NARROW)).flex().flex_col().child(mid_text(&MidText { text: URL.into(), sm: false, muted: true }, cx)))
+            .child(div().w(px(NARROW)).flex().flex_col().child(mid_text(&MidText { text: SECRET.into(), sm: true, muted: false }, cx)))
             .children(menu.map(|menu| div().absolute().left_0().top((px(32.) + offset).round()).child(crate::controls::with_pointer_layer(menu))))
     }
 }

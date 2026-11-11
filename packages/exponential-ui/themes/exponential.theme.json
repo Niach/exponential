@@ -1282,6 +1282,14 @@
           }
         }
       ],
+      "itemHint": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 16.99
+          }
+        }
+      ],
       "search": [
         {
           "style": {

@@ -4019,7 +4019,8 @@
         "itemIcon",
         "itemText",
         "itemLabel",
-        "itemDescription"
+        "itemDescription",
+        "itemHint"
       ],
       "props": [
         "multiple",

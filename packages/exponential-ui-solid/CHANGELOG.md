@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only, as React; parity case added (a muted ghost icon-xs).
+- Select option `hint` (#EXP-1629), React's.
 - Select `button` trigger glyph (#EXP-1629), React's.
 - Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
 - Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.

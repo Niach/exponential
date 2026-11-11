@@ -182,6 +182,7 @@
     "status-done": "circle-check",
     "status-cancelled": "circle-x",
     "status-duplicate": "copy",
+    "automation-off": "ban",
 
     "priority-none": "minus",
     "priority-urgent": "triangle-alert",

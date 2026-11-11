@@ -1218,6 +1218,10 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1629: web's picker hint: a small muted run at each row's end.
+    label: `triggerVariant · button + option hint`,
+    node: { id: `estimate_scale`, component: `Select`, props: { label: `Estimate scale`, name: `estimateScale`, triggerVariant: `button`, value: `tshirt`, options: [{ label: `Not in use`, value: `none` }, { label: `Fibonacci`, value: `fibonacci`, hint: `1, 2, 3, 5, 8 points` }, { label: `T-shirt`, value: `tshirt`, hint: `XS, S, M, L, XL` }] }, style: { width: 176 } },
+  }, {
     // #EXP-1778: App detail's Accounts picker: an outline small button (the
     // label names it) opening the pointer menu, the shown option checked.
     label: `triggerVariant · button`,
