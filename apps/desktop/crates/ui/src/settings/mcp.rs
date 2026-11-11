@@ -262,6 +262,9 @@ pub(crate) struct McpShot {
 /// The data-model path the documents' projections are written at.
 const PATH: &str = "/pane";
 
+/// The access level menu's width (web Picker's default `md`, 16rem).
+const LEVEL_POPUP_WIDTH: f32 = 256.;
+
 /// The built-in tools filter field's width (today's 192 px box).
 const FILTER_W: f32 = 192.;
 
@@ -695,9 +698,7 @@ impl McpPane {
                 rows.push(json!({"key": format!("{}:{}", app.id, row.user_id), "header": false, "member": true, "gap": false,
                     "app": app.id, "user": row.user_id, "name": name, "initials": crate::user_avatar::initials(&name),
                     "avatarFill": hex(fill), "avatarInk": hex(ink), "hasPicture": picture.is_some(), "noPicture": picture.is_none(), "picture": picture.unwrap_or_default(),
-                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit,
-                    // The single-select Picker's check on the current level.
-                    "levels": LEVELS.iter().map(|(value, label)| json!({"label": label, "value": value, "kind": "checkbox", "checked": *value == level})).collect::<Vec<_>>()}));
+                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit}));
             }
         }
         json!({"shown": true, "rows": rows})
@@ -1040,20 +1041,12 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     let picture = json!({"id": "member_picture", "component": "Avatar", "visible": path("hasPicture"), "props": {"name": path("name"), "src": path("picture"), "size": "sm"}, "style": {"width": avatar_size, "height": avatar_size, "flexShrink": 0}});
     let mut member_name = line(ink, "member_name", path("name"), SM, &ink.foreground);
     member_name["style"]["flexGrow"] = json!(1);
-    // An owner's level: the inline picker trigger (`text_sm` value at 70%,
-    // `gap_1`, the 12 px muted chevron-down) opening the levels.
-    // gpui's ghost Button sets its label half a point higher than the flex
-    // centre.
-    let mut level_value = super::doc::faded(ink.text("level_value", path("levelLabel"), SM, &ink.value), super::doc::VALUE_ALPHA);
-    level_value["style"]["marginTop"] = json!(-1);
-    let trigger = json!({"id": "level_trigger", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("levelLabel")},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "cursor": "pointer"},
-        "children": [
-            level_value,
-            glyph("level_chevron", json!("ui-chevron-down"), ink.r(0.75), &ink.muted),
-        ]});
-    let menu = json!({"id": "level_menu", "component": "Menu", "visible": path("editable"), "props": {"items": path("levels"), "align": "end"},
-        "on": {"select": {"event": {"name": "level", "context": {"app": path("app"), "user": path("user")}}}}, "children": [trigger]});
+    // An owner's level: THE single-select Picker on its `inline` trigger
+    // (web `triggerVariant="inline"`, its menu web's default `md` 16rem).
+    let levels: Vec<Value> = LEVELS.iter().map(|(value, label)| json!({"label": label, "value": value})).collect();
+    let menu = json!({"id": "level", "component": "Select", "visible": path("editable"),
+        "props": {"label": path("name"), "name": "level", "triggerVariant": "inline", "align": "end", "popupWidth": LEVEL_POPUP_WIDTH, "value": path("level"), "options": levels},
+        "on": {"change": {"event": {"name": "level", "context": {"app": path("app"), "user": path("user")}}}}});
     let mut reader = ink.text("level_text", path("levelLabel"), SM, &ink.muted);
     reader["visible"] = path("reader");
     reader["style"]["flexShrink"] = json!(0);
