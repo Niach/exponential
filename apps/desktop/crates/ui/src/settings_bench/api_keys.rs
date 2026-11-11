@@ -40,3 +40,19 @@ fn settings_api_keys_empty() {
 fn settings_api_keys_failed() {
     api_keys("api-keys-failed", || KeysLoad::Failed, false);
 }
+
+use crate::settings::api_keys::RevokeIdentity;
+
+/// The Revoke alert's body: the key's name and its visible prefix.
+#[test]
+#[ignore]
+fn settings_api_keys_revoke_key() {
+    shoot_pane("api-keys-revoke-key", |window, cx| RevokeIdentity::for_shots("CI deploys", Some("expu_ab\u{2026}"), window, cx), |_, _| {});
+}
+
+/// The Disconnect alert's body: a login session, named by its host only.
+#[test]
+#[ignore]
+fn settings_api_keys_revoke_device() {
+    shoot_pane("api-keys-revoke-device", |window, cx| RevokeIdentity::for_shots("studio-mac", None, window, cx), |_, _| {});
+}
