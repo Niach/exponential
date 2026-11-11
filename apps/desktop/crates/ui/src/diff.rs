@@ -58,7 +58,11 @@ use gpui_component::highlighter::HighlightTheme;
 /// Web renders the patch at `text-[0.6875rem]` (11px) mono — mirrored here.
 const CODE_TEXT_SIZE: f32 = 11.0;
 const LINE_ROW_H: f32 = 18.0;
-const LINE_ROW_H_COMPACT: f32 = 15.0;
+/// #EXP-1789: the edited-files card's patch = web's flush `FileDiffCard`
+/// body, 11px `leading-relaxed` (17.875, the review's 18 rounded); its hunk
+/// and gap bands add web's `py-0.5`.
+const LINE_ROW_H_COMPACT: f32 = 18.0;
+const BAND_ROW_H_COMPACT: f32 = 22.0;
 /// The per-file header is a glass row CARD (a clickable disclosure), so it
 /// needs a control's height.
 const FILE_HEADER_H: f32 = 30.0;
@@ -174,6 +178,15 @@ impl DiffOptions {
         }
     }
 
+    /// A hunk header / unchanged-gap band.
+    fn band_h(&self) -> f32 {
+        if self.compact {
+            BAND_ROW_H_COMPACT
+        } else {
+            LINE_ROW_H
+        }
+    }
+
     fn header_h(&self) -> f32 {
         if self.compact {
             FILE_HEADER_H_COMPACT
@@ -182,12 +195,10 @@ impl DiffOptions {
         }
     }
 
+    /// Web's `text-[0.6875rem]` on both faces (#EXP-1789: the card's patch
+    /// was a point smaller).
     fn text_size(&self) -> f32 {
-        if self.compact {
-            CODE_TEXT_SIZE - 1.
-        } else {
-            CODE_TEXT_SIZE
-        }
+        CODE_TEXT_SIZE
     }
 }
 
@@ -245,9 +256,8 @@ impl RenderRow {
         match self {
             RenderRow::FileHeader { .. } => px(options.header_h()),
             RenderRow::Note { .. } => px(NOTE_ROW_H),
-            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } | RenderRow::Line { .. } => {
-                px(options.line_h())
-            }
+            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } => px(options.band_h()),
+            RenderRow::Line { .. } => px(options.line_h()),
             RenderRow::FileGap => px(FILE_GAP_H),
         }
     }
@@ -391,9 +401,8 @@ pub(crate) fn rows_height(rows: &[RenderRow], options: &DiffOptions) -> f32 {
             RenderRow::FileGap => FILE_GAP_H,
             RenderRow::FileHeader { .. } => options.header_h(),
             RenderRow::Note { .. } => NOTE_ROW_H,
-            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } | RenderRow::Line { .. } => {
-                options.line_h()
-            }
+            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } => options.band_h(),
+            RenderRow::Line { .. } => options.line_h(),
         })
         .sum()
 }
@@ -998,7 +1007,7 @@ pub(crate) fn render_diff_row(
         RenderRow::HunkHeader { header } => card_row(shape, options)
             .flex()
             .items_center()
-            .h(px(options.line_h()))
+            .h(px(options.band_h()))
             .bg(theme::tokens::diff::HUNK_BG.to_hsla())
             .text_color(theme::tokens::diff::HUNK_FG.to_hsla())
             .font_family(mono)
@@ -1015,7 +1024,7 @@ pub(crate) fn render_diff_row(
             .flex()
             .items_center()
             .justify_center()
-            .h(px(options.line_h()))
+            .h(px(options.band_h()))
             .bg(theme::tokens::diff::HUNK_BG.to_hsla().opacity(0.6))
             .text_color(theme::tokens::diff::GUTTER_FG.to_hsla())
             .font_family(mono)
@@ -1690,7 +1699,7 @@ mod tests {
         let compact = DiffOptions::card();
         assert_eq!(
             rows_height(&rows, &compact),
-            FILE_HEADER_H_COMPACT + 4. * LINE_ROW_H_COMPACT + NOTE_ROW_H + FILE_GAP_H
+            FILE_HEADER_H_COMPACT + 2. * BAND_ROW_H_COMPACT + 2. * LINE_ROW_H_COMPACT + NOTE_ROW_H + FILE_GAP_H
         );
         assert_eq!(
             rows_height(&rows, &DiffOptions::pane()),
@@ -1998,7 +2007,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_rows_are_shorter_and_unhighlighted() {
+    fn compact_headers_are_shorter_and_rows_unhighlighted() {
         let theme = HighlightTheme::default_dark();
         let compact = DiffOptions::card();
         let (rows, _) = build_rows(&files_from_pull(&[rs_file()]), &theme, &compact);
@@ -2010,7 +2019,9 @@ mod tests {
             .iter()
             .find(|row| matches!(row, RenderRow::Line { .. }))
             .expect("a line row");
-        assert!(line.height(&compact) < line.height(&DiffOptions::review()));
+        // #EXP-1789: the card's patch reads at web's 11px leading-relaxed, the
+        // review's line; only its header is shorter.
+        assert_eq!(line.height(&compact), line.height(&DiffOptions::review()));
         let header = &rows[0];
         assert!(header.height(&compact) < header.height(&DiffOptions::review()));
     }

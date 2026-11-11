@@ -547,12 +547,11 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     let failed = row.state == domain::edit_card::EditRowState::Failed;
     let pending = row.state == domain::edit_card::EditRowState::Pending;
     let (dir, name) = crate::diff::split_path(&row.path);
-    // A settled row reads like any other file name; only a pending one stays
-    // dim and only a failed one turns.
+    // #EXP-1789: web's stub (`FileDiffCard` over a `modified` stand-in): a
+    // muted `M`, the name in the foreground — a failed card turns the
+    // diff-red (`text-rose-400`), its `M` and directory staying muted.
     let tint = if failed {
-        theme.danger
-    } else if pending {
-        theme.muted_foreground
+        theme::tokens::diff::DEL_FG.to_hsla()
     } else {
         theme.foreground
     };
@@ -570,7 +569,15 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
         .px(gpui::px(12.))
         .text_size(gpui::px(12.))
         .font_family(theme.mono_font_family.clone())
-        .child(div().flex_shrink_0().w(gpui::px(12.)))
+        .child(
+            div()
+                .flex_shrink_0()
+                .w(gpui::px(12.))
+                .text_center()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted_foreground)
+                .child(crate::diff::status_letter(domain::diff::DiffStatus::Modified)),
+        )
         // #EXP-1789: the same path run as the file header — the directory
         // cut in the middle by the shared rule, the name kept.
         .child(
@@ -584,7 +591,7 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
             div()
                 .flex_shrink_0()
                 .text_size(gpui::px(11.))
-                .text_color(theme.danger)
+                .text_color(tint)
                 .child("failed"),
         );
     } else if pending {
@@ -593,7 +600,8 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
             div().flex_shrink_0().child(
                 Icon::new(registry::UI_CHEVRON_DOWN)
                     .size(gpui::px(14.))
-                    .text_color(theme.muted_foreground.opacity(0.4)),
+                    // Web's `text-muted-foreground/40 opacity-50`.
+                    .text_color(theme.muted_foreground.opacity(0.2)),
             ),
         );
     }
