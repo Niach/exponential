@@ -1555,15 +1555,15 @@
         "file": "shots/chat-screen/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 46048,
-        "sha256": "5cb1e7e37c6e67e5d043d5c01308e3b10bd944e60fb629916240d4e1d0b293d2"
+        "bytes": 60744,
+        "sha256": "eaed66d7f896bcfad688b741442dc841d505b2ff112d4975769e17b981acb1ef"
       },
       "web-mobile": {
         "file": "shots/chat-screen/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 27038,
-        "sha256": "9045443682c7dcc69fdfaa5243e72cf6f563c32e01488eb2d73b3bf2c06f054c"
+        "bytes": 46518,
+        "sha256": "77aa2ee33f27ae0f71dc307ed94efb7b4b951c076767a93bef4f3fe129ce4421"
       }
     },
     "chat-selection": {
