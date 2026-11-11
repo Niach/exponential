@@ -4,11 +4,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +21,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.exponential.ui.measure.middleTruncateWidth
@@ -41,6 +45,7 @@ import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -110,6 +115,8 @@ fun diffOpensByDefault(file: Diff.File, defaultCollapsed: Boolean): Boolean =
 
 private val PathFontSize = 12.sp
 private val CountFontSize = 11.sp
+/** #EXP-1789: web `text-xs`'s 16px line, a flush row's type. */
+private val FlushLineHeight = 16.sp
 
 /**
  * `apps/web/src/` dimmed, `file.kt` at full weight — ONE monospace run.
@@ -185,6 +192,7 @@ fun DiffStatusLetter(
     modifier: Modifier = Modifier,
     /** EXP-916: the card's call FAILED — the letter goes with its header. */
     danger: Boolean = false,
+    fontSize: TextUnit = CountFontSize,
 ) {
     Text(
         diffStatusLetter(status),
@@ -195,7 +203,7 @@ fun DiffStatusLetter(
             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
         },
         fontFamily = ExpMono,
-        fontSize = CountFontSize,
+        fontSize = fontSize,
         fontWeight = FontWeight.Bold,
         modifier = modifier,
     )
@@ -203,19 +211,25 @@ fun DiffStatusLetter(
 
 /** `+12 −2` — the deletion count is U+2212, never a hyphen ([Diff.deletionsLabel]). */
 @Composable
-fun DiffCounts(additions: Int, deletions: Int, modifier: Modifier = Modifier) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+fun DiffCounts(
+    additions: Int,
+    deletions: Int,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = CountFontSize,
+    gap: androidx.compose.ui.unit.Dp = 4.dp,
+) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
         Text(
             Diff.additionsLabel(additions),
             color = DesignTokens.Diff.AddFg,
             fontFamily = ExpMono,
-            fontSize = CountFontSize,
+            fontSize = fontSize,
         )
         Text(
             Diff.deletionsLabel(deletions),
             color = DesignTokens.Diff.DelFg,
             fontFamily = ExpMono,
-            fontSize = CountFontSize,
+            fontSize = fontSize,
         )
     }
 }
@@ -257,25 +271,27 @@ fun DiffFileCard(
     val failed = state == DiffCardState.Failed
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Column(modifier = modifier.fillMaxWidth().then(if (flush) Modifier else Modifier.glassRow())) {
-        // The header is the section BAND everywhere — a flush card drops the
-        // outer edge, never the band under its header.
-        SectionBand(
-            modifier = Modifier.testTag("changes-file-row"),
-            onClick = if (ready) onToggle else null,
-            contentPadding = PaddingValues(
-                horizontal = if (compact) 10.dp else 12.dp,
-                vertical = if (compact) 7.dp else 10.dp,
-            ),
-        ) {
-            DiffStatusLetter(file.status, danger = failed)
+        val header: @Composable RowScope.() -> Unit = {
+            if (flush) {
+                // Web's flush row: a 12px-wide letter in the path's 12 type.
+                DiffStatusLetter(file.status, danger = failed, fontSize = PathFontSize, modifier = Modifier.width(12.dp))
+            } else {
+                DiffStatusLetter(file.status, danger = failed)
+            }
             Spacer(Modifier.width(8.dp))
             DiffPathLabel(file.path, failed = failed, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
+            // Web's `gap-2` falls on both sides of its `ml-auto` spacer: 16
+            // between a full label and the counts on a flush row.
+            Spacer(Modifier.width(if (flush) 16.dp else 8.dp))
             when (state) {
                 // A patch landed: the counts, and a chevron that turns.
                 DiffCardState.Ready -> {
-                    DiffCounts(file.additions, file.deletions)
-                    Spacer(Modifier.width(6.dp))
+                    if (flush) {
+                        DiffCounts(file.additions, file.deletions, fontSize = PathFontSize, gap = 6.dp)
+                    } else {
+                        DiffCounts(file.additions, file.deletions)
+                    }
+                    Spacer(Modifier.width(if (flush) 8.dp else 6.dp))
                     // EXP-706: ONE glyph that turns, instead of two that swap —
                     // the rotation reads as the card opening. Motion.standard()
                     // snaps under the OS's reduce-motion setting
@@ -288,7 +304,7 @@ fun DiffFileCard(
                     Icon(
                         ExpIcons.uiChevronDown,
                         contentDescription = if (expanded) "Collapse" else "Expand",
-                        modifier = Modifier.size(16.dp).rotate(rotation),
+                        modifier = Modifier.size(if (flush) 14.dp else 16.dp).rotate(rotation),
                         tint = muted,
                     )
                 }
@@ -300,7 +316,7 @@ fun DiffFileCard(
                 DiffCardState.Pending -> Icon(
                     ExpIcons.uiChevronDown,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(if (flush) 14.dp else 16.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
                 )
                 // It ended without one: say so, in the tint that means it.
@@ -310,6 +326,35 @@ fun DiffFileCard(
                     color = DesignTokens.Semantic.Red,
                 )
             }
+        }
+        if (flush) {
+            // #EXP-1789: a flush row is web's / iOS's FLAT band — the section
+            // fill edge to edge (no rounded tile), the parent's hairlines
+            // between rows, `px-3 py-1.5` around 16-high 12 type (web
+            // `text-xs`), so the edited-files card reads the same ×4.
+            CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(lineHeight = FlushLineHeight)) {
+                Row(
+                    modifier = Modifier
+                        .testTag("changes-file-row")
+                        .fillMaxWidth()
+                        .background(GlassTokens.SectionFill)
+                        .then(if (ready) Modifier.clickable(onClick = onToggle) else Modifier)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = header,
+                )
+            }
+        } else {
+            // The header is the section BAND everywhere a card stands alone.
+            SectionBand(
+                modifier = Modifier.testTag("changes-file-row"),
+                onClick = if (ready) onToggle else null,
+                contentPadding = PaddingValues(
+                    horizontal = if (compact) 10.dp else 12.dp,
+                    vertical = if (compact) 7.dp else 10.dp,
+                ),
+                content = header,
+            )
         }
         if (expanded && ready) {
             if (file.hunks.isNotEmpty()) {
