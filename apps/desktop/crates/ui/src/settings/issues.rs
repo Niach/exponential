@@ -246,10 +246,8 @@ impl IssuesPane {
         let rows: Vec<IssueStatusRow> = statuses.iter().map(|(row, _)| row.clone()).collect();
         let candidates = Self::candidates(&statuses);
         let mut options: Vec<Value> = candidates.iter().map(|status| json!({"label": status.name, "value": status.group_key, "icon": status.glyph.file_name(), "iconColor": hex(crate::icons::status_tint_color(&status.tint, cx))})).collect();
-        // Web marks this row with `ban`; the registry maps that glyph to
-        // `relation-blocks` alone, so the neutral minus keeps the glyph
-        // column until a concept is minted for all four clients.
-        options.push(json!({"label": "Do nothing", "value": PR_TARGET_NONE, "icon": "ui-minus", "iconColor": hex(cx.theme().muted_foreground)}));
+        // Web's `ban`, muted: the automation is off.
+        options.push(json!({"label": "Do nothing", "value": PR_TARGET_NONE, "icon": "automation-off", "iconColor": hex(cx.theme().muted_foreground)}));
         let target = |status_id: Option<&str>, automation: Option<bool>, default_builtin: &str| {
             let value = resolve_pr_target(&rows, status_id, automation, default_builtin).map_or_else(|| PR_TARGET_NONE.to_string(), |status| status.group_key);
             json!({"value": value, "options": options})

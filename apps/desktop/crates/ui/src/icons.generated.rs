@@ -446,6 +446,8 @@ pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
 pub const APP_EDITOR_CHAT: ExpIcon = ExpIcon::MessageSquare;
 /// Registry concept `auth-passkey` -> Lucide `fingerprint`.
 pub const AUTH_PASSKEY: ExpIcon = ExpIcon::Fingerprint;
+/// Registry concept `automation-off` -> Lucide `ban`.
+pub const AUTOMATION_OFF: ExpIcon = ExpIcon::Ban;
 /// Registry concept `call-end` -> Lucide `phone-off`.
 pub const CALL_END: ExpIcon = ExpIcon::PhoneOff;
 /// Registry concept `call-incoming` -> Lucide `phone-incoming`.
@@ -1084,6 +1086,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "action-suggestion" => ACTION_SUGGESTION,
         "app-editor-chat" => APP_EDITOR_CHAT,
         "auth-passkey" => AUTH_PASSKEY,
+        "automation-off" => AUTOMATION_OFF,
         "call-end" => CALL_END,
         "call-incoming" => CALL_INCOMING,
         "call-mute" => CALL_MUTE,
