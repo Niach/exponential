@@ -14373,6 +14373,73 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_composer_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_composer_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "slots · above",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_above",
+                "component": "Composer",
+                "props": {
+                  "placeholder": "Reply…",
+                  "layout": "flat"
+                },
+                "slots": {
+                  "above": {
+                    "id": "c5_above_strip",
+                    "component": "Stack",
+                    "props": {
+                      "direction": "horizontal",
+                      "wrap": true,
+                      "gap": "xs"
+                    },
+                    "children": [
+                      {
+                        "id": "c5_above_file",
+                        "component": "Chip",
+                        "props": {
+                          "label": "screenshot.png",
+                          "icon": "ui-attach",
+                          "removable": true
+                        }
+                      },
+                      {
+                        "id": "c5_above_team",
+                        "component": "Chip",
+                        "props": {
+                          "label": "Design",
+                          "removable": true
+                        }
+                      }
+                    ]
+                  },
+                  "leading": {
+                    "id": "c5_above_plus",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-add",
+                      "label": "Options",
+                      "variant": "ghost",
+                      "size": "icon"
+                    }
+                  }
+                }
+              }
+            ]
           }
         ]
       }

@@ -778,6 +778,7 @@ interface ComposerSlotsCase {
   props: Record<string, unknown>
   slots: Record<string, NestedNode>
   direction?: `rtl`
+  stack?: string[]
   order: string[]
   data?: Record<string, unknown>
   field?: { rows: number; grown: boolean }
@@ -792,7 +793,7 @@ function composerRowOrder(root: ParentNode): string[] {
   // the leading bar and the controls bar).
   const host = root.querySelector(`[data-xui-id="c"]`)!
   const flat = host.getAttribute(`data-r-layout`) === `flat`
-  const row = flat ? Array.from(host.children).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
+  const row = flat ? Array.from(host.children).filter((el) => !el.classList.contains(`xui-composer-above`)).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
   return row.map((el) => {
     const c = el.className
     if (c.includes(`xui-Composer-field`)) return `field`
@@ -825,6 +826,18 @@ function cascaded(el: Element, prop: string): string {
   return el instanceof HTMLElement && el.style.getPropertyValue(prop) ? el.style.getPropertyValue(prop) : value
 }
 
+/** #EXP-1762: the composer's content top → bottom (`above`, `field`, `row`; a flat field is in the row). */
+function composerStack(root: ParentNode): string[] {
+  const host = root.querySelector(`[data-xui-id="c"]`)!
+  const flat = host.getAttribute(`data-r-layout`) === `flat`
+  const out: string[] = []
+  for (const el of Array.from(host.children)) {
+    const k = el.classList.contains(`xui-composer-above`) ? `above` : !flat && el.className.includes(`xui-Composer-field`) ? `field` : `row`
+    if (out[out.length - 1] !== k) out.push(k)
+  }
+  return out
+}
+
 describe(`fixtures/interactions-round1.json composerSlots`, () => {
   for (const c of composerSlotsFixture.cases) {
     it(`composerSlots: ${c.name}`, () => {
@@ -843,6 +856,7 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
         expect(cascaded(field, `padding-top`)).toBe(`var(--xui-spacing-sm)`)
         expect(field.style.height).toBe(``)
       }
+      if (c.stack) expect(composerStack(container)).toEqual(c.stack)
       for (const s of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${s.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
     })
