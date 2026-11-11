@@ -25,7 +25,7 @@
     "gzip": 68288
   },
   "@exponential_app/eui/conformance": {
-    "bytes": 4507477,
+    "bytes": 4585119,
     "gzip": 352755
   },
   "@exponential_app/eui/host": {
@@ -34,7 +34,7 @@
   },
   "@exponential_app/eui/web": {
     "bytes": 307426,
-    "gzip": 64041
+    "gzip": 64638
   },
   "@exponential_app/eui/web/primitives": {
     "bytes": 117023,

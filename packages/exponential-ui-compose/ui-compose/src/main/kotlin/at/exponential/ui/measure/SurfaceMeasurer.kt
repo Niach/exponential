@@ -442,7 +442,7 @@ class SurfaceMeasurer(
         val label = shown(props.shownText("label"), leaf)
         val loading = props.flag("loading")
         val hasIcon = props.str("icon").isNotEmpty() || loading
-        val iconOnly = props.str("size") == "icon"
+        val iconOnly = props.str("size").let { it == "icon" || it == "icon-xs" }
         val icon = if (hasIcon || iconOnly) (part(leaf.component, "icon", props).width ?: control("iconSm", 16f)) else 0f
         val labelW = if (iconOnly || label.isEmpty()) 0f else line(label, ts)
         val gap = if (hasIcon && labelW > 0f) leaf.control.gap else 0f

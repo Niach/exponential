@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `button` popup matches web's picker (#EXP-1629): the layout constants (`SELECT_BUTTON_POPUP_OFFSET` 4, `SELECT_BUTTON_ITEM_GAP` 0) and regenerated themes.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): generated catalog + themes; the recipe index lists Button's `tone`; theme tests pin the 24 px round icon-xs and the muted colour under the ghost hover fill; `catalog_fixtures` counts 743 cases.
 - Select option `hint` (#EXP-1629): the row of parts gains `itemHint` before the check (`tests/select_option_hint.rs`).
 - Select `align` (#EXP-1629): it places the popup and no longer also aligns the trigger's text (a `button` trigger with `align: end` read right-aligned on the native painters).
 - Select `button` trigger glyph (#EXP-1629): the trigger leaf carries the picked option's `valueIcon` + `iconColor` (`tests/select_button_glyph.rs`).

@@ -786,6 +786,26 @@
           "style": {
             "backgroundColor": "$color.secondary"
           }
+        },
+        {
+          "when": {
+            "size": "icon-xs"
+          },
+          "style": {
+            "height": "$control.buttonSm",
+            "width": "$control.buttonSm"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "when": {
+            "size": "icon-xs"
+          },
+          "style": {
+            "width": 10.5,
+            "height": 10.5
+          }
         }
       ]
     },

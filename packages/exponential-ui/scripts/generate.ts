@@ -1436,6 +1436,14 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Button: [{
     label: `hold · true`,
     node: { id: `talk`, component: `Button`, props: { label: `Hold to talk`, icon: `call-mute`, hold: true, holdingLabel: `Holding…` } },
+  }, {
+    // #EXP-1629: the IDE's composer "+" tool (a muted ghost web_icon_xs)
+    // next to the quick replies' ✕.
+    label: `size · icon-xs, tone · muted`,
+    node: { id: `icon-xs`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: [
+      { id: `tool`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
+      { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
+    ] },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{
