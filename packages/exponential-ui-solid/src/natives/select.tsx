@@ -50,6 +50,8 @@ export interface SelectOption {
   description?: string
   /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
   iconColor?: string
+  /** #EXP-1629: a small muted run at the row's end (web's picker hint). */
+  hint?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -218,7 +220,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   )
   const describedBy = () => joinIds(!pill() && description() && `${id}-d`, f.describedBy)
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
-  const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
+  const chosenIcon = () => (((row() && bool(props.props.triggerIcon)) || str(props.props.triggerVariant) === `button`) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
   const ValueIcon = () => (
     <Show when={chosenIcon()} keyed>
       {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} style={propColor(options().find((o) => o.value === str(value()))?.iconColor) ? { color: propColor(options().find((o) => o.value === str(value()))?.iconColor) } : undefined} />}
@@ -541,6 +543,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                   )}
                   <TrailingRun o={o} />
                   <Show when={selected()}>
+                    {str(o.hint) ? <span {...part(`itemHint`)}>{str(o.hint)}</span> : null}
                     <span aria-hidden="true" {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />
                     </span>
@@ -806,6 +809,7 @@ function ComboboxContent(props: {
                     <span>{str(o.label)}{trailingText(o)}</span>
                   )}
                   <TrailingRun o={o} />
+                  {str(o.hint) ? <span {...part(`itemHint`)}>{str(o.hint)}</span> : null}
                   {isSel() ? (
                     <span {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />

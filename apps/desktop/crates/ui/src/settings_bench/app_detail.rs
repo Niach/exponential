@@ -243,3 +243,11 @@ fn settings_app_detail_color_open() {
     // The gpui pane's pictures: `Pointer::Click(COLOR_PICKER)`.
     shoot("app-detail-color-open", owner(), Pointer::Press("color_picker.trigger"));
 }
+
+#[test]
+#[ignore]
+fn settings_app_detail_account_open() {
+    // The IDE pane's picture: a real click on the trigger (its popover never
+    // paints headless), so compare the trigger; `app_mcp_twins` judged the popup.
+    shoot("app-detail-account-open", owner(), Pointer::Press("account_select.github.trigger"));
+}

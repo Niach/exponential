@@ -941,7 +941,7 @@ impl<'a> GpuiMeasure<'a> {
         let label = str_prop(props, "label");
         let loading = props.get("loading").and_then(Value::as_bool) == Some(true);
         let has_icon = has(props, "icon") || loading;
-        let icon_only = str_prop(props, "size") == "icon";
+        let icon_only = matches!(str_prop(props, "size"), "icon" | "icon-xs");
         let icon = if has_icon || icon_only { px_prop(&self.part(component, "icon", props, &[]), "width").unwrap_or_else(|| control(self.theme, "iconSm", 16.0)) } else { 0.0 };
         let label_w = if icon_only || label.is_empty() { 0.0 } else { self.line(label, ts) };
         let gap = if has_icon && label_w > 0.0 { leaf.control.gap } else { 0.0 };
@@ -1250,6 +1250,11 @@ impl<'a> GpuiMeasure<'a> {
         let chevron = self.part("Select", "chevron", leaf.props, &[]);
         let glyph = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0);
         let mut w = self.line(text, ts) + gap + glyph;
+        // #EXP-1629: a `button`'s picked-option glyph.
+        if !str_prop(leaf.props, "valueIcon").is_empty() {
+            let picked = self.part("Select", "valueIcon", leaf.props, &[]);
+            w += px_prop(&picked, "width").or_else(|| px_prop(&picked, "height")).unwrap_or(16.0) + gap;
+        }
         let mut h = ts.line_height;
         let label = str_prop(leaf.props, "label");
         if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {

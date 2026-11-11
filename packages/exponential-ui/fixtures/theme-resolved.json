@@ -1255,6 +1255,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -1284,6 +1312,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -3814,6 +3851,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ],
@@ -9817,6 +9863,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -9872,6 +9946,15 @@
               "style": {
                 "backgroundColor": "$color.secondary"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": "$control.buttonSm",
+                "width": "$control.buttonSm"
+              }
             }
           ],
           "icon": [
@@ -9879,6 +9962,24 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -12651,7 +12752,7 @@
               },
               "style": {
                 "padding": 4,
-                "gap": 2,
+                "gap": 0,
                 "borderRadius": "$radius.md",
                 "boxShadow": "$shadow.popover",
                 "backgroundClip": "padding-box",
@@ -12824,11 +12925,11 @@
                 "triggerVariant": "button"
               },
               "style": {
-                "height": 26,
-                "minHeight": 26,
-                "paddingVertical": 3,
+                "height": 36,
+                "minHeight": 36,
+                "paddingVertical": 8,
                 "paddingHorizontal": 8,
-                "gap": 16,
+                "gap": 8,
                 "borderRadius": "$radius.sm",
                 "fontSize": 14,
                 "lineHeight": 20
@@ -12879,8 +12980,8 @@
                 "triggerVariant": "button"
               },
               "style": {
-                "width": 12,
-                "height": 12
+                "width": 14,
+                "height": 14
               }
             }
           ],
@@ -13227,6 +13328,21 @@
               "style": {
                 "width": 14,
                 "height": 14
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -19324,6 +19440,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -19409,6 +19553,31 @@
               "style": {
                 "paddingHorizontal": "$spacing.lg"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.none"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ],
           "icon": [
@@ -19416,6 +19585,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -22238,6 +22416,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ],
@@ -28570,6 +28757,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -28625,6 +28840,15 @@
               "style": {
                 "backgroundColor": "$color.secondary"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": "$control.buttonSm",
+                "width": "$control.buttonSm"
+              }
             }
           ],
           "icon": [
@@ -28632,6 +28856,24 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -31404,7 +31646,7 @@
               },
               "style": {
                 "padding": 4,
-                "gap": 2,
+                "gap": 0,
                 "borderRadius": "$radius.md",
                 "boxShadow": "$shadow.popover",
                 "backgroundClip": "padding-box",
@@ -31577,11 +31819,11 @@
                 "triggerVariant": "button"
               },
               "style": {
-                "height": 26,
-                "minHeight": 26,
-                "paddingVertical": 3,
+                "height": 36,
+                "minHeight": 36,
+                "paddingVertical": 8,
                 "paddingHorizontal": 8,
-                "gap": 16,
+                "gap": 8,
                 "borderRadius": "$radius.sm",
                 "fontSize": 14,
                 "lineHeight": 20
@@ -31632,8 +31874,8 @@
                 "triggerVariant": "button"
               },
               "style": {
-                "width": 12,
-                "height": 12
+                "width": 14,
+                "height": 14
               }
             }
           ],
@@ -31980,6 +32222,21 @@
               "style": {
                 "width": 14,
                 "height": 14
+              }
+            }
+          ],
+          "itemHint": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],

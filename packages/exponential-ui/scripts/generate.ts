@@ -619,6 +619,8 @@ const INCOME_EXPENSES = {
  *  together with it, with no custom child so the prop itself paints
  *  (EXP-1259: the pending Button paints `pendingLabel`). */
 const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
+  // #EXP-1629: a `button` trigger leads with the picked option's own glyph, in its tint.
+  Select: { "triggerVariant=button+icon": { triggerVariant: `button`, value: `review`, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Do nothing`, value: `none` }] } },
   // #EXP-1674: an href press target.
   Row: { href: { title: `Docs`, href: `https://ui.exponential.at` } },
   // #EXP-1736: an incoming bubble that opens its sender (a cross-session sender).
@@ -1203,6 +1205,23 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1629: web's PR trigger: the picked option's glyph leads, in its
+    // tint; an option with no glyph leaves the value alone.
+    label: `triggerVariant · button + the picked option's icon`,
+    node: {
+      id: `pr_targets`,
+      component: `Stack`,
+      props: { direction: `horizontal`, gap: `sm`, align: `center` },
+      children: [
+        { id: `pr_opened_button`, component: `Select`, props: { label: `When a PR opens`, name: `prOpenedButton`, triggerVariant: `button`, value: `in_review`, options: [{ label: `In Review`, value: `in_review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Done`, value: `done`, icon: `status-done`, iconColor: `$color.info` }, { label: `Do nothing`, value: `none` }] }, style: { width: 176 } },
+        { id: `pr_merged_button`, component: `Select`, props: { label: `When a PR merges`, name: `prMergedButton`, triggerVariant: `button`, value: `none`, options: [{ label: `Done`, value: `done`, icon: `status-done`, iconColor: `$color.info` }, { label: `Do nothing`, value: `none` }] }, style: { width: 176 } },
+      ],
+    },
+  }, {
+    // #EXP-1629: web's picker hint: a small muted run at each row's end.
+    label: `triggerVariant · button + option hint`,
+    node: { id: `estimate_scale`, component: `Select`, props: { label: `Estimate scale`, name: `estimateScale`, triggerVariant: `button`, value: `tshirt`, options: [{ label: `Not in use`, value: `none` }, { label: `Fibonacci`, value: `fibonacci`, hint: `1, 2, 3, 5, 8 points` }, { label: `T-shirt`, value: `tshirt`, hint: `XS, S, M, L, XL` }] }, style: { width: 176 } },
+  }, {
     // #EXP-1778: App detail's Accounts picker: an outline small button (the
     // label names it) opening the pointer menu, the shown option checked.
     label: `triggerVariant · button`,
@@ -1417,6 +1436,14 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Button: [{
     label: `hold · true`,
     node: { id: `talk`, component: `Button`, props: { label: `Hold to talk`, icon: `call-mute`, hold: true, holdingLabel: `Holding…` } },
+  }, {
+    // #EXP-1629: the IDE's composer "+" tool (a muted ghost web_icon_xs)
+    // next to the quick replies' ✕.
+    label: `size · icon-xs, tone · muted`,
+    node: { id: `icon-xs`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: [
+      { id: `tool`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
+      { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
+    ] },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{

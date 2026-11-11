@@ -9451,6 +9451,69 @@
       }
     },
     {
+      "name": "Button/size=icon-xs",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "size": "icon-xs"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/tone=default",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "tone": "default"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/tone=muted",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "tone": "muted"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Button/disabled=true",
       "node": {
         "id": "button",
@@ -11644,6 +11707,31 @@
           ],
           "value": "sprint",
           "validateOn": "submit"
+        }
+      }
+    },
+    {
+      "name": "Select/triggerVariant=button+icon",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "In Review",
+              "value": "review",
+              "icon": "status-in-review",
+              "iconColor": "$color.success"
+            },
+            {
+              "label": "Do nothing",
+              "value": "none"
+            }
+          ],
+          "value": "review",
+          "triggerVariant": "button"
         }
       }
     },

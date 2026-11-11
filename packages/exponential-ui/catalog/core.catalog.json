@@ -19,7 +19,8 @@
       "sm",
       "default",
       "lg",
-      "icon"
+      "icon",
+      "icon-xs"
     ],
     "tone": [
       "neutral",
@@ -394,6 +395,10 @@
       "default",
       "sm"
     ],
+    "buttonTone": [
+      "default",
+      "muted"
+    ],
     "textareaVariant": [
       "field",
       "row",
@@ -435,6 +440,10 @@
         "trailing": {
           "type": "string",
           "description": "Text after the label (Select popup)."
+        },
+        "hint": {
+          "type": "string",
+          "description": "Small muted text at the row's end (Select popup)."
         },
         "mono": {
           "type": "boolean",
@@ -4516,7 +4525,13 @@
           "type": "enum",
           "enum": "size",
           "default": "default",
-          "description": "Control height class; `icon` is a square icon-only button."
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "buttonTone",
+          "default": "default",
+          "description": "`muted` = muted glyph and label."
         },
         "disabled": {
           "type": "boolean",
@@ -5401,7 +5416,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon."
         },
         "triggerIcon": {
           "type": "boolean",

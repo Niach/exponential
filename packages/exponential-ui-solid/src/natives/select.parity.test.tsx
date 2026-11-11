@@ -129,6 +129,43 @@ describe(`select: open popup`, () => {
     expect(solid).toEqual(react)
     expect(react).toEqual({ items: [`var(--xui-color-success)`, `rgb(239, 68, 68)`, ``], value: `var(--xui-color-success)` })
   })
+  it(`a button trigger leads with the picked option's icon in its tint, no prop (#EXP-1629)`, async () => {
+    const glyph = async (render: typeof renderReact | typeof renderSolidSurface, value: string) => {
+      const r = await render({ tree: sel({ triggerVariant: `button`, value, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Do nothing`, value: `none` }] }), theme: `exponential`, mode: `dark` })
+      try {
+        const icon = r.root.querySelector<SVGElement>(`.xui-Select-valueIcon`)
+        return icon ? [icon.getAttribute(`data-icon`), icon.style.color] : null
+      } finally {
+        r.cleanup()
+      }
+    }
+    for (const render of [renderReact, renderSolidSurface]) {
+      expect(await glyph(render, `review`)).toEqual([`status-in-review`, `var(--xui-color-success)`])
+      expect(await glyph(render, `none`)).toBeNull()
+    }
+  })
+  it(`an option's hint is a muted run at the row's end, before the check (#EXP-1629)`, async () => {
+    const hints = async (render: typeof renderReact | typeof renderSolidSurface, wrap: (f: () => Promise<void>) => Promise<void>) => {
+      const r = await render({ tree: sel({ triggerVariant: `button`, value: `tshirt`, options: [{ label: `T-shirt`, value: `tshirt`, hint: `XS, S, M` }, { label: `Not in use`, value: `none` }] }), theme: `exponential`, mode: `dark` })
+      try {
+        await wrap(async () => {
+          openIt(r.root)
+          await settle()
+        })
+        const content = r.root.ownerDocument.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)!
+        return Array.from(content.querySelectorAll(`.xui-Select-item`)).map((el) => {
+          const hint = el.querySelector(`.xui-Select-itemHint`)
+          return [hint?.textContent ?? null, hint ? hint.nextElementSibling?.classList.contains(`xui-Select-check`) ?? false : null]
+        })
+      } finally {
+        r.cleanup()
+      }
+    }
+    const react = await hints(renderReact, (f) => act(f))
+    const solid = await hints(renderSolidSurface, (f) => f())
+    expect(solid).toEqual(react)
+    expect(react).toEqual([[`XS, S, M`, true], [null, null]])
+  })
   it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
@@ -252,6 +289,11 @@ describe(`select: open popup`, () => {
       expect(solid).toEqual(react)
       expect(react).toEqual({ before: [null, `selected`, `disabled`], after: [`hover`, `selected`, `disabled`] })
     })
+  it(`button: opened by the pointer keeps the cursor, web's picker (#EXP-1629)`, async () => {
+    const { react, solid } = await pointerThenKey({ tree: sel({ triggerVariant: `button`, value: `sprint` }), theme: `exponential` })
+    expect(solid).toEqual(react)
+    expect(react.before).toEqual([`hover`, `selected`, `disabled`])
+  })
   it(`field: opened by the pointer keeps the cursor (only a pill drops it)`, async () => {
     const { react, solid } = await pointerThenKey({ tree: sel({ value: `sprint` }), theme: `exponential` })
     expect(solid).toEqual(react)

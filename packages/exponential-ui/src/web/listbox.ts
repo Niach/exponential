@@ -112,7 +112,7 @@ export function selectClearSize(searchIconWidth: unknown): { glyph: number; box:
 /** #EXP-1765: does a pill Select opened this way open WITHOUT a cursor (a
  *  pointer opening; the keyboard keeps the first enabled / chosen one)? */
 export function selectOpensWithoutCursor(props: Record<string, unknown>, byPointer: boolean): boolean {
-  return byPointer && (props.triggerVariant === `pill` || props.triggerVariant === `button`)
+  return byPointer && props.triggerVariant === `pill`
 }
 
 /** #EXP-1629: a popper anchored on the TRIGGER placed as if anchored on

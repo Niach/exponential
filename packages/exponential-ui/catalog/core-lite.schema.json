@@ -1249,6 +1249,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -2380,6 +2381,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -3371,6 +3373,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -4311,6 +4314,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -5032,6 +5036,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -5692,6 +5697,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -6689,6 +6695,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -7293,9 +7300,18 @@
             "sm",
             "default",
             "lg",
-            "icon"
+            "icon",
+            "icon-xs"
           ],
-          "description": "Control height class; `icon` is a square icon-only button.",
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one.",
+          "default": "default"
+        },
+        "tone": {
+          "enum": [
+            "default",
+            "muted"
+          ],
+          "description": "`muted` = muted glyph and label.",
           "default": "default"
         },
         "disabled": {
@@ -8180,7 +8196,7 @@
             "pill",
             "button"
           ],
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button.",
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon.",
           "default": "field"
         },
         "triggerIcon": {
@@ -8872,6 +8888,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -17232,6 +17249,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -17823,6 +17841,10 @@
           "type": "string",
           "description": "Text after the label (Select popup)."
         },
+        "hint": {
+          "type": "string",
+          "description": "Small muted text at the row's end (Select popup)."
+        },
         "mono": {
           "type": "boolean",
           "description": "Label in the mono type (Select popup)."
@@ -17905,6 +17927,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -18538,6 +18561,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -19210,6 +19234,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -20120,6 +20145,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -20815,6 +20841,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
