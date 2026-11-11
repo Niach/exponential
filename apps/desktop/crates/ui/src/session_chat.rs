@@ -2449,7 +2449,9 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         .gap_3()
                         .items_center()
                         .child(div().flex_shrink_0().child(header.avatar))
-                        .child(v_flex().flex_1().min_w_0().child(header.title).children(subtitle))
+                        // Web `min-w-40 flex-1`: the title keeps 160 px; the
+                        // waiting chips (#EXP-1785) give way before it.
+                        .child(v_flex().flex_1().min_w(px(160.)).child(header.title).children(subtitle))
                         .child(div().flex_shrink_0().child(header.tabs))
                         .children(header.trailing)
                         .children(gear)
