@@ -1411,7 +1411,7 @@ impl Render for GeneralPane {
         }
         self.push(cx);
         // An ordinary section pane — `SettingsView` owns the scroll
-        // container and the shared `detail_column` grid.
+        // container and the detail column (`shell::DetailShell`).
         div().w_full().min_w_0().child(self.view.clone())
     }
 }

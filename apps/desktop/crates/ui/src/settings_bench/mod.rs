@@ -211,6 +211,7 @@ mod select_option_hint;
 mod select_row_disabled;
 mod select_variants;
 mod sessions;
+mod shell;
 mod skills;
 mod spinner_parity;
 mod statuses;

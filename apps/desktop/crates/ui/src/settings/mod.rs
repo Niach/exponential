@@ -92,73 +92,23 @@ pub(crate) mod storage;
 pub(crate) mod team_general;
 pub(crate) mod tools;
 pub(crate) mod widget;
-
-/// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
-/// same 40px as the team switcher above it. It was a ~28px text row, which
-/// read as a caption rather than the column's one way back.
-pub(crate) const NAV_BACK_ROW_H: f32 = 40.;
-
-/// EXP-851: the left column's BACK row — the settings nav's header row (the
-/// one back row the left column has). Returns the row WITHOUT
-/// a click handler: where back goes is the caller's business. EXP-870: web
-/// `SidebarBackRow` geometry — an 8px inset, a 40px row, then the rule
-/// ([`nav_back_rule`]) under it.
-pub(crate) fn nav_back_row(
-    id: &'static str,
-    label: impl Into<gpui::SharedString>,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
-    h_flex()
-        .id(id)
-        .mx_2()
-        .mt_1()
-        .h(px(NAV_BACK_ROW_H))
-        .px_2()
-        .gap_2()
-        .items_center()
-        .rounded(cx.theme().radius)
-        .cursor_pointer()
-        .flex_shrink_0()
-        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        // EXP-862: the BARE 16px chevron (`controls::back_glyph`) — the whole
-        // row is the target, so a nested button would be a second hit target
-        // for the same action.
-        .child(crate::controls::back_glyph())
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label.into()),
-        )
-}
-
-/// EXP-870: the rule under [`nav_back_row`] (web: the `Separator` after
-/// `SidebarBackRow`), at the fixed header's inset.
-pub(crate) fn nav_back_rule(cx: &App) -> gpui::AnyElement {
-    div()
-        .w_full()
-        .px_2()
-        .flex_shrink_0()
-        .child(crate::sidebar::left_column_divider(cx))
-        .into_any_element()
-}
+// #EXP-1629: the detail column's chrome (the route header over the pane).
+pub(crate) mod shell;
+use shell::{empty_pane, pane_of, PaneBuild};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
+    div, App, AppContext as _, Entity,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _,
 };
 use sync::Store;
 
 use crate::navigation::{
     active_team_id, go_back, nav_for_window, navigate, set_screen, Navigation, Screen,
 };
-use crate::icons::registry;
 use crate::queries;
 use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared};
 
@@ -465,52 +415,6 @@ const AGENTS_GROUP: &str = "Agents";
 /// VAPP-110: the team Apps group's label — `apps.json` `copy.title`.
 const APPS_GROUP: &str = "Apps";
 
-/// EXP-288: every nav entry carries an icon. Board rows use the tinted board
-/// glyph instead (`icons::board_icon`), so they don't route through here.
-///
-/// EXP-317: every arm resolves through the shared registry's `settings-*`
-/// concepts — the same ones the web nav renders (`settings/-shared.tsx`), so
-/// the two settings screens can no longer drift apart. Locked by the web
-/// `lib/icons.test.ts` settings-nav parity check.
-fn section_icon(section: &SettingsSection) -> Icon {
-    match section {
-        SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL),
-        SettingsSection::Members => Icon::from(registry::SETTINGS_MEMBERS),
-        SettingsSection::Issues => Icon::from(registry::SETTINGS_ISSUES),
-        SettingsSection::Labels => Icon::from(registry::SETTINGS_LABELS),
-        SettingsSection::Statuses => Icon::from(registry::SETTINGS_STATUSES),
-        SettingsSection::Storage => Icon::from(registry::SETTINGS_STORAGE),
-        SettingsSection::AllBoards => Icon::from(registry::SETTINGS_BOARDS),
-        SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
-        SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
-        SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
-        SettingsSection::Mcp | SettingsSection::McpActivity => Icon::from(registry::SETTINGS_MCP),
-        SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
-        SettingsSection::AgentClis
-        | SettingsSection::Agents
-        | SettingsSection::Agent(_)
-        | SettingsSection::NewAgent => {
-            Icon::from(registry::SETTINGS_AGENTS)
-        }
-        SettingsSection::App(_) => {
-            Icon::from(registry::NAV_APPS)
-        }
-        SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
-            Icon::from(registry::NAV_ACTIONS)
-        }
-        SettingsSection::Skills | SettingsSection::Skill(_) | SettingsSection::NewSkill => {
-            Icon::from(registry::UI_DOCS)
-        }
-        SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
-        SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
-        SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
-        SettingsSection::Notifications => Icon::from(registry::SETTINGS_NOTIFICATIONS),
-        SettingsSection::Voice => Icon::from(registry::SETTINGS_VOICE),
-        SettingsSection::ApiKeys => Icon::from(registry::SETTINGS_API),
-        SettingsSection::About => Icon::from(registry::SETTINGS_ABOUT),
-    }
-}
-
 /// Web nav `visible` gating: General/board pages are owner-only.
 /// Repositories is member-visible since EXP-557 (per-user repo sharing:
 /// every member connects their own GitHub and shares repos there).
@@ -748,10 +652,7 @@ pub struct SettingsView {
     /// EXP-771: the ONE scroll offset of the detail column — the header +
     /// pane share a scroll region now, so the handle lives here and resets to
     /// the top on every section switch (the web's route change does the same).
-    scroll: gpui::ScrollHandle,
-    /// EXP-1558 (DEV-ONLY, `EXP_DEV_SCROLL_TO=end`): the column's max offset
-    /// when it was last parked at its end ([`crate::screens::dev_park_at_end`]).
-    dev_parked_end: std::cell::Cell<gpui::Pixels>,
+    shell: shell::DetailShell,
     /// The section shown at the previous render — a transition INTO one of
     /// the Personal server-read panes drops its cache so it refetches
     /// (EXP-369 semantics, re-homed from the old Account screen).
@@ -847,8 +748,7 @@ impl SettingsView {
             voice,
             api_keys,
             about,
-            scroll: gpui::ScrollHandle::new(),
-            dev_parked_end: Default::default(),
+            shell: shell::DetailShell::new(window, cx),
             last_section: None,
             shared,
             _subscriptions: subscriptions,
@@ -864,16 +764,16 @@ impl SettingsView {
         prompt_id: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
+    ) -> PaneBuild {
         if let Some((_, page)) = self.prompt_page.as_ref() {
             if page.read(cx).prompt_id() == Some(prompt_id) {
                 if page.read(cx).is_gone(cx) {
                     self.prompt_page = None;
-                    return self.prompts.clone().into_any_element();
+                    return pane_of(&self.prompts);
                 }
                 let page = page.clone();
                 self.prompt_page = Some((prompt_id.to_string(), page.clone()));
-                return page.into_any_element();
+                return pane_of(&page);
             }
         }
         let collections = Store::global(cx).collections();
@@ -887,12 +787,12 @@ impl SettingsView {
                 let team_id = prompt.team_id.clone();
                 let page = cx.new(|cx| PromptPage::new(team_id, Some(prompt), window, cx));
                 self.prompt_page = Some((prompt_id.to_string(), page.clone()));
-                page.into_any_element()
+                pane_of(&page)
             }
             None if !collections.prompts.read(cx).is_ready() => {
-                settings_skeleton("prompt-page-skeleton", cx)
+                std::rc::Rc::new(|_, cx| settings_skeleton("prompt-page-skeleton", cx))
             }
-            None => self.prompts.clone().into_any_element(),
+            None => pane_of(&self.prompts),
         }
     }
 
@@ -904,16 +804,16 @@ impl SettingsView {
         skill_id: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
+    ) -> PaneBuild {
         if let Some((_, page)) = self.skill_page.as_ref() {
             if page.read(cx).skill_id() == Some(skill_id) {
                 if page.read(cx).is_gone(cx) {
                     self.skill_page = None;
-                    return self.skills.clone().into_any_element();
+                    return pane_of(&self.skills);
                 }
                 let page = page.clone();
                 self.skill_page = Some((skill_id.to_string(), page.clone()));
-                return page.into_any_element();
+                return pane_of(&page);
             }
         }
         let collections = Store::global(cx).collections();
@@ -923,10 +823,10 @@ impl SettingsView {
                 let team_id = skill.team_id.clone();
                 let page = cx.new(|cx| SkillPage::new(team_id, Some(skill), window, cx));
                 self.skill_page = Some((skill_id.to_string(), page.clone()));
-                page.into_any_element()
+                pane_of(&page)
             }
-            None if !collections.skills.read(cx).is_ready() => settings_skeleton("skill-page-skeleton", cx),
-            None => self.skills.clone().into_any_element(),
+            None if !collections.skills.read(cx).is_ready() => std::rc::Rc::new(|_, cx| settings_skeleton("skill-page-skeleton", cx)),
+            None => pane_of(&self.skills),
         }
     }
 
@@ -1002,22 +902,22 @@ impl Render for SettingsView {
             // EXP-771: one scroll region for header + pane, so a section
             // switch has to rewind it — the web's route change lands at the
             // top of the page, never mid-list.
-            self.scroll.set_offset(gpui::point(px(0.), px(0.)));
+            self.shell.rewind();
             self.last_section = Some(effective.clone());
         }
 
-        let pane: gpui::AnyElement = match &effective {
-            SettingsSection::General => self.general.clone().into_any_element(),
-            SettingsSection::Members => self.members.clone().into_any_element(),
-            SettingsSection::Issues => self.issues.clone().into_any_element(),
-            SettingsSection::Labels => self.labels.clone().into_any_element(),
-            SettingsSection::Statuses => self.statuses.clone().into_any_element(),
-            SettingsSection::Storage => self.storage.clone().into_any_element(),
-            SettingsSection::AllBoards => self.all_boards.clone().into_any_element(),
+        let pane: PaneBuild = match &effective {
+            SettingsSection::General => pane_of(&self.general),
+            SettingsSection::Members => pane_of(&self.members),
+            SettingsSection::Issues => pane_of(&self.issues),
+            SettingsSection::Labels => pane_of(&self.labels),
+            SettingsSection::Statuses => pane_of(&self.statuses),
+            SettingsSection::Storage => pane_of(&self.storage),
+            SettingsSection::AllBoards => pane_of(&self.all_boards),
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
-            SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
-            SettingsSection::Agent(_) => self.agent_detail.clone().into_any_element(),
+            SettingsSection::Board(_) => pane_of(&self.board_detail),
+            SettingsSection::Agent(_) => pane_of(&self.agent_detail),
             SettingsSection::NewAgent => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 if self.new_agent.as_ref().is_none_or(|(id, _)| *id != team_id) {
@@ -1026,10 +926,10 @@ impl Render for SettingsView {
                 }
                 self.new_agent
                     .as_ref()
-                    .map(|(_, pane)| pane.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, pane)| pane_of(pane))
+                    .unwrap_or_else(empty_pane)
             }
-            SettingsSection::Agents => self.agents_index.clone().into_any_element(),
+            SettingsSection::Agents => pane_of(&self.agents_index),
             // VAPP-177: an app's settings = its editor's Settings tab (the
             // web's redirect): the selection resolved to a synced app hands
             // over to the editor (replace) and Settings falls back to the
@@ -1048,9 +948,9 @@ impl Render for SettingsView {
                         );
                     });
                 }
-                div().into_any_element()
+                empty_pane()
             }
-            SettingsSection::Prompts => self.prompts.clone().into_any_element(),
+            SettingsSection::Prompts => pane_of(&self.prompts),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
@@ -1060,11 +960,11 @@ impl Render for SettingsView {
                 }
                 self.prompt_page
                     .as_ref()
-                    .map(|(_, page)| page.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, page)| pane_of(page))
+                    .unwrap_or_else(empty_pane)
             }
             SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
-            SettingsSection::Skills => self.skills.clone().into_any_element(),
+            SettingsSection::Skills => pane_of(&self.skills),
             SettingsSection::NewSkill => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
@@ -1074,90 +974,27 @@ impl Render for SettingsView {
                 }
                 self.skill_page
                     .as_ref()
-                    .map(|(_, page)| page.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, page)| pane_of(page))
+                    .unwrap_or_else(empty_pane)
             }
             SettingsSection::Skill(skill_id) => self.skill_pane(skill_id, window, cx),
-            SettingsSection::Repositories => self.repositories.clone().into_any_element(),
-            SettingsSection::Widget => self.widget.clone().into_any_element(),
-            SettingsSection::Mcp => self.mcp.clone().into_any_element(),
-            SettingsSection::McpActivity => self.mcp_activity.clone().into_any_element(),
-            SettingsSection::Tools => self.tools.clone().into_any_element(),
-            SettingsSection::AgentClis => self.agent_clis.clone().into_any_element(),
-            SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
-            SettingsSection::Sessions => self.sessions.clone().into_any_element(),
-            SettingsSection::Account => self.account.clone().into_any_element(),
-            SettingsSection::Notifications => self.notifications.clone().into_any_element(),
-            SettingsSection::Voice => self.voice.clone().into_any_element(),
-            SettingsSection::ApiKeys => self.api_keys.clone().into_any_element(),
-            SettingsSection::About => self.about.clone().into_any_element(),
+            SettingsSection::Repositories => pane_of(&self.repositories),
+            SettingsSection::Widget => pane_of(&self.widget),
+            SettingsSection::Mcp => pane_of(&self.mcp),
+            SettingsSection::McpActivity => pane_of(&self.mcp_activity),
+            SettingsSection::Tools => pane_of(&self.tools),
+            SettingsSection::AgentClis => pane_of(&self.agent_clis),
+            SettingsSection::LocalRepos => pane_of(&self.local_repos),
+            SettingsSection::Sessions => pane_of(&self.sessions),
+            SettingsSection::Account => pane_of(&self.account),
+            SettingsSection::Notifications => pane_of(&self.notifications),
+            SettingsSection::Voice => pane_of(&self.voice),
+            SettingsSection::ApiKeys => pane_of(&self.api_keys),
+            SettingsSection::About => pane_of(&self.about),
         };
 
-        // EXP-771: the web settings route's own chrome, on EVERY pane —
-        // "Settings" (EXP-1550: no explanatory subtitle), a hairline, then
-        // the pane, all in one centered `max-w-4xl` column.
-        //
-        // This replaces the EXP-277 "no screen header" rule (the center tab
-        // carried the title — but Settings is a TAB-LESS full-page screen, so
-        // nothing named the page) and the EXP-282 "hug the left edge under a
-        // 672px cap" one (the nav is the window's left column now; a column
-        // pinned to its right edge left the rest of a wide window empty).
-        //
-        // The SCROLL REGION stays full width with the scrollbar at the
-        // viewport edge — only the content column is capped and centered, the
-        // page-scaffold recipe every other full-page screen uses
-        // (`scroll_pane::page_scaffold_with`).
-        let header = div()
-            .w_full()
-            .min_w_0()
-            .text_2xl()
-            .font_weight(FontWeight::BOLD)
-            .child("Settings");
-        // `flex_shrink_0`: a 1px child in a flex column is the first thing
-        // the layout eats.
-        let separator = div()
-            .w_full()
-            .h(px(1.))
-            .flex_shrink_0()
-            .bg(row_stroke(cx));
-
-        // EXP-1558 (DEV-ONLY): `settings-assistant-meeting` = the Assistant
-        // pane at its end (the Meeting mode rows), web's `scrollToMeetingMode`.
-        crate::screens::dev_park_at_end(&self.scroll, &self.dev_parked_end, window);
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .min_w_0()
-            .child(crate::scroll_pane::v_scroll_pane(
-                SharedString::from(format!("settings-detail-{effective:?}")),
-                &self.scroll,
-                // EXP-1557: the column lays out at the web's 16px rem, so the
-                // panes' type, rows and controls match web's settings page
-                // size for size (the IDE's 14px rem drew them ~12% small).
-                div().w_full().min_w_0().child(crate::controls::web_rem(
-                    detail_column()
-                        .child(header)
-                        .child(separator)
-                        .child(pane),
-                )),
-            ))
+        self.shell.render(SharedString::from(format!("settings-detail-{effective:?}")), pane, window, cx)
     }
-}
-
-/// EXP-771: the shared settings detail column — the web route's
-/// `mx-auto w-full max-w-4xl space-y-6 p-6` grid. It used to be a
-/// left-aligned 672px column (EXP-282); the nav lives in the window's left
-/// column since EXP-456, so hugging its edge just left the rest of a wide
-/// window blank. The `space-y-6` is the gap between the header, its hairline
-/// and the pane — every pane spaces its OWN sections.
-pub(crate) fn detail_column() -> gpui::Div {
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .max_w(px(896.))
-        .mx_auto()
-        .p(px(24.))
-        .gap(px(24.))
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,6 +1010,15 @@ pub struct SettingsNavPanel {
     /// EXP-630: fold state of the nested entries, keyed by label. Unset =
     /// unfolded while the parent or one of its sub-pages is selected.
     folded: std::collections::HashMap<&'static str, bool>,
+    #[cfg(test)]
+    shot: Option<NavShot>,
+    paint: shell::NavPaint,
+    /// What each row's key does and the team it acts in (this frame's).
+    routes: std::rc::Rc<std::cell::RefCell<NavRoutes>>,
+    list_binding: Entity<eui_gpui::binding::Binding<serde_json::Value>>,
+    list_view: Entity<eui_gpui::view::SurfaceView>,
+    back_view: Entity<eui_gpui::view::SurfaceView>,
+    _back_binding: Entity<eui_gpui::binding::Binding<serde_json::Value>>,
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
     _subscriptions: Vec<Subscription>,
@@ -1198,79 +1044,113 @@ impl SettingsNavPanel {
             // VAPP-110: the Apps group lists the synced apps.
             cx.observe(&collections.apps, |_, _, cx| cx.notify()),
         ];
+        let routes: std::rc::Rc<std::cell::RefCell<NavRoutes>> = Default::default();
+        let handle = window.window_handle();
+        let panel = cx.weak_entity();
+        let list_binding = cx.new(|_| {
+            let mut binding = eui_gpui::binding::Binding::new("/nav", serde_json::json!({"items": []}), |state: &serde_json::Value, _| state.clone());
+            let routes = routes.clone();
+            binding.on_action("pick", move |_, event, cx| {
+                let key = event.context.get("key").and_then(serde_json::Value::as_str).unwrap_or_default();
+                let (action, team_id) = {
+                    let routes = routes.borrow();
+                    (routes.actions.get(key).cloned()?, routes.team_id.clone())
+                };
+                let panel = panel.clone();
+                // Deferred: the binding is mid-update.
+                cx.defer(move |cx| {
+                    let _ = handle.update(cx, |_, window, cx| nav_dispatch(action, team_id, &panel, window, cx));
+                });
+                None
+            });
+            binding
+        });
+        let back_nav = nav.clone();
+        let back_binding = cx.new(|_| {
+            let mut binding = eui_gpui::binding::Binding::new("/back", serde_json::Value::Null, |state: &serde_json::Value, _| state.clone());
+            binding.on_action("back", move |_, _, cx| {
+                let nav = back_nav.clone();
+                // EXP-456: the back affordance — direct calls, not action
+                // dispatch (EXP-17).
+                cx.defer(move |cx| {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        if nav.read(cx).can_go_back() {
+                            go_back(window, cx);
+                        } else {
+                            set_screen(window, cx, None);
+                        }
+                    });
+                });
+                None
+            });
+            binding
+        });
+        let paint = shell::NavPaint::of(cx);
+        let plugin = || -> std::rc::Rc<dyn eui_gpui::host::HostPlugin> { std::rc::Rc::new(shell::NavPlugin { inner: doc::ide_plugin() }) };
+        let list_view = doc::mount_with("settings-nav", shell::nav_document(&paint), &list_binding, plugin(), false, window, cx);
+        let back_view = doc::mount_with("settings-nav-back", shell::back_document(&paint), &back_binding, plugin(), false, window, cx);
         Self {
             nav,
             shared,
+            paint,
+            routes,
+            list_binding,
+            list_view,
+            back_view,
+            _back_binding: back_binding,
             folded: Default::default(),
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
     }
 
-    /// One nav row (hand-rolled — gpui-component's `Button` centers its
-    /// inner layout, and these rows must read as a left-aligned list).
-    /// EXP-288: id/label are `impl Into<…>` so dynamic per-board rows fit.
-    fn row(
-        id: impl Into<gpui::ElementId>,
-        label: impl Into<SharedString>,
-        icon: Option<Icon>,
-        selected: bool,
-        cx: &App,
-    ) -> gpui::Stateful<gpui::Div> {
-        let label: SharedString = label.into();
-        h_flex()
-            .id(id.into())
-            .role(gpui::Role::ListItem)
-            .aria_selected(selected)
-            .aria_label(label.clone())
-            .w_full()
-            .px_2()
-            .py_1()
-            .gap_2()
-            .items_center()
-            .rounded(cx.theme().radius)
-            .text_sm()
-            .cursor_pointer()
-            .when(selected, |this| {
-                this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-            })
-            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .children(icon.map(|icon| icon.xsmall().flex_shrink_0()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(label),
-            )
-    }
-
-    fn group_label(label: &'static str, cx: &App) -> impl IntoElement {
-        div()
-            .px_2()
-            .pt_2()
-            .pb_0p5()
-            .text_xs()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(cx.theme().muted_foreground)
-            .child(label)
-    }
-
-    /// EXP-288: the hairline between nav groups — the group labels alone
-    /// read as floating headings.
-    fn group_divider() -> impl IntoElement {
-        div()
-            .h(px(1.))
-            .mx_2()
-            .my_1()
-            .bg(theme::tokens::glass::STROKE_ROW.to_hsla())
-    }
 }
 
-impl Render for SettingsNavPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
+/// The data one nav frame draws: who looks (owner gating), the team, the
+/// lit section and the injected lists.
+pub(crate) struct NavInputs {
+    pub(crate) owner: bool,
+    pub(crate) team_id: Option<String>,
+    pub(crate) effective: SettingsSection,
+    pub(crate) boards: Vec<domain::rows::Board>,
+    pub(crate) agents: Vec<domain::session_tree::AgentRow>,
+    pub(crate) apps: Vec<crate::apps_view::AppEntry>,
+}
+
+/// The bench's nav (#EXP-1629): the inputs pinned instead of read off the
+/// store (`selected` still clamps through [`effective_selection`]).
+#[cfg(test)]
+pub(crate) struct NavShot {
+    pub(crate) owner: bool,
+    pub(crate) team_id: Option<String>,
+    pub(crate) selected: SettingsSection,
+    pub(crate) boards: Vec<domain::rows::Board>,
+    pub(crate) agents: Vec<domain::session_tree::AgentRow>,
+    pub(crate) apps: Vec<crate::apps_view::AppEntry>,
+}
+
+impl SettingsNavPanel {
+    /// The bench's panel showing `shot`.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: NavShot, cx: &mut gpui::Context<Self>) {
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The bench's chevron press: `label`'s sub-pages folded.
+    #[cfg(test)]
+    pub(crate) fn fold_for_shots(&mut self, label: &'static str, cx: &mut gpui::Context<Self>) {
+        self.folded.insert(label, true);
+        cx.notify();
+    }
+
+    fn inputs(&self, cx: &mut gpui::Context<Self>) -> NavInputs {
+        #[cfg(test)]
+        if let Some(shot) = self.shot.as_ref() {
+            let effective = effective_selection(shot.selected.clone(), shot.owner, |_| true, |_| true);
+            return NavInputs { owner: shot.owner, team_id: shot.team_id.clone(), effective, boards: shot.boards.clone(), agents: shot.agents.clone(), apps: shot.apps.clone() };
+        }
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -1306,310 +1186,68 @@ impl Render for SettingsNavPanel {
             .as_deref()
             .map(|team_id| crate::apps_view::app_entries(team_id, cx))
             .unwrap_or_default();
+        NavInputs { owner, team_id, effective, boards, agents, apps }
+    }
+}
 
-        let mut list = v_flex().p_2().gap_0p5();
-        let mut first_group = true;
-        for group in NAV_GROUPS {
-            let visible: Vec<&NavItem> = group
-                .items
-                .iter()
-                .filter(|item| section_visible(&item.section, owner))
-                .collect();
-            // EXP-288: the Boards group's per-board rows are injected ahead
-            // of its static items (owner-only, like the pages themselves).
-            // S-3 (settings-nav.json): every member sees the board rows; New
-            // board is the owners'.
-            let board_group = group.id == "boards" && team_id.is_some();
-            // EXP-1294: the Agents group is every member's (only an agent's
-            // Delete is owner-only), so it shows whenever a team is active.
-            let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
-            // VAPP-110: the Apps group likewise (every member creates apps).
-            let app_group = group.label == APPS_GROUP && team_id.is_some();
-            if visible.is_empty() && !board_group && !agent_group && !app_group {
-                continue;
-            }
-            if !first_group {
-                list = list.child(Self::group_divider());
-            }
-            first_group = false;
-            if app_group {
-                // VAPP-242: a plain label (no Apps index page).
-                list = list.child(Self::group_label(group.label, cx));
-                for app in &apps {
-                    let app_id = app.id.clone();
-                    list = list.child(
-                        Self::row(
-                            SharedString::from(format!("settings-nav-app-{}", app.id)),
-                            app.name.clone(),
-                            Some(app.icon()),
-                            false,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            // VAPP-177: the app's editor on its Settings tab.
-                            crate::app_screen::open_app_tab(
-                                window,
-                                cx,
-                                app_id.clone(),
-                                domain::apps::EditorTab::Settings,
-                                false,
-                            );
-                        })),
-                    );
-                }
-                // VAPP-176: "New app" = a draft and its editor (web
-                // `@new-app`), no create page.
-                let new_team = team_id.clone();
-                list = list.child(
-                    Self::row(
-                        "settings-nav-new-app",
-                        domain::apps::APPS.copy.new_app.clone(),
-                        Some(Icon::new(registry::UI_ADD)),
-                        false,
-                        cx,
-                    )
-                    .text_color(cx.theme().muted_foreground)
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        if let Some(team_id) = new_team.clone() {
-                            crate::apps_view::new_app(team_id.to_string(), window, cx);
-                        }
-                    })),
-                );
-                continue;
-            }
-            if agent_group {
-                // NEW-6 (web parity): the label opens the Agents page (the
-                // list + Events), lit while it shows.
-                let lit = effective == SettingsSection::Agents;
-                let foreground = cx.theme().foreground;
-                list = list.child(
-                    div()
-                        .id("settings-agents-index")
-                        .role(gpui::Role::ListItem)
-                        .aria_selected(lit)
-                        .aria_label(group.label)
-                        .cursor_pointer()
-                        .px_2()
-                        .pt_2()
-                        .pb_0p5()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lit { foreground } else { cx.theme().muted_foreground })
-                        .hover(move |label| label.text_color(foreground))
-                        .child(group.label)
-                        .on_click(cx.listener(|_, _, window, cx| {
-                            select_settings_section(window, cx, SettingsSection::Agents);
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                );
-            } else {
-                list = list.child(Self::group_label(group.label, cx));
-            }
-            if agent_group {
-                // S-3 `@assistant`: the viewer's OWN Assistant first (the
-                // brand mark, `assistant.copy.title`), opening the Assistant
-                // page; `@agents` = the team agents (others' Assistants are
-                // never listed: `list_agents`).
-                if let Some(assistant) = agents.iter().find(|agent| agent.assistant) {
-                    let section = SettingsSection::Agent(assistant.agent_id.clone());
-                    let selected = section == effective;
-                    list = list.child(
-                        Self::row(
-                            "settings-nav-assistant",
-                            domain::agent_settings::ASSISTANT.copy.title.clone(),
-                            Some(Icon::from(crate::icons::ExpIcon::Logo).text_color(cx.theme().foreground)),
-                            selected,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            select_settings_section(window, cx, section.clone());
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                    );
-                }
-                for agent in agents.iter().filter(|agent| !agent.assistant) {
-                    let section = SettingsSection::Agent(agent.agent_id.clone());
-                    let selected = section == effective;
-                    list = list.child(
-                        Self::row(
-                            SharedString::from(format!("settings-nav-agent-{}", agent.agent_id)),
-                            agent.name.clone(),
-                            Some(crate::icons::agent_row_icon(agent)),
-                            selected,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            select_settings_section(window, cx, section.clone());
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                    );
-                }
-                // EXP-1319: "New agent" is a page (web parity), owner-only.
-                if owner {
-                    let selected = effective == SettingsSection::NewAgent;
-                    let new_agent = Self::row(
-                        "settings-nav-new-agent",
-                        domain::agent_settings::AGENT_SETTINGS.copy.new_agent.clone(),
-                        Some(Icon::new(registry::UI_ADD)),
-                        selected,
-                        cx,
-                    )
-                    .when(!selected, |row| row.text_color(cx.theme().muted_foreground))
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        select_settings_section(window, cx, SettingsSection::NewAgent);
-                        navigate(window, cx, Screen::Settings);
-                    }));
-                    list = list.child(new_agent);
-                }
-            }
-            if board_group {
-                for board in &boards {
-                    let section = SettingsSection::Board(board.id.clone());
-                    let selected = section == effective;
-                    let color = board
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(cx.theme().muted_foreground);
-                    let icon = crate::icons::board_icon(board).text_color(color);
-                    list = list.child(
-                        Self::row(
-                            SharedString::from(format!("settings-nav-board-{}", board.id)),
-                            board.name.clone(),
-                            Some(icon),
-                            selected,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            select_settings_section(window, cx, section.clone());
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                    );
-                }
-                if let Some(team_id) = team_id.clone().filter(|_| owner) {
-                    let new_board = Self::row(
-                        "settings-nav-new-board",
-                        "New board",
-                        Some(Icon::new(registry::UI_ADD)),
-                        false,
-                        cx,
-                    )
-                    .text_color(cx.theme().muted_foreground)
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        crate::create_board_dialog::open(window, cx, team_id.clone());
-                    }));
-                    list = list.child(new_board);
-                }
-            }
-            for item in visible {
-                let section = item.section.clone();
-                let selected = nav_lit(&section, &effective);
-                let children: Vec<&NavItem> = item
-                    .children
-                    .iter()
-                    .filter(|child| section_visible(&child.section, owner))
-                    .collect();
-                // EXP-630: a nested entry starts unfolded while it or one of
-                // its sub-pages is open; the chevron overrides that.
-                let within = selected || children.iter().any(|child| child.section == effective);
-                let open = self.folded.get(item.label).map(|folded| !folded).unwrap_or(within);
-                let mut row = Self::row(
-                    item.label,
-                    item.label,
-                    Some(section_icon(&section)),
-                    selected,
-                    cx,
-                )
-                .on_click(cx.listener(move |_, _, window, cx| {
-                    select_settings_section(window, cx, section.clone());
-                    navigate(window, cx, Screen::Settings);
-                }));
-                if !children.is_empty() {
-                    let label = item.label;
-                    row = row.child(
-                        div()
-                            .id(SharedString::from(format!("settings-nav-fold-{label}")))
-                            .role(gpui::Role::Button)
-                            .aria_expanded(open)
-                            .aria_label(if open { format!("Collapse {label}") } else { format!("Expand {label}") })
-                            .flex_shrink_0()
-                            .cursor_pointer()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                Icon::new(if open {
-                                    registry::UI_CHEVRON_DOWN
-                                } else {
-                                    registry::UI_CHEVRON_RIGHT
-                                })
-                                .size_3(),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.folded.insert(label, open);
-                                cx.notify();
-                            })),
-                    );
-                }
-                list = list.child(row);
-                if open {
-                    for child in children {
-                        let section = child.section.clone();
-                        let selected = section == effective;
-                        list = list.child(
-                            Self::row(
-                                child.label,
-                                child.label,
-                                Some(section_icon(&section)),
-                                selected,
-                                cx,
-                            )
-                            .pl_6()
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                select_settings_section(window, cx, section.clone());
-                                navigate(window, cx, Screen::Settings);
-                            })),
-                        );
-                    }
-                }
-            }
-        }
-
-        // EXP-456: the back affordance — web parity with the settings
-        // sidebar's header row. Direct calls, not action dispatch (EXP-17).
-        let back_row = nav_back_row("settings-nav-back", "Settings", cx)
-            .on_click(cx.listener(|this, _, window, cx| {
-                if this.nav.read(cx).can_go_back() {
-                    go_back(window, cx);
-                } else {
-                    set_screen(window, cx, None);
-                }
-            }));
-
+impl Render for SettingsNavPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
+        let inputs = self.inputs(cx);
+        let (items, actions) = shell::nav_entries(&inputs, &self.folded, &self.paint, cx);
+        *self.routes.borrow_mut() = NavRoutes { actions, team_id: inputs.team_id };
+        self.list_binding.update(cx, |binding, cx| binding.update_state(|state| *state = serde_json::json!({"items": items}), cx));
         v_flex()
             .size_full()
             .min_w_0()
             .overflow_hidden()
             // EXP-456: the nav takes the rail's slot, so it wears the rail's
             // exact material — which since EXP-723/EXP-767 is NOTHING: no
-            // section wash, no ramp, no rounded corners. It sits on the
-            // Shell root's one ground like the rail does (a wash here read as
-            // a lighter block with a hard right edge next to the content).
+            // section wash, no ramp, no rounded corners. EXP-863: the
+            // column's titlebar strip and its fixed header (team switcher,
+            // Search, New issue) are the `Shell`'s, above this pane — the
+            // nav starts at its back row.
             .text_color(cx.theme().sidebar_foreground)
-            // EXP-863: the column's titlebar strip and its fixed header (team
-            // switcher, Search, New issue) are the `Shell`'s, above this
-            // pane — the nav starts at its back row.
-            .child(back_row)
-            .child(nav_back_rule(cx))
-            .child(
-                div()
-                    .id("settings-nav")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(list),
-            )
+            .child(self.back_view.clone())
+            .child(div().id("settings-nav").flex_1().min_h_0().overflow_y_scroll().child(self.list_view.clone()))
     }
 }
 
+/// The nav's routing for one frame: each row key's action, the team.
+#[derive(Default)]
+struct NavRoutes {
+    actions: std::collections::HashMap<String, shell::NavAction>,
+    team_id: Option<String>,
+}
+
+/// A nav row's press.
+fn nav_dispatch(action: shell::NavAction, team_id: Option<String>, panel: &gpui::WeakEntity<SettingsNavPanel>, window: &mut Window, cx: &mut App) {
+    match action {
+        shell::NavAction::Section(section) => {
+            select_settings_section(window, cx, section);
+            navigate(window, cx, Screen::Settings);
+        }
+        shell::NavAction::App(app_id) => {
+            crate::app_screen::open_app_tab(window, cx, app_id, domain::apps::EditorTab::Settings, false);
+        }
+        shell::NavAction::NewApp => {
+            if let Some(team_id) = team_id {
+                crate::apps_view::new_app(team_id, window, cx);
+            }
+        }
+        shell::NavAction::NewBoard => {
+            if let Some(team_id) = team_id {
+                crate::create_board_dialog::open(window, cx, team_id);
+            }
+        }
+        shell::NavAction::Fold(label, folded) => {
+            let _ = panel.update(cx, |panel, cx| {
+                panel.folded.insert(label, folded);
+                cx.notify();
+            });
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared query helpers (settings-scoped)
@@ -1666,16 +1304,6 @@ pub(crate) fn is_owner(cx: &App, team_id: &str) -> bool {
 // Shared chrome bits (web Card + notices at compact density)
 // ---------------------------------------------------------------------------
 
-/// The settings panes' section container. EXP-862 takes the CARD back off:
-/// a section is a HEADER BAND (`surface::glass_section_header`) over its
-/// rows, the same shape every list page wears, so the panes stop being a
-/// stack of bordered boxes holding other boxes. Nothing here paints a fill,
-/// a stroke or padding of its own — the rows do that
-/// (`surface::glass_group_rows`, `surface::flat_row`) and the detail column
-/// owns the page gutter.
-pub(crate) fn section(_cx: &App) -> gpui::Div {
-    v_flex().w_full().min_w_0().gap_2()
-}
 
 /// EXP-282: the hairline the panes' rows/chips draw — the glass row stroke
 /// instead of the heavier `theme.border`, now that no card frames them.
@@ -1700,117 +1328,8 @@ pub(super) fn format_storage(mb: f64) -> String {
     }
 }
 
-/// One usage row (web `UsageBar`): label left, "current / limit" right, a
-/// thin progress track underneath (no track for unlimited).
-pub(super) fn usage_bar(
-    label: &'static str,
-    current: String,
-    limit: Option<String>,
-    fraction: Option<f64>,
-    cx: &App,
-) -> impl IntoElement {
-    let amount = match limit {
-        Some(limit) => format!("{current} / {limit}"),
-        None => format!("{current} / unlimited"),
-    };
-    let mut row = v_flex()
-        .gap_1()
-        .child(
-            h_flex()
-                .justify_between()
-                .items_center()
-                .child(div().text_sm().child(label))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(amount)),
-                ),
-        );
-    if let Some(fraction) = fraction {
-        let fraction = fraction.clamp(0., 1.) as f32;
-        row = row.child(
-            div()
-                .h(gpui::px(6.))
-                .w_full()
-                .rounded_full()
-                .bg(cx.theme().muted.opacity(0.35))
-                .child(
-                    div()
-                        .h_full()
-                        .rounded_full()
-                        .w(gpui::relative(fraction))
-                        .bg(cx.theme().primary),
-                ),
-        );
-    }
-    row
-}
 
-/// EXP-771: the web sections' `<p className="px-1 pb-2 text-xs
-/// text-foreground/50">` — the explanatory line UNDER a
-/// [`crate::surface::glass_section_header`], where the web puts it, instead of
-/// a `CardDescription` fused into the heading. Its own `pb_2` is the gap to
-/// the list below (same rule as the header's — never wrap it in a gapped
-/// column, EXP-697).
-pub(crate) fn section_description(
-    description: impl Into<SharedString>,
-    cx: &App,
-) -> impl IntoElement {
-    div()
-        .px_1()
-        .pb_2()
-        .text_xs()
-        .text_color(cx.theme().foreground.opacity(0.5))
-        .child(description.into())
-}
 
-/// EXP-720: the ONE danger-zone recipe, the web `settings/general.tsx` twin —
-/// a [`section`] whose heading is tinted `danger` over ONE glass row:
-/// the muted description leading, the destructive action trailing. Both the
-/// team's "Delete team" and the device's "Reset IDE data" wear it; the
-/// red-bordered tinted card General used to draw is gone (it was the only
-/// bordered box left in the panes after EXP-282 flattened them).
-pub(crate) fn danger_zone(
-    description: impl Into<SharedString>,
-    action: impl IntoElement,
-    cx: &App,
-) -> gpui::Div {
-    // EXP-818: the group row IS the card here — not a card inside `section`.
-    v_flex()
-        .w_full()
-        .gap_0()
-        // The group band with the label in the danger colour — the web
-        // `GlassSectionHeader` + `[&>span]:text-destructive` twin (the band
-        // recipe paints its label foreground, so the red label rides the
-        // leading slot and the label slot stays empty).
-        .child(crate::surface::glass_section_band(
-            Some(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().danger)
-                    .child("Danger zone")
-                    .into_any_element(),
-            ),
-            "",
-            None,
-            cx,
-        ))
-        .child(
-            crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
-                .justify_between()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(description.into()),
-                )
-                .child(div().flex_shrink_0().child(action))]),
-        )
-}
 
 /// The settings entity row's height (`flat_row` + `py_2` around a 24px
 /// pill line): a section's FIRST load draws its skeleton rows at it

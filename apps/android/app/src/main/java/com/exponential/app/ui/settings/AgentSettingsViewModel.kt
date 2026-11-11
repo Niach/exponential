@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -87,8 +88,9 @@ class AgentSettingsViewModel @Inject constructor(
     private val sessionRows = dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() }
         .map { rows -> rows.map(SessionTree::session) }
 
-    /** The selected team's agents, rail order ([SessionTree.listAgents]). */
-    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(
+    /** The selected team's agents, rail order ([SessionTree.listAgents]);
+     *  null = not read yet (#EXP-1788: skeleton rows, not the empty state). */
+    val agents: StateFlow<List<SessionTree.AgentRow>?> = combine(
         dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
         sessionRows,
         teamId,
@@ -97,11 +99,15 @@ class AgentSettingsViewModel @Inject constructor(
     ) { defs, sessions, team, me, teams ->
         // #EXP-1714: `teamIds` brings the viewer's global Assistant along.
         if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id })
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn<List<SessionTree.AgentRow>?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1735: the Lead Assistant row: its options (null id = None) and
-     *  value (the lead's member, null = none). */
-    data class LeadState(val options: List<Pair<String?, String>>, val value: String?)
+     *  value (the lead's member, null = none). #EXP-1788: [known] = false
+     *  until `agents.lead` answered (the row stays disabled, like the IDE). */
+    data class LeadState(val options: List<Pair<String?, String>>, val value: String?, val known: Boolean = true)
+
+    /** One `agents.lead` answer (null user = no lead). */
+    private data class LeadRead(val userId: String?)
 
     // Bumped after a save so the row re-reads the lead at once.
     private val leadReload = MutableStateFlow(0)
@@ -111,25 +117,27 @@ class AgentSettingsViewModel @Inject constructor(
      * Assistant, never in the viewer's synced agents. The synced team row
      * carries no `leadAssistantId` on Android, so the read re-runs on the
      * team's `updated_at` (which `agents.setLeadAssistant` bumps), the
-     * selection and a save; a failed read = none (web `LeadAssistantRow`).
+     * selection and a save. null = not read yet; a failed read stays
+     * unread (disabled, never a false None; web `LeadAssistantRow`).
      */
     private val leadUserId = combine(dbFlow, teamId) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) {
-                flowOf(null)
+                flowOf<LeadRead?>(null)
             } else {
                 db.teamDao().observeById(team).map { it?.updatedAt }.distinctUntilChanged()
                     .combine(leadReload) { stamp, _ -> team to stamp }
-                    .mapLatest { (id, stamp) ->
+                    .mapLatest<Pair<String, String?>, LeadRead?> { (id, stamp) ->
                         if (stamp == null) return@mapLatest null
                         val accountId = auth.activeAccountId.value ?: return@mapLatest null
                         try {
-                            agentsApi.lead(accountId, id)?.userId
+                            LeadRead(agentsApi.lead(accountId, id)?.userId)
                         } catch (t: Throwable) {
                             if (t is CancellationException) throw t
                             null
                         }
                     }
+                    .onStart { emit(null) }
             }
         }
 
@@ -143,17 +151,17 @@ class AgentSettingsViewModel @Inject constructor(
             }.map { user ->
                 (user?.id) to (user?.let { com.exponential.app.ui.components.userDisplayName(it, it.id) } ?: AgentSettings.Lead.NONE_LABEL)
             }
-            LeadState(options, leadUser)
+            LeadState(options, leadUser?.userId, known = leadUser != null)
         }.flowOn(Dispatchers.Default).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            LeadState(listOf(null to AgentSettings.Lead.NONE_LABEL), null),
+            LeadState(listOf(null to AgentSettings.Lead.NONE_LABEL), null, known = false),
         )
 
     /** #EXP-1735: owner-only `agents.setLeadAssistant` (null = none). */
     fun setLeadAssistant(userId: String?) {
         val team = teamId.value ?: return
-        if (userId == lead.value.value) return
+        if (!lead.value.known || userId == lead.value.value) return
         write("save", "the lead Assistant") { accountId ->
             agentsApi.setLeadAssistant(accountId, team, userId)
             leadReload.value += 1

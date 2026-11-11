@@ -397,7 +397,7 @@ impl Render for AccountPane {
         #[cfg(not(test))]
         let _ = window;
         // An ordinary section pane since EXP-238 — `SettingsView` owns the
-        // scroll container and the shared `detail_column` grid.
+        // scroll container and the detail column (`shell::DetailShell`).
         div().w_full().min_w_0().child(self.view.clone())
     }
 }
