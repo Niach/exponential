@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-11-smooth-on-a-busy-team`,
+    date: `2026-11-11`,
+    title: `The desktop app stays smooth on a busy team`,
+    summary: `A team with many running sessions no longer stalls the desktop app, and the edited-files row stays in its column.`,
+    body: `- **No more stalls**: the desktop app reads synced data off the main thread and refreshes busy lists in small steps, so a team with many running sessions no longer freezes the window.
+- **Faster session titles**: long session lists work out their titles in one pass.
+- **The edited-files row stays put**: a chat's edited-files row keeps its counts in its own column on every platform, however long the file names.
+- **Exponential Desktop 0.2.18**: carries the same shared text measuring.`,
+  },
+  {
     id: `2026-11-11-busy-sessions-stay-online`,
     date: `2026-11-11`,
     title: `Busy sessions no longer read offline by mistake`,
