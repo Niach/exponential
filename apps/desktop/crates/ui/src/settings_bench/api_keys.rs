@@ -56,3 +56,51 @@ fn settings_api_keys_revoke_key() {
 fn settings_api_keys_revoke_device() {
     shoot_pane("api-keys-revoke-device", |window, cx| RevokeIdentity::for_shots("studio-mac", None, window, cx), |_, _| {});
 }
+
+use crate::scope_picker::{ScopeBoard, ScopeSelection, ScopeTeam};
+use crate::settings::api_keys::MintKeyContent;
+
+/// The scope picker's tree (the web test's).
+fn scope_tree() -> Vec<ScopeTeam> {
+    let board = |id: &str, name: &str, prefix: &str| ScopeBoard { id: id.into(), name: name.into(), prefix: prefix.into() };
+    vec![
+        ScopeTeam { id: "t-acme".into(), name: "Acme".into(), boards: vec![board("b-web", "Web", "WEB"), board("b-mob", "Mobile", "MOB")] },
+        ScopeTeam { id: "t-lab".into(), name: "Lab".into(), boards: vec![] },
+    ]
+}
+
+fn scoped(team_ids: &[&str], board_ids: &[&str]) -> ScopeSelection {
+    ScopeSelection { all_teams: false, team_ids: team_ids.iter().map(|id| id.to_string()).collect(), board_ids: board_ids.iter().map(|id| id.to_string()).collect() }
+}
+
+/// `refused`: Create pressed once the body is up (the slot measures the
+/// refusal on the next frame).
+fn create_body(name: &'static str, value: ScopeSelection, typed: &'static str, refused: bool) {
+    let act = move |body: &mut MintKeyContent, _: &mut Window, cx: &mut gpui::Context<MintKeyContent>| {
+        if refused {
+            body.refuse(cx);
+        }
+    };
+    shoot_pane_acted(name, move |window, cx| MintKeyContent::for_shots(scope_tree(), value, typed, window, cx), |_, _| {}, None, &[], act);
+}
+
+/// The Create API key alert's body as it opens: no name, Everything on.
+#[test]
+#[ignore]
+fn settings_api_keys_create_empty() {
+    create_body("api-keys-create-empty", ScopeSelection::everything(), "", false);
+}
+
+/// Named, scoped to a team and a board: the tree and the MCP-only note.
+#[test]
+#[ignore]
+fn settings_api_keys_create_scoped() {
+    create_body("api-keys-create-scoped", scoped(&["t-lab"], &["b-web"]), "CI deploys", false);
+}
+
+/// Create pressed on an empty pick: the refusal under the picker.
+#[test]
+#[ignore]
+fn settings_api_keys_create_refused() {
+    create_body("api-keys-create-refused", scoped(&[], &[]), "", true);
+}
