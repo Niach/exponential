@@ -1190,6 +1190,22 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1629: a status picker: each option's glyph in its own tint
+    // (`iconColor`), the chosen one's leading the row's value.
+    label: `option iconColor + triggerIcon`,
+    node: {
+      id: `pr_automation`,
+      component: `Group`,
+      children: [
+        { id: `pr_opened`, component: `Select`, props: { label: `When a PR opens`, name: `prOpened`, triggerVariant: `row`, triggerIcon: true, popupMinWidth: 170, value: `in_review`, options: [
+          { label: `Backlog`, value: `backlog`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+          { label: `In Progress`, value: `in_progress`, icon: `status-in-progress`, iconColor: `$color.warning` },
+          { label: `In Review`, value: `in_review`, icon: `status-in-review`, iconColor: `$color.success` },
+          { label: `Cancelled`, value: `cancelled`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+        ] } },
+      ],
+    },
+  }, {
     // #EXP-1629: the IDE's skills multi picker: two adjacent picks of three,
     // one bordered block in the open popup (`joinTop` / `joinBottom`).
     label: `multiple · searchable · row + option icon, description`,

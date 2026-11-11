@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `button` trigger + Text `truncate` (#EXP-1778): the button is the field trigger with no label part (the label = its `aria-label`) and the `Select.dropdown` glyph; its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it; a `middle` Text cuts its line with `watchMiddleTruncate` (the element's font on a canvas, again on resize).
+- Select option `iconColor` (#EXP-1629): the `itemIcon` and the `triggerIcon` `valueIcon` take `propColor(iconColor)` as their colour.
 - Composer matches the app: the send glyph is `ui-submit` (`CircleArrowUp`, in `FALLBACK_ICONS`); a flat field stretches across the row (`align-self: stretch`, grown by its `min-height`, never a `height`) with its text at the recipe's padding-top. Snapshots: every `Composer/*` case (the glyph; `Composer/layout=flat` = `min-height` instead of `height`).
 - Menu item `iconColor` (#EXP-1629): the item's glyph takes `propColor(iconColor)` as its colour; a `checkbox` entry draws its `icon` (the core's row: check, glyph, label).
 - Skeleton `rows` (#EXP-1629): no hairline between rows (base CSS); `batch-ui.test.tsx` replays `fixtures/skeleton-rows.json`.

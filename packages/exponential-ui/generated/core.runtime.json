@@ -413,6 +413,10 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "disabled": {
           "type": "boolean"
         },

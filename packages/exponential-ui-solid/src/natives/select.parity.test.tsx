@@ -20,7 +20,7 @@ describe(`select: variants`, () => {
   const example = fixtureCases([`Select`])[0].node
   it(`every forced state`, async () => expectParity({ tree: example, theme: `exponential`, states: STATES }))
   it(`dark + rtl (orange)`, async () => expectParity({ tree: example, theme: `orange`, mode: `dark`, direction: `rtl` }))
-  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }, { triggerVariant: `row`, options: [{ label: `main`, value: `main`, trailing: `· default` }, ...OPTIONS] }, { triggerVariant: `pill` }, { triggerVariant: `pill`, searchable: true }, { triggerVariant: `pill`, description: `Hint` }, { triggerVariant: `pill`, disabled: true }, { triggerVariant: `button` }, { triggerVariant: `button`, disabled: true }, { triggerVariant: `row`, popupMinWidth: 168, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }, ...OPTIONS] }, { triggerVariant: `row`, searchable: true, options: [{ label: `mint`, value: `mint`, icon: `monitor`, description: `Online` }, ...OPTIONS] }]) {
+  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }, { triggerVariant: `row`, options: [{ label: `main`, value: `main`, trailing: `· default` }, ...OPTIONS] }, { triggerVariant: `pill` }, { triggerVariant: `pill`, searchable: true }, { triggerVariant: `pill`, description: `Hint` }, { triggerVariant: `pill`, disabled: true }, { triggerVariant: `button` }, { triggerVariant: `button`, disabled: true }, { triggerVariant: `row`, popupMinWidth: 168, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }, ...OPTIONS] }, { triggerVariant: `row`, searchable: true, options: [{ label: `mint`, value: `mint`, icon: `monitor`, description: `Online` }, ...OPTIONS] }, { triggerVariant: `row`, triggerIcon: true, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Blocked`, value: `blocked`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } }, ...OPTIONS] }]) {
     const tag = JSON.stringify(variant)
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))
@@ -97,6 +97,38 @@ describe(`select: open popup`, () => {
       expect(solid).toEqual(react)
       expect(react).toEqual({ align, width, minWidth, items: [[`hover`, false], [`selected`, true], [`disabled`, false]] })
     })
+  it(`option iconColor tints its glyph and, with triggerIcon, the value's (#EXP-1629)`, async () => {
+    const tints = async (render: typeof renderReact | typeof renderSolidSurface, wrap: (f: () => Promise<void>) => Promise<void>) => {
+      const c: ParityCase = {
+        tree: sel({ triggerVariant: `row`, triggerIcon: true, value: `review`, options: [
+          { label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` },
+          { label: `Blocked`, value: `blocked`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } },
+          { label: `Do nothing`, value: `none`, icon: `ui-minus` },
+        ] }),
+        data: { blocked: `#ef4444` },
+        theme: `exponential`,
+        mode: `dark`,
+      }
+      const r = await render(c)
+      try {
+        await wrap(async () => {
+          openIt(r.root)
+          await settle()
+        })
+        const content = r.root.ownerDocument.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)!
+        return {
+          items: Array.from(content.querySelectorAll<HTMLElement>(`.xui-Select-itemIcon`)).map((el) => el.style.color),
+          value: r.root.querySelector<SVGElement>(`.xui-Select-valueIcon`)?.style.color,
+        }
+      } finally {
+        r.cleanup()
+      }
+    }
+    const react = await tints(renderReact, (f) => act(f))
+    const solid = await tints(renderSolidSurface, (f) => f())
+    expect(solid).toEqual(react)
+    expect(react).toEqual({ items: [`var(--xui-color-success)`, `rgb(239, 68, 68)`, ``], value: `var(--xui-color-success)` })
+  })
   it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
