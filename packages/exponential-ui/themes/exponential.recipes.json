@@ -45,7 +45,7 @@
     "Alert": { "root": [ { "style": { "backgroundColor": "$color.card" } } ] },
     "Dialog": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl" } } ] },
     "Drawer": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl3" } } ] },
-    "Checkbox": { "box": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ], "check": [ { "style": { "width": 14, "height": 14 } } ] },
+    "Checkbox": { "box": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.borderStrong", "boxShadow": "$shadow.none" } } ], "check": [ { "style": { "width": 14, "height": 14 } } ] },
     "Radio": { "item": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ] },
     "ChoiceTiles": { "tile": [ { "style": { "backgroundColor": "$color.card" } }, { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
     "Switch": { "track": [ { "style": { "width": 36, "backgroundColor": "$color.accent" } } ], "thumb": [ { "style": { "backgroundColor": "$color.foreground", "boxShadow": "$shadow.none" } } ] },
