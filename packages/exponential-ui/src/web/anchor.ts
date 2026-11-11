@@ -156,3 +156,12 @@ export function watchAnchor(get: () => Element | null | undefined, onLost: () =>
   frame = requestAnimationFrame(tick)
   return stop
 }
+
+/** Popover `matchAnchorWidth`: the panel is EXACTLY its anchor's width (the
+ *  `anchor` node, else the trigger), re-measured by the popper when the
+ *  anchor resizes (the core's exact layer width). `triggerWidthVar` = the
+ *  popper's anchor-width variable (`--radix-popover-trigger-width`); unset =
+ *  the content's own width. */
+export function popoverPanelWidth(props: Record<string, unknown>, triggerWidthVar: string): string | undefined {
+  return props.matchAnchorWidth === true ? `var(${triggerWidthVar})` : undefined
+}

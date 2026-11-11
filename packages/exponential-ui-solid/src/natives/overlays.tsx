@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, isPickerPopover, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -438,7 +438,12 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           contentEl = el
           presence.ref(el)
           popper.setContent(el)
-          bindStyle(el, () => popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned()))
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, the popper's anchor-width variable (re-measured on a resize).
+          bindStyle(el, () => {
+            const width = popoverPanelWidth(props.props, `--radix-popover-trigger-width`)
+            return popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned(), width ? { width } : {})
+          })
           onMount(() => {
             layer.attach(el)
             setRegistered(true)
@@ -685,6 +690,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -744,9 +751,9 @@ function MenuLabel(props: EntryProps): JSX.Element {
   return <div {...props.root.part(`label`)}>{str(props.item.label)}</div>
 }
 
-function ItemIcon(props: { name?: string }): JSX.Element {
+function ItemIcon(props: { name?: string; color?: string }): JSX.Element {
   const ctx = useSurfaceContext()
-  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} />}</Show>
+  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} style={propColor(props.color) ? { color: propColor(props.color) } : undefined} />}</Show>
 }
 function Shortcut(props: { text?: string; part: PartFn }): JSX.Element {
   return <Show when={props.text}>{(t) => <span {...props.part(`shortcut`)}>{t()}</span>}</Show>
@@ -796,7 +803,7 @@ function MenuPlainItem(props: EntryProps): JSX.Element {
         pv.blur()
       }}
     >
-      <ItemIcon name={props.item.icon} />
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
       <Identifier text={props.item.identifier} part={props.root.part} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
       <Detail text={props.item.detail} part={props.root.part} />
@@ -857,6 +864,7 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
           </span>
         </Show>
       </span>
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
       <Identifier text={props.item.identifier} part={props.root.part} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
       <Detail text={props.item.detail} part={props.root.part} />
@@ -956,7 +964,7 @@ function MenuSub(props: EntryProps): JSX.Element {
         onFocus={row.handlers.onFocus}
         onBlur={row.handlers.onBlur}
       >
-        <ItemIcon name={props.item.icon} />
+        <ItemIcon name={props.item.icon} color={props.item.iconColor} />
         <Identifier text={props.item.identifier} part={props.root.part} />
         <span class="xui-menu-label">{str(props.item.label)}</span>
         <Detail text={props.item.detail} part={props.root.part} />

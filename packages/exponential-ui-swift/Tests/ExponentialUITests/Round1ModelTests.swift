@@ -720,6 +720,38 @@ final class Round1ModelTests: XCTestCase {
         }
     }
 
+    // MARK: - interactions-round1.json pickerPick (#EXP-1760, #EXP-1775)
+
+    /// Every pickerPick case through the MODEL: IconPicker / ColorPicker are
+    /// macros over a Popover; the trigger (or a child trigger) opens it, a
+    /// pick writes /value, fires `change` {value} and closes it; an inline
+    /// ColorPicker picks with no popover. The actions fired {name, context},
+    /// /value and whether the macro root's Popover is open.
+    func testPickerPickCasesOpenPickAndCloseThroughTheModel() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["pickerPick"])
+        let surfaces = try XCTUnwrap(f["surfaces"]?.object)
+        let cases = f["cases"]?.array ?? []
+        XCTAssertEqual(cases.count, 7)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let surface = try XCTUnwrap(surfaces[c["surface"]?.string ?? ""], name)
+            let rootId = try XCTUnwrap(surface["id"]?.string, name)
+            let host = Round1Host()
+            let m = try model(surface, host: host)
+            for (key, value) in c["data"]?.object ?? [:] { m.setData(path: "/\(key)", value: value) }
+            for step in c["steps"]?.array ?? [] {
+                let id = try XCTUnwrap(step["press"]?.string, "\(name): unknown step \(step.json)")
+                XCTAssertNotNil(m.index(of: id), "\(name): \(id)")
+                m.press(id: id)
+            }
+            let want = c["events"]?.array ?? []
+            XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): names")
+            XCTAssertEqual(host.actions.map(\.context), want.map { $0["context"] ?? .object([:]) }, "\(name): contexts")
+            XCTAssertEqual(m.data["value"] ?? .null, c["value"] ?? .null, "\(name): /value")
+            XCTAssertEqual(m.layers.contains { $0.owner == rootId && $0.kind == "Popover" }, c["open"]?.bool == true, "\(name): open")
+        }
+    }
+
     // MARK: - interactions-round1.json keyRecorder (#EXP-1629)
 
     /// Every keyRecorder case through the MODEL: `press` = the generic press
@@ -860,7 +892,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 7)
+        XCTAssertEqual(cases.count, 16)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"
@@ -879,6 +911,18 @@ final class Round1ModelTests: XCTestCase {
                 continue
             }
             let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
+            // #EXP-1762: `above` sits inside the card at its content top, the
+            // content's full width (the same inset either side), over the row.
+            if slots["above"] != nil {
+                let above = try XCTUnwrap(frame("c.above"), "\(name): above laid out")
+                let strip = try XCTUnwrap(frame("strip"), "\(name): the above child")
+                let inset = above.minX - cf.minX
+                XCTAssertGreaterThan(inset, 0, "\(name): above inside the card")
+                XCTAssertEqual(cf.maxX - above.maxX, inset, accuracy: 0.01, "\(name): above spans the content width")
+                XCTAssertEqual(above.minY - cf.minY, inset, accuracy: 0.01, "\(name): above at the content top")
+                XCTAssertEqual(strip.width, above.width, accuracy: 0.01, "\(name): the above child spans it")
+                XCTAssertLessThanOrEqual(above.maxY, send.minY, "\(name): above over the row")
+            }
             var along: [(CGFloat, String)] = []
             for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
                 guard let b = frame(id) else {
@@ -897,6 +941,26 @@ final class Round1ModelTests: XCTestCase {
             for step in c["steps"]?.array ?? [] { m.press(id: step["press"]?.string ?? "") }
             let want = c["events"]?.array ?? []
             XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): events")
+        }
+    }
+
+    /// #EXP-1762 composerSlots `field`: a flat Composer's text starts the
+    /// field recipe's paddingTop below the row's top, one line (the disc's
+    /// row) or grown, the text view reaching the row's bottom (neutral:
+    /// paddingTop `$spacing.sm` 8, line 20, disc 36; the core replays the
+    /// recipe values).
+    func testAFlatComposerSetsItsTextAtTheFieldTopPadding() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
+        let cases = (f["cases"]?.array ?? []).filter { $0["field"] != nil }
+        XCTAssertEqual(cases.count, 2)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let rows = try CGFloat(XCTUnwrap(c["field"]?["rows"]?.number))
+            let row: CGFloat = max(36, 8 + rows * 20)
+            XCTAssertEqual(row > 36.5, c["field"]?["grown"]?.bool == true, "\(name): grown")
+            let box = ComposerLeaf.flatField(row: row, padTop: 8)
+            XCTAssertEqual(box.y, 8, accuracy: 0.001, "\(name): the text at the field's paddingTop")
+            XCTAssertEqual(box.y + box.height, row, accuracy: 0.001, "\(name): the field reaches the row's bottom")
         }
     }
 

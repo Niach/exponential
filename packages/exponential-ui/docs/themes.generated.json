@@ -2791,7 +2791,10 @@
     "backgroundClip",
     "paddingTop",
     "paddingBottom",
-    "textAlign"
+    "textAlign",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius"
   ],
   "components": [
     {
@@ -4021,7 +4024,9 @@
         "multiple",
         "searchable",
         "disabled",
-        "triggerVariant"
+        "triggerVariant",
+        "joinTop",
+        "joinBottom"
       ]
     },
     {
@@ -4112,6 +4117,7 @@
         "fill",
         "trigger",
         "dot",
+        "customTrigger",
         "content"
       ],
       "props": [
@@ -4218,7 +4224,8 @@
       ],
       "props": [
         "attachments",
-        "busy"
+        "busy",
+        "layout"
       ]
     },
     {

@@ -1,0 +1,1047 @@
+{
+  "$comment": "EXP-1604: THE Motion specimens (moved from the retired styleguide app, #EXP-1779), read by the eui-gpui motion tests (tests/motion.rs, tests/motion_state.rs): a spinner, a success check drawing on (once, holding the check; its poster is the finished check), a themed illustration (`$color` tokens) shown in light AND dark, and a Motion scrubbed by a Slider through the bound `progress` (data `/progress`). `cases` paint in the app's mode; `illustration` (a card on the mode's own background) paints twice, once per mode. EXP-1605: `interactive` (data `/meter`) = the state-machine specimens, painted in the app's mode: a like button toggled by clicks (`stateMachine` + `on.press`) and a bar whose low / high / done states follow the bound `inputs.level` (Slider → `/meter/level`).",
+  "data": {
+    "progress": 0.4,
+    "meter": {
+      "level": 30
+    }
+  },
+  "cases": {
+    "id": "sg_motion",
+    "component": "Stack",
+    "props": {
+      "direction": "horizontal",
+      "gap": "xl",
+      "align": "start",
+      "wrap": true
+    },
+    "children": [
+      {
+        "id": "sg_motion_spinner_case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "sg_motion_spinner",
+            "component": "Motion",
+            "props": {
+              "label": "Loading",
+              "size": [
+                48,
+                48
+              ],
+              "duration": 1000,
+              "layers": [
+                {
+                  "type": "shape",
+                  "transform": {
+                    "position": [
+                      24,
+                      24
+                    ],
+                    "rotation": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0
+                        },
+                        {
+                          "t": 1000,
+                          "v": 360
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "size": [
+                        36,
+                        36
+                      ]
+                    },
+                    {
+                      "type": "trim",
+                      "end": 70
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.primary",
+                      "width": 4,
+                      "cap": "round"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "sg_motion_spinner_label",
+            "component": "Text",
+            "props": {
+              "text": "Spinner",
+              "variant": "caption"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sg_motion_success_case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "sg_motion_success",
+            "component": "Motion",
+            "props": {
+              "label": "Done",
+              "loop": false,
+              "poster": 1199,
+              "size": [
+                64,
+                64
+              ],
+              "duration": 1200,
+              "layers": [
+                {
+                  "type": "shape",
+                  "id": "check",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M20 33 L28 41 L44 24"
+                    },
+                    {
+                      "type": "trim",
+                      "end": {
+                        "keys": [
+                          {
+                            "t": 0,
+                            "v": 0
+                          },
+                          {
+                            "t": 450,
+                            "v": 0,
+                            "ease": "ease-out"
+                          },
+                          {
+                            "t": 800,
+                            "v": 100
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.success",
+                      "width": 5,
+                      "cap": "round",
+                      "join": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "ring",
+                  "transform": {
+                    "position": [
+                      32,
+                      32
+                    ],
+                    "rotation": -90
+                  },
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "size": [
+                        52,
+                        52
+                      ]
+                    },
+                    {
+                      "type": "trim",
+                      "end": {
+                        "keys": [
+                          {
+                            "t": 0,
+                            "v": 0,
+                            "ease": "ease-in-out"
+                          },
+                          {
+                            "t": 500,
+                            "v": 100
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.success",
+                      "width": 4,
+                      "cap": "round"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "sg_motion_success_label",
+            "component": "Text",
+            "props": {
+              "text": "Success",
+              "variant": "caption"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sg_motion_scrub_case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs",
+          "align": "stretch"
+        },
+        "style": {
+          "width": "200px"
+        },
+        "children": [
+          {
+            "id": "sg_motion_scrub",
+            "component": "Motion",
+            "props": {
+              "progress": {
+                "@path": "/progress"
+              },
+              "label": "Upload progress",
+              "size": [
+                200,
+                48
+              ],
+              "duration": 1000,
+              "layers": [
+                {
+                  "type": "shape",
+                  "id": "dot",
+                  "transform": {
+                    "position": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": [
+                            12,
+                            24
+                          ]
+                        },
+                        {
+                          "t": 1000,
+                          "v": [
+                            188,
+                            24
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "ellipse",
+                      "size": [
+                        16,
+                        16
+                      ]
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.primary"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "fill",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 24 L188 24"
+                    },
+                    {
+                      "type": "trim",
+                      "end": {
+                        "keys": [
+                          {
+                            "t": 0,
+                            "v": 0
+                          },
+                          {
+                            "t": 1000,
+                            "v": 100
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.primary",
+                      "width": 6,
+                      "cap": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "track",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 24 L188 24"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.muted",
+                      "width": 6,
+                      "cap": "round"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "sg_motion_scrub_slider",
+            "component": "Slider",
+            "props": {
+              "label": "Progress",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "value": {
+                "@path": "/progress"
+              }
+            }
+          },
+          {
+            "id": "sg_motion_scrub_label",
+            "component": "Text",
+            "props": {
+              "text": "Scrubbed by progress",
+              "variant": "caption"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "illustration": {
+    "id": "sg_motion_illustration_card",
+    "component": "Box",
+    "style": {
+      "backgroundColor": "$color.background",
+      "borderColor": "$color.border",
+      "borderWidth": "$border.hairline",
+      "borderStyle": "solid",
+      "borderRadius": "$radius.lg",
+      "padding": "$spacing.lg",
+      "display": "flex",
+      "justifyContent": "center"
+    },
+    "children": [
+      {
+        "id": "sg_motion_illustration",
+        "component": "Motion",
+        "props": {
+          "label": "Empty inbox",
+          "size": [
+            160,
+            120
+          ],
+          "duration": 2000,
+          "layers": [
+            {
+              "type": "shape",
+              "id": "spark",
+              "transform": {
+                "position": [
+                  118,
+                  30
+                ],
+                "scale": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": [
+                        100,
+                        100
+                      ],
+                      "ease": "ease-in-out"
+                    },
+                    {
+                      "t": 1000,
+                      "v": [
+                        70,
+                        70
+                      ],
+                      "ease": "ease-in-out"
+                    },
+                    {
+                      "t": 2000,
+                      "v": [
+                        100,
+                        100
+                      ]
+                    }
+                  ]
+                },
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 2000,
+                      "v": 90
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "star",
+                  "points": 4,
+                  "outerRadius": 10,
+                  "innerRadius": 3
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.primary"
+                }
+              ]
+            },
+            {
+              "type": "shape",
+              "id": "letter",
+              "transform": {
+                "position": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": [
+                        80,
+                        52
+                      ],
+                      "ease": "ease-in-out"
+                    },
+                    {
+                      "t": 1000,
+                      "v": [
+                        80,
+                        44
+                      ],
+                      "ease": "ease-in-out"
+                    },
+                    {
+                      "t": 2000,
+                      "v": [
+                        80,
+                        52
+                      ]
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "group",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M-22 -12 L0 4 L22 -12"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.mutedForeground",
+                      "width": 2,
+                      "cap": "round",
+                      "join": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "rect",
+                  "size": [
+                    48,
+                    32
+                  ],
+                  "radius": 4
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.card"
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.border",
+                  "width": 2
+                }
+              ]
+            },
+            {
+              "type": "shape",
+              "id": "tray",
+              "shapes": [
+                {
+                  "type": "path",
+                  "d": "M28 70 L52 70 L60 82 L100 82 L108 70 L132 70 L132 100 Q132 106 126 106 L34 106 Q28 106 28 100 Z"
+                },
+                {
+                  "type": "fill",
+                  "color": "$color.muted"
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.border",
+                  "width": 2,
+                  "join": "round"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "interactive": {
+    "id": "sg_motion_interactive",
+    "component": "Stack",
+    "props": {
+      "direction": "horizontal",
+      "gap": "xl",
+      "align": "start",
+      "wrap": true
+    },
+    "children": [
+      {
+        "id": "sg_motion_like_case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "sg_motion_like",
+            "component": "Motion",
+            "props": {
+              "label": "Like",
+              "size": [
+                48,
+                48
+              ],
+              "fps": 30,
+              "duration": 1000,
+              "stateMachine": {
+                "initial": "off",
+                "inputs": [
+                  {
+                    "type": "Boolean",
+                    "name": "on",
+                    "value": false
+                  }
+                ],
+                "interactions": [
+                  {
+                    "type": "Click",
+                    "actions": [
+                      {
+                        "type": "Toggle",
+                        "inputName": "on"
+                      }
+                    ]
+                  }
+                ],
+                "states": [
+                  {
+                    "name": "off",
+                    "type": "PlaybackState",
+                    "segment": [
+                      0,
+                      10
+                    ],
+                    "loop": false,
+                    "autoplay": true,
+                    "transitions": [
+                      {
+                        "type": "Transition",
+                        "toState": "on",
+                        "guards": [
+                          {
+                            "type": "Boolean",
+                            "inputName": "on",
+                            "conditionType": "Equal",
+                            "compareTo": true
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "on",
+                    "type": "PlaybackState",
+                    "segment": [
+                      10,
+                      20
+                    ],
+                    "loop": false,
+                    "autoplay": true,
+                    "transitions": [
+                      {
+                        "type": "Transition",
+                        "toState": "off",
+                        "guards": [
+                          {
+                            "type": "Boolean",
+                            "inputName": "on",
+                            "conditionType": "Equal",
+                            "compareTo": false
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "layers": [
+                {
+                  "type": "shape",
+                  "id": "fill",
+                  "transform": {
+                    "anchor": [
+                      24,
+                      24
+                    ],
+                    "position": [
+                      24,
+                      24
+                    ],
+                    "opacity": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0,
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 333.333,
+                          "v": 100
+                        }
+                      ]
+                    },
+                    "scale": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": [
+                            40,
+                            40
+                          ],
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 333.333,
+                          "v": [
+                            40,
+                            40
+                          ],
+                          "ease": "ease-out"
+                        },
+                        {
+                          "t": 500,
+                          "v": [
+                            125,
+                            125
+                          ],
+                          "ease": "ease-in-out"
+                        },
+                        {
+                          "t": 633.333,
+                          "v": [
+                            100,
+                            100
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M24 39 C24 39 7 29 7 18 C7 12.5 11 9 16 9 C19.5 9 22.5 11 24 14 C25.5 11 28.5 9 32 9 C37 9 41 12.5 41 18 C41 29 24 39 24 39 Z"
+                    },
+                    {
+                      "type": "fill",
+                      "color": "$color.destructive"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "outline",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M24 39 C24 39 7 29 7 18 C7 12.5 11 9 16 9 C19.5 9 22.5 11 24 14 C25.5 11 28.5 9 32 9 C37 9 41 12.5 41 18 C41 29 24 39 24 39 Z"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.mutedForeground",
+                      "width": 3,
+                      "join": "round"
+                    }
+                  ]
+                }
+              ]
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "liked"
+                }
+              }
+            }
+          },
+          {
+            "id": "sg_motion_like_label",
+            "component": "Text",
+            "props": {
+              "text": "Click to toggle",
+              "variant": "caption"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sg_motion_level_case",
+        "component": "Stack",
+        "props": {
+          "direction": "vertical",
+          "gap": "xs",
+          "align": "stretch"
+        },
+        "style": {
+          "width": "200px"
+        },
+        "children": [
+          {
+            "id": "sg_motion_level",
+            "component": "Motion",
+            "props": {
+              "label": "Level",
+              "size": [
+                200,
+                24
+              ],
+              "fps": 30,
+              "duration": 1000,
+              "markers": [
+                {
+                  "name": "low",
+                  "time": 0,
+                  "duration": 333.333
+                },
+                {
+                  "name": "high",
+                  "time": 333.333,
+                  "duration": 600
+                }
+              ],
+              "stateMachine": {
+                "initial": "low",
+                "inputs": [
+                  {
+                    "type": "Numeric",
+                    "name": "level",
+                    "value": 0
+                  }
+                ],
+                "states": [
+                  {
+                    "name": "low",
+                    "type": "PlaybackState",
+                    "marker": "low",
+                    "transitions": [
+                      {
+                        "type": "Transition",
+                        "toState": "high",
+                        "guards": [
+                          {
+                            "type": "Numeric",
+                            "inputName": "level",
+                            "conditionType": "GreaterThanOrEqual",
+                            "compareTo": 50
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "high",
+                    "type": "PlaybackState",
+                    "marker": "high",
+                    "transitions": [
+                      {
+                        "type": "Transition",
+                        "toState": "done",
+                        "guards": [
+                          {
+                            "type": "Numeric",
+                            "inputName": "level",
+                            "conditionType": "Equal",
+                            "compareTo": 100
+                          }
+                        ]
+                      },
+                      {
+                        "type": "Transition",
+                        "toState": "low",
+                        "guards": [
+                          {
+                            "type": "Numeric",
+                            "inputName": "level",
+                            "conditionType": "LessThan",
+                            "compareTo": 50
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "done",
+                    "type": "PlaybackState",
+                    "segment": [
+                      28,
+                      30
+                    ],
+                    "transitions": [
+                      {
+                        "type": "Transition",
+                        "toState": "low",
+                        "guards": [
+                          {
+                            "type": "Numeric",
+                            "inputName": "level",
+                            "conditionType": "LessThan",
+                            "compareTo": 50
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "inputs": {
+                "@path": "/meter"
+              },
+              "layers": [
+                {
+                  "type": "shape",
+                  "id": "done",
+                  "transform": {
+                    "opacity": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0,
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 933.333,
+                          "v": 100,
+                          "ease": "hold"
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 12 L188 12"
+                    },
+                    {
+                      "type": "trim",
+                      "end": 100
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.success",
+                      "width": 8,
+                      "cap": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "high",
+                  "transform": {
+                    "opacity": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 0,
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 333.333,
+                          "v": 100,
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 933.333,
+                          "v": 0,
+                          "ease": "hold"
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 12 L188 12"
+                    },
+                    {
+                      "type": "trim",
+                      "end": {
+                        "keys": [
+                          {
+                            "t": 333.333,
+                            "v": 58,
+                            "ease": "ease-in-out"
+                          },
+                          {
+                            "t": 633.333,
+                            "v": 72,
+                            "ease": "ease-in-out"
+                          },
+                          {
+                            "t": 933.333,
+                            "v": 58
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.primary",
+                      "width": 8,
+                      "cap": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "low",
+                  "transform": {
+                    "opacity": {
+                      "keys": [
+                        {
+                          "t": 0,
+                          "v": 100,
+                          "ease": "hold"
+                        },
+                        {
+                          "t": 333.333,
+                          "v": 0,
+                          "ease": "hold"
+                        }
+                      ]
+                    }
+                  },
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 12 L188 12"
+                    },
+                    {
+                      "type": "trim",
+                      "end": {
+                        "keys": [
+                          {
+                            "t": 0,
+                            "v": 24,
+                            "ease": "ease-in-out"
+                          },
+                          {
+                            "t": 166.667,
+                            "v": 34,
+                            "ease": "ease-in-out"
+                          },
+                          {
+                            "t": 333.333,
+                            "v": 24
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.warning",
+                      "width": 8,
+                      "cap": "round"
+                    }
+                  ]
+                },
+                {
+                  "type": "shape",
+                  "id": "track",
+                  "shapes": [
+                    {
+                      "type": "path",
+                      "d": "M12 12 L188 12"
+                    },
+                    {
+                      "type": "stroke",
+                      "color": "$color.muted",
+                      "width": 8,
+                      "cap": "round"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "sg_motion_level_slider",
+            "component": "Slider",
+            "props": {
+              "label": "Level",
+              "min": 0,
+              "max": 100,
+              "step": 1,
+              "value": {
+                "@path": "/meter/level"
+              }
+            }
+          },
+          {
+            "id": "sg_motion_level_label",
+            "component": "Text",
+            "props": {
+              "text": "States follow inputs.level",
+              "variant": "caption"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

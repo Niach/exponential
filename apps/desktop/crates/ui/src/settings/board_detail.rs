@@ -80,6 +80,9 @@ pub struct BoardDetailPane {
     /// The bench's state (headless has no board, team or server).
     #[cfg(test)]
     shot: Option<BoardShot>,
+    /// The bench's node presses still to make, and the frames to wait first.
+    #[cfg(test)]
+    shot_presses: (std::collections::VecDeque<String>, u8),
     _subscriptions: Vec<Subscription>,
 }
 
@@ -91,6 +94,8 @@ pub(crate) struct BoardShot {
     pub repos: Option<serde_json::Value>,
     /// The list failed to load.
     pub failed: bool,
+    /// Node ids the bench presses in turn once laid out (a picker's trigger).
+    pub press: Vec<String>,
 }
 
 impl BoardDetailPane {
@@ -151,6 +156,8 @@ impl BoardDetailPane {
             generation: 0,
             #[cfg(test)]
             shot: None,
+            #[cfg(test)]
+            shot_presses: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -169,7 +176,35 @@ impl BoardDetailPane {
             (None, false) => RepoLoad::Loading,
             (Some(rows), false) => RepoLoad::Ready(serde_json::from_value(rows.clone()).expect("repository rows")),
         };
+        self.shot_presses = (shot.press.iter().cloned().collect(), 2);
         self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The bench's next press once its target is laid out (two painted
+    /// frames in); the headless clock stands still, so an open popup's
+    /// enter fade is run out by hand (as `VoicePrefsPane`'s).
+    #[cfg(test)]
+    fn shot_press(&mut self, cx: &mut gpui::Context<Self>) {
+        let (queue, wait) = &mut self.shot_presses;
+        if queue.is_empty() {
+            if !self.view.read(cx).layers().is_empty() {
+                self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            }
+            return;
+        }
+        if *wait > 0 {
+            *wait -= 1;
+            cx.notify();
+            return;
+        }
+        let id = queue.pop_front().unwrap_or_default();
+        *wait = 2;
+        self.view.update(cx, |view, cx| {
+            if let Some(index) = view.index_of(&id) {
+                view.fire(index, "press", None, cx);
+            }
+        });
         cx.notify();
     }
 
@@ -682,6 +717,8 @@ impl Render for BoardDetailPane {
         }
         let projection = self.project(&board, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        #[cfg(test)]
+        self.shot_press(cx);
         div().w_full().min_w_0().child(self.view.clone()).into_any_element()
     }
 }

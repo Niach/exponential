@@ -196,10 +196,12 @@ impl Builder<'_, '_> {
         }
         let modal = kind == "Dialog" || kind == "Drawer";
         self.push_layer(layer, root, &owner_now, placement, modal, dismissible, false, scroll_body);
-        if logical {
-            if let Some(spec) = self.layers.last_mut() {
-                spec.mirror = true;
-            }
+        // `matchAnchorWidth`: a Popover's panel is exactly its anchor's width
+        // (the `anchor` node, else its trigger).
+        let exact = kind == "Popover" && owner.props.get("matchAnchorWidth").and_then(Value::as_bool) == Some(true);
+        if let Some(spec) = self.layers.last_mut() {
+            spec.mirror |= logical;
+            spec.exact_anchor_width = exact;
         }
         if let Some(target) = anchor_id {
             self.anchor_links.push(super::AnchorLink { target, owner: owner.id.clone(), root: Some(root), open: true, hover: open_on_hover });
@@ -261,11 +263,21 @@ impl Builder<'_, '_> {
                     // the label: the icon then leads as its own glyph.
                     let identifier = item.get("identifier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
                     if let Some(icon) = item.get("icon") {
+                        // #EXP-1629: the glyph's own tint (a status picker's
+                        // coloured glyphs): `$color.<name>`, or the host's
+                        // resolved colour in bound data.
+                        let tint = item.get("iconColor").filter(|c| c.is_string()).cloned();
                         if identifier.is_some() {
                             let g = self.part_in(row, owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon.clone(), "size": "sm"}), &suffix);
                             self.nodes[g as usize].part_query = None;
+                            if let Some(color) = tint {
+                                self.nodes[g as usize].base_style.insert("color".into(), color);
+                            }
                         } else {
                             label_props["icon"] = icon.clone();
+                            if let Some(color) = tint {
+                                label_props["iconColor"] = color;
+                            }
                         }
                     }
                     if let Some(identifier) = &identifier {

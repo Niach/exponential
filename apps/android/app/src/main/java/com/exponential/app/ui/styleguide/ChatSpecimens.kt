@@ -601,10 +601,24 @@ private val TRANSCRIPT: List<SessionTree.SessionChatRow> = listOf(
     ),
     message("m3", "user", "Anything new overnight?", authorId = SPECIMEN_VIEWER),
     message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."),
+    // #EXP-1772: a busy agent chat: a schedule firing the agent answered
+    // (THE marker above the reply), a merge line, a relay (its name above).
+    SessionTree.SessionChatRow.Event(id = "e1", event = "trigger_fired", text = "Schedule", sessionId = null),
+    message("m6", "agent", "PR #412 merged overnight; the iPad sign-in reports stopped."),
+    SessionTree.SessionChatRow.Event(id = "e2", event = "pr_merged", text = "Merged PR #412", sessionId = null),
+    SessionTree.SessionChatRow.MessageRow(
+        id = "x2",
+        author = "agent",
+        authorId = null,
+        body = "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.",
+        queued = false,
+        authorSessionId = "c-fix",
+        xref = SessionTree.SessionXref("message", "c-fix", "Fix the sign-in redirect", null),
+    ),
     SessionTree.SessionChatRow.Divider(id = "d2", kind = Chats.DIVIDER_KIND_NEW, at = "2026-10-24T09:30:00.000Z"),
 )
 
-private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03")
+private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m2b" to "21:14", "m3" to "09:02", "m4" to "09:03", "m6" to "07:00", "x2" to "08:41")
 
 /** The specimen's names by member id. */
 private fun specimenAuthor(row: SessionTree.SessionChatRow.MessageRow): String =

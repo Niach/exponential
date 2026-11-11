@@ -464,15 +464,19 @@ impl Builder<'_, '_> {
             return;
         }
         let needle = query.to_lowercase();
-        let mut shown_any = false;
-        for (i, option) in options.iter().enumerate() {
+        // The SHOWN options (the search keeps those whose label holds it).
+        let shown: Vec<(usize, &Value)> = options.iter().enumerate().filter(|(_, o)| needle.is_empty() || o.get("label").map(js).unwrap_or_default().to_lowercase().contains(&needle)).collect();
+        let picked: Vec<bool> = shown.iter().map(|(_, o)| chosen.contains(&o.get("value").map(js).unwrap_or_default())).collect();
+        let shown_any = !shown.is_empty();
+        for (position, &(i, option)) in shown.iter().enumerate() {
             let label = option.get("label").map(js).unwrap_or_default();
-            if !needle.is_empty() && !label.to_lowercase().contains(&needle) {
-                continue;
-            }
-            shown_any = true;
             let v = option.get("value").map(js).unwrap_or_default();
-            let selected = chosen.contains(&v);
+            let selected = picked[position];
+            // A `multiple` run of adjacent picked SHOWN rows is ONE block
+            // (web's Picker, the IDE's `multi_row_edges`): a picked row
+            // `joinTop` under a picked row, `joinBottom` over one.
+            let join_top = multiple && selected && position > 0 && picked[position - 1];
+            let join_bottom = multiple && selected && picked.get(position + 1).copied().unwrap_or(false);
             let disabled = option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
             // #EXP-1629: an option's `trailing` reads on after its label in
             // the item's own style (the IDE branch picker's `main · default`);
@@ -532,6 +536,12 @@ impl Builder<'_, '_> {
                 self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &suffix)
             };
             self.nodes[item as usize].pressable = !disabled;
+            if join_top {
+                self.query_prop(item, "joinTop", Value::Bool(true));
+            }
+            if join_bottom {
+                self.query_prop(item, "joinBottom", Value::Bool(true));
+            }
             if selected {
                 self.add_state(item, "selected");
             }
@@ -1165,10 +1175,23 @@ impl Builder<'_, '_> {
     /// before `trailing` (its frame's width + the bar's gap further from
     /// send). A leaf with children lays them out at its measured size
     /// (`engine.rs`).
+    ///
+    /// #EXP-1762: `above` = ONE child over the field, inside the card: an
+    /// `above` column FIRST (the content box's full width, at its top), the
+    /// bar last (`space-between` keeps it at the bottom). Unlike the row's
+    /// slots it SIZES the composer: the engine adds its height + the root's
+    /// gap to the measure (`View::above_extra`); a painter puts the field
+    /// below it.
     pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
         let Some(slots) = &node.slots else { return };
         let owner = self.nodes[index as usize].clone();
-        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!("flex-end"))]);
+        let above = slots.get("above");
+        let justify = if above.is_some() { "space-between" } else { "flex-end" };
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!(justify))]);
+        if let Some(slot) = above {
+            let wrap = self.part(&owner, "above", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "alignItems": "stretch", "alignSelf": "stretch", "flexShrink": 0, "minWidth": 0}), json!({}));
+            self.add(slot, Some(wrap), layer, scope, false);
+        }
         let bar = self.part(&owner, "bar", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.buttonIcon", "flexShrink": 0, "alignSelf": "stretch"}), json!({}));
         for (name, grow) in [("leading", false), ("trailing", true)] {
             if grow {

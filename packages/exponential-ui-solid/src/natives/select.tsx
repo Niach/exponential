@@ -26,7 +26,7 @@
 // before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
@@ -423,6 +423,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     onPlaced: () => {
@@ -690,6 +691,7 @@ function ComboboxContent(props: {
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     dir: () => undefined,
@@ -785,7 +787,7 @@ function ComboboxContent(props: {
                   aria-selected={isSel()}
                   aria-disabled={bool(o.disabled) || undefined}
                   data-active={isActive() ? `` : undefined}
-                  {...part(`item`, isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
+                  {...part.with(`item`, selectItemJoins(s.multiple(), props.shown().length, (j) => props.selected().includes(props.shown()[j]!.value), i()), isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
                   data-mono={bool(o.mono) ? `` : undefined}
                   onPointerMove={() => props.nav.setActive(i())}
                   onMouseDown={(e) => e.preventDefault()}

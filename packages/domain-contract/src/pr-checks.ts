@@ -90,6 +90,18 @@ export function gatedChecksState(checks: readonly PrCheckLike[]): PrChecksState 
   return aggregateChecksState(gatedChecks(checks))
 }
 
+/** #FEED-221: the same over the base branch's required NAMES when the forge
+ *  answered them, so a row that lost its `required` flag cannot gate; a
+ *  required name without a row = not reported yet. No names = the flags. */
+export function requiredChecksState(checks: readonly PrCheckLike[], required: Iterable<string>): PrChecksState {
+  const names = new Set(required)
+  if (names.size === 0) return gatedChecksState(checks)
+  const gated = checks.filter((check) => names.has(check.name))
+  if (gated.some(isFailingCheck)) return `failure`
+  if ([...names].some((name) => !gated.some((check) => check.name === name))) return `pending`
+  return aggregateChecksState(gated)
+}
+
 const COPY = contract.prChecks
 
 function list(names: readonly string[]): string {

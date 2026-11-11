@@ -366,6 +366,43 @@ fn oldest_first(messages: &mut Vec<&MessageRow>) {
     messages.extend(keyed.into_iter().map(|(_, message)| message));
 }
 
+/// #LOGS-11: a chat message's place in [`build_session_chat`]'s
+/// conversation (oldest first): its instant, then its id.
+pub fn chat_order_key(message: &MessageRow) -> (i64, &str) {
+    (ms_or_zero(message.created_at.as_deref()), message.id.as_str())
+}
+
+/// THE row of an unlocked, card-less conversation message
+/// ([`build_session_chat`]): a command divider (a person's), the message
+/// (`xref` = its link to the session that posted it), or none for an empty
+/// body. #LOGS-11: a chat's incremental append reads the same row.
+pub fn plain_message_row(message: &MessageRow, xref: Option<SessionXref>) -> Option<SessionChatRow> {
+    let author = match message.author_kind.as_deref() {
+        Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+        Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+        _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
+    };
+    let body = message_row_body(message.body_text(), &message.attachment_ids);
+    if body.trim().is_empty() {
+        return None;
+    }
+    let divider = (author == MESSAGE_AUTHOR_KIND_USER)
+        .then(|| crate::chats::command_divider(message.body_text()))
+        .flatten();
+    if let Some(kind) = divider {
+        return Some(SessionChatRow::Divider { id: message.id.clone(), kind, at: message.created_at.clone().unwrap_or_default() });
+    }
+    Some(SessionChatRow::Message {
+        id: message.id.clone(),
+        author: author.to_string(),
+        author_id: message.author_id.clone(),
+        body,
+        queued: author == MESSAGE_AUTHOR_KIND_USER && message.consumed_at.as_deref().is_none_or(str::is_empty),
+        author_session_id: message.author_session_id.clone(),
+        xref,
+    })
+}
+
 /// JS `String(value ?? '')`.
 fn js_string(value: Option<&Value>) -> String {
     match value {
@@ -1774,6 +1811,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
     let messages_by_id: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|message| (message.id.as_str(), *message)).collect();
     let mut escalated: HashSet<&str> = HashSet::new();
+    let mut fires: HashSet<&str> = HashSet::new();
     for message in conversation {
         if let Some(reason) = message.locked() {
             let author = match message.author_kind.as_deref() {
@@ -1785,40 +1823,12 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
             continue;
         }
         let Some(card) = message.card.as_ref() else {
-            let author = match message.author_kind.as_deref() {
-                Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
-                Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
-                _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
-            };
-            let body = message_row_body(message.body_text(), &message.attachment_ids);
-            if body.trim().is_empty() {
-                continue;
-            }
-            let divider = (author == MESSAGE_AUTHOR_KIND_USER)
-                .then(|| crate::chats::command_divider(message.body_text()))
-                .flatten();
-            if let Some(kind) = divider {
-                rows.push(SessionChatRow::Divider {
-                    id: message.id.clone(),
-                    kind,
-                    at: message.created_at.clone().unwrap_or_default(),
-                });
-                continue;
-            }
-            rows.push(SessionChatRow::Message {
-                id: message.id.clone(),
-                author: author.to_string(),
-                author_id: message.author_id.clone(),
-                body,
-                queued: author == MESSAGE_AUTHOR_KIND_USER
-                    && message.consumed_at.as_deref().is_none_or(str::is_empty),
-                author_session_id: message.author_session_id.clone(),
-                xref: message
-                    .author_session_id
-                    .as_deref()
-                    .filter(|id| !id.is_empty() && *id != root.id)
-                    .and_then(|id| xref("message", Some(id))),
-            });
+            let link = message
+                .author_session_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && *id != root.id)
+                .and_then(|id| xref("message", Some(id)));
+            rows.extend(plain_message_row(message, link));
             continue;
         };
         match card_str(card, "kind") {
@@ -1871,6 +1881,27 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 }
             }
             Some(MESSAGE_CARD_KIND_EVENT) => {
+                // #EXP-1772: a firing draws nothing of its own; one the agent
+                // answered is THE marker above that reply (`fires`, below).
+                if card_str(card, "event") == Some("trigger_fired") {
+                    let named = card_str(card, "name").is_some_and(|name| !name.trim().is_empty());
+                    let text = if named {
+                        event_text(card, &issue_map, &pr_map, |_| None)
+                    } else {
+                        SESSION_CHAT.copy.events.get("trigger_schedule").cloned()
+                    };
+                    let Some(text) = text.filter(|text| !text.is_empty()) else {
+                        continue;
+                    };
+                    fires.insert(message.id.as_str());
+                    rows.push(SessionChatRow::Event {
+                        id: message.id.clone(),
+                        event: "trigger_fired".to_string(),
+                        text,
+                        session_id: None,
+                    });
+                    continue;
+                }
                 let session_name = |id: &str| {
                     by_id
                         .get(id)
@@ -1922,6 +1953,23 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
             Some(MESSAGE_CARD_KIND_SURFACE) => rows.extend(surface_card_row(message)),
             _ => {}
         }
+    }
+
+    // #EXP-1772: a firing stays only right above the chat's own agent reply.
+    if !fires.is_empty() {
+        let keep: Vec<bool> = (0..rows.len())
+            .map(|index| {
+                if !fires.contains(rows[index].id()) {
+                    return true;
+                }
+                matches!(
+                    rows.get(index + 1),
+                    Some(SessionChatRow::Message { author, xref: None, .. }) if author == MESSAGE_AUTHOR_KIND_AGENT
+                )
+            })
+            .collect();
+        let mut keep = keep.into_iter();
+        rows.retain(|_| keep.next().unwrap_or(true));
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();

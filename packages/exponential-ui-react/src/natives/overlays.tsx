@@ -16,7 +16,7 @@ import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMen
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath, isPickerPopover } from "@exponential_app/eui/web"
+import { absolutePath, isPickerPopover, propColor, popoverPanelWidth } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
@@ -331,6 +331,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
+  const panelWidth = popoverPanelWidth(props, `--radix-popover-trigger-width`)
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
@@ -380,6 +381,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           }
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, Radix's anchor-width variable (re-measured on a resize).
+          style={panelWidth ? { width: panelWidth } : undefined}
         >
           {/* The nearest overlay decides: a Form in a Popover closes nothing,
               not even a Dialog around the Popover. */}
@@ -457,6 +461,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -552,7 +558,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
       {items.map((item, i) => {
         const kind = item.separator ? `separator` : (item.kind ?? `item`)
         const key = `${path}${i}`
-        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} /> : null
+        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} style={propColor(item.iconColor) ? { color: propColor(item.iconColor) } : undefined} /> : null
         const shortcut = item.shortcut ? <span {...(part(`shortcut`) as Record<string, string>)}>{item.shortcut}</span> : null
         // #EXP-1629: the mono id between the icon and the label, the muted
         // detail after the label (before the shortcut / the indicator).
@@ -613,6 +619,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
                   <BuiltinIcon slot="Menu.check" />
                 </N.ItemIndicator>
               </span>
+              {icon}
               {identifier}
               <span className="xui-menu-label">{str(item.label)}</span>
               {detail}
