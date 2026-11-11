@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Composer matches the app: generated catalog (`Composer.send` = `ui-submit`) + themes (the flat field's `paddingTop`: neutral `$spacing.sm`, exponential 4.25); `interactions_fixture` replays composerSlots `field` against the recipes.
+- Menu item `iconColor` (#EXP-1629): an item with an `icon` passes its `iconColor` to the `itemLabel` leaf's props (`tests/menu_icon_color.rs`); a literal is validated as a colour token, a bound one is the host's.
 - Skeleton `rows` are borderless (#EXP-1629, `fixtures/skeleton-rows.json`): no `borderTopWidth` hairline between rows, so rows after the first centre their dot and bars in the full row height again (+0.5 px off before). `tests/skeleton_rows.rs` replays the fixture.
 - Select `multiple` (#EXP-1629): a picked item's part query carries `joinTop` / `joinBottom` when the SHOWN item above / below is picked too, so the recipe draws a run of adjacent picks as one block; the theme validator knows the three new corner keys. `tests/select_multi_join.rs`.
 - Popover `matchAnchorWidth`: the layer (`LayerSpec::exact_anchor_width`) is laid out at EXACTLY its anchor's frame width every pass (min = max = the anchor's), so it follows the anchor when it resizes; `overlay-geometry.json`'s `matchAnchorWidth` cases replay through the layer manager, + a resize test.

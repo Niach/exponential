@@ -186,6 +186,7 @@ mod labels;
 mod local_repos;
 mod mcp_servers;
 mod members;
+mod menu_icon_color;
 mod new_agent;
 mod notifications;
 mod pending_pill;

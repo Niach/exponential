@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Composer matches the app: the send glyph is the catalog's `Composer.send` = `ui-submit` (`Glyph.Submit`, Lucide `circle-arrow-up`); a flat `ComposerLeaf` places its text field `paddingTop` (the field recipe's) below the row's top down to its bottom, one line or grown (`flatComposerField`), and the measurer adds the field's paddingTop/paddingBottom. Snapshots: the Composer cases re-recorded.
+- Menu item `iconColor` (#EXP-1629): `MenuItemLeaf` paints the glyph in `LeafContext.propColor` (a `$color.<name>` token, else the host's hex), else the ink.
 - Skeleton `rows` (#EXP-1629): no hairline between rows (from eui-core, and the native Select popup's loading rows); the Skeleton pulse eases on CSS `ease-in-out` (cubic-bezier 0.42, 0, 0.58, 1) instead of `FastOutSlowInEasing`. Snapshot `components.json` re-recorded (`RecordTable/loading=true`).
 - Select `multiple` (#EXP-1629): our own popup's option rows resolve `Select/item` with `joinTop` / `joinBottom` (`selectItemJoins` over the shown options) and paint their fill and stroke per side and corner (`paintedSurface`, an absolute per-corner clip) with the recipe's `paddingTop` / `paddingBottom`, so a run of adjacent picks is one block.
 - Popover `matchAnchorWidth` (the core's exact layer width; the popup paints `layer.frame`): `GeometryTest` replays the fixture's `matchAnchorWidth` cases through the model (width = the anchor's, x as recorded). Snapshots: + `Popover/matchAnchorWidth=true|false`.
