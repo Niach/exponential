@@ -1904,7 +1904,7 @@ private fun ActivityFeed(
     LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {
         val request = cardScroll ?: return@LaunchedEffect
         if (focused != null) return@LaunchedEffect
-        val lead = 1 + (if (canLoadEarlier) 1 else 0)
+        val lead = if (canLoadEarlier) 1 else 0
         val head = sessionCards.head.indexOfFirst { it.id == request.id }
         val index = if (head >= 0) {
             lead + head
