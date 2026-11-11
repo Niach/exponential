@@ -4,7 +4,8 @@
     { "name": "a field keeps the cursor", "triggerVariant": "field", "cursor": true },
     { "name": "a row keeps the cursor", "triggerVariant": "row", "cursor": true },
     { "name": "a button keeps the cursor (web's picker)", "triggerVariant": "button", "cursor": true },
-    { "name": "a pill starts without one", "triggerVariant": "pill", "cursor": false }
+    { "name": "a pill starts without one", "triggerVariant": "pill", "cursor": false },
+    { "name": "an inline keeps the cursor (the field's popup)", "triggerVariant": "inline", "cursor": true }
   ],
   "numberField": [
     {

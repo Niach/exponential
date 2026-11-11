@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant: "inline"` (#EXP-1629): content-sized (`alignSelf: flex-start`), no `label` part (the label is its accessible name), the `Select.dropdown` glyph; the field's popup (`tests/select_inline.rs`); regenerated catalog + themes.
 - Composer (#EDE-65): a hidden `above` child lays out no `above` column (no gap, no extra height); regenerated themes (`sendIcon`).
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Select `button` popup matches web's picker (#EXP-1629): the layout constants (`SELECT_BUTTON_POPUP_OFFSET` 4, `SELECT_BUTTON_ITEM_GAP` 0) and regenerated themes.

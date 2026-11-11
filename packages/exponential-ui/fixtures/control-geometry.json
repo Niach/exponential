@@ -870,6 +870,21 @@
               "borderWidth": 1,
               "borderRadius": 8
             }
+          },
+          "triggerVariant=inline": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "inline"
+            },
+            "geometry": {
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "gap": 4,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -2505,6 +2520,21 @@
               "borderWidth": 1,
               "borderRadius": 10
             }
+          },
+          "triggerVariant=inline": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "inline"
+            },
+            "geometry": {
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "gap": 7,
+              "borderWidth": 0,
+              "borderRadius": 0
+            }
           }
         }
       },
@@ -4130,6 +4160,21 @@
               "paddingHorizontal": 16,
               "borderWidth": 3,
               "borderRadius": 9999
+            }
+          },
+          "triggerVariant=inline": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "inline"
+            },
+            "geometry": {
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "gap": 4,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
@@ -5768,6 +5813,21 @@
               "gap": 4,
               "borderWidth": 1,
               "borderRadius": 10
+            }
+          },
+          "triggerVariant=inline": {
+            "props": {
+              "multiple": false,
+              "searchable": false,
+              "disabled": false,
+              "triggerVariant": "inline"
+            },
+            "geometry": {
+              "paddingHorizontal": 0,
+              "paddingVertical": 0,
+              "gap": 7,
+              "borderWidth": 0,
+              "borderRadius": 0
             }
           }
         }
