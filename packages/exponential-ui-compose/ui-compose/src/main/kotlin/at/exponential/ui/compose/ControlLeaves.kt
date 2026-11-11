@@ -306,6 +306,11 @@ private fun SelectTriggerContent(cx: LeafContext, modifier: Modifier, placeholde
             horizontalArrangement = Arrangement.spacedBy(selectTriggerGap(cx.style.gap, cx.spacing("sm")).dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // #EXP-1629: a `button` leads with the picked option's glyph, in its tint.
+            cx.props["valueIcon"]?.string?.takeIf { it.isNotEmpty() }?.let { picked ->
+                val size = cx.part("Select", "valueIcon").let { it.width ?: it.height } ?: 16f
+                IconView(picked, size, cx.props["iconColor"]?.string?.let(cx::propColor) ?: valueInk, cx.model, rtl = cx.rtl)
+            }
             LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = valueInk)
             if (pill) IconOrGlyph(cx.props.str("icon").ifEmpty { builtinIcon("Select.dropdown", "ui-chevron-down") }, Glyph.ChevronDown, glyphSize, cx, glyphInk)
             else GlyphView(Glyph.ChevronsUpDown, glyphSize, glyphInk)

@@ -858,7 +858,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let glyph = SelectTrigger.glyphSize(part("Select", "chevron", leaf.props))
         // #EXP-1765: a pill's text and glyph sit its recipe `gap` apart (#EXP-1778: a `button`'s too).
         let gap = SelectTrigger.isPillLike(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
-        return MeasuredContent(line(text, ts) + gap + glyph, ts.lineHeight, Self.baseline(ts))
+        // #EXP-1629: a `button`'s picked-option glyph.
+        let picked = leaf.props.str("valueIcon").isEmpty ? 0 : SelectTrigger.glyphSize(part("Select", "valueIcon", leaf.props)) + gap
+        return MeasuredContent(line(text, ts) + gap + glyph + picked, ts.lineHeight, Self.baseline(ts))
     }
 
     /// The web's `<audio controls>` bar height (Chromium).
