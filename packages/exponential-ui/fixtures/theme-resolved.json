@@ -4233,6 +4233,22 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
             }
           ]
         },
@@ -12831,7 +12847,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },
@@ -13757,6 +13773,39 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
               }
             }
           ]
@@ -22760,8 +22809,24 @@
               }
             },
             {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full"
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
               }
             }
           ]
@@ -31666,7 +31731,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },
@@ -32592,6 +32657,39 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
               }
             }
           ]

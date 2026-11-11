@@ -1340,7 +1340,7 @@
             "paddingHorizontal": 8,
             "paddingVertical": 4.5,
             "gap": 7,
-            "fontSize": 12.25,
+            "fontSize": 14,
             "lineHeight": 19.82
           }
         },
@@ -1669,6 +1669,27 @@
           },
           "style": {
             "paddingTop": 4.25
+          }
+        }
+      ],
+      "send": [
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": 0.4
+          }
+        }
+      ],
+      "sendIcon": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "width": 24,
+            "height": 24
           }
         }
       ]

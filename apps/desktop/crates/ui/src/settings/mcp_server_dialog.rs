@@ -22,26 +22,24 @@
 //! own sentence.
 //!
 //! #EXP-1629: the window stays native; its content is a document on the
-//! native binding ([`document`] over [`McpServerDialogView::project`]). The
-//! Runs on picker and the Sign-in / Transport rows stay the IDE's own
-//! elements, `host_leaf` Embeds ([`PickerHost`]; drop with EXP-1784).
+//! native binding ([`document`] over [`McpServerDialogView::project`]);
+//! #EXP-1784: the Runs on, Sign-in and Transport rows are genUI row Selects.
 
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
-use gpui::{div, px, size, AnyElement, App, AppContext as _, Div, Entity, IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity, Window};
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use gpui::{div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity, Window};
 use gpui_component::{ActiveTheme as _, ElementExt as _};
 use serde_json::{json, Value};
 
 use api::mcp_servers::{McpServerConfig, McpServerDevice, McpServerFields};
 
-use crate::controls::PointerMenuButtonExt as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::picker::device_picker::DevicePickerDevice;
 use crate::queries;
-use crate::surface;
 
+use super::agent_doc::select_row;
 use super::doc::{hex, not, path, IdeToasts, Ink, LINE, SM, XS};
 use super::mcp_servers::McpServersPane;
 
@@ -329,6 +327,10 @@ pub struct McpServerDialogView {
     /// The Runs on rows the pictures add (no store rows headless).
     #[cfg(test)]
     shot_devices: Vec<DevicePickerDevice>,
+    /// Frames the bench's opened popup still fades in over (the headless
+    /// clock stands still).
+    #[cfg(test)]
+    shot_settle: u8,
 }
 
 /// The six text fields (ONE names field: the transport decides which side of
@@ -398,12 +400,11 @@ impl McpServerDialogView {
         // Every action leaves the binding for the view (the writes and the
         // window's close need its window).
         let me = cx.weak_entity();
-        let host = me.clone();
         let handle = window.window_handle();
         let binding = cx.new(|_| {
             let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["edit", "touch", "attempt", "toggle", "advanced", "cancel", "submit"] {
+            for name in ["edit", "touch", "attempt", "toggle", "advanced", "device", "auth", "transport", "cancel", "submit"] {
                 let me = me.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -432,8 +433,7 @@ impl McpServerDialogView {
             primary_fg: hex(theme.button_primary_foreground),
             primary_hover: hex(theme.button_primary_hover),
         };
-        let plugin = Rc::new(PickerHost { ide: super::doc::ide_plugin(), view: host });
-        let view = super::doc::mount_with("mcp-server-dialog", document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
+        let view = super::doc::mount_with("mcp-server-dialog", document(&Ink::of(cx), &chrome), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
         // The content owns the window's height: the rows scroll, the footer
         // stays (`DialogContent::self_scrolling`).
         view.update(cx, |view, cx| {
@@ -461,6 +461,8 @@ impl McpServerDialogView {
             view,
             #[cfg(test)]
             shot_devices: Vec::new(),
+            #[cfg(test)]
+            shot_settle: 0,
         }
     }
 
@@ -483,6 +485,19 @@ impl McpServerDialogView {
         self.busy = shot.busy;
         let device = |id: &str, name: &str, icon: &str, server: bool| DevicePickerDevice { id: id.into(), name: name.into(), icon: Some(icon.into()), server, description: None, disabled: false };
         self.shot_devices = vec![device("d1", "studio-mac", "laptop", false), device("d2", "build-server", "server", true)];
+        cx.notify();
+    }
+
+    /// The bench's press on a document node (a headless click never reaches
+    /// an eUI popup), its popup's enter fade run out.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(id).expect("the pressed node");
+            view.press(index, window, cx);
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
+        self.shot_settle = 4;
         cx.notify();
     }
 
@@ -513,6 +528,17 @@ impl McpServerDialogView {
                 }
             }
             "advanced" => self.advanced = !self.advanced,
+            // A Select's `change` also reports `{open}` as its popup opens.
+            "device" | "auth" | "transport" if payload.get("value").is_none() => return,
+            "device" => self.device_id = (!value.is_empty()).then(|| value.to_string()),
+            "auth" => self.auth = value.to_string(),
+            "transport" => {
+                self.transport = value.to_string();
+                // OAuth is an HTTP-only kind; a stdio row falls back.
+                if self.transport == "stdio" && self.auth == "oauth" {
+                    self.auth = "none".to_string();
+                }
+            }
             "cancel" if !self.busy => native_dialog::close_dialog_window(window, cx),
             "submit" => self.submit(window, cx),
             _ => {}
@@ -621,10 +647,10 @@ impl McpServerDialogView {
 }
 
 impl McpServerDialogView {
-    /// VAPP-239 (settings-mcp.json `runsOnLabel`): THE device picker over the
+    /// VAPP-239 (settings-mcp.json `runsOnLabel`): the Runs on options, the
     /// owner's own desktop apps and CLI daemons, first item `runsOnServer` =
     /// no device (the server broker calls it).
-    fn runs_on_row(&self, view: WeakEntity<Self>, cx: &App) -> Div {
+    fn runs_on_options(&self, cx: &App) -> Vec<Value> {
         let copy = &super::mcp::SETTINGS_MCP;
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let mut rows = vec![DevicePickerDevice {
@@ -663,99 +689,7 @@ impl McpServerDialogView {
                 disabled: false,
             });
         }
-        let picked = self.device_id.clone().unwrap_or_default();
-        let label = rows.iter().find(|r| r.id == picked).map(|r| r.name.clone()).unwrap_or_else(|| copy.runs_on_server.to_string());
-        let trigger = crate::trigger_editor::picker_trigger("mcp-edit-runs-on".into(), label, cx).into_any_element();
-        let on_pick: crate::picker::OnPickerChange<String> = Rc::new(move |next: Vec<String>, _window: &mut Window, cx: &mut App| {
-            let Some(id) = next.into_iter().next() else { return };
-            if let Some(view) = view.upgrade() {
-                view.update(cx, |view, cx| {
-                    view.device_id = (!id.is_empty()).then_some(id);
-                    cx.notify();
-                });
-            }
-        });
-        let control = crate::picker::deferred(move |window, cx| {
-            crate::picker::device_picker::device_picker(&rows, Some(picked), trigger, on_pick)
-                .id(SharedString::from("mcp-edit-runs-on-picker"))
-                .render(window, cx)
-        })
-        .into_any_element();
-        surface::glass_picker_row(copy.runs_on_label, None, control, cx)
-    }
-
-    /// A closed-vocabulary picker row (Transport · Auth): the label leading,
-    /// the picked label trailing behind a caret, writing `value` back through
-    /// `apply`.
-    fn choice_row(
-        label: &'static str,
-        id: &'static str,
-        options: Vec<(&'static str, &'static str)>,
-        current: &str,
-        apply: fn(&mut Self, &str),
-        view: WeakEntity<Self>,
-        cx: &App,
-    ) -> Div {
-        let picked: SharedString = options
-            .iter()
-            .find(|(value, _)| *value == current)
-            .map(|(_, label)| *label)
-            .unwrap_or(current)
-            .to_string()
-            .into();
-        let current = current.to_string();
-        let control = crate::trigger_editor::picker_trigger(id.into(), picked, cx)
-            .pointer_menu(move |mut menu, _window, _cx| {
-                menu = crate::pickers::single_select_menu(menu);
-                for (value, label) in &options {
-                    let view = view.clone();
-                    let value = value.to_string();
-                    let on = value == current;
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(SharedString::from(*label), false)
-                            .checked(on)
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let value = value.clone();
-                                    view.update(cx, |view, cx| {
-                                        apply(view, &value);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            })
-            .into_any_element();
-        surface::glass_picker_row(label, None, control, cx)
-    }
-
-    /// The Embed claimed as `id`: that picker's row, built from the view.
-    fn picker_row(&self, id: &str, view: WeakEntity<Self>, cx: &App) -> Option<Div> {
-        match id {
-            RUNS_ON => Some(self.runs_on_row(view, cx)),
-            SIGN_IN => {
-                let options = if self.transport == "stdio" { vec![AUTH_NONE, AUTH_SECRET] } else { vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET] };
-                Some(Self::choice_row("Sign-in", SIGN_IN, options, &self.auth, |this, value| this.auth = value.to_string(), view, cx))
-            }
-            TRANSPORT => Some(Self::choice_row(
-                "Transport",
-                TRANSPORT,
-                TRANSPORT_OPTIONS.to_vec(),
-                &self.transport,
-                |this, value| {
-                    this.transport = value.to_string();
-                    // OAuth is an HTTP-only kind; a stdio row falls back.
-                    if this.transport == "stdio" && this.auth == "oauth" {
-                        this.auth = "none".to_string();
-                    }
-                },
-                view,
-                cx,
-            )),
-            _ => None,
-        }
+        rows.into_iter().map(|r| json!({"label": r.name, "value": r.id, "icon": crate::icons::device_icon_name(r.icon.as_deref(), r.server)})).collect()
     }
 
     /// The state as the document binds it.
@@ -767,10 +701,8 @@ impl McpServerDialogView {
         // the person has not seen yet.
         let line = self.error.as_ref().map(ToString::to_string).or_else(|| dialog_line(&draft, &self.touched, self.attempted));
         let blocked = validate(&draft).is_some();
-        // Each picker row's Embed: its data is what the IDE row reads, so a
-        // pick or a synced device repaints the leaf.
-        let leaf = |id: &str, value: Value| json!({"root": {"id": id, "component": "Box"}, "data": {"value": value}});
-        let devices = sync::Store::try_global(cx).map_or(0, |store| store.collections().devices.read(cx).iter().count());
+        let choices = |options: &[(&str, &str)]| options.iter().map(|(value, label)| json!({"label": label, "value": value})).collect::<Vec<_>>();
+        let auth_options = if self.transport == "stdio" { vec![AUTH_NONE, AUTH_SECRET] } else { vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET] };
         json!({
             "fields": {"name": self.fields.name, "url": self.fields.url, "command": self.fields.command, "args": self.fields.args, "names": self.fields.names, "scopes": self.fields.scopes},
             "http": http,
@@ -780,9 +712,9 @@ impl McpServerDialogView {
             "advancedClosed": !self.advanced,
             "enabled": self.enabled_by_default,
             "pickers": {
-                "runsOn": leaf(RUNS_ON, json!([self.device_id, devices])),
-                "signIn": leaf(SIGN_IN, json!([self.auth, http])),
-                "transport": leaf(TRANSPORT, json!(self.transport)),
+                "runsOn": {"value": self.device_id.clone().unwrap_or_default(), "options": self.runs_on_options(cx)},
+                "signIn": {"value": self.auth, "options": choices(&auth_options)},
+                "transport": {"value": self.transport, "options": choices(TRANSPORT_OPTIONS)},
             },
             "namesLabel": match (draft.auth == "secret", http) {
                 (true, true) => "Header that carries the key",
@@ -805,6 +737,12 @@ impl McpServerDialogView {
 impl Render for McpServerDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "McpServerDialogView").entered();
+        #[cfg(test)]
+        if self.shot_settle > 0 {
+            self.shot_settle -= 1;
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            cx.notify();
+        }
         let projection = self.project(cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         // The window owns the height (resizable): the document fills it.
@@ -812,45 +750,6 @@ impl Render for McpServerDialogView {
         div().size_full().min_w_0().on_prepaint(move |bounds, _, cx| {
             surface.update(cx, |view, cx| view.set_viewport_height(f32::from(bounds.size.height), cx));
         }).child(self.view.clone())
-    }
-}
-
-/// The Embed ids the host paints (`glass_picker_row`s with the IDE's pickers).
-const RUNS_ON: &str = "mcp-edit-runs-on-row";
-const SIGN_IN: &str = "mcp-edit-auth";
-const TRANSPORT: &str = "mcp-edit-transport";
-
-/// One `glass_picker_row`'s height: `py_3` around a `text_sm` line.
-fn picker_row_height(rem: f32) -> f32 {
-    rem * 0.75 * 2. + rem * SM * LINE
-}
-
-// drop with EXP-1784: the Runs on device picker and the Sign-in / Transport
-// rows stay the IDE's own gpui elements (`host_leaf` Embeds) until genUI's
-// Select popup matches the IDE's menu (14 px rows on a 28 pt pitch, a white
-// check, no row lit on a pointer open, the menu layer over a dialog window).
-struct PickerHost {
-    ide: crate::exponential_ui_host::IdePlugin,
-    view: WeakEntity<McpServerDialogView>,
-}
-
-impl HostPlugin for PickerHost {
-    fn icon(&self, name: &str) -> Option<SharedString> {
-        self.ide.icon(name)
-    }
-
-    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
-        self.ide.on_unknown(node)
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, cx: &mut App) -> Option<f32> {
-        matches!(component_id, RUNS_ON | SIGN_IN | TRANSPORT).then(|| picker_row_height(f32::from(cx.theme().font_size)))
-    }
-
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let view = self.view.upgrade()?;
-        let row = view.read(cx).picker_row(component_id, self.view.clone(), cx)?;
-        Some(row.into_any_element())
     }
 }
 
@@ -876,11 +775,6 @@ fn input_row(id: &str, label: Value, placeholder: &str, visible: Value) -> Value
         "on": {"change": {"event": {"name": "edit", "context": {"field": id}}}, "blur": {"event": {"name": "touch", "context": {"field": id}}}, "submit": {"event": {"name": "attempt"}}}})
 }
 
-// drop with EXP-1784: a picker row is a claimed Embed (`PickerHost`).
-fn picker_embed(ink: &Ink, id: &str, surface: &str) -> Value {
-    json!({"id": id, "component": "Embed", "props": {"surface": path(surface)}, "style": {"width": "100%", "height": picker_row_height(ink.rem), "flexShrink": 0}})
-}
-
 /// A `web_sm` `Button` (32 px, `px 12`, `text_sm` on a line of 1, the theme
 /// radius; `gap_1` before a glyph).
 #[allow(clippy::too_many_arguments)]
@@ -904,7 +798,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     // The first group, web alike: what every server needs.
     let name = input_row("name", json!("Name"), "linear", json!(true));
     let url = input_row("url", json!("URL"), "https://mcp.example.com/mcp", path("/pane/http"));
-    let device = picker_embed(ink, RUNS_ON, "/pane/pickers/runsOn");
+    let device = select_row("runs_on", super::mcp::SETTINGS_MCP.runs_on_label, "pickers/runsOn", "device", json!({"popupMinWidth": 170}));
     let toggle = ink.shell("default", false, json!(true), vec![
         json!({"id": "default_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}, "children": [ink.text("default_label", json!(domain::skills::DEFAULT_LABEL), SM, &ink.foreground)]}),
         json!({"id": "default_switch", "component": "Switch", "props": {"label": "", "name": "enabledByDefault", "checked": path("/pane/enabled")}, "on": {"change": {"event": {"name": "toggle"}}}}),
@@ -944,8 +838,8 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     // Behind the fold: how it signs in, how it runs, the transport's fields.
     let stdio = path("/pane/stdio");
     let oauth = path("/pane/oauth");
-    let auth = picker_embed(ink, SIGN_IN, "/pane/pickers/signIn");
-    let transport = picker_embed(ink, TRANSPORT, "/pane/pickers/transport");
+    let auth = select_row("sign_in", "Sign-in", "pickers/signIn", "auth", json!({"popupMinWidth": 170}));
+    let transport = select_row("transport", "Transport", "pickers/transport", "transport", json!({"popupMinWidth": 170}));
     let command = input_row("command", json!("Command"), "npx", stdio.clone());
     let args = input_row("args", json!("Arguments"), "-y @acme/mcp", stdio.clone());
     let names = input_row("names", path("/pane/namesLabel"), "X-Api-Key", json!(true));

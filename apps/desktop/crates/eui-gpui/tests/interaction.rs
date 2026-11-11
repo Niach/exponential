@@ -1677,6 +1677,16 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             draw(vcx);
             view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
         });
+        // #EDE-65 `hiddenAbove`: the composer's height without the slot.
+        let hidden = c.get("hiddenAbove");
+        let no_above_h = hidden.map(|_| {
+            let mut plain = composer.clone();
+            plain["slots"].as_object_mut().unwrap().remove("above");
+            let (view, _, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [plain]}), rtl);
+            view.update(vcx, |v, _| v.record_bounds(true));
+            draw(vcx);
+            view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
+        });
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
         view.update(vcx, |v, cx| {
             v.record_bounds(true);
@@ -1706,7 +1716,7 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
             // #EXP-1762: a one-line flat composer IS its bottom row (the
             // disc's height): its slots sit on its centre line.
-            if c["props"]["layout"] == "flat" && !slots.contains_key("above") {
+            if c["props"]["layout"] == "flat" && (!slots.contains_key("above") || hidden.is_some()) {
                 assert!((b.1 + b.3 / 2.0 - (cb.1 + cb.3 / 2.0)).abs() < 0.5, "{name}: {slot} centred in the one row");
             } else {
                 assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
@@ -1715,7 +1725,21 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
         }
         // #EXP-1762: `above` paints inside the card at its top, the content
         // width (the same inset either side), over the row's slots.
-        if slots.contains_key("above") {
+        if let (Some(h), Some(no_above_h)) = (hidden, no_above_h) {
+            assert!(bounds(vcx, "strip").is_none(), "{name}: a hidden above paints nothing");
+            assert!((cb.3 - no_above_h).abs() < 0.5, "{name}: as if the slot were absent ({} vs {no_above_h})", cb.3);
+            let path = format!("/{}", h["path"].as_str().unwrap());
+            view.update(vcx, |v, cx| v.set_data(&path, Some(h["value"].clone()), cx).unwrap());
+            draw(vcx);
+            let grown = bounds(vcx, "c").unwrap();
+            let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: shown above painted"));
+            assert!(grown.3 >= no_above_h + s.3, "{name}: the shown above grows the composer ({} vs {no_above_h} + {})", grown.3, s.3);
+            view.update(vcx, |v, cx| v.set_data(&path, Some(json!(false)), cx).unwrap());
+            draw(vcx);
+            let back = bounds(vcx, "c").unwrap();
+            assert!((back.3 - no_above_h).abs() < 0.5, "{name}: hidden again ({} vs {no_above_h})", back.3);
+        }
+        if slots.contains_key("above") && hidden.is_none() {
             let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: above painted"));
             let (l, r) = (s.0 - cb.0, cb.0 + cb.2 - (s.0 + s.2));
             assert!(l > 0.0 && (l - r).abs() < 0.5 && s.1 > cb.1 && s.1 - cb.1 <= l + 0.5, "{name}: above at the content top, full width: {s:?} in {cb:?}");
@@ -1857,6 +1881,54 @@ fn an_autosize_textarea_grows_when_its_bound_value_arrives_later(cx: &mut TestAp
     draw(vcx);
     draw(vcx);
     assert_eq!(view.read_with(vcx, |v, _| v.surface_height()), forty, "the loaded body fills maxRows");
+}
+
+/// interactions-round1.json `menuRows` (the searchable submenu's cases)
+/// through the painter: typing into the field keeps the rows that match
+/// its label or `identifier`, each painting its parts in order.
+#[gpui::test]
+fn a_searchable_submenu_paints_and_matches_its_rows_identifiers(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let cases: Vec<Value> = f["menuRows"].as_array().unwrap().iter().filter(|c| c["shown"].is_array()).cloned().collect();
+    assert!(!cases.is_empty());
+    for c in cases {
+        let name = c["name"].as_str().unwrap().to_string();
+        let (view, _log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [{"id": "m", "component": "Menu", "props": {"label": "More", "items": c["items"]}}]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let sub = c["submenu"].as_u64().unwrap();
+        let press = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, id: &str| {
+            let id = id.to_string();
+            vcx.update(|window, cx| view.update(cx, |v, cx| v.press(v.index_of(&id).unwrap(), window, cx)));
+            draw(vcx);
+        };
+        press(&view, vcx, "m.trigger");
+        press(&view, vcx, &format!("m.item.{sub}"));
+        if let Some(q) = c["query"].as_str() {
+            let field = format!("m.search.{sub}");
+            vcx.update(|window, cx| view.update(cx, |v, cx| assert!(v.type_into(&field, q, window, cx), "the field takes the text")));
+            vcx.executor().advance_clock(Duration::from_millis(200));
+            vcx.run_until_parked();
+            draw(vcx);
+        }
+        let shown: Vec<String> = view.read_with(vcx, |v, _| {
+            let nodes = v.placed_nodes();
+            let list = nodes.iter().find(|n| n.id == format!("m.list.{sub}")).expect("the list");
+            list.children.iter().map(|&i| &nodes[i as usize]).filter(|n| n.part.as_deref() == Some("item")).map(|n| n.id.trim_start_matches("m.item.").to_string()).collect()
+        });
+        assert_eq!(json!(shown), c["shown"], "{name}: shown rows");
+        for r in c["rows"].as_array().unwrap() {
+            let key = r["key"].as_str().unwrap();
+            if let Some(id) = r["identifier"].as_str() {
+                let (ident, label) = view.read_with(vcx, |v, _| (v.painted_bounds(&format!("m.identifier.{key}")), v.painted_bounds(&format!("m.itemLabel.{key}"))));
+                let (ident, label) = (ident.unwrap_or_else(|| panic!("{name}: {key} identifier {id} painted")), label.unwrap_or_else(|| panic!("{name}: {key} label painted")));
+                assert!(ident.origin.x < label.origin.x, "{name}: {key}: the id before the label");
+            } else {
+                assert!(view.read_with(vcx, |v, _| v.painted_bounds(&format!("m.identifier.{key}")).is_none()), "{name}: {key}: no id");
+            }
+            assert_eq!(view.read_with(vcx, |v, _| v.painted_bounds(&format!("m.detail.{key}")).is_some()), r["detail"].is_string(), "{name}: {key}: detail");
+        }
+    }
 }
 
 /// #EXP-1629 (interactions-round1.json `menuPreview`) through the painter:

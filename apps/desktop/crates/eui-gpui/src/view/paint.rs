@@ -1533,6 +1533,8 @@ impl SurfaceView {
         let send = px_prop(&send_props, "height").unwrap_or(36.0);
         let busy = lcx.bool("busy");
         let send_style = lcx.part("Composer", "send", &[]);
+        // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+        let send_icon = px_prop(&lcx.part_props("Composer", "sendIcon", &[]), "width").unwrap_or(16.0);
         let field_props = lcx.part_props("Composer", "field", &[]);
         let fs = px_prop(&field_props, "fontSize").unwrap_or(lcx.text_style.font_size);
         let field_ink = crate::paint::color::color_of(field_props.get("color").and_then(Value::as_str)).unwrap_or(lcx.ink);
@@ -1609,13 +1611,13 @@ impl SurfaceView {
         let label = self.composer_labels(n).0;
         let fid = n.id.clone();
         let disabled = !busy && empty;
-        // The web dims the send button as ONE layer (`:disabled` 0.5, the
-        // `busy` recipe's opacity): fill and glyph fade together over the
+        // The web dims the send button as ONE layer (the `send` part's
+        // `state: disabled` opacity, 0.5 without one; the `busy` recipe's): fill and glyph fade together over the
         // composer. gpui fades each primitive on its own (the glyph would
         // show the fill through it), so the dim is flattened here: the fill
         // at the dim alpha, the glyph pre-blended over the composer's own
         // background, flattened over what it sits on (`group_dim`).
-        let dim = if disabled { 0.5 } else { 1.0 } * send_style.opacity.unwrap_or(1.0);
+        let dim = if disabled { lcx.part("Composer", "send", &["disabled".to_string()]).opacity.unwrap_or(0.5) } else { send_style.opacity.unwrap_or(1.0) };
         let under = match lcx.style.bg.filter(|c| c.a > 0.0) {
             Some(bg) if bg.a >= 0.999 => Some(bg),
             bg => self.backdrop_of(n).map(|b| bg.map_or(b, |bg| b.blend(bg))),
@@ -1630,7 +1632,7 @@ impl SurfaceView {
                 .child(icons::concept(
                     lcx.host,
                     if busy { eui_core::layout_tree::builtin_icon("Composer.stop").unwrap_or("ui-stop") } else { eui_core::layout_tree::builtin_icon("Composer.send").unwrap_or("ui-submit") },
-                    16.0,
+                    send_icon,
                     send_ink,
                 )),
         );

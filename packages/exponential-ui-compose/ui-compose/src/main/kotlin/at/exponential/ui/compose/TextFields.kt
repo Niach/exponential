@@ -500,6 +500,8 @@ internal fun ComposerLeaf(cx: LeafContext) {
     val index = cx.index
     val field = cx.part("Composer", "field")
     val send = cx.part("Composer", "send")
+    // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+    val sendIcon = cx.part("Composer", "sendIcon").width ?: 16f
     val placeholder = cx.part("Composer", "placeholder")
     val chip = cx.part("Composer", "attachment")
     val sendSize = send.height ?: cx.control("buttonIcon", 36f)
@@ -587,10 +589,11 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     val xs = cx.spacing("xs")
                     Spacer(Modifier.width(maxOf(0f, model.frame(t).width + 2 * xs - 16f).dp))
                 }
-                // Web: an empty draft disables send (half opacity); `busy`
-                // dims the stop through the recipe's own opacity.
+                // Web: an empty draft disables send (the `send` part's `state:
+                // disabled` opacity, 0.5 without one); `busy` dims the stop
+                // through the recipe's own opacity.
                 val empty = !busy && (model.field(index)?.text ?: "").isBlank()
-                val sendAlpha = (send.style.opacity ?: 1f) * (if (empty) 0.5f else 1f)
+                val sendAlpha = if (empty) cx.part("Composer", "send", listOf("disabled")).style.opacity ?: 0.5f else send.style.opacity ?: 1f
                 Box(
                     Modifier
                         .graphicsLayer { alpha = sendAlpha }
@@ -601,7 +604,7 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     contentAlignment = Alignment.Center,
                 ) {
                     val sendInk = send.color ?: cx.themeColor("primaryForeground") ?: Color.White
-                    if (busy) IconOrGlyph(builtinIcon("Composer.stop", "ui-stop"), Glyph.Stop, 16f, cx, sendInk) else IconOrGlyph(builtinIcon("Composer.send", "ui-submit"), Glyph.Submit, 16f, cx, sendInk)
+                    if (busy) IconOrGlyph(builtinIcon("Composer.stop", "ui-stop"), Glyph.Stop, sendIcon, cx, sendInk) else IconOrGlyph(builtinIcon("Composer.send", "ui-submit"), Glyph.Submit, sendIcon, cx, sendInk)
                 }
             }
     }

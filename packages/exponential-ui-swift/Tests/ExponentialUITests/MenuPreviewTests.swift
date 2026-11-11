@@ -40,6 +40,18 @@ final class MenuPreviewTests: XCTestCase {
             if let sub = c["submenu"]?.number {
                 m.press(id: "m.item.\(Int(sub))")
                 m.pass()
+                // A searchable submenu: type into its field.
+                if let q = c["query"]?.string {
+                    let field = try XCTUnwrap(m.index(of: "m.search.\(Int(sub))"), "\(name): field")
+                    m.fieldEdited(field, text: q)
+                    m.flushPending(field)
+                    m.pass()
+                }
+                if let shown = c["shown"]?.array?.compactMap(\.string) {
+                    let list = try XCTUnwrap(m.node(id: "m.list.\(Int(sub))"), "\(name): list")
+                    let got = list.children.compactMap { m.node($0) }.filter { $0.part == "item" }.map { String($0.id.dropFirst("m.item.".count)) }
+                    XCTAssertEqual(got, shown, "\(name): shown rows")
+                }
             }
             for r in c["rows"]?.array ?? [] {
                 let key = r["key"]?.string ?? "?"
@@ -49,13 +61,24 @@ final class MenuPreviewTests: XCTestCase {
                     guard let n = m.node(child) else { continue }
                     switch n.part {
                     case "itemLabel":
-                        if n.props["icon"]?.string != nil { parts.append("icon") }
+                        if n.props["icon"]?.string != nil {
+                            parts.append("icon")
+                            if let tint = r["iconColor"]?.string { XCTAssertEqual(n.props["iconColor"]?.string, tint, "\(name): \(key) tint") }
+                        }
                         parts.append("label")
                         XCTAssertEqual(n.props.text("text"), r["label"]?.string, "\(name): \(key) label")
-                    case "itemIcon": parts.append("icon")
+                    case "itemIcon":
+                        parts.append("icon")
+                        // An identifier row's own glyph carries the tint (the
+                        // core resolved it into the node's ink).
+                        if r["iconColor"]?.string != nil {
+                            let label = try XCTUnwrap(row.children.compactMap { m.node($0) }.first { $0.part == "itemLabel" }, "\(name): \(key) label")
+                            XCTAssertNotEqual(m.ink(n.index), m.ink(label.index), "\(name): \(key) tint")
+                        }
                     case "check": parts.append("check")
                     case "identifier":
                         parts.append("identifier")
+                        XCTAssertEqual(m.textStyle(n.index).fontFamily, m.theme?.fontFamily("mono"), "\(name): \(key) mono")
                         XCTAssertEqual(n.props.text("text"), r["identifier"]?.string, "\(name): \(key) identifier")
                     case "detail":
                         parts.append("detail")
