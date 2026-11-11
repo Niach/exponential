@@ -92,3 +92,34 @@ fn settings_mcp_servers_menu_open() {
 /// The first row's ⋯ (window points), read off `mcp-servers-owner`.
 const MENU_X: f32 = 709.;
 const MENU_Y: f32 = 97.5;
+
+use crate::settings::mcp_servers::{KeyContent, ServerName};
+
+/// The Set key alert's body, nothing typed: the secret's name over the
+/// field's placeholder.
+#[test]
+#[ignore]
+fn settings_mcp_servers_key_empty() {
+    shoot_pane("mcp-servers-key-empty", |window, cx| KeyContent::for_shots("STRIPE_API_KEY", None, window, cx), |_, _| {});
+}
+
+/// A key typed: the field masks it.
+#[test]
+#[ignore]
+fn settings_mcp_servers_key_typed() {
+    shoot_pane("mcp-servers-key-typed", |window, cx| KeyContent::for_shots("STRIPE_API_KEY", Some("sk_live_51HxQ2"), window, cx), |_, _| {});
+}
+
+/// The Disconnect alert's body: the server's name.
+#[test]
+#[ignore]
+fn settings_mcp_servers_disconnect_name() {
+    shoot_pane("mcp-servers-disconnect-name", |window, cx| ServerName::for_shots("Linear", window, cx), |_, _| {});
+}
+
+/// The Remove alert's body: the server's name.
+#[test]
+#[ignore]
+fn settings_mcp_servers_remove_name() {
+    shoot_pane("mcp-servers-remove-name", |window, cx| ServerName::for_shots("Internal docs", window, cx), |_, _| {});
+}
