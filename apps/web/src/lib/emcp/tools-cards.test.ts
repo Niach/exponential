@@ -61,11 +61,13 @@ import {
   picturesOnlySurface,
   registerExponentialTools,
   SHOW_CARD_ROOT_ERROR,
+  SHOW_INLINE_ONLY_ERROR,
   SHOW_TEXT_ONLY_ERROR,
   showSurfaceLinkProblem,
   showSurfaceProblem,
 } from "@/lib/emcp/tools"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
+import { decodeGenuiResult } from "@exp/mcp-apps/genui-result"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/emcp/gates"
 import { FULL_ACCESS } from "@/lib/emcp/scope"
 import type { McpUser } from "@/lib/emcp/server"
@@ -100,9 +102,45 @@ describe(`the show tool's registration (S-3)`, () => {
     for (const tool of RETIRED) expect(names.has(tool), tool).toBe(false)
   })
 
-  it(`does not register show outside a session`, () => {
+  it(`does not register show for a session that is not the caller's own chat`, () => {
     const names = registered({ ...ALL_MCP_TOOL_GATES, inSession: false })
     expect(names.has(`exponential_show`)).toBe(false)
+  })
+})
+
+describe(`#VAPP-292: exponential_show for a client outside any session (a Claude connector)`, () => {
+  type Def = { _meta?: Record<string, unknown> }
+  type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>
+  function outside() {
+    const tools = new Map<string, { def: Def; handler: Handler }>()
+    const fakeServer = { registerTool: (name: string, def: Def, handler: Handler) => tools.set(name, { def, handler }) }
+    registerExponentialTools(fakeServer as never, USER, new Request(`https://x.test/api/mcp`), FULL_ACCESS, null, { ...ALL_MCP_TOOL_GATES, inSession: false })
+    return tools.get(`exponential_show`)!
+  }
+  const surface = { root: { id: `s`, component: `Stack`, children: [{ id: `r`, component: `Row`, props: { title: `Tests` } }, { id: `b`, component: `Button`, props: { label: `Ship` }, on: { press: { event: { name: `reply`, context: { text: `Ship` } } } } }] } }
+
+  it(`binds the genUI view and answers the card to draw inline`, async () => {
+    const show = outside()
+    expect(show.def._meta?.ui).toEqual({ resourceUri: `ui://exponential/genui` })
+    const answer = await show.handler({ surface, title: `Release` })
+    expect(answer.isError).toBeFalsy()
+    const decoded = decodeGenuiResult(answer as never)
+    expect(decoded.kind).toBe(`card`)
+    expect(decoded.kind === `card` && decoded.card.title).toBe(`Release`)
+  })
+
+  it(`refuses a question, a plan and pictures (they need a session's chat)`, async () => {
+    const show = outside()
+    for (const args of [{ ask: { question: `Ship?`, options: [{ label: `Yes` }] } }, { plan: { text: `Do it` } }, { surface, pictures: [{ label: `web x` }] }]) {
+      const answer = await show.handler(args)
+      expect(answer.isError).toBe(true)
+      expect(answer.content[0]!.text).toContain(SHOW_INLINE_ONLY_ERROR)
+    }
+  })
+
+  it(`still refuses a Card root`, async () => {
+    const answer = await outside().handler({ surface: { root: { id: `c`, component: `Card`, children: [{ id: `r`, component: `Row`, props: { title: `x` } }] } } })
+    expect(answer.isError).toBe(true)
   })
 })
 

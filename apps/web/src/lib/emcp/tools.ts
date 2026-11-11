@@ -230,6 +230,7 @@ import {
 } from "./handlers/reporter-view"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
+import { inlineShowResult } from "@exp/mcp-apps/genui-result"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import { trainEdge } from "@/lib/merge-train/edge"
@@ -501,6 +502,10 @@ export function showSurfaceLinkProblem(surface: { root: Record<string, unknown> 
   if (dead === undefined) return null
   return `The surface links to \`${dead}\`, which opens nothing. Use an https URL, an in-app path (/t/<team>/...) or the team shorthand (~/issues/EXP-12, ~/settings/members).`
 }
+
+/** #VAPP-292: what `exponential_show` refuses outside a session (it draws a
+ *  surface inline; a question, plan or pictures need a session's chat). */
+export const SHOW_INLINE_ONLY_ERROR = `Outside an Exponential session exponential_show draws a surface inline (no ask, plan or pictures): ask with Buttons whose press is a reply event, e.g. on:{press:{event:{name:"reply",context:{text:"Yes"}}}}.`
 
 /** F38: `exponential_show {pictures}` with no surface: a Stack holding the
  *  title (else the picture labels) above the pictures; never a Card, the
@@ -2864,52 +2869,53 @@ export function registerExponentialTools(
   // plan, edited in place with `replace`. A person answers ask/plan IN the
   // card and the answer arrives as the session's next message; plan mode
   // and its gate are gone (lib/sessions/plan.ts).
+  const showInput = strictInput({
+    surface: cardSurfaceInput,
+    // The cap is buildSurfaceCard's (the show schema's byte budget).
+    title: z.string().trim().optional(),
+    replace: z.boolean().optional(),
+    ask: z
+      .strictObject({
+        question: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+        options: z.array(cardOptionInput).max(QUESTION_CARD_OPTIONS_MAX),
+        multi: z.boolean().optional(),
+        custom: z.boolean().optional(),
+      })
+      .optional(),
+    plan: z
+      .strictObject({
+        text: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
+        questions: z
+          .array(
+            z.strictObject({
+              id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
+              prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+              multi: z.boolean().optional(),
+              custom: z.boolean().optional(),
+              options: z.array(cardOptionInput).max(PLAN_CARD_OPTIONS_MAX),
+            })
+          )
+          .max(PLAN_CARD_QUESTIONS_MAX)
+          .optional(),
+      })
+      .optional(),
+    pictures: cardPicturesInput,
+    description: z.string().optional(),
+    result: z.boolean().optional(),
+    // EXP-1458: the device's sealed card (+ an ask's sealed ask text
+    // and per-tree copies); bare `{}`, sealedShowExtrasSchema checks.
+    sealedCard: z.any().optional(),
+    kind: z.any().optional(),
+    askText: z.any().optional(),
+    listenerCopies: z.any().optional(),
+  })
   if (gates.inSession) {
     server.registerTool(
       `exponential_show`,
       {
         description: SHOW_TOOL_DESCRIPTION,
         _meta: ALWAYS_LOAD_META,
-        inputSchema: strictInput({
-          surface: cardSurfaceInput,
-          // The cap is buildSurfaceCard's (the show schema's byte budget).
-          title: z.string().trim().optional(),
-          replace: z.boolean().optional(),
-          ask: z
-            .strictObject({
-              question: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
-              options: z.array(cardOptionInput).max(QUESTION_CARD_OPTIONS_MAX),
-              multi: z.boolean().optional(),
-              custom: z.boolean().optional(),
-            })
-            .optional(),
-          plan: z
-            .strictObject({
-              text: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
-              questions: z
-                .array(
-                  z.strictObject({
-                    id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
-                    prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
-                    multi: z.boolean().optional(),
-                    custom: z.boolean().optional(),
-                    options: z.array(cardOptionInput).max(PLAN_CARD_OPTIONS_MAX),
-                  })
-                )
-                .max(PLAN_CARD_QUESTIONS_MAX)
-                .optional(),
-            })
-            .optional(),
-          pictures: cardPicturesInput,
-          description: z.string().optional(),
-          result: z.boolean().optional(),
-          // EXP-1458: the device's sealed card (+ an ask's sealed ask text
-          // and per-tree copies); bare `{}`, sealedShowExtrasSchema checks.
-          sealedCard: z.any().optional(),
-          kind: z.any().optional(),
-          askText: z.any().optional(),
-          listenerCopies: z.any().optional(),
-        }),
+        inputSchema: showInput,
       },
       async ({ surface, title, replace, ask, plan, pictures, description, result, sealedCard, kind, askText, listenerCopies }) => {
         try {
@@ -2960,6 +2966,36 @@ export function registerExponentialTools(
           // results-tab.json: an explicit flag rides every kind.
           if (result !== undefined) card.result = result
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  } else if (!sessionId) {
+    // #VAPP-292: a client outside any session (a Claude custom connector, an
+    // MCP Apps host) has no chat to post to: the card is drawn INLINE by the
+    // genUI view (`ui://exponential/genui`), which paints the surface with
+    // the chat's SurfaceCard and sends a reply press back as the person's
+    // message (`ui/message`). ask / plan / pictures need a session's chat.
+    server.registerTool(
+      `exponential_show`,
+      {
+        description: SHOW_TOOL_DESCRIPTION,
+        _meta: { ...ALWAYS_LOAD_META, ...mcpAppToolMeta(`genui`) },
+        inputSchema: showInput,
+      },
+      async ({ surface, title, ask, plan, pictures, sealedCard, kind, askText, listenerCopies }) => {
+        try {
+          if (ask || plan || pictures?.length || sealedCard !== undefined || kind !== undefined || askText !== undefined || listenerCopies !== undefined) {
+            throw new Error(SHOW_INLINE_ONLY_ERROR)
+          }
+          if (!surface) throw new Error(`Pass surface.`)
+          const card = buildSurfaceCard({ surface, title })
+          const problem = showSurfaceProblem(surface, true)
+          if (problem) throw new Error(problem)
+          const linkProblem = showSurfaceLinkProblem(surface, appBaseUrl(), null)
+          if (linkProblem) throw new Error(linkProblem)
+          return ok(inlineShowResult(card))
         } catch (e) {
           return err(e)
         }
@@ -4105,13 +4141,19 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       description: `Read one app by slug with its package (the head, or version = an older one's) and linkableScreens: its navigation and exposed screens, with params and a ready ~/ link (another app may link only to an exposed one).`,
+      // #VAPP-292: an MCP Apps host runs the read package in the genUI view.
+      _meta: appMeta(`genui`),
       inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), version: z.number().int().min(1).optional() }),
     },
     async ({ slug, teamId, version }) => {
       try {
         const result = await caller(user, request).apps.get({ slug, teamId: await appsTeam(teamId), version })
         const { package: _omit, draftPackage: _draft, ...app } = result.app
-        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package) })
+        // #VAPP-292: who reads it (the genUI view runs the package as them).
+        const mine = await caller(user, request)
+          .appAccess.mine({ appId: app.id })
+          .catch(() => ({ level: `write` as const }))
+        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package), viewer: { id: user.id, access: mine.level } })
       } catch (e) {
         return err(e)
       }

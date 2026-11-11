@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   MCP_APP_MIME_TYPE,
   MCP_APP_RESOURCE_URIS,
+  mcpAppDocument,
   mcpAppHtml,
   mcpAppToolMeta,
   registerExponentialApps,
@@ -24,6 +25,17 @@ describe(`MCP Apps (EXP-1183)`, () => {
     expect(html).not.toContain(`url(/fonts/`)
     // Without an origin the document is untouched.
     expect(mcpAppHtml(`issues`, built)).toContain(`url(/fonts/JetBrainsMono-Regular.woff2)`)
+  })
+
+  it(`#VAPP-292: the genUI view is its own document, told the instance origin`, () => {
+    expect(mcpAppDocument(`genui`)).toBe(`genui.html`)
+    expect(mcpAppDocument(`issues`)).toBe(`app.html`)
+    const built = `<html><head><meta name="exp-view" content="genui" /><meta name="exp-origin" content="" /></head></html>`
+    const html = mcpAppHtml(`genui`, built, `https://app.example.com/`)
+    expect(html).toContain(`<meta name="exp-origin" content="https://app.example.com" />`)
+    // Nothing but a URL's own characters lands in the attribute.
+    expect(mcpAppHtml(`genui`, built, `https://a.example"><script>`)).toContain(`content="https://a.examplescript"`)
+    expect(mcpAppToolMeta(`genui`)).toEqual({ ui: { resourceUri: `ui://exponential/genui` } })
   })
 
   it(`serves a placeholder document when the views are not built`, () => {

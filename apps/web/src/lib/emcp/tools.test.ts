@@ -2437,6 +2437,8 @@ describe(`MCP Apps bindings (EXP-1212)`, () => {
 
   it(`binds the views for an external caller`, () => {
     expect(uiBoundTools(null)).toEqual([
+      // #VAPP-292: the genUI view runs the app a get reads.
+      `exponential_apps_get`,
       `exponential_devices_list`,
       `exponential_issues_show`,
       `exponential_notifications_list`,

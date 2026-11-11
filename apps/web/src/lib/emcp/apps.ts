@@ -23,6 +23,7 @@ export const MCP_APP_RESOURCE_URIS = {
   issues: `ui://exponential/issues`,
   inbox: `ui://exponential/inbox`,
   devices: `ui://exponential/devices`,
+  genui: `ui://exponential/genui`,
 } as const
 
 export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
@@ -31,6 +32,7 @@ const VIEW_TITLES: Record<McpAppView, string> = {
   issues: `Exponential issues`,
   inbox: `Exponential inbox`,
   devices: `Exponential devices`,
+  genui: `Exponential`,
 }
 
 /** A tool's `_meta` binding to its view. `exponential_issues_show` (the
@@ -49,16 +51,23 @@ export function mcpAppToolMeta(view: McpAppView): Record<string, unknown> {
 
 // Production runs from the repo root with the build in `.output/public`; the
 // dev server runs in apps/web over `public/`.
-const BUILT_APP_CANDIDATES = [
-  join(`.output`, `public`, `mcp-apps`, `app.html`),
-  join(`public`, `mcp-apps`, `app.html`),
-  join(`apps`, `web`, `public`, `mcp-apps`, `app.html`),
+// #VAPP-292: the genUI view is its own document (`genui.html`: the eUI
+// renderer + the app host), so the issue views do not carry its bundle.
+const builtCandidates = (file: string) => [
+  join(`.output`, `public`, `mcp-apps`, file),
+  join(`public`, `mcp-apps`, file),
+  join(`apps`, `web`, `public`, `mcp-apps`, file),
 ]
 
-let cached: { path: string; mtimeMs: number; html: string } | null = null
+/** The built document a view is served from. */
+export function mcpAppDocument(view: McpAppView): string {
+  return view === `genui` ? `genui.html` : `app.html`
+}
 
-function readBuiltApp(): string | null {
-  for (const candidate of BUILT_APP_CANDIDATES) {
+const cached = new Map<string, { path: string; mtimeMs: number; html: string }>()
+
+function readBuiltApp(file = `app.html`): string | null {
+  for (const candidate of builtCandidates(file)) {
     const path = join(process.cwd(), candidate)
     let mtimeMs: number
     try {
@@ -66,9 +75,10 @@ function readBuiltApp(): string | null {
     } catch {
       continue
     }
-    if (cached?.path === path && cached.mtimeMs === mtimeMs) return cached.html
+    const hit = cached.get(file)
+    if (hit?.path === path && hit.mtimeMs === mtimeMs) return hit.html
     const html = readFileSync(path, `utf8`)
-    cached = { path, mtimeMs, html }
+    cached.set(file, { path, mtimeMs, html })
     return html
   }
   return null
@@ -80,14 +90,18 @@ const NOT_BUILT_HTML = `<!doctype html><html lang="en"><head><meta charset="UTF-
  *  the stylesheet's root-relative `/fonts/` urls (the self-hosted JetBrains
  *  Mono) would resolve against the host's sandbox origin, so they point at
  *  `appOrigin`, which serves them with CORS (`fontAssetHeaders`). */
-export function mcpAppHtml(view: McpAppView, built = readBuiltApp(), appOrigin?: string): string {
+export function mcpAppHtml(view: McpAppView, built = readBuiltApp(mcpAppDocument(view)), appOrigin?: string): string {
   const html = (built ?? NOT_BUILT_HTML).replace(
     /<meta name="exp-view" content="[a-z]+"\s*\/?>/,
     `<meta name="exp-view" content="${view}" />`
   )
   if (!appOrigin) return html
   const origin = appOrigin.replace(/\/+$/, ``)
-  return html.replace(/url\((["']?)\/fonts\//g, (_, quote: string) => `url(${quote}${origin}/fonts/`)
+  // #VAPP-292: the genUI view resolves `~/` and in-app links against the
+  // instance (an attribute-safe origin: a URL's own characters only).
+  return html
+    .replace(/<meta name="exp-origin" content="[^"]*"\s*\/?>/, () => `<meta name="exp-origin" content="${origin.replace(/[^A-Za-z0-9:/.\-_]/g, ``)}" />`)
+    .replace(/url\((["']?)\/fonts\//g, (_, quote: string) => `url(${quote}${origin}/fonts/`)
 }
 
 /** What a view may load beyond its own document (MCP Apps `_meta.ui.csp`):

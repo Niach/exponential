@@ -14,6 +14,11 @@ const OUT_DIR = fileURLToPath(
   new URL(`../../apps/web/public/mcp-apps`, import.meta.url)
 )
 
+// #VAPP-292: the genUI view (the eUI renderer + the app host) is a SECOND
+// document, `genui.html`, built by a second pass (`MCP_APPS_ENTRY=genui`) so
+// the issue views keep their small bundle. Each pass inlines its one entry.
+const ENTRY = process.env.MCP_APPS_ENTRY === `genui` ? `genui` : `app`
+
 /** Folds the emitted JS + CSS chunks into the HTML and drops them. */
 function inlineIntoHtml(): Plugin {
   return {
@@ -43,7 +48,7 @@ function inlineIntoHtml(): Plugin {
         }
       }
       html.source = source
-      html.fileName = `app.html`
+      html.fileName = `${ENTRY}.html`
     },
   }
 }
@@ -57,11 +62,13 @@ export default defineConfig({
   base: `./`,
   build: {
     outDir: OUT_DIR,
-    emptyOutDir: true,
+    // The second pass keeps the first's document.
+    emptyOutDir: ENTRY === `app`,
     cssCodeSplit: false,
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
     modulePreload: false,
     rolldownOptions: {
+      input: fileURLToPath(new URL(ENTRY === `genui` ? `./genui.html` : `./index.html`, import.meta.url)),
       output: { codeSplitting: false },
     },
   },
