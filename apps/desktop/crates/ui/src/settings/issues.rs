@@ -31,6 +31,9 @@ use super::is_owner;
 /// `w-44`).
 const PICKER_WIDTH: f32 = 176.;
 
+/// The pickers' menus: web's `width="sm"` (14rem).
+const POPUP_WIDTH: f32 = 224.;
+
 /// The picker key of the row that is NOT a status: `*Automation=false`
 /// (web's `none`). It can never collide with a real key — those are a row
 /// uuid or `builtin:<key>`.
@@ -239,7 +242,7 @@ impl IssuesPane {
             .iter()
             .map(|(wire, label, hint)| match hint.is_empty() {
                 true => json!({"label": label, "value": wire}),
-                false => json!({"label": label, "value": wire, "trailing": hint}),
+                false => json!({"label": label, "value": wire, "hint": hint}),
             })
             .collect();
         let statuses = self.scoped_statuses(cx);
@@ -279,7 +282,7 @@ impl Render for IssuesPane {
 /// A picker: the `button` Select at web's `w-44`, its menu end-aligned.
 fn picker(id: &str, label: &str, data: &str, action: &str) -> Value {
     json!({"id": id, "component": "Select", "style": {"width": PICKER_WIDTH, "flexShrink": 0},
-        "props": {"label": label, "name": id, "triggerVariant": "button", "align": "end", "value": path(&format!("/pane/{data}/value")), "options": path(&format!("/pane/{data}/options"))},
+        "props": {"label": label, "name": id, "triggerVariant": "button", "align": "end", "popupWidth": POPUP_WIDTH, "value": path(&format!("/pane/{data}/value")), "options": path(&format!("/pane/{data}/options"))},
         "on": {"change": {"event": {"name": action}}}})
 }
 

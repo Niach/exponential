@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Menu: a searchable submenu matches a row's `identifier` as well as its label and lays out its `identifier`, `detail` and `iconColor` tint (from eui-core; painted as a normal Menu row's parts, no view change).
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a `pill` starts cursorless.
 - Select `button` popup matches web's picker (#EXP-1629): the regenerated theme and layout values.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the leaf and the measurer; the glyph takes the `icon` part's 10.5, the ink the recipe's muted colour. Snapshot `components.json` records the Button `size=icon-xs`, `tone=default|muted` cases.

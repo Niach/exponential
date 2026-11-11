@@ -1038,8 +1038,8 @@ function MenuSearch(props: { item: MenuItem; i: string }): JSX.Element {
   const rows = createMemo(() =>
     objects<MenuItem>(props.item.items)
       .map((entry, index) => ({ index, entry }))
-      .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label) }, query()))
-      .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, disabled: bool(entry.disabled) } as SearchItem }))
+      .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label), identifier: entry.identifier }, query()))
+      .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, iconColor: entry.iconColor, identifier: entry.identifier, detail: entry.detail, disabled: bool(entry.disabled) } as SearchItem }))
   )
   return (
     <div
@@ -1070,8 +1070,10 @@ function MenuSearch(props: { item: MenuItem; i: string }): JSX.Element {
         rowPart={(_, __, active) => root.part(`item`, active && `selected`)}
         renderRow={(row) => (
           <>
-            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} /> : null}
+            <ItemIcon name={row.icon} color={row.iconColor} />
+            <Identifier text={row.identifier} part={root.part} />
             <span class="xui-menu-label">{row.label}</span>
+            <Detail text={row.detail} part={root.part} />
           </>
         )}
       />

@@ -156,6 +156,7 @@ export * from "./status-icons"
 export * from "./sub-shell"
 export * from "./device-account-panel"
 export * from "./strip-chip"
+export * from "./waiting-chips"
 export * from "./switch"
 export * from "./scope-picker"
 // NEW-2: THE schedule picker (`fixtures/schedule-picker.json`), the rows a

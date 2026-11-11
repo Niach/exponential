@@ -188,6 +188,22 @@ describe(`AgentSessionView Trace transcript`, () => {
     expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(detail)
   })
 
+  // #EXP-1785 (waiting-cards.json NO FEED): a placeholder keeps the waiting
+  // cards reachable, an answered one stays out.
+  it(`a device-away placeholder draws the session's waiting card under it`, () => {
+    hostOnline = false
+    snapshot = snap({ phase: { kind: `starting` }, connected: false })
+    messages = [
+      { id: `waits`, sessionId: session.id, authorKind: `agent`, body: ``, card: { kind: `question`, question: `Which way?`, options: [`A`] }, answeredAt: null, createdAt: `2026-11-01T00:00:00Z` },
+      { id: `done`, sessionId: session.id, authorKind: `agent`, body: ``, card: { kind: `question`, question: `Old?`, options: [`A`], answer: `A` }, answeredAt: `2026-11-01T00:00:01Z`, createdAt: `2026-11-01T00:00:01Z` },
+    ] as never
+    render(<AgentSessionView session={{ ...session, status: `idle`, busy: false } as unknown as SessionRow} />)
+    hostOnline = true
+    expect(screen.getByTestId(`transcript-device-away`)).toBeTruthy()
+    expect(document.querySelector(`[data-card-id="waits"]`)).not.toBeNull()
+    expect(document.querySelector(`[data-card-id="done"]`)).toBeNull()
+  })
+
   // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): replays `noFeed`.
   for (const c of enetFixture.noFeed) {
     it(`NO FEED, empty transcript: ${c.name} = ${c.state}`, () => {

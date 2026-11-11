@@ -6842,6 +6842,7 @@
                     {
                       "label": "Issue",
                       "kind": "submenu",
+                      "searchable": true,
                       "items": [
                         {
                           "label": "Fix the login redirect",

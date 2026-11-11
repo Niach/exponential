@@ -1,6 +1,22 @@
 package com.exponential.app.ui.chat
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.WaitingCards
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -187,6 +203,99 @@ fun SessionGearButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         onClick = onClick,
         modifier = modifier.testTag(SessionScreen.TestIds.GEAR),
     )
+}
+
+/**
+ * #EXP-1785 (waiting-cards.json, phones = `button`): THE strip chip box,
+ * icon-only (`icons.waiting` in the question tint) + the count muted, at the
+ * START of the header's trailing slot; accessible name `copy.waitingCount`.
+ */
+@Composable
+fun SessionWaitingButton(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val name = WaitingCards.waitingCountLabel(count)
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+            .clickable(onClick = onClick)
+            .height(32.dp)
+            .padding(horizontal = 10.dp)
+            .testTag(WaitingCards.TestIds.BUTTON)
+            .semantics(mergeDescendants = true) { contentDescription = name },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.uiHelp,
+            contentDescription = null,
+            tint = DesignTokens.Semantic.Yellow,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/**
+ * #EXP-1785 (waiting-cards.json `button`): THE Menu (the phones' bottom
+ * sheet) titled `copy.waiting`: THE MenuRow per waiting card, Conversation
+ * order: the kind icon tinted, the label, ask-dock `askDockLabel(kind)` muted.
+ * A pick closes the sheet ([onPick] runs after [onDismiss]).
+ */
+@Composable
+fun SessionWaitingSheet(
+    chips: List<WaitingCards.Chip>,
+    onPick: (WaitingCards.Chip) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GlassSheet(
+        title = WaitingCards.Copy.WAITING,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag(WaitingCards.TestIds.MENU),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            chips.forEach { chip ->
+                Box(Modifier.testTag("${WaitingCards.TestIds.MENU}-row")) {
+                    GlassSheetRow(
+                        label = chip.label,
+                        onClick = {
+                            onDismiss()
+                            onPick(chip)
+                        },
+                        labelColor = MaterialTheme.colorScheme.onSurface,
+                        leading = {
+                            Icon(
+                                if (chip.kind == AskDock.Kind.Plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
+                                contentDescription = null,
+                                tint = if (chip.kind == AskDock.Kind.Plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        trailing = {
+                            Text(
+                                AskDock.label(chip.kind),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
 }
 
 /**
