@@ -47,7 +47,7 @@ pub(crate) mod account_row_shots;
 #[cfg(test)]
 pub(crate) mod branch_picker_shots;
 pub(crate) mod account;
-mod add_repository_dialog;
+pub(crate) mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
