@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Slot, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
+import { findAnchor, isFieldAnchorElement, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
 import { absolutePath, isPickerPopover, propColor, popoverPanelWidth } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -325,6 +325,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const outside = useRef(false)
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `dialog`, toggle: () => setOpen(!openRef.current), hover: { active: () => hoverModeRef.current, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchored = !!anchorId
+  // #EDE-65 typeaheadFocus: anchored on a text field = a typeahead: opening
+  // it never takes the focus from the field, closing it returns it nowhere.
+  const typeahead = anchored && isFieldAnchorElement(anchor.el)
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
   const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
@@ -361,7 +364,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           dir={ctx.direction}
           // #EXP-1760: a picker opens with the focus on its panel (Tab walks
           // the grid), not a focus ring on its first cell (the IDE's look).
-          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
+          onOpenAutoFocus={hoverMode || typeahead ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
           // VAPP-276: a press on the anchor is its toggle, not an outside
           // press; a press or focus in ANOTHER open overlay (a second panel
           // applet) dismisses nothing (the core's rule); a close that did not
@@ -374,7 +377,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
             anchored
               ? (e) => {
                   e.preventDefault()
-                  if (!outside.current && !hoverMode) anchor.el?.focus()
+                  if (!outside.current && !hoverMode && !typeahead) anchor.el?.focus()
                   outside.current = false
                 }
               : undefined

@@ -33,6 +33,24 @@ extension SurfaceModel {
         return !(root.ownerComponent == "Menu" && root.part == "preview")
     }
 
+    /// #EDE-65 (interactions-round1.json typeaheadFocus): a Popover whose
+    /// `anchor` (the node it linked as its trigger) is a text field (a
+    /// Composer, an Input, a Textarea: the node itself or its `field` part)
+    /// is a TYPEAHEAD: opening it never moves the focus (the field keeps it
+    /// and its caret) and closing it returns the focus nowhere. It keeps
+    /// Escape and the Tab order (gpui `Surface::is_typeahead`).
+    func isTypeahead(_ layer: LayerInfo) -> Bool {
+        guard layer.kind == "Popover", let owner = node(id: layer.owner), owner.component == "Popover",
+              !owner.props.str("anchor").isEmpty,
+              let anchor = trigger(of: layer.owner) else { return false }
+        return Self.isFieldAnchor(anchor.part == nil ? anchor.component : (anchor.ownerComponent ?? anchor.component), anchor.part)
+    }
+
+    /// `is_field_anchor` (Rust) / `isFieldAnchor` (TS).
+    static func isFieldAnchor(_ component: String, _ part: String?) -> Bool {
+        ["Composer", "Input", "Textarea"].contains(component) && (part == nil || part == "root" || part == "field")
+    }
+
     func focusOrder(in layer: LayerInfo) -> [Int] {
         Self.focusOrder(nodes: nodes, paintOrder: layer.order, layer: layer.layer)
     }

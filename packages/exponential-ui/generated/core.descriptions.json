@@ -1171,7 +1171,7 @@
           "description": "Along the side."
         },
         "anchor": {
-          "description": "Open-at node; it toggles it."
+          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
         },
         "openOn": {
           "description": "`hover` is press on touch."
