@@ -45,7 +45,7 @@ pub fn members(rows: &TeamRows, team_id: &str) -> Vec<crate::chat::Member> {
         .filter_map(|m| users.get(m.user_id.as_str()))
         .filter_map(|u| {
             let email = u.email.clone().filter(|e| !e.is_empty())?;
-            Some(crate::chat::Member { name: u.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| email.clone()), email })
+            Some(crate::chat::Member { name: u.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| email.clone()), email, image: u.image.clone() })
         })
         .collect()
 }

@@ -421,6 +421,13 @@ pub trait HostPlugin: 'static {
         false
     }
 
+    /// #EDE-65 lane O: Composer `component_id` may submit with an empty
+    /// field (its send stays enabled): the host has something else to send
+    /// (staged attachments). Default: never.
+    fn composer_submits_empty(&self, _component_id: &str, _cx: &gpui::App) -> bool {
+        false
+    }
+
     /// Picked or dropped files reached a FileUpload: read and upload the
     /// bytes (the surface's `upload` event carries only name/size/type).
     fn on_upload(&self, _event: &UploadEvent, _cx: &mut gpui::App) {}

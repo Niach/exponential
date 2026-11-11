@@ -13806,6 +13806,20 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "backgroundColor": "$color.popover",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.xl",
+                "paddingTop": 8.5,
+                "paddingBottom": 3.5,
+                "paddingHorizontal": 5.25,
+                "gap": 3.5
+              }
             }
           ],
           "field": [
@@ -13832,6 +13846,8 @@
                 "layout": "flat"
               },
               "style": {
+                "fontSize": 12.25,
+                "lineHeight": 17.5,
                 "paddingTop": 4.25
               }
             }
@@ -13887,6 +13903,18 @@
               },
               "style": {
                 "opacity": 0.4
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 32,
+                "height": 32,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "#00000000",
+                "color": "$color.primary"
               }
             }
           ],
@@ -14956,6 +14984,26 @@
                 "backgroundColor": "$color.accent",
                 "borderColor": "$color.ring"
               }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill"
+              },
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill",
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "label": [
@@ -15011,6 +15059,17 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": 0.7,
+                "fontSize": 10.5
               }
             }
           ],
@@ -32788,6 +32847,20 @@
                 "borderColor": "$color.border",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "backgroundColor": "$color.popover",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.xl",
+                "paddingTop": 8.5,
+                "paddingBottom": 3.5,
+                "paddingHorizontal": 5.25,
+                "gap": 3.5
+              }
             }
           ],
           "field": [
@@ -32814,6 +32887,8 @@
                 "layout": "flat"
               },
               "style": {
+                "fontSize": 12.25,
+                "lineHeight": 17.5,
                 "paddingTop": 4.25
               }
             }
@@ -32869,6 +32944,18 @@
               },
               "style": {
                 "opacity": 0.4
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 32,
+                "height": 32,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "#00000000",
+                "color": "$color.primary"
               }
             }
           ],
@@ -33938,6 +34025,26 @@
                 "backgroundColor": "$color.accent",
                 "borderColor": "$color.ring"
               }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill"
+              },
+              "style": {
+                "backgroundColor": "$color.card",
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill",
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "label": [
@@ -33993,6 +34100,17 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "neutral",
+                "shape": "pill"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "opacity": 0.7,
+                "fontSize": 10.5
               }
             }
           ],
