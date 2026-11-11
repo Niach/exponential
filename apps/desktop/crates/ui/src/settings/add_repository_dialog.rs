@@ -17,20 +17,17 @@
 //! discovery per user for a minute).
 //!
 //! #EXP-1629: the content is a document on the native binding (projection at
-//! `/pane`); the window around it stays native, and so does the lookup field
-//! (a `host_leaf` Embed, [`LookupHost`]; drop with EXP-1787).
+//! `/pane`); the window around it stays native. #EXP-1787: the lookup field
+//! is a genUI `box` Input whose typed text takes the footer's muted ink
+//! (`style.color`).
 
 use std::rc::Rc;
 
-use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
-use gpui::{div, px, size, AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
-use gpui_component::{
-    input::{InputEvent, InputState},
-    ActiveTheme as _, ElementExt as _,
-};
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use gpui::{div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
+use gpui_component::{ActiveTheme as _, ElementExt as _};
 use serde_json::{json, Value};
 
-use crate::controls::{glass_input, WebControl as _, CTL_MD_H};
 use crate::github_connect::{
     copy, fetch_github_repos, is_repo_full_name, lookup_repo, GithubRepo, GithubReposResult,
     Prerequisite,
@@ -111,7 +108,8 @@ pub struct AddRepositoryDialogView {
     /// FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
     /// up through `integrations.github.lookupRepo` (the connect path's own
     /// checks) and, on a hit, added exactly like a row pick.
-    lookup: Entity<InputState>,
+    /// The lookup field's text (its bound value, like the search's `query`).
+    lookup: String,
     lookup_busy: bool,
     /// The server's reason the typed name was refused — about the INPUT, so
     /// it stays under the field (FEED-79); offline is a toast instead.
@@ -135,8 +133,8 @@ pub struct AddRepositoryDialogView {
 const FOCUS_TRIES: u8 = 4;
 /// The search `Input`'s text field (its `<id>.field` part).
 const QUERY_FIELD: &str = "query.field";
-/// The lookup field's Embed id, painted by [`LookupHost`].
-const LOOKUP_EMBED: &str = "add-repo-lookup";
+/// The lookup `Input`'s text field (its `<id>.field` part).
+const LOOKUP_FIELD: &str = "lookup.field";
 
 impl AddRepositoryDialogView {
     fn new(
@@ -170,8 +168,7 @@ impl AddRepositoryDialogView {
             binding
         });
         let chrome = Chrome::of(cx);
-        let lookup = cx.new(|cx| InputState::new(window, cx).placeholder(copy::LOOKUP_PLACEHOLDER));
-        let plugin = Rc::new(LookupHost { ide: super::doc::ide_plugin(), view: cx.weak_entity() });
+        let plugin = Rc::new(super::doc::ide_plugin());
         let view = mount_with("add-repository", document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
         // The content owns the window's height: the rows scroll, the rest
         // stays (`DialogContent::self_scrolling`).
@@ -185,18 +182,6 @@ impl AddRepositoryDialogView {
                 if focused != this.query_focused {
                     this.query_focused = focused;
                     cx.notify();
-                }
-            }),
-            // Typing clears a previous lookup failure (web parity); Enter
-            // looks the name up.
-            cx.subscribe_in(&lookup, window, |this, _, event: &InputEvent, window, cx| {
-                match event {
-                    InputEvent::Change => {
-                        this.lookup_error = None;
-                        cx.notify();
-                    }
-                    InputEvent::PressEnter { .. } => this.lookup(window, cx),
-                    _ => {}
                 }
             }),
             // The connect/install hand-off completes in the browser — coming
@@ -252,7 +237,7 @@ impl AddRepositoryDialogView {
             adding: false,
             retry_pressed: false,
             plan_limited: None,
-            lookup,
+            lookup: String::new(),
             lookup_busy: false,
             lookup_error: None,
             query_focused: false,
@@ -274,14 +259,14 @@ impl AddRepositoryDialogView {
     }
 
     #[cfg(test)]
-    pub(crate) fn show(&mut self, shot: AddRepoShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn show(&mut self, shot: AddRepoShot, _window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.load = match shot.load {
             None => Load::Loading,
             Some(None) => Load::Failed,
             Some(Some(result)) => Load::Ready(result),
         };
         self.query = shot.query.to_string();
-        self.lookup.update(cx, |state, cx| state.set_value(shot.lookup, window, cx));
+        self.lookup = shot.lookup.to_string();
         self.lookup_busy = shot.lookup_busy;
         self.lookup_error = shot.lookup_error.map(SharedString::from);
         self.plan_limited = shot.plan_limited.map(SharedString::from);
@@ -293,6 +278,11 @@ impl AddRepositoryDialogView {
     fn action(&mut self, name: &str, field: &str, key: &str, value: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match name {
             "edit" if field == "query" => self.query = value.unwrap_or_default(),
+            // Typing clears a previous lookup failure (web parity).
+            "edit" if field == "lookup" => {
+                self.lookup = value.unwrap_or_default();
+                self.lookup_error = None;
+            }
             "focus_search" => (self.want_focus, self.focus_tries) = (true, FOCUS_TRIES),
             // The clear puts the caret back: a focused field keeps what was
             // typed, so the write goes through a blur.
@@ -372,7 +362,7 @@ impl AddRepositoryDialogView {
     /// message inline (it names the real reason — grant it, connect that
     /// account, or reconnect).
     fn lookup(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let full_name = self.lookup.read(cx).value().trim().to_string();
+        let full_name = self.lookup.trim().to_string();
         if self.lookup_busy || !is_repo_full_name(&full_name) {
             return;
         }
@@ -393,8 +383,10 @@ impl AddRepositoryDialogView {
                 this.lookup_busy = false;
                 match result {
                     Ok(repo) => {
-                        this.lookup
-                            .update(cx, |state, cx| state.set_value("", window, cx));
+                        // A focused field keeps what was typed: the clear
+                        // goes through a blur.
+                        this.view.update(cx, |view, cx| view.blur_field(LOOKUP_FIELD, window, cx));
+                        this.lookup.clear();
                         this.add(&repo, window, cx);
                     }
                     // The server's reason is about the typed name (not
@@ -568,7 +560,7 @@ impl AddRepositoryDialogView {
     }
 
     /// The state as the document binds it.
-    fn project(&self, cx: &App) -> Value {
+    fn project(&self, _cx: &App) -> Value {
         let (loading, failed) = (matches!(self.load, Load::Loading), matches!(self.load, Load::Failed));
         let result = match &self.load {
             Load::Ready(result) => Some(result),
@@ -612,7 +604,7 @@ impl AddRepositoryDialogView {
             .map(|(index, (label, url))| json!({"key": url, "label": label, "url": url, "comma": index != last}))
             .collect();
 
-        let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
+        let lookup_valid = is_repo_full_name(self.lookup.trim());
         json!({
             "loading": loading,
             "failed": failed,
@@ -637,7 +629,7 @@ impl AddRepositoryDialogView {
             "capNote": result.filter(|_| ready).is_some_and(|r| r.has_more),
             "hasInstall": install_url.is_some(),
             "installUrl": install_url.clone().unwrap_or_default(),
-            "lookupSurface": {"root": {"id": LOOKUP_EMBED, "component": "Box"}, "data": {}},
+            "lookup": self.lookup,
             "lookupOn": lookup_valid && !self.lookup_busy,
             "lookupDim": !lookup_valid && !self.lookup_busy,
             "lookupBusy": self.lookup_busy,
@@ -663,7 +655,9 @@ impl Render for AddRepositoryDialogView {
         // person has moved to the lookup field meanwhile).
         if !self.focused_once && self.search_shown() {
             self.focused_once = true;
-            if !self.lookup.read(cx).focus_handle(cx).is_focused(window) {
+            let surface = self.view.read(cx);
+            let lookup_focused = surface.focused().is_some_and(|index| Some(index) == surface.index_of(LOOKUP_FIELD));
+            if !lookup_focused {
                 (self.want_focus, self.focus_tries) = (true, FOCUS_TRIES);
             }
         }
@@ -688,38 +682,6 @@ impl Render for AddRepositoryDialogView {
         div().size_full().min_w_0().on_prepaint(move |bounds, _, cx| {
             surface.update(cx, |view, cx| view.set_viewport_height(f32::from(bounds.size.height), cx));
         }).child(self.view.clone())
-    }
-}
-
-// drop with EXP-1787: the lookup field stays the IDE's own `glass_input` (a
-// `host_leaf` Embed): the footer's muted ink reaches its typed text, and
-// genUI's `Input.field` recipe pins that to the foreground.
-struct LookupHost {
-    ide: crate::exponential_ui_host::IdePlugin,
-    view: WeakEntity<AddRepositoryDialogView>,
-}
-
-impl HostPlugin for LookupHost {
-    fn icon(&self, name: &str) -> Option<SharedString> {
-        self.ide.icon(name)
-    }
-
-    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
-        self.ide.on_unknown(node)
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        (component_id == LOOKUP_EMBED).then_some(CTL_MD_H)
-    }
-
-    fn host_leaf(&self, component_id: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        if component_id != LOOKUP_EMBED {
-            return None;
-        }
-        let view = self.view.upgrade()?;
-        let lookup = view.read(cx).lookup.clone();
-        let field = glass_input(&lookup, window, cx).web_input_sm();
-        Some(div().size_full().text_color(cx.theme().muted_foreground).child(field).into_any_element())
     }
 }
 
@@ -902,8 +864,11 @@ fn footer(ink: &Ink, chrome: &Chrome) -> Value {
     let [refresh, _] = ink.pill_button("refresh", Some("ui-refresh"), json!(copy::REFRESH), json!(false), json!({"name": "refresh"}));
     let [install, _] = ink.pill_button("install", Some("ui-add"), json!(copy::INSTALL_ANOTHER), json!(false), json!({"name": "open", "context": {"key": path("/pane/installUrl")}}));
     let actions = json!({"id": "footer_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5)}, "children": [lowered(refresh), shown(lowered(install), path("/pane/hasInstall"))]});
-    // drop with EXP-1787: the field is a claimed Embed (`LookupHost`).
-    let input = json!({"id": LOOKUP_EMBED, "component": "Embed", "props": {"surface": path("/pane/lookupSurface")}, "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "height": CTL_MD_H}});
+    // #EXP-1787: the `box` `sm` Input (`glass_input(..).web_input_sm()`), its
+    // typed text in the footer's muted ink.
+    let input = json!({"id": "lookup", "component": "Input", "props": {"label": copy::LOOKUP_PLACEHOLDER, "name": "lookup", "variant": "box", "size": "sm", "placeholder": copy::LOOKUP_PLACEHOLDER, "value": path("/pane/lookup")},
+        "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "color": "$color.mutedForeground"},
+        "on": {"change": {"event": {"name": "edit", "context": {"field": "lookup"}}}, "submit": {"event": {"name": "lookup"}}}});
     let [look, _] = ink.pill_button_with("look_up", PillPaint::Glass, None, None, json!(copy::LOOK_UP), json!(false), None, json!({"name": "lookup"}));
     let [_, dim] = ink.pill_button_with("look_up", PillPaint::Glass, None, None, json!(copy::LOOK_UP), json!(true), None, Value::Null);
     let [_, busy] = ink.pill_button_with("look_up_busy", PillPaint::Glass, Some(json!("ui-loading")), None, json!(copy::LOOK_UP), json!(true), Some(json!(true)), Value::Null);
