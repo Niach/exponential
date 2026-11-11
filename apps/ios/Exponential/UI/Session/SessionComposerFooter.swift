@@ -105,66 +105,55 @@ struct SessionComposerFooter: View {
     @Binding var attachMenuOpen: Bool
     /// S-3: the `+` opens THE "+" sheet (with controls).
     var onPlus: (() -> Void)?
-    /// #EXP-1762: which half this row draws. The flat card puts the `+`
-    /// LEFT of the field and the ring RIGHT, beside Send.
-    var part: Part = .all
-
-    enum Part { case all, plus, ring }
 
     @State private var attachAnchor: CGRect = .zero
 
     var body: some View {
         HStack(spacing: GlassComposerTokens.toolSpacing) {
-            if part != .ring { plus }
-            if part == .all { Spacer(minLength: 0) }
-            if part != .plus { ring }
+            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+            // concept ×4; `editor-image` stays the comment/description glyph.
+            GlassComposerToolButton(
+                AppIcons.uiAdd,
+                accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
+                enabled: onPlus != nil || attachEnabled
+            ) {
+                if let onPlus {
+                    onPlus()
+                    return
+                }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { attachMenuOpen = true }
+            }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                attachAnchor = frame
+            }
+            .steerAttachChoiceMenu(
+                isPresented: $attachMenuOpen,
+                anchor: attachAnchor,
+                onCamera: onCamera,
+                onPhoto: onPhoto,
+                onFile: onFile
+            )
+
+            Spacer(minLength: 0)
+
+            // No context data yet = no ring (web/Android draw nothing then).
+            if let controls, controls.usageFraction != nil {
+                Button(action: controls.onUsage) {
+                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                        .frame(
+                            width: GlassComposerTokens.toolHitSize,
+                            height: GlassComposerTokens.toolHitSize
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Usage")
+                .accessibilityIdentifier("session-context-ring")
+            }
         }
         .layoutPriority(1)
-    }
-
-    private var plus: some View {
-        // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
-        // concept ×4; `editor-image` stays the comment/description glyph.
-        GlassComposerToolButton(
-            AppIcons.uiAdd,
-            accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
-            enabled: onPlus != nil || attachEnabled
-        ) {
-            if let onPlus {
-                onPlus()
-                return
-            }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { attachMenuOpen = true }
-        }
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-            attachAnchor = frame
-        }
-        .steerAttachChoiceMenu(
-            isPresented: $attachMenuOpen,
-            anchor: attachAnchor,
-            onCamera: onCamera,
-            onPhoto: onPhoto,
-            onFile: onFile
-        )
-    }
-
-    @ViewBuilder private var ring: some View {
-        // No context data yet = no ring (web/Android draw nothing then).
-        if let controls, controls.usageFraction != nil {
-            Button(action: controls.onUsage) {
-                ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                    .frame(
-                        width: GlassComposerTokens.toolHitSize,
-                        height: GlassComposerTokens.toolHitSize
-                    )
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Usage")
-            .accessibilityIdentifier("session-context-ring")
-        }
     }
 }
 

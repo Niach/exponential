@@ -41,25 +41,6 @@ impl Surface {
         self.slot_of.get(id).map(|&s| self.scroll_key(s)).filter(|k| k != id && self.lists.iter().any(|l| l.id == *k)).unwrap_or_else(|| id.to_string())
     }
 
-    /// #LOGS-9: whether the windowed list `spec` scrolled to `scroll` (on
-    /// its axis) lays out other rows or other spacers than it was built
-    /// with (a sticky list re-windows always: its pinned header moves).
-    fn window_moves(&mut self, spec: &crate::layout_tree::ListSpec, scroll: f32) -> bool {
-        let Some(viewport) = self.local.list_views.get(&spec.id).map(|v| v.viewport) else { return true };
-        let Some(window) = self.local.lists.get_mut(&spec.id) else { return true };
-        if spec.sticky || window.gap != spec.gap || spec.offsets.len() != spec.keys.len() + 1 {
-            return true;
-        }
-        let offsets = window.offsets_cached(&spec.keys);
-        let before = window.scroll_offset;
-        window.scroll_offset = scroll.max(0.0);
-        let range = window.visible_range(&offsets, viewport.max(1.0));
-        window.scroll_offset = before;
-        let count = spec.keys.len();
-        let pad = |o: &[f32], r: crate::list::VisibleRange| (o[r.start.min(count)], o[count] - o[r.end.min(count)]);
-        range != spec.range || pad(&offsets, range) != pad(&spec.offsets, spec.range)
-    }
-
     /// Both axes. Offsets clamp to the content the last pass measured (a
     /// fling past the end lands on the last page, never on blank rows).
     pub fn scroll_to(&mut self, id: &str, x: f32, y: f32) -> bool {
@@ -81,24 +62,14 @@ impl Surface {
         }
         // A windowed container re-windows (its subtree only), and so does
         // every windowed list this container is the viewport of (round 2);
-        // a plain one only moves paint. #LOGS-9: only when the scroll moves
-        // its window (the rows or the spacers): a step inside the overscan
-        // keeps the built rows.
-        let candidates: Vec<(crate::layout_tree::ListSpec, f32)> = self
+        // a plain one only moves paint.
+        let lists: Vec<String> = self
             .lists
             .iter()
             .filter(|l| l.windowed)
-            .filter_map(|l| {
-                let along = if l.horizontal { x } else { y };
-                let scroll = match self.local.list_views.get(&l.id).map(|v| &v.source) {
-                    _ if l.id == id => along,
-                    Some(crate::layout_tree::ListViewSource::Ancestor { id: a, rel }) if a == id => along - rel,
-                    _ => return None,
-                };
-                Some((l.clone(), scroll))
-            })
+            .filter(|l| l.id == id || matches!(self.local.list_views.get(&l.id).map(|v| &v.source), Some(crate::layout_tree::ListViewSource::Ancestor { id: a, .. }) if a == id))
+            .map(|l| l.id.clone())
             .collect();
-        let lists: Vec<String> = candidates.into_iter().filter(|(l, scroll)| self.window_moves(l, *scroll)).map(|(l, _)| l.id).collect();
         self.subtree_pending.extend(lists);
         // #EXP-1629: a Select's fade refits after the pass (`refit_select_fades`).
         if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && self.nodes[s as usize].owner_component.as_deref() == Some("Select")) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
@@ -167,7 +138,6 @@ impl Surface {
     /// Menu, Select, the pickers, Toast).
     pub fn set_open(&mut self, id: &str, open: bool) -> Vec<OutEvent> {
         self.ensure_reduced();
-        let opening = open && !self.is_open_now(id);
         self.local.open.insert(id.to_string(), open);
         if !open {
             self.local.submenu.remove(id);
@@ -185,11 +155,6 @@ impl Surface {
         }
         out.extend(written);
         out.extend(self.fire(id, "change", Some(json!({"open": open}))));
-        // #EXP-1629: a Select's `open` fires as its popup opens (the IDE
-        // picker's lazy fetch hangs off it).
-        if opening && self.node_by_id(id).is_some_and(|n| n.component == "Select") {
-            out.extend(self.fire(id, "open", None));
-        }
         out.push(OutEvent::Relayout);
         out
     }
@@ -540,9 +505,6 @@ impl Surface {
                 out.extend(self.set_open(&owner_id, open));
             }
             ("Select", Some("item"), "press") => out.extend(self.select_option(&n, &owner_id)),
-            // #EXP-1629: a host's PLATFORM picker (Compose's native menu)
-            // opened outside the core's layers: its `open` fires all the same.
-            ("Select", _, "open") => out.extend(self.fire(&owner_id, "open", None)),
             // EXP-1259: the Tabs close glyph and the + button.
             ("Tabs", Some("close"), "press") => {
                 let value = n.props.get("value").cloned().unwrap_or(Value::Null);

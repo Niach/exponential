@@ -411,9 +411,6 @@
         "description": {
           "type": "string"
         },
-        "trailing": {
-          "type": "string"
-        },
         "image": {
           "type": "url"
         },
@@ -2742,8 +2739,7 @@
       "props": {
         "content": {
           "type": "string",
-          "required": true,
-          "bindable": true
+          "required": true
         },
         "side": {
           "type": "enum",
@@ -4140,8 +4136,7 @@
       },
       "events": [
         "change",
-        "search",
-        "open"
+        "search"
       ]
     },
     "SearchList": {

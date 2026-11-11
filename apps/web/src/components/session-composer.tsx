@@ -562,9 +562,6 @@ export function SessionComposer({
       <InlinePickerRow slotClassName="pt-1.5 text-sm text-foreground">
       <Composer
         opaque={opaque}
-        // #EXP-1762: the session screen's reply box is THE flat one-line
-        // card: `+` left, the context ring + send right, growing upward.
-        flat
         strip={
           files.length > 0 || teamsPickChips(teamsPick) ? (
             <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
@@ -707,7 +704,7 @@ export function SessionComposer({
             }}
             placeholder={placeholder}
             autoFocus={autoFocus}
-            className="max-h-60 min-h-0 resize-none border-0 bg-transparent px-1.5 py-2.5 shadow-none focus-visible:ring-0"
+            className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
             maxLength={SESSIONS_SEND_TEXT_MAX}
           />
           {menu.open && (

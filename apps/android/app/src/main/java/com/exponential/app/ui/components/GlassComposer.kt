@@ -2,7 +2,6 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -47,11 +46,6 @@ import com.exponential.app.ui.theme.TextEmphasis
  * pushed to the end. EXP-893: [footer] REPLACES that bottom row's layout when
  * given — the steer composer's `Plan mode · + · … · model · ring` strip owns
  * the whole row, so the submit glyph sits inside it wherever it wants.
- *
- * #EXP-1762: [flat] = the FLAT one-line card (the session screen's reply
- * box, web's `<Composer flat>`): [tools] sit LEFT of the field, [submit]
- * RIGHT, all bottom-aligned on the field's row, so the card starts as one
- * line and grows upward with the input. [footer] is ignored when flat.
  */
 @Composable
 fun GlassComposer(
@@ -62,7 +56,6 @@ fun GlassComposer(
     tools: (@Composable RowScope.() -> Unit)? = null,
     submit: (@Composable () -> Unit)? = null,
     footer: (@Composable RowScope.() -> Unit)? = null,
-    flat: Boolean = false,
     field: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
@@ -75,30 +68,12 @@ fun GlassComposer(
             .background(GlassTokens.OpaqueCardFill, shape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(
-                horizontal = if (flat) GlassComposerDefaults.FlatHorizontalPadding else GlassComposerDefaults.HorizontalPadding,
-                vertical = if (flat) GlassComposerDefaults.FlatVerticalPadding else GlassComposerDefaults.VerticalPadding,
+                horizontal = GlassComposerDefaults.HorizontalPadding,
+                vertical = GlassComposerDefaults.VerticalPadding,
             ),
     ) {
         leading?.invoke(this)
         strip?.invoke(this)
-        if (flat) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                // The 48dp glyph buttons centre on the field's FIRST line
-                // (56dp tall) and stay there while the field grows upward.
-                Row(
-                    modifier = Modifier.padding(bottom = GlassComposerDefaults.FlatButtonInset),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) { tools?.invoke(this) }
-                Column(modifier = Modifier.weight(1f)) { field() }
-                Box(modifier = Modifier.padding(bottom = GlassComposerDefaults.FlatButtonInset)) {
-                    submit?.invoke()
-                }
-            }
-            return@Column
-        }
         field()
         if (footer != null) {
             // N-14: the footer is a ROW host: a pin opened inline (the
@@ -195,11 +170,6 @@ fun ComposerSubmitButton(
 object GlassComposerDefaults {
     val HorizontalPadding: Dp = 12.dp
     val VerticalPadding: Dp = 8.dp
-    /** #EXP-1762: the flat card's insets: the 48dp touch targets already
-     *  carry their own air. */
-    val FlatHorizontalPadding: Dp = 2.dp
-    val FlatVerticalPadding: Dp = 0.dp
-    val FlatButtonInset: Dp = 4.dp
     val ToolGlyphSize: Dp = DesignTokens.Size.ControlSm
     val SubmitGlyphSize: Dp = 24.dp
     val SpinnerSize: Dp = 18.dp

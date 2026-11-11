@@ -324,21 +324,6 @@ jobs:
       - name: Guide (gpui) from a fresh project
         if: ${{ !inputs.conformance_only }}
         run: bun packages/exponential-ui/guides/check.ts gpui
-      - name: Cold-start allocations hold their budget (every eUI PR)
-        # The full bench runs on release tags only, so catalog growth used to
-        # creep past the core's cold-start allocation budget unseen until a
-        # tag (eUI 0.21.0: +1.04 %). This runs the core's cold-start scenario
-        # alone and ratchets it against the `mint` budget (Linux; ±2 %,
-        # budgets.json countTolerance); mint's timings only warn, so on any
-        # runner just the counts gate. Raise it on purpose with the measured
-        # number when a change really costs allocations.
-        if: ${{ inputs.conformance_only }}
-        env:
-          EXPONENTIAL_UI_BENCH_MACHINE: mint
-          EXPONENTIAL_UI_BENCH_OUT: ${{ github.workspace }}/.bench-pr/core.json
-        run: |
-          bun run packages/exponential-ui-bench/runners/core.ts --scenario cold-start --repeat 1
-          bun packages/exponential-ui-bench/scripts/ratchet.ts "$GITHUB_WORKSPACE/.bench-pr/core.json"
       - name: Bench (the Rust core, release)
         if: ${{ !inputs.conformance_only }}
         env:

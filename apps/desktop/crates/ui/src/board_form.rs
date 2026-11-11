@@ -400,7 +400,7 @@ pub(crate) enum BranchLoad {
 }
 
 /// The Branch menu's empty list.
-pub(crate) const NO_BRANCHES: &str = "No branches found.";
+const NO_BRANCHES: &str = "No branches found.";
 
 /// FEED-79: the branch list loads as the menu opens, so a failure is quiet:
 /// the menu reads empty and its next open fetches again.

@@ -4,7 +4,7 @@
 //! in the PR.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eui_core::limits::{self, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_POINTER_SEGMENTS, MAX_TEMPLATE_ITEMS};
 use eui_core::measure::FixedMeasure;
@@ -51,13 +51,10 @@ fn on_small_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> 
     std::thread::Builder::new().stack_size(128 * 1024).spawn(f).expect("thread").join().expect("no panic")
 }
 
-/// A hang guard on this thread's CPU time (`cpu_now`), not wall time: a
-/// loaded shared runner stretches wall time without the code doing more
-/// work (#EXP-1743). A real hang (a loop) still burns CPU and trips it.
 fn timed<R>(budget_ms: u64, what: &str, f: impl FnOnce() -> R) -> R {
-    let t = cpu_now();
+    let t = Instant::now();
     let out = f();
-    let took = cpu_now() - t;
+    let took = t.elapsed();
     assert!(took < Duration::from_millis(budget_ms), "{what}: {took:?} (budget {budget_ms} ms)");
     eprintln!("{what}: {took:?}");
     out
@@ -266,8 +263,8 @@ fn cpu_now() -> Duration {
 /// first call.
 #[cfg(not(unix))]
 fn cpu_now() -> Duration {
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed()
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
 }
 
 /// #EXP-1742's measurement: `EUI_STREAM_SIZES=500,1000,2000,4000 cargo test

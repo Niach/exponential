@@ -15,23 +15,29 @@
 //! switches, flushing a pending rename for the previous board first (blur
 //! doesn't fire on unmount — same caveat the web dialog has on close).
 
-use std::rc::Rc;
-
-use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
-use gpui::{div, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window};
-use gpui_component::ActiveTheme as _;
-use serde_json::{json, Value};
+use crate::controls::PointerMenuButtonExt as _;
+use gpui::{
+    div, px, AppContext as _, ElementId, Entity, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window,
+};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex,
+    input::{InputEvent, InputState},
+    v_flex, ActiveTheme as _, Icon,
+};
 use sync::Store;
 
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 use crate::sidebar::RailShared;
 
-use super::doc::{hex, path, IdeToasts, Ink, SM, VALUE_ALPHA, XS};
 use super::repositories::{fetch_repositories, RepoRow};
-use super::{spawn_trpc, SettingsSection};
+use super::{section, spawn_trpc, SettingsSection};
+use crate::icons::registry;
 
 /// Server fetch state for the per-board repository picker.
 enum RepoLoad {
@@ -45,11 +51,7 @@ enum RepoLoad {
 pub struct BoardDetailPane {
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
-    /// The Name field's live text while it differs from the board's (its
-    /// edits); `None` = untouched since the board was loaded.
-    name_draft: Option<String>,
-    binding: Entity<Binding<Value>>,
-    view: Entity<SurfaceView>,
+    name_input: Entity<InputState>,
     /// The board the name input was last seeded from — a selection switch
     /// flushes the previous board's pending rename, then re-seeds.
     loaded_board: Option<String>,
@@ -77,20 +79,7 @@ pub struct BoardDetailPane {
     branches: Option<(String, crate::board_form::BranchLoad)>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
-    /// The bench's state (headless has no board, team or server).
-    #[cfg(test)]
-    shot: Option<BoardShot>,
     _subscriptions: Vec<Subscription>,
-}
-
-/// A state the pictures show (`settings_bench`).
-#[cfg(test)]
-pub(crate) struct BoardShot {
-    pub board: domain::rows::Board,
-    /// The team's repositories (`repositories.list` rows); `None` = loading.
-    pub repos: Option<serde_json::Value>,
-    /// The list failed to load.
-    pub failed: bool,
 }
 
 impl BoardDetailPane {
@@ -100,6 +89,7 @@ impl BoardDetailPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
+        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Board name"));
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
@@ -108,38 +98,17 @@ impl BoardDetailPane {
                 this.refresh_if_links_changed(cx);
                 cx.notify();
             }),
+            cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
+                // Web parity: the dialog saves the name on blur; Enter
+                // commits too (both no-op on unchanged/empty).
+                InputEvent::Blur | InputEvent::PressEnter { .. } => this.commit_rename(cx),
+                _ => {}
+            }),
         ];
-        // Every action leaves the binding for the pane (the confirms and the
-        // Repositories hand-off need its window).
-        let pane = cx.weak_entity();
-        let handle = window.window_handle();
-        let binding = cx.new(|_| {
-            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
-            binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["repo", "branch", "branchOpen", "archive", "trash"] {
-                let pane = pane.clone();
-                binding.on_action(name, move |_, event, cx| {
-                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).unwrap_or_default().to_string();
-                    let pane = pane.clone();
-                    // Deferred: the binding is mid-update and these write it.
-                    cx.defer(move |cx| {
-                        let _ = handle.update(cx, |_, window, cx| {
-                            let _ = pane.update(cx, |pane, cx| pane.action(name, value, window, cx));
-                        });
-                    });
-                    None
-                });
-            }
-            binding
-        });
-        let plugin: Rc<dyn HostPlugin> = Rc::new(PanePlugin { pane: cx.weak_entity(), inner: super::doc::ide_plugin() });
-        let view = super::doc::mount_with("settings-board", document(&Ink::of(cx), &Chrome::of(cx)), &binding, plugin, true, window, cx);
         Self {
             nav,
             shared,
-            name_draft: None,
-            binding,
-            view,
+            name_input,
             loaded_board: None,
             repos: RepoLoad::Idle,
             loaded_team: None,
@@ -149,37 +118,8 @@ impl BoardDetailPane {
             relisted_unknown: None,
             branches: None,
             generation: 0,
-            #[cfg(test)]
-            shot: None,
             _subscriptions: subscriptions,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = crate::navigation::nav_for_window(window, cx);
-        let shared = crate::sidebar::rail_shared_for_window(window, cx);
-        Self::new(nav, shared, window, cx)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn show(&mut self, shot: BoardShot, cx: &mut gpui::Context<Self>) {
-        self.repos = match (&shot.repos, shot.failed) {
-            (_, true) => RepoLoad::Failed,
-            (None, false) => RepoLoad::Loading,
-            (Some(rows), false) => RepoLoad::Ready(serde_json::from_value(rows.clone()).expect("repository rows")),
-        };
-        self.shot = Some(shot);
-        cx.notify();
-    }
-
-    /// The pane's board (the bench's, under test).
-    fn board(&self, cx: &gpui::App) -> Option<domain::rows::Board> {
-        #[cfg(test)]
-        if let Some(shot) = &self.shot {
-            return Some(shot.board.clone());
-        }
-        self.selected_board_id(cx).and_then(|id| Store::global(cx).collections().boards.read(cx).get(&id).cloned())
     }
 
     /// The selected board id from the shared settings selection.
@@ -190,10 +130,15 @@ impl BoardDetailPane {
         }
     }
 
-    /// Re-point the Name field when the selected board changes, flushing a
+    /// Re-seed the name input when the selected board changes, flushing a
     /// pending rename for the PREVIOUS board first (blur doesn't fire on a
     /// nav-away — web parity with the dialog's on-close save).
-    fn sync_selected_board(&mut self, board: &domain::rows::Board, cx: &mut gpui::Context<Self>) {
+    fn sync_selected_board(
+        &mut self,
+        board: &domain::rows::Board,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if self.loaded_board.as_deref() == Some(board.id.as_str()) {
             return;
         }
@@ -201,18 +146,20 @@ impl BoardDetailPane {
             self.commit_rename(cx);
         }
         self.loaded_board = Some(board.id.clone());
-        self.name_draft = None;
+        let name = board.name.clone();
+        self.name_input
+            .update(cx, |input, cx| input.set_value(name, window, cx));
     }
 
     /// `boards.update({id, name})` when the drafted name is non-empty and
-    /// differs from the synced row (keyed on the LOADED board).
+    /// differs from the synced row (deliberately keyed on the LOADED board —
+    /// remote renames while editing don't stomp the input, like the web's
+    /// `useEffect([board?.id])`).
     fn commit_rename(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(board_id) = self.loaded_board.clone() else {
             return;
         };
-        let Some(drafted) = self.name_draft.as_deref().map(str::trim).map(str::to_string) else {
-            return;
-        };
+        let drafted = self.name_input.read(cx).value().trim().to_string();
         if drafted.is_empty() {
             return;
         }
@@ -232,23 +179,10 @@ impl BoardDetailPane {
         });
     }
 
-    /// The Name field's edit (the plugin's): the live text, and on commit
-    /// (blur / Enter: web parity, the dialog saves on blur) the rename.
-    fn edited(&mut self, value: String, commit: bool, cx: &mut gpui::Context<Self>) {
-        self.name_draft = Some(value);
-        if commit {
-            self.commit_rename(cx);
-        }
-    }
-
     /// Kick the `repositories.list` fetch backing the picker when the pane is
     /// first shown or the team / account changed (render-time — a hidden
     /// pane never fetches; mirror of the Repositories pane).
     fn ensure_repos(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
-        #[cfg(test)]
-        if self.shot.is_some() {
-            return;
-        }
         let account_id = Store::global(cx)
             .session(cx)
             .account_id()
@@ -462,73 +396,140 @@ impl BoardDetailPane {
         .detach();
     }
 
-    /// A document action: a Repository or Branch pick, Archive, Move to
-    /// trash.
-    fn action(&mut self, name: &str, value: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(board) = self.board(cx) else { return };
-        match name {
-            // EXP-712: "No repository", a repo, the failed list's Retry, or
-            // the hand-off to settings → Repositories (which also re-reads
-            // the server list, so it doubles as the refresh a repo connected
-            // on another client needs).
-            "repo" => match value.as_str() {
-                REPO_NONE => {
-                    if board.repository_id.is_some() {
-                        self.set_repository(board.id.clone(), None, cx);
+    /// EXP-712 — the **Repository** select (web parity:
+    /// `components/board-repo-field.tsx`): "No repository", the team's
+    /// connected repos, then a trailing "Connect another repository…" that
+    /// hands off to settings → Repositories. Labeled with the board's CURRENT
+    /// link from the synced row. Picking one calls `boards.setRepository`,
+    /// which resets the board's branch pin server-side.
+    fn repo_picker(
+        &self,
+        board: &domain::rows::Board,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let label = repo_picker_label(board.repository_id.as_deref(), &self.repos);
+
+        // EXP-862: the trigger is the ROW's trailing value — no field chrome
+        // of its own (`glass_picker_row` owns the padding and the hairline).
+        let button = Button::new(row_id("board-detail-repo", &board.id))
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long `owner/repo` wraps onto a second line.
+            .child(match label {
+                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
+                None => crate::feedback::skeleton_value("board-repo-placeholder", 120., cx),
+            })
+            // A grouped picker row ends in chevron-right ×4.
+            .child(crate::surface::picker_row_chevron(cx));
+
+        let board_id = board.id.clone();
+        let pane = cx.entity().clone();
+        button
+            .pointer_menu(move |menu, _window, cx| {
+                // Read LIVE state at open time — the component caches the
+                // built menu until dismiss, so a render-time snapshot would
+                // pin whatever the list looked like when the row last drew.
+                let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
+                let current = Store::global(cx)
+                    .collections()
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .and_then(|board| board.repository_id.clone());
+                {
+                    let pane = pane.clone();
+                    let board_id = board_id.clone();
+                    menu = menu.item(
+                        crate::controls::pointer_label_item(crate::board_form::NO_REPOSITORY, false)
+                            .checked(current.is_none())
+                            .on_click(move |_, _, cx| {
+                                let board_id = board_id.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.set_repository(board_id, None, cx);
+                                });
+                            }),
+                    );
+                }
+                let mut has_repos = false;
+                match &pane.read(cx).repos {
+                    // First load: the rows as placeholders (EXP-1259 D8).
+                    RepoLoad::Idle | RepoLoad::Loading => {
+                        menu = crate::feedback::menu_skeleton(menu, "board-repo-skeleton");
+                    }
+                    // A failed load is quiet (FEED-79): the picker's Retry.
+                    RepoLoad::Failed => {
+                        let pane = pane.clone();
+                        menu = menu.item(
+                            crate::controls::pointer_label_item(crate::feedback::RETRY, false)
+                                .icon(Icon::new(registry::UI_REFRESH))
+                                .on_click(move |_, _, cx| {
+                                    pane.update(cx, |this, cx| {
+                                        this.retry_pressed = true;
+                                        this.repos = RepoLoad::Idle;
+                                        cx.notify();
+                                    });
+                                }),
+                        );
+                    }
+                    RepoLoad::Ready(repos) => {
+                        has_repos = !repos.is_empty();
+                        for repo in repos {
+                            let pane = pane.clone();
+                            let board_id = board_id.clone();
+                            let repo_id = repo.id.clone();
+                            menu = menu.item(
+                                crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
+                                    .icon(Icon::new(registry::UI_GITHUB))
+                                    .checked(current.as_deref() == Some(repo.id.as_str()))
+                                    .on_click(move |_, _, cx| {
+                                        let (board_id, repo_id) =
+                                            (board_id.clone(), repo_id.clone());
+                                        pane.update(cx, |this, cx| {
+                                            this.set_repository(board_id, Some(repo_id), cx);
+                                        });
+                                    }),
+                            );
+                        }
                     }
                 }
-                REPO_RETRY => {
-                    self.retry_pressed = true;
-                    self.repos = RepoLoad::Idle;
-                    cx.notify();
-                }
-                REPO_CONNECT => {
-                    self.repos = RepoLoad::Idle;
-                    cx.notify();
-                    crate::sidebar::select_settings_section(window, cx, SettingsSection::Repositories);
-                }
-                "" => {}
-                repo_id => {
-                    if board.repository_id.as_deref() != Some(repo_id) {
-                        self.set_repository(board.id.clone(), Some(repo_id.to_string()), cx);
-                    }
-                }
-            },
-            // EXP-712: picking the repo's own default means "follow the
-            // repo" (an explicit `null`), never a pin on the same value.
-            "branch" => {
-                let Some((shown, repo_default)) = self.branch_value(&board) else { return };
-                if value.is_empty() || value == shown {
-                    return;
-                }
-                let pick = (repo_default.as_deref() != Some(value.as_str())).then_some(value);
-                let board_id = board.id.clone();
-                spawn_trpc(cx, "boards.update(defaultBranch)", move |trpc| {
-                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                    // `Some(None)` is the explicit JSON `null` that clears the
-                    // pin — a skipped field would keep the old one.
-                    input.default_branch = Some(pick);
-                    api::boards::boards_update(trpc, &input)
-                });
-            }
-            // FEED-79: a failed branch list is fetched again as the menu
-            // opens (today's rule); a loaded one never is.
-            "branchOpen" => {
-                if let Some(repository_id) = board.repository_id.clone() {
-                    self.ensure_branches(repository_id, cx);
-                }
-            }
-            "archive" => Self::open_archive_dialog(board.id.clone(), board.name.clone(), window, cx),
-            "trash" => Self::open_trash_dialog(board.id.clone(), board.name.clone(), window, cx),
-            _ => {}
-        }
+                // The connect flow lives in the Repositories pane (which also
+                // re-reads the server list, so this doubles as the refresh a
+                // repo connected on another client needs).
+                let pane = pane.clone();
+                menu.item(
+                    crate::controls::pointer_label_item(crate::board_form::connect_repository_label(has_repos), false)
+                        .icon(Icon::new(registry::UI_ADD))
+                        .on_click(move |_, window, cx| {
+                            pane.update(cx, |this, cx| {
+                                this.repos = RepoLoad::Idle;
+                                cx.notify();
+                            });
+                            crate::sidebar::select_settings_section(
+                                window,
+                                cx,
+                                SettingsSection::Repositories,
+                            );
+                        }),
+                )
+            })
+            .into_any_element()
     }
 
-    /// The Branch row's value (the board's pin, else the repo's default)
-    /// and the repo's own default; `None` = no repository, or neither is
-    /// known (L30: never fabricate `main`).
-    fn branch_value(&self, board: &domain::rows::Board) -> Option<(String, Option<String>)> {
-        let repository_id = board.repository_id.as_deref()?;
+    /// EXP-712 — the **Branch** dropdown: the branch this board's coding
+    /// sessions start from. Saves through `boards.update({defaultBranch})`;
+    /// picking the repo's own default sends an explicit `null` (follow the
+    /// repo again). Rendered only for a board that HAS a repository.
+    fn branch_picker(
+        &self,
+        board: &domain::rows::Board,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let repository_id = board.repository_id.clone()?;
         let repo_default = match &self.repos {
             RepoLoad::Ready(repos) => repos
                 .iter()
@@ -537,65 +538,39 @@ impl BoardDetailPane {
                 .filter(|branch| !branch.is_empty()),
             _ => None,
         };
-        let value = crate::repo_resolver::board_base_branch(board.default_branch.as_deref(), repo_default.as_deref())?;
-        Some((value, repo_default))
-    }
-
-    /// The state as the document binds it.
-    fn project(&self, board: &domain::rows::Board, cx: &gpui::App) -> Value {
-        // EXP-712 — the Repository select (web `board-repo-field.tsx`): "No
-        // repository", the team's connected repos, then "Connect another
-        // repository…"; the label is FEED-32's never-blank rule.
-        let label = repo_picker_label(board.repository_id.as_deref(), &self.repos);
-        let mut options = vec![json!({"label": crate::board_form::NO_REPOSITORY, "value": REPO_NONE})];
-        let mut has_repos = false;
-        match &self.repos {
-            RepoLoad::Ready(repos) => {
-                has_repos = !repos.is_empty();
-                options.extend(repos.iter().map(|repo| json!({"label": repo.full_name, "value": repo.id, "icon": "ui-github"})));
-            }
-            // A failed load is quiet (FEED-79): the picker's Retry.
-            RepoLoad::Failed => options.push(json!({"label": crate::feedback::RETRY, "value": REPO_RETRY, "icon": "ui-refresh"})),
-            RepoLoad::Idle | RepoLoad::Loading => {}
-        }
-        // A linked repo the list doesn't hold reads "Repository unavailable".
-        if let (Some(repo_id), Some(label)) = (board.repository_id.as_deref(), label.as_ref()) {
-            if !options.iter().any(|option| option["value"] == repo_id) {
-                options.push(json!({"label": label.to_string(), "value": repo_id, "disabled": true}));
-            }
-        }
-        options.push(json!({"label": crate::board_form::connect_repository_label(has_repos), "value": REPO_CONNECT, "icon": "ui-add"}));
-        // EXP-712 — the Branch select: the shown branch always listed (a pin
-        // whose branch GitHub no longer has), the repo default tagged.
-        let branch = self.branch_value(board).map(|(value, repo_default)| {
-            let mut names = vec![value.clone()];
-            let load = self.branches.as_ref().filter(|(id, _)| board.repository_id.as_deref() == Some(id.as_str())).map(|(_, load)| load);
-            if let Some(crate::board_form::BranchLoad::Ready(branches)) = load {
-                names.extend(branches.iter().filter(|name| **name != value).cloned());
-            }
-            let failed = matches!(load, Some(crate::board_form::BranchLoad::Failed));
-            let mut options: Vec<Value> = names
-                .iter()
-                .map(|name| match repo_default.as_deref() == Some(name.as_str()) {
-                    // The trigger reads the bare name; the list tags it.
-                    true => json!({"label": name, "value": name, "trailing": "\u{00b7} default"}),
-                    false => json!({"label": name, "value": name}),
-                })
-                .collect();
-            // FEED-79: a failed list is quiet; the open menu says so.
-            if failed {
-                options.push(json!({"label": crate::board_form::NO_BRANCHES, "value": "", "disabled": true}));
-            }
-            json!({"value": value, "options": options})
-        });
-        let _ = cx;
-        json!({
-            "name": board.name,
-            "prefix": board.prefix.clone().unwrap_or_default(),
-            "repo": {"ready": label.is_some(), "loading": label.is_none(), "value": board.repository_id.clone().unwrap_or_else(|| REPO_NONE.to_string()), "options": options},
-            "hasBranch": branch.is_some(),
-            "branch": branch.unwrap_or_else(|| json!({"value": "", "options": []})),
-        })
+        let value = crate::repo_resolver::board_base_branch(
+            board.default_branch.as_deref(),
+            repo_default.as_deref(),
+        )?;
+        let board_id = board.id.clone();
+        let read_id = repository_id.clone();
+        let fetch_id = repository_id.clone();
+        // EXP-862: the trigger is the ROW's trailing value, like Repository
+        // above it — `glass_picker_row` owns the padding and the hairline.
+        Some(crate::board_form::branch_value_menu::<Self>(
+            SharedString::from(format!("board-detail-branch-{}", board.id)),
+            value,
+            repo_default,
+            false,
+            move |this: &Self, _| {
+                this.branches
+                    .as_ref()
+                    .filter(|(id, _)| id == &read_id)
+                    .map(|(_, load)| load.clone())
+            },
+            move |this: &mut Self, cx| this.ensure_branches(fetch_id.clone(), cx),
+            move |_: &mut Self, pick: Option<String>, cx| {
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(defaultBranch)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    // `Some(None)` is the explicit JSON `null` that clears the
+                    // pin — a skipped field would keep the old one.
+                    input.default_branch = Some(pick);
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
+        ))
     }
 
     /// Lazy `repositories.listBranches` for the board's repo (EXP-712),
@@ -633,236 +608,173 @@ impl BoardDetailPane {
 }
 
 impl Render for BoardDetailPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "BoardDetailPane").entered();
         let team_id = active_team_id(&self.nav, cx);
         if let Some(team_id) = team_id.as_deref() {
             self.ensure_repos(team_id, cx);
         }
+        let board = self.selected_board_id(cx).and_then(|id| {
+            Store::global(cx).collections().boards.read(cx).get(&id).cloned()
+        });
         // The nav clamps a stale Board(id) selection away before this pane
         // shows, so a missing row is only a transient frame.
-        let Some(board) = self.board(cx) else {
-            return div().into_any_element();
+        let Some(board) = board else {
+            return v_flex().into_any_element();
         };
-        self.sync_selected_board(&board, cx);
+        self.sync_selected_board(&board, window, cx);
         if let Some(team_id) = team_id.as_deref() {
             self.relist_if_unknown(team_id, board.repository_id.as_deref(), cx);
         }
-        // EXP-712: the Branch list loads with the page, ONCE per
-        // repository (the same request the menu's open made); a failure
-        // stays quiet (the open list says so) and the menu's next open
-        // fetches again (`branchOpen`).
-        if let Some(repository_id) = board.repository_id.clone() {
-            if self.branches.as_ref().map(|(id, _)| id) != Some(&repository_id) {
-                self.ensure_branches(repository_id, cx);
-            }
-        }
-        let projection = self.project(&board, cx);
-        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
-        div().w_full().min_w_0().child(self.view.clone()).into_any_element()
-    }
-}
 
-/// The data-model path the pane's projection is written at.
-const PATH: &str = "/pane";
-/// The Repository select's non-repo options.
-const REPO_NONE: &str = "none";
-const REPO_RETRY: &str = "retry";
-const REPO_CONNECT: &str = "connect";
+        let prefix: SharedString = board.prefix.clone().unwrap_or_default().into();
 
-/// The pane's plugin: the IDE's, the identity row's two pickers drawn by
-/// the IDE itself (`board_form`), and the Name field's edits for the pane.
-struct PanePlugin {
-    pane: gpui::WeakEntity<BoardDetailPane>,
-    inner: crate::exponential_ui_host::IdePlugin,
-}
+        // EXP-862 (×4): the board's IDENTITY is ONE row — icon picker, colour
+        // picker, name — all three on the 32px control rung. Icon and colour
+        // save IMMEDIATELY (web parity: no Save button); the name saves on
+        // blur/Enter.
+        let board_id = board.id.clone();
+        // A row from before the icon backfill carries no `icon`: show the
+        // board's fallback glyph (the rail's and web's rule), not the dashed
+        // "nothing picked" placeholder of the create form.
+        let fallback_icon = if board.repository_id.is_some() { "code" } else { "square-kanban" };
+        let icon_picker = crate::board_form::icon_picker(
+            "board-detail",
+            crate::icons::registry::PICKABLE_ICONS,
+            Some(board.icon.as_deref().unwrap_or(fallback_icon)),
+            board.color.as_deref(),
+            false,
+            move |name, _, cx| {
+                let Some(name) = name else { return };
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(icon)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.icon = Some(name.to_string());
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
+        );
+        let board_id = board.id.clone();
+        let color_picker = crate::board_form::color_picker(
+            "board-detail",
+            board.color.as_deref().unwrap_or_default(),
+            move |color, _, cx| {
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(color)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    input.color = Some(color.to_string());
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
+        );
+        let identity_row = crate::surface::glass_row_shell()
+            .gap_2()
+            .child(icon_picker)
+            .child(color_picker)
+            .child(
+                div().flex_1().min_w_0().child(
+                    crate::surface::glass_row_input(glass_input(&self.name_input, window, cx))
+                        .text_left(),
+                ),
+            );
 
-/// The identity row's pickers: the 32 px control rung (`CTL_MD_H`).
-const PICKER_IDS: [&str; 2] = ["icon_picker", "color_picker"];
-
-impl HostPlugin for PanePlugin {
-    fn icon(&self, name: &str) -> Option<SharedString> {
-        self.inner.icon(name)
-    }
-
-    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
-        self.inner.on_unknown(node)
-    }
-
-    fn on_input(&self, event: &eui_gpui::host::InputEvent, cx: &mut gpui::App) {
-        let commit = event.kind == eui_gpui::host::InputKind::Commit;
-        let value = event.value.as_str().unwrap_or_default().to_string();
-        let pane = self.pane.clone();
-        cx.defer(move |cx| {
-            let _ = pane.update(cx, |pane, cx| pane.edited(value, commit, cx));
-        });
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut gpui::App) -> Option<f32> {
-        PICKER_IDS.contains(&component_id).then_some(crate::controls::CTL_MD_H)
-    }
-
-    // drop with EXP-1760: the icon and colour pickers are the IDE's own
-    // (`board_form::icon_picker` / `color_picker`) until genUI has them.
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut gpui::App) -> Option<gpui::AnyElement> {
-        let board = self.pane.upgrade()?.read(cx).board(cx)?;
-        match component_id {
-            "icon_picker" => {
-                let board_id = board.id.clone();
-                // A row from before the icon backfill carries no `icon`: the
-                // board's fallback glyph (the rail's and web's rule), not the
-                // create form's dashed "nothing picked" placeholder.
-                let fallback = if board.repository_id.is_some() { "code" } else { "square-kanban" };
-                Some(
-                    crate::board_form::icon_picker(
-                        "board-detail",
-                        crate::icons::registry::PICKABLE_ICONS,
-                        Some(board.icon.as_deref().unwrap_or(fallback)),
-                        board.color.as_deref(),
-                        false,
-                        move |name, _, cx| {
-                            let Some(name) = name else { return };
-                            let board_id = board_id.clone();
-                            spawn_trpc(cx, "boards.update(icon)", move |trpc| {
-                                let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                                input.icon = Some(name.to_string());
-                                api::boards::boards_update(trpc, &input)
-                            });
-                        },
-                        cx,
-                    )
-                    .into_any_element(),
+        // The prefix is read-only for life, so it is a row that STATES it
+        // (the hint is the row's description, never a caption above it); web
+        // parity: the value is the mono readonly pill.
+        let prefix_row = crate::surface::glass_row_shell()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .child("Prefix"),
+            )
+            .child(
+                crate::surface::glass_pill(
+                    row_id("board-detail-prefix", &board.id),
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
                 )
-            }
-            "color_picker" => {
-                let board_id = board.id.clone();
-                Some(
-                    crate::board_form::color_picker(
-                        "board-detail",
-                        board.color.as_deref().unwrap_or_default(),
-                        move |color, _, cx| {
-                            let board_id = board_id.clone();
-                            spawn_trpc(cx, "boards.update(color)", move |trpc| {
-                                let mut input = api::boards::BoardsUpdateInput::new(board_id);
-                                input.color = Some(color.to_string());
-                                api::boards::boards_update(trpc, &input)
-                            });
-                        },
-                        cx,
-                    )
-                    .into_any_element(),
+                .flex_shrink_0()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(prefix),
+            );
+
+        // Web parity (`board-detail.tsx` + `board-repo-field.tsx`): no band;
+        // the identity group, then the Repository + Branch group with the
+        // note under it.
+        let mut repo_rows = vec![crate::surface::glass_picker_row(
+            "Repository",
+            None,
+            self.repo_picker(&board, cx),
+            cx,
+        )];
+        if let Some(branch) = self.branch_picker(&board, cx) {
+            repo_rows.push(crate::surface::glass_picker_row("Branch", None, branch, cx));
+        }
+
+        let mut body = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_4()
+            .child(crate::surface::glass_group_rows(vec![identity_row, prefix_row]))
+            .child(
+                section(cx)
+                    .child(crate::surface::glass_group_rows(repo_rows))
+                    .child(crate::board_form::board_repo_note(cx)),
+            );
+
+        // Archive + trash (owner-only pane already; both dialogs confirm
+        // before they fire). Archive is deliberately NOT a danger button — it
+        // hides, it does not destroy.
+        let archive_id = board.id.clone();
+        let archive_name = board.name.clone();
+        let board_id = board.id.clone();
+        let board_name = board.name.clone();
+        body = body.child(
+            h_flex()
+                .pt_2()
+                .gap_2()
+                .child(
+                    Button::new(row_id("board-detail-archive", &board.id))
+                        .web_sm()
+                        .icon(registry::UI_ARCHIVE)
+                        .label("Archive board")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            Self::open_archive_dialog(
+                                archive_id.clone(),
+                                archive_name.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
                 )
-            }
-            _ => None,
-        }
+                .child(
+                    Button::new(row_id("board-detail-trash", &board.id))
+                        .danger().cursor_pointer()
+                        .web_sm()
+                        .icon(registry::UI_DELETE)
+                        .label("Move to trash")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            Self::open_trash_dialog(
+                                board_id.clone(),
+                                board_name.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
+                ),
+        );
+
+        v_flex().child(body).into_any_element()
     }
 }
 
-/// The colours the document needs beyond [`Ink`]: the two `web_sm`
-/// Buttons (the Default: the button fill, the input stroke; the danger).
-struct Chrome {
-    radius: f32,
-    button_fg: String,
-    button_fill: String,
-    button_stroke: String,
-    danger: String,
-    danger_fg: String,
-    danger_hover: String,
-    /// `feedback::placeholder_bar`'s fill.
-    skeleton: String,
-}
-
-impl Chrome {
-    fn of(cx: &gpui::App) -> Self {
-        let theme = cx.theme();
-        Self {
-            radius: f32::from(theme.radius),
-            button_fg: hex(theme.button_foreground),
-            button_fill: hex(theme.button),
-            button_stroke: hex(theme.input),
-            danger: hex(theme.button_danger),
-            danger_fg: hex(theme.button_danger_foreground),
-            danger_hover: hex(theme.button_danger_hover),
-            skeleton: hex(theme.muted_foreground.opacity(0.18)),
-        }
-    }
-}
-
-/// EXP-862 (×4): the board's IDENTITY is ONE row — icon picker, colour
-/// picker, name — on the 32px control rung (`gap_2`); the name types
-/// straight into the row (saved on blur / Enter). Then the read-only Prefix
-/// row (its value the mono readonly pill).
-fn identity(ink: &Ink) -> Value {
-    let picker = |id: &str| json!({"id": id, "component": "Embed", "props": {"surface": {}}, "style": {"width": crate::controls::CTL_MD_H, "height": crate::controls::CTL_MD_H, "flexShrink": 0}});
-    let name = json!({"id": "name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "placeholder": "Board name", "value": path("/pane/name")},
-        "style": {"flexGrow": 1, "minWidth": 0}});
-    let mut row = ink.shell("identity", false, json!(true), vec![picker("icon_picker"), picker("color_picker"), name]);
-    row["style"]["gap"] = json!(ink.r(0.5));
-    let mut label = ink.text("prefix_label", json!("Prefix"), SM, &ink.foreground);
-    label["style"]["flexGrow"] = json!(1);
-    label["style"]["minWidth"] = json!(0);
-    let prefix = ink.shell("prefix", false, json!(true), vec![label, ink.pill("prefix_pill", path("/pane/prefix"), true, None)]);
-    ink.group("identity_group", vec![row, ink.divider("prefix_divider", json!(true)), prefix])
-}
-
-/// The Repository + Branch group (`row` Selects) with the note under it;
-/// a linked repo the list hasn't resolved yet = the value's placeholder bar.
-fn repository(ink: &Ink, chrome: &Chrome) -> Value {
-    let select = json!({"id": "repo", "component": "Select", "visible": path("/pane/repo/ready"),
-        "props": {"label": "Repository", "name": "repo", "triggerVariant": "row", "value": path("/pane/repo/value"), "options": path("/pane/repo/options")},
-        "on": {"change": {"event": {"name": "repo"}}}});
-    // `feedback::skeleton_value`: the 120 px pulsing bar, then the chevron.
-    let glyph = ink.r(1.);
-    let pending = ink.shell("repo_loading", false, path("/pane/repo/loading"), vec![
-        json!({"id": "repo_loading_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [ink.text("repo_loading_label", json!("Repository"), SM, &ink.foreground)]}),
-        json!({"id": "repo_loading_control", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "flexGrow": 1, "minWidth": 200},
-            "children": [
-                {"id": "repo_loading_bar", "component": "Skeleton", "props": {"width": "120", "height": "8"}, "style": {"width": 120, "height": 8, "borderRadius": 4, "backgroundColor": chrome.skeleton}},
-                {"id": "repo_loading_chevron", "component": "Icon", "props": {"name": "ui-chevron-right"}, "style": {"width": glyph, "height": glyph, "color": ink.value, "opacity": VALUE_ALPHA, "flexShrink": 0}},
-            ]}),
-    ]);
-    let branch = json!({"id": "branch", "component": "Select",
-        "props": {"label": "Branch", "name": "branch", "triggerVariant": "row", "value": path("/pane/branch/value"), "options": path("/pane/branch/options")},
-        "on": {"change": {"event": {"name": "branch"}}, "open": {"event": {"name": "branchOpen"}}}});
-    let branch = json!({"id": "branch_rows", "component": "Box", "visible": path("/pane/hasBranch"), "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
-        "children": [ink.divider("branch_divider", json!(true)), branch]});
-    let group = ink.group("repo_group", vec![select, pending, branch]);
-    let note = ink.text("repo_note", json!(crate::board_form::BOARD_REPO_NOTE), XS, &ink.muted);
-    json!({"id": "repository", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": [group, note]})
-}
-
-/// A `web_sm` Button with its glyph: 32 px, `px 12`, the theme radius, the
-/// 12 px glyph (gpui-component's Small icon) and the `text_sm` label (line
-/// height 1).
-fn button(ink: &Ink, id: &str, icon: &str, label: &str, fill: &str, stroke: Option<&str>, ink_color: &str, hover: Option<&str>, event: &str, radius: f32) -> Value {
-    let size = ink.r(SM);
-    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
-        "children": [
-            {"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": 12, "height": 12, "color": ink_color, "flexShrink": 0}},
-            {"id": format!("{id}_text"), "component": "Text", "props": {"text": label}, "style": {"fontSize": size, "lineHeight": size, "color": ink_color, "flexShrink": 0}},
-        ]});
-    if let Some(stroke) = stroke {
-        button["style"]["borderWidth"] = json!(1);
-        button["style"]["borderColor"] = json!(stroke);
-    }
-    if let Some(hover) = hover {
-        button["style"][":hover"] = json!({"backgroundColor": hover});
-    }
-    button
-}
-
-/// The pane's tree (`gap_4`): the identity group, the repository block,
-/// then Archive (NOT a danger button: it hides, it does not destroy) and
-/// Move to trash (`pt_2`, `gap_2`); both confirm first.
-fn document(ink: &Ink, chrome: &Chrome) -> Value {
-    let actions = json!({"id": "actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "gap": ink.r(0.5), "paddingTop": ink.r(0.5)},
-        "children": [
-            button(ink, "archive", "ui-archive", "Archive board", &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, None, "archive", chrome.radius),
-            button(ink, "trash", "ui-delete", "Move to trash", &chrome.danger, None, &chrome.danger_fg, Some(&chrome.danger_hover), "trash", chrome.radius),
-        ]});
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
-        "children": [identity(ink), repository(ink, chrome), actions]})
+fn row_id(kind: &str, id: &str) -> ElementId {
+    ElementId::Name(SharedString::from(format!("{kind}-{id}")))
 }
 
 /// FEED-32 (web `board-repo-field.tsx` `triggerLabel`): the Repository

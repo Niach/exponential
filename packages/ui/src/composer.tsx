@@ -39,11 +39,6 @@ interface ComposerProps extends React.ComponentProps<`div`> {
    *  (bottom-aligned, so it stays put while the one-row field grows) instead
    *  of a tool row under it. Mirrors the IDE's `GlassComposer::inline_tools`. */
   inline?: boolean
-  /** #EXP-1762: the FLAT one-line card (the session screen's reply box):
-   *  `tools` sit LEFT of the field, `submit` RIGHT, all bottom-aligned on
-   *  the field's row, so the card starts as one line and grows upward with
-   *  the input. */
-  flat?: boolean
 }
 
 function Composer({
@@ -53,7 +48,6 @@ function Composer({
   tools,
   submit,
   inline = false,
-  flat = false,
   className,
   children,
   ...props
@@ -73,13 +67,7 @@ function Composer({
         </div>
       )}
       {strip}
-      {flat ? (
-        <div data-layout="flat" className="flex items-end gap-1 px-1.5">
-          <div className="flex shrink-0 items-center gap-0.5 pb-1.5">{tools}</div>
-          <div className="min-w-0 flex-1">{children}</div>
-          <div className="flex shrink-0 items-center gap-1 pb-1">{submit}</div>
-        </div>
-      ) : inline ? (
+      {inline ? (
         <div className="flex items-end gap-1">
           <div className="min-w-0 flex-1">{children}</div>
           <div className="flex shrink-0 items-center gap-1 pr-1.5 pb-1.5">

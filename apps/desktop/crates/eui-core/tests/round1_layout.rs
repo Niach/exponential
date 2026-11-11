@@ -979,24 +979,6 @@ fn hover_and_keyboard_focus_open_tooltips_and_hover_popovers() {
 }
 
 #[test]
-fn a_bound_tooltip_content_resolves_and_follows_the_data() {
-    // #EXP-1629: Tooltip `content` is bindable (a per-row reason).
-    let mut s = surface(json!({"id": "tip", "component": "Tooltip", "props": {"content": {"@path": "/reason"}}, "children": [{"id": "btn", "component": "Button", "props": {"label": "Reconnect"}}]}));
-    s.set_data("/reason", Some(json!("Token expired"))).unwrap();
-    assert!(s.issues().is_empty(), "a bound content validates: {:?}", s.issues());
-    s.set_viewport(400.0, 600.0, None);
-    let mut m = fixed();
-    s.layout(&mut m);
-    s.set_states("tip.anchor", vec!["hover".into()]);
-    assert!(s.layout(&mut m).layers.iter().any(|l| l.kind == "Tooltip"));
-    let label = |s: &mut Surface| s.nodes().iter().find(|n| n.id == "tip.label").map(|n| n.props["text"].clone());
-    assert_eq!(label(&mut s), Some(json!("Token expired")));
-    s.set_data("/reason", Some(json!("Server unreachable"))).unwrap();
-    s.layout(&mut m);
-    assert_eq!(label(&mut s), Some(json!("Server unreachable")));
-}
-
-#[test]
 fn a_responsive_drawer_is_a_bottom_sheet_on_phones_and_a_side_panel_from_md() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": {"base": "bottom", "md": "right"}, "title": "Filters"}, "children": [{"id": "x", "component": "Text", "props": {"text": "Body"}}]}]}));
     let mut m = fixed();

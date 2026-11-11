@@ -275,8 +275,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     @State private var plusPick: ComposerMenu.RowId?
 
     var body: some View {
-        // #EXP-1762: THE flat one-line card: `+` | field | ring + Send.
-        GlassComposer(isOpaque: true, isFlat: true) {
+        GlassComposer(isOpaque: true) {
             // EXP-802: a caret-bearing field, so `@` members, `#` issues and
             // `:` emoji complete here exactly as in a comment. Return SENDS
             // (one message, never a document).
@@ -286,16 +285,18 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 onReturn: { (onReturn ?? send)() },
                 onPasteImage: { image in draft.ingestPastedImage(image) },
                 onIssueRefTap: onIssueRefTap,
-                // One line plus the field's own inset (the `+`'s height, so
-                // the row starts as one line), growing upward to about five
+                // One line plus the field's own inset, growing to about five
                 // before it scrolls inside itself.
-                minHeight: GlassComposerTokens.toolHitSize,
+                minHeight: 34,
                 maxHeight: 120
             )
             .onKeyPress(.upArrow) { onArrow?(-1) == true ? .handled : .ignored }
             .onKeyPress(.downArrow) { onArrow?(1) == true ? .handled : .ignored }
             .onKeyPress(.escape) { onEscape?() == true ? .handled : .ignored }
-            // The text view carries its own inset; the flat row pads the rest.
+            // The text view carries a 6pt inset of its own, so the card's
+            // 12/12/6 band is spelled 6/6/0 here.
+            .padding(.horizontal, 6)
+            .padding(.top, 6)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(fieldIdentifier ?? "session-composer-field")
         } strip: {
@@ -330,19 +331,9 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 onPhoto: { attach.photoPicker = true },
                 onFile: { attach.fileImporter = true },
                 attachMenuOpen: $attach.menu,
-                onPlus: plusAction,
-                part: .plus
+                onPlus: plusAction
             )
         } submit: {
-            SessionComposerFooter(
-                controls: controls,
-                attachEnabled: false,
-                onCamera: {},
-                onPhoto: {},
-                onFile: {},
-                attachMenuOpen: .constant(false),
-                part: .ring
-            )
             GlassComposerSubmitButton(
                 showsStop ? AppIcons.uiStop : AppIcons.uiSubmit,
                 accessibilityLabel: showsStop ? "Stop" : "Send",

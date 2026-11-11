@@ -1945,8 +1945,7 @@ impl ClaudeSession {
         match id.0.as_ref() {
             CONFIG_MODEL => {
                 let model = picked.unwrap_or_default();
-                self.control_request(wire::set_model(Some(&crate::agent::claude_cli_model(&model))))
-                    .await?;
+                self.control_request(wire::set_model(Some(&model))).await?;
                 let mut state = self.lock();
                 // EXP-761: the window follows the model (1M ↔ 200k), so the
                 // one taken for the previous id is dropped here — nothing

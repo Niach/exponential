@@ -156,21 +156,8 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
 pub(crate) enum HostRow {
     /// List row `ix` of the session view, its [`crate::transcript_rows::RowKey`] fingerprint.
     List { ix: usize, fingerprint: u64 },
-    /// #LOGS-10: a head card (the view's conversation card `index`, its
-    /// call above the loaded rows), a row of its own above the first.
-    Card { index: usize, fingerprint: u64 },
     Page,
     Tail,
-}
-
-impl HostRow {
-    /// A measured row's content fingerprint (the spacers have none).
-    fn fingerprint(&self) -> Option<u64> {
-        match *self {
-            HostRow::List { fingerprint, .. } | HostRow::Card { fingerprint, .. } => Some(fingerprint),
-            HostRow::Page | HostRow::Tail => None,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -207,7 +194,7 @@ impl HostState {
         match self.rows.get(id) {
             Some(HostRow::Page) => PAGE_HEIGHT,
             Some(HostRow::Tail) => self.tail,
-            Some(HostRow::List { .. } | HostRow::Card { .. }) => self.heights.get(id).copied().unwrap_or(ESTIMATE),
+            Some(HostRow::List { .. }) => self.heights.get(id).copied().unwrap_or(ESTIMATE),
             None => 0.,
         }
     }
@@ -373,8 +360,8 @@ impl ChatTranscript {
         {
             let mut state = self.state.borrow_mut();
             for (id, row) in &push.host_rows {
-                let Some(fingerprint) = row.fingerprint() else { continue };
-                if state.rows.get(id).and_then(HostRow::fingerprint).is_some_and(|old| old != fingerprint) {
+                let HostRow::List { fingerprint, .. } = *row else { continue };
+                if matches!(state.rows.get(id), Some(HostRow::List { fingerprint: old, .. }) if *old != fingerprint) {
                     changed.push(id.clone());
                 }
             }
@@ -617,21 +604,16 @@ impl HostPlugin for TranscriptHost {
     /// outside its layout) when it changed or was never measured at this
     /// width: the document lays out around its real height in this frame.
     fn host_leaf_prepaint(&self, component_id: &str, width: f32, window: &mut Window, cx: &mut App) -> bool {
-        let (row, fingerprint, steer) = {
+        let (ix, fingerprint, steer) = {
             let state = self.state.borrow();
-            let Some(row) = state.rows.get(component_id).copied() else { return false };
-            let Some(fingerprint) = row.fingerprint() else { return false };
+            let Some(HostRow::List { ix, fingerprint }) = state.rows.get(component_id).copied() else { return false };
             if state.fresh(component_id, fingerprint, width) {
                 return false;
             }
-            (row, fingerprint, state.steer.clone().and_then(|steer| steer.upgrade()))
+            (ix, fingerprint, state.steer.clone().and_then(|steer| steer.upgrade()))
         };
         let Some(steer) = steer else { return false };
-        let element = steer.update(cx, |this, cx| match row {
-            HostRow::Card { index, .. } => this.chat_card_row(index, window, cx),
-            HostRow::List { ix, .. } => this.chat_host_row(ix, window, cx),
-            HostRow::Page | HostRow::Tail => div().into_any_element(),
-        });
+        let element = steer.update(cx, |this, cx| this.chat_host_row(ix, window, cx));
         let height = measure(element, width, window, cx);
         self.state.borrow_mut().measured(component_id, fingerprint, width, height)
     }
@@ -652,13 +634,8 @@ impl HostPlugin for TranscriptHost {
                 steer.update(cx, |this, cx| this.chat_page_painted(cx));
                 Some(div().into_any_element())
             }
-            Some(row @ (HostRow::List { .. } | HostRow::Card { .. })) => {
-                let fingerprint = row.fingerprint().unwrap_or_default();
-                let child = steer.update(cx, |this, cx| match row {
-                    HostRow::Card { index, .. } => this.chat_card_row(index, window, cx),
-                    HostRow::List { ix, .. } => this.chat_host_row(ix, window, cx),
-                    HostRow::Page | HostRow::Tail => div().into_any_element(),
-                });
+            Some(HostRow::List { ix, fingerprint }) => {
+                let child = steer.update(cx, |this, cx| this.chat_host_row(ix, window, cx));
                 let (state, id) = (self.state.clone(), component_id.to_string());
                 let on_height: OnHeight = Box::new(move |width, framed, height, cx| {
                     let (resize, view) = {

@@ -193,7 +193,7 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
   menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
@@ -264,7 +264,7 @@ export interface ComponentProps {
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
   Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue }
-  Tooltip: { content: string | Dynamic; side?: SideValue }
+  Tooltip: { content: string; side?: SideValue }
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }

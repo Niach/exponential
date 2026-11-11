@@ -1654,16 +1654,6 @@ pub fn apply_subagent_model_env(
     }
 }
 
-/// Fable is always 5.2: every claude spawn pins the CLI's own `fable` alias
-/// (a `/model fable` typed as a prompt, the CLI's picker) to
-/// [`crate::agent::CLAUDE_FABLE_MODEL`]. Nothing for any other agent.
-pub fn apply_fable_model_env(spawn: SpawnSpec, agent: CodingAgent) -> SpawnSpec {
-    if agent != CodingAgent::Claude {
-        return spawn;
-    }
-    spawn.env(crate::agent::CLAUDE_FABLE_MODEL_ENV, crate::agent::CLAUDE_FABLE_MODEL)
-}
-
 /// FEED-25: bound every claude MCP call (both arms — the agent shell and the
 /// ACP child run with the same [`SpawnSpec`] env). `inherited` is the
 /// host's own `MCP_TOOL_TIMEOUT`: a user who tuned it keeps their value, the
@@ -2597,7 +2587,6 @@ fn session_spawn(
     spawn = apply_mcp_server_env(spawn, team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     spawn = apply_subagent_model_env(spawn, agent, options.subagent_model_or_model());
-    spawn = apply_fable_model_env(spawn, agent);
     if let Some(originator) = codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -3579,7 +3568,6 @@ pub fn prepare_agent_shell(
     spawn = apply_mcp_env(spawn, agent, &personal_key, None, true);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     spawn = apply_subagent_model_env(spawn, agent, options.subagent_model_or_model());
-    spawn = apply_fable_model_env(spawn, agent);
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd — a distinct originator keeps
         // their rollouts out of every session's strict pass.
@@ -4128,36 +4116,6 @@ mod tests {
         // Codex has no subagent model to pin.
         let codex = apply_subagent_model_env(base.clone(), CodingAgent::Codex, "sonnet");
         assert_eq!(codex.env, base.env);
-    }
-
-    /// Fable is always 5.2: a claude spawn pins the CLI's `fable` alias (so a
-    /// typed `/model fable` lands on 5.2), a Fable pick reaches `--model` and
-    /// the subagent env as the 5.2 id, and the default stays Opus.
-    #[test]
-    fn fable_is_always_5_2_and_the_default_stays_opus() {
-        let base = SpawnSpec::new("agent");
-        assert_eq!(
-            apply_fable_model_env(base.clone(), CodingAgent::Claude).env,
-            vec![("ANTHROPIC_DEFAULT_FABLE_MODEL".to_string(), "claude-fable-5-2".to_string())]
-        );
-        assert!(apply_fable_model_env(base.clone(), CodingAgent::Codex).env.is_empty());
-
-        let defaults = LaunchOptions::defaults_for(&Settings::default(), CodingAgent::Claude);
-        assert_eq!(defaults.model, "opus");
-        let model_flag = |model: &str| {
-            let args = crate::argv::shell_args(
-                &LaunchOptions { model: model.to_string(), ..defaults.clone() },
-                &crate::argv::AgentMcp::ClaudeFile,
-                crate::skill::RUN_SKILL,
-            );
-            let at = args.iter().position(|arg| arg == "--model").expect("--model");
-            args[at + 1].clone()
-        };
-        assert_eq!(model_flag("fable"), "claude-fable-5-2");
-        assert_eq!(model_flag("claude-fable-5-1"), "claude-fable-5-2");
-        assert_eq!(model_flag("opus"), "opus");
-        let fable_subagents = apply_subagent_model_env(base, CodingAgent::Claude, "fable");
-        assert_eq!(fable_subagents.env[0].1, "claude-fable-5-2");
     }
 
     /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir

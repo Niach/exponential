@@ -251,8 +251,6 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
     let document = steer.read_with(cx, |inner, _| inner.chat_document().cloned()).expect("the document");
     let list = document.read_with(cx, |document, _| document.painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("the list painted");
     let mut scroll = Vec::new();
-    let passes = |cx: &mut gpui::VisualTestContext| document.read_with(cx, |document, _| document.stats().passes);
-    let before = passes(cx);
     for n in 0..60 {
         let dy = if n < 40 { 120. } else { -120. };
         let event = gpui::ScrollWheelEvent { position: list.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(dy))), ..Default::default() };
@@ -264,8 +262,7 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
         cx.run_until_parked();
         scroll.push(started.elapsed());
     }
-    // #LOGS-9: the document's layout passes per step (the test draws twice).
-    println!("[LOGS-7] scroll: {} · {:.2} layout passes per step", Stats(scroll), (passes(cx) - before) as f64 / 60.0);
+    println!("[LOGS-7] scroll: {}", Stats(scroll));
 
     // Typing in the composer: one key, its frame.
     let input = steer.read_with(cx, |inner, _| inner.composer_for_test());
@@ -305,31 +302,6 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
         other.push(started.elapsed());
     }
     println!("[LOGS-7] another session syncs: {}", Stats(other));
-
-    // #LOGS-10: a short feed under the chat's 200 surface cards (their calls
-    // are not in the feed: the head, above the first row), scrolled through.
-    let (head_view, hcx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
-    hcx.simulate_resize(gpui::size(px(1440.), px(900.)));
-    let head_steer = inner(&head_view, hcx);
-    head_steer.update(hcx, |inner, cx| inner.apply_events_for_test(feed_events_of(20), cx));
-    for _ in 0..4 {
-        frame(hcx);
-    }
-    let document = head_steer.read_with(hcx, |inner, _| inner.chat_document().cloned()).expect("the document");
-    let list = document.read_with(hcx, |document, _| document.painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("the list painted");
-    let mut head = Vec::new();
-    for n in 0..60 {
-        let dy = if n < 40 { 600. } else { -600. };
-        let event = gpui::ScrollWheelEvent { position: list.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(dy))), ..Default::default() };
-        let started = Instant::now();
-        hcx.update(|window, cx| {
-            window.dispatch_event(gpui::InputEvent::to_platform_input(event), cx);
-        });
-        hcx.update(|window, cx| window.draw(cx).clear(cx));
-        hcx.run_until_parked();
-        head.push(started.elapsed());
-    }
-    println!("[LOGS-10] scroll through 200 head cards: {}", Stats(head));
 }
 
 /// A new message arriving: the synced row and the relay's reply.

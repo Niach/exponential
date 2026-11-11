@@ -586,19 +586,6 @@ describe(`new natives`, () => {
     fireEvent.keyDown(field, { key: `Enter` })
     expect(events.find((e) => e.name === `change`)!.context).toEqual({ value: `done` })
   })
-  it(`Select: an option's trailing reads on after its label in the popup only; open fires as the popup opens (#EXP-1629)`, () => {
-    for (const searchable of [false, true]) {
-      const events: SurfaceActionEvent[] = []
-      const root = tree({ id: `b`, component: `Select`, props: { label: `Branch`, name: `branch`, triggerVariant: `row`, searchable, value: `main`, options: [{ label: `main`, value: `main`, trailing: `· default` }, { label: `develop`, value: `develop` }] }, on: { open: { event: { name: `loadBranches` } } } })
-      const { container, unmount } = render(<ExponentialSurface root={root} theme="exponential" id={`br${searchable}`} host={{ onAction: (e) => void events.push(e) }} />)
-      expect(container.querySelector(`.xui-Select-value`)!.textContent).toBe(`main`)
-      expect(events.filter((e) => e.name === `loadBranches`)).toHaveLength(0)
-      fireEvent.keyDown(container.querySelector(`.xui-Select-trigger`)!, { key: `ArrowDown` })
-      expect(events.filter((e) => e.name === `loadBranches`)).toHaveLength(1)
-      expect(Array.from(document.querySelectorAll(`.xui-Select-item`)).map((el) => el.textContent)).toEqual([`main · default`, `develop`])
-      unmount()
-    }
-  })
   it(`Chart: measured width, nice ticks, a ring per pie series, the legend with 2+ series, arrow keys move the tooltip`, () => {
     const bar = tree({ id: `c`, component: `Chart`, props: { kind: `bar`, categories: [`a`, `b`], series: [{ name: `x`, values: [3, 7] }, { name: `y`, values: [5, 1] }] } })
     const { container } = render(<ExponentialSurface root={bar} theme="neutral" id="ch" />)

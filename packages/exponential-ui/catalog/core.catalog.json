@@ -419,10 +419,6 @@
           "type": "string",
           "description": "Second line."
         },
-        "trailing": {
-          "type": "string",
-          "description": "Text after the label (Select popup)."
-        },
         "image": {
           "type": "url",
           "description": "Tile picture."
@@ -3455,7 +3451,6 @@
         "content": {
           "type": "string",
           "required": true,
-          "bindable": true,
           "description": "Hint text."
         },
         "side": {
@@ -5378,8 +5373,7 @@
       },
       "events": [
         "change",
-        "search",
-        "open"
+        "search"
       ],
       "example": {
         "label": "Board",

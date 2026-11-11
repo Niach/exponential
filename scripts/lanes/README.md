@@ -10,11 +10,9 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
 
 - **ios / android:** the simulator and the emulator, one holder each.
 - **heavy:** a heavy build, test or perf run. One holder by default; a machine
-  with the cores and disk for more says so in its config
-  `~/.config/exponential/lane-slots` (`heavy=2`; survives a reboot, unlike
-  `/tmp`), and `lane.sh` takes any free slot. A
-  `${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots` file overrides it for one boot.
-  Mint runs `heavy=2`; the MacBook has no file (1).
+  with the cores and disk for more says so in its local
+  `${EXP_LANE_LOCK_ROOT:-/tmp}/exp-lane-slots` file (`heavy=2`), and `lane.sh`
+  takes any free slot. Mint runs `heavy=2`; the MacBook has no file (1).
 - **Locks** record owner, start time, pid and host. A waiter on the same host
   takes over a lock whose pid is gone. Release only your own
   (`release_lock <dir> <owner>`); never `rm` a lock.

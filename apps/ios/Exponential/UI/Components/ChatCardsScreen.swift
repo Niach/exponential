@@ -468,7 +468,7 @@ private struct SessionTabsSpecimens: View {
             ChatSessionsTab(sessions: Self.items.sessions) { _ in }
                 .frame(height: 220)
                 .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-            caption("THE composer: + · the field · the ring beside Send")
+            caption("THE composer row: the + alone … the ring beside Send")
             composerRow()
             caption("EXP-1211: the agent's quick replies above the composer")
             VStack(spacing: 0) {
@@ -509,31 +509,26 @@ private struct SessionTabsSpecimens: View {
             .padding(.horizontal, -16)
     }
 
-    /// #EXP-1762: THE flat one-line composer card: the `+` left of the
-    /// field, the ring beside Send right (`SessionComposerCard`'s layout).
+    /// N-12: THE composer card's one tool row (`SessionComposerFooter`)
+    /// beside the Send glyph, in the card's glass.
     private func composerRow() -> some View {
-        let controls = SessionComposerFooter.Controls(
-            modelValue: "opus", agent: "claude", onPickModel: { _ in },
-            usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
-        )
-        return GlassComposer(isOpaque: true, isFlat: true) {
-            Text("Type / for commands")
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(minHeight: GlassComposerTokens.toolHitSize)
-        } strip: {
-            EmptyView()
-        } tools: {
+        HStack(spacing: GlassComposerTokens.toolSpacing) {
             SessionComposerFooter(
-                controls: controls, attachEnabled: true, onCamera: {}, onPhoto: {}, onFile: {},
-                attachMenuOpen: .constant(false), onPlus: {}, part: .plus
-            )
-        } submit: {
-            SessionComposerFooter(
-                controls: controls, attachEnabled: true, onCamera: {}, onPhoto: {}, onFile: {},
-                attachMenuOpen: .constant(false), part: .ring
+                controls: SessionComposerFooter.Controls(
+                    modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
+                ),
+                attachEnabled: true,
+                onCamera: {},
+                onPhoto: {},
+                onFile: {},
+                attachMenuOpen: .constant(false),
+                onPlus: {}
             )
             GlassComposerSubmitButton(AppIcons.uiSubmit, accessibilityLabel: "Send", action: {})
         }
+        .padding(8)
+        .glassCard(isOpaque: true)
     }
 
     private func caption(_ text: String) -> some View {

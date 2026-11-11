@@ -55,7 +55,7 @@ const SYSTEM = `${catalogPrompt(PROMPT_OPTIONS[variant])}\nReply with the A2UI m
 async function record(client: Anthropic, id: string, prompt: string): Promise<EvalFixture> {
   // Streaming: a surface can run a few thousand output tokens. The system
   // prompt is identical for every prompt of the run, so it is cached.
-  // Opus 5.5 / Fable 5.2: thinking is always on; effort is the dial.
+  // Opus 5.5 / Fable 5.1: thinking is always on; effort is the dial.
   // `fallbacks: "default"` re-runs a safeguards decline on a fallback model.
   const stream = client.beta.messages.stream({
     model,

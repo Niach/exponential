@@ -407,34 +407,6 @@ class InteractionTest {
         assertEquals(listOf("s.item.0"), hovered())
     }
 
-    /**
-     * #EXP-1629: an option's `trailing` reads on after its label in the popup
-     * row (the core's item, the native menu's option), never in the trigger;
-     * `open` fires once as the popup opens, through the core's layer and
-     * through the native menu alike.
-     */
-    @Test
-    fun selectTrailingAndOpen() {
-        for (native in listOf(false, true)) {
-            val host = RecordingHost()
-            val overlays = if (native) OverlayPresentation.Native else OverlayPresentation.Painted
-            val m = SurfaceModel("select-trailing", SurfaceOptions(overlays = overlays), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
-            m.fixedMeasure = true
-            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"Branch","name":"s","triggerVariant":"row","options":[{"label":"main","value":"main","trailing":"· default"},{"label":"develop","value":"develop"}],"value":"main"},"on":{"open":{"event":{"name":"loadBranches"}}}}]}""")
-            m.setViewport(390f, 800f)
-            assertEquals(0, host.actions.count { it.name == "loadBranches" })
-            m.press("s.trigger")
-            assertEquals("native=$native", 1, host.actions.count { it.name == "loadBranches" })
-            if (native) {
-                assertEquals(listOf("main · default", "develop"), at.exponential.ui.compose.selectOptions(m.ownerProps(m.idx("s.trigger")), "").map { it.text })
-                assertEquals(listOf("main"), at.exponential.ui.compose.selectOptions(m.ownerProps(m.idx("s.trigger")), "mai").map { it.value.displayText })
-            } else {
-                assertEquals("main · default", m.node(m.idx("s.item.0"))?.props?.get("text")?.displayText)
-                assertEquals("develop", m.node(m.idx("s.item.1"))?.props?.get("text")?.displayText)
-            }
-        }
-    }
-
     /** #EXP-1629: the popup's cursor rules, alignment, spacing and width (a row: under its value, `start`, layout `selectRowPopupWidth`). */
     @Test
     fun selectPopupRules() {

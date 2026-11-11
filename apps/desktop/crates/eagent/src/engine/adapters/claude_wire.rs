@@ -158,7 +158,7 @@ pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
     }
     if let Some(model) = args.model {
         push("--model");
-        push(&crate::agent::claude_cli_model(model));
+        push(model);
     }
     match args.mcp_config {
         Some(McpConfig::File(path)) => {

@@ -20,7 +20,7 @@ describe(`select: variants`, () => {
   const example = fixtureCases([`Select`])[0].node
   it(`every forced state`, async () => expectParity({ tree: example, theme: `exponential`, states: STATES }))
   it(`dark + rtl (orange)`, async () => expectParity({ tree: example, theme: `orange`, mode: `dark`, direction: `rtl` }))
-  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }, { triggerVariant: `row`, options: [{ label: `main`, value: `main`, trailing: `· default` }, ...OPTIONS] }]) {
+  for (const variant of [{}, { multiple: true }, { searchable: true }, { multiple: true, searchable: true }, { triggerVariant: `row` }, { triggerVariant: `row`, searchable: true }, { triggerVariant: `row`, description: `Hint` }, { triggerVariant: `row`, searchable: true, description: `Hint` }, { description: `Hint` }, { searchable: true, description: `Hint` }]) {
     const tag = JSON.stringify(variant)
     it(`${tag}: placeholder (no value)`, async () => expectParity({ tree: sel({ ...variant, placeholder: `Pick one` }) }))
     it(`${tag}: a value not in the options`, async () => expectParity({ tree: sel({ ...variant, value: `nope` }) }))
@@ -99,31 +99,6 @@ describe(`select: open popup`, () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
     expect(react.items).toEqual([[null, false], [`selected hover`, true], [`disabled`, false]])
-  })
-  it(`an option's trailing reads on after its label in the popup row (#EXP-1629)`, async () => {
-    for (const searchable of [false, true]) {
-      const tree = sel({ triggerVariant: `row`, searchable, value: `sprint`, options: [{ label: `Backlog`, value: `backlog`, trailing: `· default` }, { label: `Sprint`, value: `sprint` }] })
-      const r = await renderReact({ tree })
-      let react: string[]
-      try {
-        await act(async () => {
-          openIt(r.root)
-          await settle()
-        })
-        react = Array.from(document.querySelectorAll(`.xui-Select-item`)).map((el) => el.textContent ?? ``)
-      } finally {
-        r.cleanup()
-      }
-      const so = await renderSolidSurface({ tree })
-      try {
-        openIt(so.root)
-        await settle()
-        expect(Array.from(document.querySelectorAll(`.xui-Select-item`)).map((el) => el.textContent ?? ``)).toEqual(react)
-      } finally {
-        so.cleanup()
-      }
-      expect(react).toEqual([`Backlog · default`, `Sprint`])
-    }
   })
   it(`multiple, nothing chosen: no cursor until the arrows reach for the list`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [] }) })

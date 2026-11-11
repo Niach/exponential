@@ -72,4 +72,4 @@ pub mod login;
 pub mod login_picker;
 pub mod login_screen;
 
-pub use agent::{claude_cli_model, claude_model_alias, CodingAgent};
+pub use agent::{claude_model_alias, CodingAgent};

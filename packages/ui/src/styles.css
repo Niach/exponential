@@ -262,7 +262,7 @@ html {
      so both share one pair of edges. rem like the sidebar widths, so it grows
      with the md+ root exactly like the IDE's px; design-tokens.test.ts guards
      the parity. */
-  --chat-column-width: 100rem;
+  --chat-column-width: 62.25rem;
   /* SLOP-18 spacing + type scales, mirroring packages/design-tokens/tokens.json
      `spacing` and `type` (design-tokens.test.ts guards the parity). The record
      the natives and the `exp` catalog's Box styles resolve against; web

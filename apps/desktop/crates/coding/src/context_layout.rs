@@ -95,17 +95,7 @@ pub fn project_memory(
     cwd: &Path,
     profile_dir: Option<&Path>,
 ) -> Vec<ProjectMemoryFile> {
-    project_memory_in(agent, cwd, profile_dir, dirs::home_dir())
-}
-
-/// [`project_memory`] with `home` injected, so tests never read the real
-/// `~/.codex` / `~/.claude`.
-fn project_memory_in(
-    agent: CodingAgent,
-    cwd: &Path,
-    profile_dir: Option<&Path>,
-    home: Option<std::path::PathBuf>,
-) -> Vec<ProjectMemoryFile> {
+    let home = dirs::home_dir();
     let mut files = Vec::new();
     // cwd → root, then reversed: the walk is naturally innermost-first and
     // the output is outermost-first.
@@ -344,7 +334,7 @@ mod tests {
         // A linked worktree's `.git` is a FILE.
         write(&repo.join(".git"), "gitdir: /elsewhere");
 
-        let files = project_memory_in(CodingAgent::Codex, &cwd, None, Some(root.join("home")));
+        let files = project_memory(CodingAgent::Codex, &cwd, None);
         assert_eq!(
             labels(&files),
             vec![
@@ -359,8 +349,7 @@ mod tests {
         std::fs::create_dir_all(plain.join("repo/.git")).unwrap();
         write(&plain.join("AGENTS.md"), "above");
         write(&plain.join("repo").join("AGENTS.md"), "repo");
-        let files =
-            project_memory_in(CodingAgent::Codex, &plain.join("repo"), None, Some(plain.join("home")));
+        let files = project_memory(CodingAgent::Codex, &plain.join("repo"), None);
         assert_eq!(labels(&files), vec!["AGENTS.md"]);
 
         let _ = std::fs::remove_dir_all(&root);
@@ -379,7 +368,7 @@ mod tests {
         write(&target, "the one document, at some length");
         std::os::unix::fs::symlink(&target, repo.join("AGENTS.md")).unwrap();
 
-        let files = project_memory_in(CodingAgent::Codex, &repo, None, Some(root.join("home")));
+        let files = project_memory(CodingAgent::Codex, &repo, None);
         assert_eq!(labels(&files), vec!["AGENTS.md"]);
         assert_eq!(files[0].bytes, "the one document, at some length".len());
         let _ = std::fs::remove_dir_all(&root);
@@ -396,7 +385,7 @@ mod tests {
         std::fs::create_dir_all(repo.join("CLAUDE.local.md")).unwrap();
         write(&repo.join(".claude").join("CLAUDE.md"), "the only one");
 
-        let files = project_memory_in(CodingAgent::Claude, &repo, None, Some(root.join("home")));
+        let files = project_memory(CodingAgent::Claude, &repo, None);
         assert_eq!(labels(&files), vec![".claude/CLAUDE.md"]);
         let _ = std::fs::remove_dir_all(&root);
     }

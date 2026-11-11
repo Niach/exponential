@@ -5,8 +5,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lock.sh"
 root=$(mktemp -d "${TMPDIR:-/tmp}/exp-lane-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
-# The machine config must not leak into the checks (mint says heavy=2).
-export XDG_CONFIG_HOME="$root/config"
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -113,14 +111,5 @@ seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me --own-target -- 
 seen=$(CARGO_TARGET_DIR=/shared/target "$here/lane.sh" heavy me -- sh -c 'echo "$CARGO_TARGET_DIR"')
 [ "$seen" = /shared/target ] && ok "without --own-target the shared target stays" || no "without --own-target the shared target stays (got '$seen')"
 [ ! -e "$root/exp-perf-heavy-1" ] && ok "--own-target still releases the lane" || no "--own-target still releases the lane"
-
-
-# The machine config (survives a reboot) sets slots too; the lock-root file
-# still overrides it.
-mkdir -p "$XDG_CONFIG_HOME/exponential" && printf 'heavy=3\n' > "$XDG_CONFIG_HOME/exponential/lane-slots"
-[ "$(lane_slots heavy)" = 3 ] && ok "the machine config sets a lane's slots" || no "the machine config sets a lane's slots"
-printf 'heavy=1\n' > "$root/exp-lane-slots"
-[ "$(lane_slots heavy)" = 1 ] && ok "the lock-root file overrides the machine config" || no "the lock-root file overrides the machine config"
-rm -f "$root/exp-lane-slots" "$XDG_CONFIG_HOME/exponential/lane-slots"
 
 [ "$fails" -eq 0 ] && echo "all lane lock checks passed" || { echo "$fails lane lock check(s) failed"; exit 1; }

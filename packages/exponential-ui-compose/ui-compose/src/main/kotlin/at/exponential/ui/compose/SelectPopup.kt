@@ -83,14 +83,13 @@ private const val POPUP_MARGIN = 8f
 /** One shown Select option. */
 internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean)
 
-/** A Select's OBJECT options whose label contains [query] (lowercase; empty = all); #EXP-1629: an option's `trailing` reads on after its label (the core's item text). */
+/** A Select's OBJECT options whose label contains [query] (lowercase; empty = all). */
 internal fun selectOptions(owner: Props, query: String): List<SelectOption> = owner.list("options").mapNotNull { o ->
     if (o !is JsonValue.Obj) return@mapNotNull null
     val v = o["value"] ?: JsonValue.Null
-    val label = o["label"]?.displayText ?: v.displayText
-    if (query.isNotEmpty() && !label.lowercase().contains(query)) return@mapNotNull null
-    val trailing = o["trailing"]?.displayText.orEmpty()
-    SelectOption(v, if (trailing.isEmpty()) label else "$label $trailing", o["icon"]?.string, o["disabled"]?.bool == true)
+    val text = o["label"]?.displayText ?: v.displayText
+    if (query.isNotEmpty() && !text.lowercase().contains(query)) return@mapNotNull null
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true)
 }
 
 /** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */

@@ -46,28 +46,6 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-10-fable-5-2",
-    date: "2026-11-10",
-    title: "Fable is always Fable 5.2",
-    summary: "Picking Fable, from a model picker or with /model fable, always runs Fable 5.2.",
-    body: r#"- **Fable 5.2**: every Fable pick, /model fable and a saved Fable 5.1 setting run on Fable 5.2, never an older Fable. Opus stays the default."#,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_243: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-10-wide-chat",
-    date: "2026-11-10",
-    title: "A wider chat and a one-line composer",
-    summary: "The chat uses the width of the window, the composer is one flat line that grows as you type, and the tabs sit on the header line.",
-    body: r#"- **Wider chat**: the conversation spreads across the window like a messenger, with the agent's messages on the left and yours on the right.
-- **One-line composer**: the reply box starts as one flat line with + on the left and the context ring and send on the right, and grows as you type.
-- **One header line**: on a wide screen the Chat, Issues, Sessions and Results tabs sit on the same line as the title, the status and the menu."#,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_242: ChangelogEntry = ChangelogEntry {
     id: "2026-11-09-smooth-chats-reliable-updates",
     date: "2026-11-09",
     title: "Smooth long chats, updates without GitHub's limit",

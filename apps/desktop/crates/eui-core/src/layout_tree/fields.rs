@@ -444,14 +444,7 @@ impl Builder<'_, '_> {
             let v = option.get("value").map(js).unwrap_or_default();
             let selected = chosen.contains(&v);
             let disabled = option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
-            // #EXP-1629: an option's `trailing` reads on after its label in
-            // the item's own style (the IDE branch picker's `main · default`);
-            // the search still matches the label alone.
-            let text = match option.get("trailing").map(js).filter(|t| !t.is_empty()) {
-                Some(trailing) => format!("{label} {trailing}"),
-                None => label,
-            };
-            let mut props = json!({"text": text, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
+            let mut props = json!({"text": label, "value": v, "lines": 1, "selected": selected, "disabled": disabled});
             if let Some(icon) = option.get("icon") {
                 props["icon"] = icon.clone();
             }

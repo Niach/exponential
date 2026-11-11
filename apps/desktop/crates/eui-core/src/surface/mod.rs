@@ -811,7 +811,6 @@ impl Surface {
         self.recipes = Arc::new(RecipeIndex::new(&self.view));
         self.extensions = all;
         self.template_cache.clear();
-        self.local.items.clear();
         self.reduce();
         Ok(())
     }
@@ -1531,7 +1530,6 @@ impl Surface {
         self.nested = Some(tree);
         self.set_component_list(Vec::new());
         self.template_cache.clear();
-        self.local.items.clear();
         self.local.field_values.clear();
         self.reduce();
         ApplyOutcome { structure_changed: true, issues: self.issues.clone() }
@@ -1543,7 +1541,6 @@ impl Surface {
         self.set_component_list(components);
         self.nested = None;
         self.template_cache.clear();
-        self.local.items.clear();
         self.retain_field_values(&before);
         self.reduce();
         ApplyOutcome { structure_changed: true, issues: self.issues.clone() }
@@ -1671,7 +1668,6 @@ impl Surface {
 
     fn reduce_now(&mut self) {
         self.template_cache.clear();
-        self.local.items.clear();
         self.local.static_keys.clear();
         self.local.key_cache.clear();
         let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
@@ -1688,7 +1684,6 @@ impl Surface {
                 self.reduce_issues = r.issues;
                 // Round 2: template nodes are lifted out of the tree; items
                 // instantiate them from this table.
-                self.local.items.clear();
                 self.template_cache = r.templates.unwrap_or_default().into_iter().map(|(id, n)| (id, Some(n))).collect();
             }
             None => {

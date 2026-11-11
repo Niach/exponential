@@ -19,9 +19,7 @@
 // while options sit below; an item's `hover` = the cursor, `selected` =
 // chosen. A `description` is a muted hint: under a field trigger, in a
 // row UNDER the label (the `labels` column; the value and chevron then sit
-// in the trailing `control` column). An option's `trailing` reads on after
-// its label in the popup row only (the trigger shows the label); `open`
-// fires as the popup opens.
+// in the trailing `control` column).
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
@@ -40,12 +38,7 @@ export interface SelectOption {
   value: string
   icon?: string
   disabled?: boolean
-  /** #EXP-1629: reads on after the label in the popup row (`main · default`). */
-  trailing?: string
 }
-
-/** #EXP-1629: an option's `trailing` after its label, one space apart (the item's own style). */
-const trailingText = (o: SelectOption) => (str(o.trailing) ? ` ${str(o.trailing)}` : ``)
 
 // VAPP-146 (fixtures/interactions-round1.json `select`): `""` is an ordinary
 // option value. Radix's Select.Item refuses it (Radix keeps `""` for "no
@@ -136,12 +129,6 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     f.touch()
     void emit(`change`, { value: out }, { value: out })
   }
-
-  // #EXP-1629: `open` as the popup opens (the IDE picker's lazy fetch).
-  useEffect(() => {
-    if (open) void emit(`open`)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
 
   // `search {query}` debounced; a host source answers the same query.
   useEffect(() => {
@@ -329,14 +316,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                   // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
                   <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
                     {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    {trailingText(o) ? (
-                      <span>
-                        <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
-                        {trailingText(o)}
-                      </span>
-                    ) : (
-                      <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
-                    )}
+                    <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                     <SelectPrimitive.ItemIndicator {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />
                     </SelectPrimitive.ItemIndicator>
@@ -520,7 +500,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     onClick={() => pick(i)}
                   >
                     {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                    <span>{str(o.label)}{trailingText(o)}</span>
+                    <span>{str(o.label)}</span>
                     {isSel ? (
                       <span {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>
                         <BuiltinIcon slot="Select.check" size={16} />

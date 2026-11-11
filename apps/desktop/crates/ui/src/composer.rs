@@ -58,8 +58,6 @@ pub(crate) struct GlassComposer {
     submit: Option<AnyElement>,
     /// N-14: the bottom row is a ROW host ([`GlassComposer::row_host`]).
     row_host: Option<ElementId>,
-    /// #EXP-1762: the FLAT one-line card ([`GlassComposer::flat`]).
-    flat: bool,
 }
 
 /// EXP-790: what the composer's one round button does right now.
@@ -97,17 +95,7 @@ impl GlassComposer {
             tools: Vec::new(),
             submit: None,
             row_host: None,
-            flat: false,
         }
-    }
-
-    /// #EXP-1762 (web `Composer flat`): the FLAT one-line card — the tools
-    /// LEFT of the field, the submit RIGHT, all bottom-aligned on the
-    /// field's row, so the card starts one line tall and grows upward with
-    /// the input. The session screen's reply box.
-    pub(crate) fn flat(mut self, flat: bool) -> Self {
-        self.flat = flat;
-        self
     }
 
     /// N-14 (`picker-presentation.json`): the bottom row (the tools, the
@@ -158,11 +146,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         tools,
         submit,
         row_host,
-        flat,
     } = composer;
-    if flat {
-        return glass_composer_flat(leading, strip, field, tools, submit, row_host);
-    }
     let card = v_flex()
         .w_full()
         .min_w_0()
@@ -192,57 +176,6 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
     // NEW-50: the field ABOVE the tool row, always (N-12's row host had
     // dropped it: the session composer drew its tools with no field).
     let card = card.child(field);
-    match row_host {
-        Some(id) => card.child(crate::picker::InlinePickerRow::new(id, row)),
-        None => card.child(row),
-    }
-}
-
-/// #EXP-1762: [`GlassComposer::flat`]'s card — the same chrome, ONE row:
-/// tools · the field (flex) · the submit, bottom-aligned (web
-/// `flex items-end gap-1 px-1.5`, the tools `pb-1.5`, the submit `pb-1`).
-fn glass_composer_flat(
-    leading: Option<AnyElement>,
-    strip: Option<AnyElement>,
-    field: AnyElement,
-    tools: Vec<AnyElement>,
-    submit: Option<AnyElement>,
-    row_host: Option<ElementId>,
-) -> Div {
-    let card = v_flex()
-        .w_full()
-        .min_w_0()
-        .rounded(px(t::radius::XL))
-        .border_1()
-        .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(crate::dock::card_fill())
-        .when(leading.is_some() || strip.is_some(), |card| card.pt_2().gap_1p5())
-        .children(leading.map(|leading| div().w_full().min_w_0().px_2().child(leading)))
-        .children(strip.map(|strip| div().w_full().min_w_0().px_2().child(strip)));
-    let row = h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .px_1p5()
-        .items_end()
-        .child(
-            h_flex()
-                .flex_shrink_0()
-                .gap_0p5()
-                .items_center()
-                .pb_1p5()
-                .children(tools),
-        )
-        // EXP-525: the field in a flex-COLUMN slot (see `glass_composer`).
-        .child(v_flex().flex_1().min_w_0().py_1p5().child(field))
-        .child(
-            h_flex()
-                .flex_shrink_0()
-                .gap_1()
-                .items_center()
-                .pb_1()
-                .children(submit),
-        );
     match row_host {
         Some(id) => card.child(crate::picker::InlinePickerRow::new(id, row)),
         None => card.child(row),
@@ -442,7 +375,7 @@ impl SessionComposerBox {
     }
 }
 
-/// EXP-1294 — the field THE session composer box types into: a 1–10
+/// EXP-1294 — the field THE session composer box types into: Home's 2–8
 /// line textarea (Enter sends, Shift+Enter breaks a line) with the §4.6
 /// completions, chrome off (the card draws it). Returns the textarea state
 /// (read and clear the draft through it) and the mention field the box
@@ -457,9 +390,7 @@ pub(crate) fn session_composer_field(
 ) {
     let placeholder = placeholder.into();
     let input = cx.new(|cx| {
-        // #EXP-1762: starts ONE line tall (the flat card), grows to web's
-        // `max-h-60` (240px ≈ 10 lines) before it scrolls.
-        crate::controls::web_textarea(1, 10, window, cx)
+        crate::controls::web_textarea(2, 8, window, cx)
             .submit_on_enter(true)
             .placeholder(placeholder)
     });
@@ -476,8 +407,6 @@ pub(crate) fn session_composer_field(
 /// glyph alone · the model pin · the Plan switch … the context ring · Send
 /// ⇄ Stop, all INSIDE the card; nothing under it. The quick replies sit
 /// directly above the card.
-/// #EXP-1762: laid out FLAT ([`GlassComposer::flat`]) — ONE row: the "+"
-/// (and any pins) · the field · the context ring + Send⇄Stop.
 pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyElement {
     let SessionComposerBox {
         mention,
@@ -505,10 +434,6 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
             .into_any_element(),
     )
     .strip(strip)
-    // #EXP-1762: THE session composer is the FLAT one-line card (web
-    // `SessionComposer` → `Composer flat`): "+" left, the context ring +
-    // Send⇄Stop right, the field growing upward between them.
-    .flat(true)
     .row_host(ElementId::Name(format!("{:?}-row", submit.id).into()));
     for tool in tools {
         composer = composer.tool(tool);
@@ -1012,39 +937,6 @@ mod tests {
             assert!(f32::from(field.size.height) >= 40., "the field keeps its height (row host: {hosted})");
             assert!(field.origin.y < tool.origin.y, "the field sits above the tool row (row host: {hosted})");
         }
-    }
-
-    /// #EXP-1762: the FLAT card is ONE row — the tool LEFT of the field, the
-    /// submit RIGHT, both bottom-aligned on the field's row (the field grows
-    /// upward, they stay put).
-    #[gpui::test]
-    fn the_flat_card_is_one_bottom_aligned_row(cx: &mut gpui::TestAppContext) {
-        struct Probe;
-        impl gpui::Render for Probe {
-            fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
-                let composer = GlassComposer::new(
-                    div().debug_selector(|| "flat-field".into()).h(px(80.)).into_any_element(),
-                )
-                .flat(true)
-                .row_host(ElementId::Name("flat-row".into()))
-                .tool(div().debug_selector(|| "flat-tool".into()).size(px(24.)).into_any_element())
-                .submit(div().debug_selector(|| "flat-submit".into()).size(px(32.)).into_any_element());
-                div().size_full().child(glass_composer(composer))
-            }
-        }
-        let cx = cx.add_empty_window();
-        cx.update(|_, cx| gpui_component::init(cx));
-        let probe = cx.update(|_, cx| cx.new(|_| Probe));
-        for _ in 0..2 {
-            cx.draw(point(px(0.), px(0.)), size(px(600.), px(300.)), |_, _| div().size_full().child(probe.clone()));
-        }
-        let field = cx.debug_bounds("flat-field").expect("the field is drawn");
-        let tool = cx.debug_bounds("flat-tool").expect("the tool is drawn");
-        let submit = cx.debug_bounds("flat-submit").expect("the submit is drawn");
-        assert!(tool.right() <= field.left(), "the tool sits left of the field");
-        assert!(submit.left() >= field.right(), "the submit sits right of the field");
-        assert!(tool.bottom() > field.top() + px(40.), "the tool is bottom-aligned, not top");
-        assert!(submit.bottom() > field.top() + px(40.), "the submit is bottom-aligned, not top");
     }
 
     /// Web `fallbackModel`: the row's pick, else the device's model, else

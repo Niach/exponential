@@ -3456,9 +3456,6 @@
         "description": {
           "description": "Second line."
         },
-        "trailing": {
-          "description": "Text after the label (Select popup)."
-        },
         "image": {
           "description": "Tile picture."
         },

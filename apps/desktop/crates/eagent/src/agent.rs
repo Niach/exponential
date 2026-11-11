@@ -18,26 +18,6 @@ use serde::{Deserialize, Serialize};
 /// Code's family aliases, resolved by the CLI to the newest of each.
 pub const CLAUDE_MODEL_ALIASES: &[&str] = &["fable", "opus", "sonnet", "haiku"];
 
-/// THE one Fable a run ever gets: the `fable` alias (and every older Fable
-/// id a stored setting may still carry) is pinned to it at the CLI boundary,
-/// never left to whichever Fable a CLI build resolves the alias to.
-pub const CLAUDE_FABLE_MODEL: &str = "claude-fable-5-2";
-
-/// The env var the CLI resolves its own `fable` alias through (a `/model
-/// fable` typed as a prompt, a subagent's `fable`): set to
-/// [`CLAUDE_FABLE_MODEL`] at every claude spawn.
-pub const CLAUDE_FABLE_MODEL_ENV: &str = "ANTHROPIC_DEFAULT_FABLE_MODEL";
-
-/// The value handed to the claude CLI (`--model`, `set_model`, the subagent
-/// env) for a picked `model`: anything in the Fable family becomes
-/// [`CLAUDE_FABLE_MODEL`]; every other value passes through trimmed.
-pub fn claude_cli_model(model: &str) -> String {
-    match claude_model_alias(model) {
-        Some("fable") => CLAUDE_FABLE_MODEL.to_string(),
-        _ => model.trim().to_string(),
-    }
-}
-
 /// The claude `--effort` levels the CLI accepts (blank = omit the flag).
 pub const CLAUDE_EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -227,7 +207,6 @@ mod tests {
     #[test]
     fn resolved_claude_ids_fold_back_onto_their_alias() {
         for (reported, alias) in [
-            ("claude-fable-5-2", "fable"),
             ("claude-fable-5-1", "fable"),
             ("claude-opus-4-6", "opus"),
             ("claude-opus-4-6[1m]", "opus"),
@@ -243,19 +222,6 @@ mod tests {
         }
         for unknown in ["", "claude-3-5-haiku", "gpt-5.6-sol", "claude-"] {
             assert_eq!(claude_model_alias(unknown), None, "{unknown}");
-        }
-    }
-
-    /// Fable is always 5.2: the alias, the picker value and a stored older
-    /// Fable id all reach the CLI as `claude-fable-5-2`; the others pass
-    /// through untouched.
-    #[test]
-    fn fable_always_reaches_the_cli_as_5_2() {
-        for picked in ["fable", " Fable ", "claude-fable-5-1", "claude-fable-5", "claude-fable-5-2[1m]"] {
-            assert_eq!(claude_cli_model(picked), "claude-fable-5-2", "{picked}");
-        }
-        for (picked, sent) in [("opus", "opus"), (" sonnet ", "sonnet"), ("claude-opus-5-5", "claude-opus-5-5")] {
-            assert_eq!(claude_cli_model(picked), sent);
         }
     }
 
