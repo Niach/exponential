@@ -18,11 +18,10 @@ use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Task, Window,
 };
-use gpui_component::{input::InputState, v_flex, ActiveTheme as _};
+use gpui_component::ActiveTheme as _;
 use serde_json::{json, Value};
 use sync::Store;
 
-use crate::controls::{glass_input, WebControl as _};
 use crate::feedback;
 use crate::toast::{self, Toast};
 use crate::native_dialog::{self, AlertEnter, AlertSpec};
@@ -474,7 +473,6 @@ const DEVICE_ZONE: &str = "device";
 /// edit comes back to the pane.
 pub struct GeneralPane {
     nav: Entity<Navigation>,
-    delete_input: Entity<InputState>,
     /// The Name field's live text.
     name: String,
     /// EXP-1025: the team prompt — a RAW monospace field, never the markdown
@@ -510,8 +508,6 @@ impl GeneralPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let delete_input = cx.new(|cx| InputState::new(window, cx));
-
         let collections = Store::global(cx).collections().clone();
         let mut subscriptions = vec![
             cx.observe(&nav, |this, _, cx| this.resync(cx)),
@@ -557,7 +553,6 @@ impl GeneralPane {
 
         let mut this = Self {
             nav,
-            delete_input,
             name: String::new(),
             prompt: PromptState::default(),
             snapshot: None,
@@ -1216,36 +1211,21 @@ impl GeneralPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.delete_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
-        cx.notify();
         let pane = cx.entity().downgrade();
-        let content_input = self.delete_input.clone();
-        let ok_input = self.delete_input.clone();
+        // A fresh body per open, so the field always starts empty.
+        let content = cx.new(|cx| DeleteTeamContent::new(&team_name, "", window, cx));
+        let ok_content = content.clone();
+        let focus_content = content.clone();
         let confirm_name = team_name.clone();
-        let prompt = format!("Type {team_name} to confirm");
         // The typed-confirm block rides as extra content between the
         // description and the ok/cancel footer.
         let spec = AlertSpec::from_prompt("Delete team", &domain::prompts::delete_team(&team_name))
         // The fixture's slot: the type-the-name field holds focus, and Enter
         // only deletes once the name matches (`on_ok` refuses a mismatch).
         .enter(AlertEnter::Ok)
-        .content(move |window, cx| {
-            v_flex()
-                .gap_1()
-                .mt_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(SharedString::from(prompt.clone())),
-                )
-                .child(glass_input(&content_input, window, cx).web_input_sm())
-                .into_any_element()
-        })
+        .content(move |_, _| content.clone().into_any_element())
         .on_ok(move |_, cx| {
-            let typed = ok_input.read(cx).value().trim().to_string();
+            let typed = ok_content.read(cx).typed(cx).trim().to_string();
             if typed != confirm_name {
                 // Mismatch keeps the dialog open (web disables the button
                 // until it matches).
@@ -1285,6 +1265,10 @@ impl GeneralPane {
             true
         });
         native_dialog::open_alert(window, cx, spec);
+        // The type-the-name field holds focus (on a next frame, once the
+        // alert's own focus has landed).
+        let view = focus_content.read(cx).view.clone();
+        super::doc::focus_input(view, "confirm", window, cx);
     }
 
     /// EXP-1025: the team prompt section's state — the header's caption
@@ -1787,9 +1771,71 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     let empty = super::doc::empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, not(path("/pane/hasTeam")));
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [empty, team]})
 }
+
+/// The Delete team alert's body (#EXP-1629: an eUI document): "Type {team}
+/// to confirm" (`text_xs` muted) over the boxed field (`web_input_sm`),
+/// `gap_1` under the description's `mt_2`. Its own entity so the alert
+/// reads the field's live text on Enter / Delete.
+pub(crate) struct DeleteTeamContent {
+    view: Entity<SurfaceView>,
+}
+
+impl DeleteTeamContent {
+    /// `typed`: the field's bound text (only the bench writes one).
+    fn new(team_name: &str, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new("/pane", json!({"value": typed}), |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding
+        });
+        let view = super::doc::mount("team-delete", delete_document(&Ink::of(cx), team_name), &binding, window, cx);
+        Self { view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(team_name: &str, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(team_name, typed, window, cx)
+    }
+
+    /// The name as typed (the field's live text, never a debounced echo).
+    fn typed(&self, cx: &App) -> String {
+        self.view.read(cx).field_text("confirm.field", cx).unwrap_or_default()
+    }
+}
+
+impl Render for DeleteTeamContent {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "DeleteTeamContent").entered();
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The Delete body's tree (`gap_1`, `mt_2` as the root's top padding): the
+/// muted prompt over the `sm` boxed field. Enter in the single-line field
+/// reaches the alert's confirm, so the Input wires no submit.
+fn delete_document(ink: &Ink, team_name: &str) -> Value {
+    let prompt = format!("Type {team_name} to confirm");
+    let input = json!({"id": "confirm", "component": "Input", "props": {"variant": "box", "size": "sm", "label": prompt, "name": "confirm", "value": path("/pane/value")},
+        "style": {"width": "100%"}});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25), "paddingTop": ink.r(0.5)},
+        "children": [ink.text("prompt", json!(prompt), XS, &ink.muted), input]})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1629: the Delete team body raises no issue a debug build's
+    /// mount check refuses (#EXP-1767's class).
+    #[test]
+    fn the_delete_document_raises_no_unexpected_issue() {
+        let tree = delete_document(&super::super::readiness::tests::test_ink(), "Acme");
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("team-delete", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     /// Final review B7: one write in flight per team, the newest text
     /// waiting behind it (an older queued one replaced), and a save equal
