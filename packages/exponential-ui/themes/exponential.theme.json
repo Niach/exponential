@@ -1032,6 +1032,21 @@
           "style": {
             "backgroundColor": "#ffffff12"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "paddingHorizontal": 0,
+            "paddingVertical": 0,
+            "gap": 7,
+            "borderWidth": 0,
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none",
+            "fontSize": 12.25,
+            "lineHeight": 19.82
+          }
         }
       ],
       "label": [
@@ -1091,6 +1106,14 @@
           },
           "style": {
             "opacity": 0.35
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "marginTop": -1
           }
         }
       ],
@@ -1164,6 +1187,15 @@
             "height": 14,
             "color": "$color.mutedForeground",
             "opacity": 1
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "width": 10.5,
+            "height": 10.5
           }
         }
       ],

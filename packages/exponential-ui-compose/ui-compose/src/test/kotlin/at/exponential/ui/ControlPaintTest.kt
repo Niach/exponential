@@ -187,4 +187,27 @@ class ControlPaintTest {
         capture("exp1778-open")
     }
 
+    /**
+     * #EXP-1629: an `inline` Select (MCP access levels) is chromeless text
+     * plus a small chevron hugging its content, no label part; its value
+     * sits a point high (the exponential theme's `value` `marginTop: -1`),
+     * the box a point shorter than the text line. Pressed, the field popup
+     * lists the options. Pictures: build/tmp/control-paint/exp1629-inline-*.png.
+     */
+    @Test
+    fun selectInlinePaint() {
+        val m = render("""{"id": "root", "component": "Stack", "props": {"direction": "horizontal", "justify": "between", "align": "center"}, "children": [
+            {"id": "who", "component": "Text", "props": {"text": "ada@example.com"}},
+            {"id": "access", "component": "Select", "props": {"label": "Access", "name": "access", "triggerVariant": "inline", "align": "end", "value": "read", "options": [{"label": "None", "value": "none"}, {"label": "Read only", "value": "read"}, {"label": "Full", "value": "full"}]}}]}""")
+        assertEquals(null, m.indexOf("access.label"))
+        val trigger = m.frame(m.indexOf("access.trigger")!!)
+        assertTrue("the trigger hugs its content (${trigger.width})", trigger.width in 40f..110f)
+        assertTrue("the trigger is a point shorter than its 19.82 line (${trigger.height})", kotlin.math.abs(trigger.height - 18.82f) < 0.6f)
+        capture("exp1629-inline-closed")
+        m.press("access.trigger")
+        compose.waitForIdle()
+        val rows = listOf("None", "Full").map { compose.onAllNodes(androidx.compose.ui.test.hasText(it), useUnmergedTree = true).fetchSemanticsNodes().firstOrNull()?.boundsInRoot }
+        assertTrue("the popup shows its options: $rows", rows.all { it != null })
+        capture("exp1629-inline-open")
+    }
 }

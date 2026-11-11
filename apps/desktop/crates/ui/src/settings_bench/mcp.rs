@@ -206,6 +206,6 @@ fn settings_mcp_activity_no_team() {
 #[ignore]
 fn settings_after_mcp_level_open() {
     shoot_pane_acted("mcp-level-open", McpPane::for_shots, |pane, cx| pane.show(base(), cx), Some(std::time::Duration::from_millis(1200)), &[], |pane, window, cx| {
-        pane.press_for_shots("level_trigger.a1:u-dennis|level_menu.a1:u-dennis", window, cx)
+        pane.press_for_shots("level.trigger.a1:u-dennis|level.a1:u-dennis.trigger", window, cx)
     });
 }

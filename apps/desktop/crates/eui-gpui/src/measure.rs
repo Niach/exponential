@@ -1255,14 +1255,18 @@ impl<'a> GpuiMeasure<'a> {
             let picked = self.part("Select", "valueIcon", leaf.props, &[]);
             w += px_prop(&picked, "width").or_else(|| px_prop(&picked, "height")).unwrap_or(16.0) + gap;
         }
-        let mut h = ts.line_height;
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger: the
+        // IDE ghost button's label, half a point high).
+        let lift = px_prop(&self.part("Select", "value", leaf.props, &[]), "marginTop").unwrap_or(0.0);
+        let mut h = if lift != 0.0 { (ts.line_height + lift).max(glyph) } else { ts.line_height };
         let label = str_prop(leaf.props, "label");
         if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {
             let lts = self.part_text("Select", "label", leaf.props, ts);
             w += self.line(label, &lts) + gap;
             h = h.max(lts.line_height);
         }
-        (w, h, Some(self.line_baseline(ts)))
+        (w, h, Some(self.line_baseline(ts) + lift))
     }
 
     /// One leaf at one border-box wrap width: `(width, height, baseline)`.

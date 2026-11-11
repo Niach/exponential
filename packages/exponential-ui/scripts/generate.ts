@@ -1235,6 +1235,20 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1629: web's `Picker triggerVariant="inline"` on a settings row's
+    // trailing edge (MCP access levels): chromeless text + a small chevron,
+    // hugging its content; the popup is the field's, end-aligned.
+    label: `triggerVariant · inline`,
+    node: {
+      id: `access_level`,
+      component: `Stack`,
+      props: { direction: `horizontal`, gap: `sm`, align: `center`, justify: `between` },
+      children: [
+        { id: `access_member`, component: `Text`, props: { text: `ada@example.com` } },
+        { id: `access`, component: `Select`, props: { label: `Access`, name: `access`, triggerVariant: `inline`, align: `end`, value: `read`, options: [{ label: `None`, value: `none` }, { label: `Read only`, value: `read` }, { label: `Full`, value: `full` }] } },
+      ],
+    },
+  }, {
     // #EXP-1629: a locked row (the IDE's Effort row under ultracode): the
     // value and the chevron at 0.35 (the 0.7 value tone halved).
     label: `triggerVariant · row + description, disabled`,

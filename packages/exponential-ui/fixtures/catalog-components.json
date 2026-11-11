@@ -11435,6 +11435,29 @@
       }
     },
     {
+      "name": "Select/triggerVariant=inline",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "inline"
+        }
+      }
+    },
+    {
       "name": "Select/triggerIcon=true",
       "node": {
         "id": "select",

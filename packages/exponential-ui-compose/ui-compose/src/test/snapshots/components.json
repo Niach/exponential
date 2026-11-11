@@ -31867,6 +31867,33 @@
       }
     ]
   },
+  "Select\/triggerVariant=inline" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "select"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          160,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger"
+      }
+    ]
+  },
   "Select\/triggerVariant=pill" : {
     "height" : 24,
     "nodes" : [

@@ -382,7 +382,8 @@
       "field",
       "row",
       "pill",
-      "button"
+      "button",
+      "inline"
     ],
     "inputVariant": [
       "field",
@@ -5416,7 +5417,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron."
         },
         "triggerIcon": {
           "type": "boolean",

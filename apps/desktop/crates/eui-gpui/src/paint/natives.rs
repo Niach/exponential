@@ -1507,7 +1507,10 @@ pub fn select_trigger(cx: &LeafCx, text: &str, is_placeholder: bool, icon: &str)
     let gap = if cx.style.gap > 0.0 { cx.style.gap } else { spacing(cx.theme, "sm") * cx.scale };
     let shown = crate::text::transform(text, cx.style.text_transform.as_deref()).into_owned();
     let end = if row { resolve_align(Some("end"), cx.rtl) } else { cx.align() };
-    let text_el = aligned(div().min_w_0().flex_1().truncate(), end).text_color(color).when_some(fade, |d, o| d.opacity(o)).child(SharedString::from(shown));
+    // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+    // centre (an `inline` trigger: the IDE ghost button's label).
+    let lift = px_prop(&cx.part_props("Select", "value", &states), "marginTop").unwrap_or(0.0) * cx.scale;
+    let text_el = aligned(div().min_w_0().flex_1().truncate(), end).text_color(color).when_some(fade, |d, o| d.opacity(o)).when(lift != 0.0, |d| d.mt(px(lift))).child(SharedString::from(shown));
     let mut out = cx.row(cx.content()).items_center().gap(px(gap));
     if row {
         let label = cx.str("label");

@@ -3561,6 +3561,20 @@
             "backgroundColor": "#00000000",
             "boxShadow": "$shadow.none"
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "paddingHorizontal": 0,
+            "paddingVertical": 0,
+            "gap": "$spacing.xs",
+            "borderWidth": 0,
+            "borderRadius": "$radius.none",
+            "backgroundColor": "#00000000",
+            "boxShadow": "$shadow.none"
+          }
         }
       ],
       "label": [
@@ -3722,6 +3736,14 @@
           "style": {
             "opacity": 0.7
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "opacity": 0.7
+          }
         }
       ],
       "chevron": [
@@ -3737,6 +3759,17 @@
           },
           "style": {
             "opacity": 0.7
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "inline"
+          },
+          "style": {
+            "width": 12,
+            "height": 12,
+            "color": "$color.mutedForeground",
+            "opacity": 1
           }
         }
       ],
