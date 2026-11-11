@@ -4233,6 +4233,14 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
             }
           ],
           "sendIcon": [
@@ -13766,6 +13774,22 @@
               "style": {
                 "opacity": "$opacity.disabled"
               }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
+              }
             }
           ],
           "sendIcon": [
@@ -22782,6 +22806,14 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
               }
             },
             {
@@ -32625,6 +32657,22 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.5
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": 0.4
               }
             }
           ],

@@ -900,6 +900,22 @@ describe(`Composer sendIcon`, () => {
   }
 })
 
+// #EDE-65: a disabled send's dim is the `send` part's `state: disabled` opacity.
+describe(`Composer disabled send`, () => {
+  for (const [theme, layout, opacity] of [[`neutral`, `flat`, 0.5], [`neutral`, `stacked`, 0.5], [`exponential`, `flat`, 0.4], [`exponential`, `stacked`, 0.4]] as const) {
+    it(`${theme} ${layout}: an empty draft dims send to ${opacity}`, () => {
+      function Host() {
+        const surface = useSurface({ surfaceId: `sd`, data: { draft: `` }, initial: { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, layout } } as NestedNode })
+        return <ExponentialSurface surface={surface} theme={theme} id="sd" />
+      }
+      const { container } = render(<Host />)
+      const send = container.querySelector(`[data-xui-part="Composer/send"]`) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      expect(Number(cascaded(send, `opacity`))).toBe(opacity)
+    })
+  }
+})
+
 // #EDE-65 R composerPaste: a paste with image files fires `attach` {files}
 // and hands the bytes to onUpload; files without one do nothing; text alone
 // is the field's own paste.

@@ -589,10 +589,11 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     val xs = cx.spacing("xs")
                     Spacer(Modifier.width(maxOf(0f, model.frame(t).width + 2 * xs - 16f).dp))
                 }
-                // Web: an empty draft disables send (half opacity); `busy`
-                // dims the stop through the recipe's own opacity.
+                // Web: an empty draft disables send (the `send` part's `state:
+                // disabled` opacity, 0.5 without one); `busy` dims the stop
+                // through the recipe's own opacity.
                 val empty = !busy && (model.field(index)?.text ?: "").isBlank()
-                val sendAlpha = (send.style.opacity ?: 1f) * (if (empty) 0.5f else 1f)
+                val sendAlpha = if (empty) cx.part("Composer", "send", listOf("disabled")).style.opacity ?: 0.5f else send.style.opacity ?: 1f
                 Box(
                     Modifier
                         .graphicsLayer { alpha = sendAlpha }

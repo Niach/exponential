@@ -5,7 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
-- Composer (#EDE-65): a hidden `above` renders no wrapper; the send/stop glyph is the `sendIcon` recipe part.
+- Composer (#EDE-65): a hidden `above` renders no wrapper; the send/stop glyph is the `sendIcon` recipe part. A disabled send's opacity is the recipe's (base-css .5 stays the fallback).
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Menu: a searchable submenu matches a row's `identifier` as well as its label and its rows draw the `identifier`, `detail` and `iconColor` tint, React's.
 - Select `button` popup keeps its starting cursor (#EXP-1629), React's.

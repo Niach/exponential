@@ -1001,6 +1001,24 @@ fn the_composer_send_glyph_takes_the_send_icon_part() {
     }
 }
 
+/// #EDE-65: a disabled send's dim is the `send` part's `state: disabled`
+/// opacity: neutral 0.5, the exponential theme 0.4 (the IDE's
+/// `primary.opacity(0.4)`; orange extends it), in both layouts.
+#[test]
+fn a_disabled_composer_send_dims_by_the_recipe() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        for layout in ["flat", "stacked"] {
+            let q = RecipeQuery { component: "Composer".into(), part: "send".into(), props: serde_json::from_value(json!({"layout": layout, "attachments": false, "busy": false})).unwrap(), states: vec!["disabled".into()] };
+            let v = recipe_style(&theme, &q).get("opacity").cloned().unwrap_or_else(|| panic!("{id}/{layout}: no disabled opacity"));
+            let v = if v.is_number() { v } else { resolve_token(&theme, &v, Mode::Light).unwrap() };
+            let want = if matches!(id, "exponential" | "orange") { 0.4 } else { 0.5 };
+            assert!((v.as_f64().unwrap() - want).abs() < 1e-6, "{id}/{layout}: {v}");
+        }
+    }
+}
+
 /// #EDE-65 R composerPaste at the core: what a painter sends for a paste
 /// (image files = `attach` {files: the images}; files without one =
 /// nothing; else the field's own edit = `change`) fires like the reference. Which clipboard a paste carries and

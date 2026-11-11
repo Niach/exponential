@@ -1672,6 +1672,16 @@
           }
         }
       ],
+      "send": [
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": 0.4
+          }
+        }
+      ],
       "sendIcon": [
         {
           "when": {

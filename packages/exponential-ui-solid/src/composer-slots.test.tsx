@@ -140,6 +140,19 @@ describe(`Composer sendIcon`, () => {
   }
 })
 
+// #EDE-65: a disabled send's dim is the `send` part's `state: disabled` opacity.
+describe(`Composer disabled send`, () => {
+  for (const [theme, layout, opacity] of [[`neutral`, `flat`, 0.5], [`neutral`, `stacked`, 0.5], [`exponential`, `flat`, 0.4], [`exponential`, `stacked`, 0.4]] as const) {
+    it(`${theme} ${layout}: an empty draft dims send to ${opacity}`, () => {
+      const s = fx.composerSlots.surface
+      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `sd`, data: { draft: `` }, initial: { ...s, props: { ...s.props, layout } } as NestedNode })} theme={theme} id="sd" />)
+      const send = container.querySelector(`[data-xui-part="Composer/send"]`) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      expect(Number(cascaded(send, `opacity`))).toBe(opacity)
+    })
+  }
+})
+
 describe(`fixtures/interactions-round1.json composerPaste`, () => {
   for (const c of fx.composerPaste.cases) {
     it(`composerPaste: ${c.name}`, () => {
