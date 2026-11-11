@@ -3135,6 +3135,8 @@ pub(crate) struct SessionChatScreenView {
     model: Option<Rc<ChatModel>>,
     /// #EXP-1380: a [`Self::queue_refresh`] is pending.
     refresh_queued: bool,
+    /// #LOGS-3: a refresh is due when the held chat view re-derives.
+    held_wake: bool,
     /// The opened issue's detail view (built on first show, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
     images: Entity<ImageCache>,
@@ -3252,6 +3254,7 @@ impl SessionChatScreenView {
             settings_scroll: gpui::ScrollHandle::new(),
             model: None,
             refresh_queued: false,
+            held_wake: false,
             issue_view: None,
             images,
             root_view,
@@ -3289,17 +3292,39 @@ impl SessionChatScreenView {
             return;
         }
         self.refresh_queued = true;
-        let view = cx.entity().downgrade();
-        cx.defer(move |cx| {
-            let _ = view.update(cx, |this, cx| {
+        // #LOGS-3: a task, not `defer`: the sync drain applies every delta
+        // already queued (a burst names several shapes) before the task
+        // runs, so the chat re-derives once per burst, not once per shape.
+        cx.spawn(async move |this, cx| {
+            let _ = this.update(cx, |this, cx| {
                 this.refresh_queued = false;
                 this.refresh(cx);
             });
-        });
+        })
+        .detach();
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
         let model = chat_model(&self.root_id, cx);
+        // #LOGS-3: the view answered held (a busy team, an expensive derive):
+        // ask again once it re-derives.
+        if let Some(at) = crate::session_data::root_chat_view_stale_until(&self.root_id) {
+            if !self.held_wake {
+                self.held_wake = true;
+                let wait = at.saturating_duration_since(cx.background_executor().now());
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.held_wake = false;
+                        this.queue_refresh(cx);
+                        // The transcript's suggestions read the same view.
+                        let inner = this.root_view.read(cx).inner().clone();
+                        inner.update(cx, |_, cx| cx.notify());
+                    });
+                })
+                .detach();
+            }
+        }
         // The pane's session: its own origin (the tree's view focused on it).
         self.focus_origin = self.focus.as_ref().and_then(|(id, _)| {
             crate::session_data::chat_view_and_messages(&self.root_id, Some(id), crate::session_data::now_ms(), false, cx)

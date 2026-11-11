@@ -51,6 +51,7 @@ mod chat_list;
 mod chat_tab_transcript;
 mod chat_screen;
 mod dawn_mark;
+mod duty_cycle;
 pub mod coding_flow;
 // EXP-1121: the "Ready to code?" checklist behind Start coding.
 mod coding_readiness;
@@ -280,6 +281,8 @@ mod transcript_bench;
 mod shell_bench;
 #[cfg(test)]
 mod rail_bench;
+#[cfg(test)]
+mod real_data_bench;
 #[cfg(test)]
 mod settings_bench;
 /// #EXP-1488: the accessible-name rules (eui-gpui's `tests/accessible_names.rs`),

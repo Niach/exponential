@@ -732,70 +732,78 @@ impl Collections {
 
     /// Apply one committed batch's keys to the matching typed collection
     /// (foreground; point-reads from the read-only WAL connection, §5.8).
-    fn apply(
-        &self,
+    /// #LOGS-3: read and decode one batch of `shape` (call it OFF the main
+    /// thread); `None` = nothing to commit.
+    pub(crate) fn prepare(
         shape: &str,
         keys: &[RowKey],
         full_replace: bool,
         up_to_date: bool,
-        sqlite: &Arc<ShapeStore>,
-        cx: &mut AsyncApp,
-    ) {
+        sqlite: &ShapeStore,
+    ) -> Option<Prepared> {
         match shape {
-            "teams" => apply_to(&self.teams, keys, full_replace, up_to_date, sqlite, cx),
-            "boards" => apply_to(&self.boards, keys, full_replace, up_to_date, sqlite, cx),
-            "issues" => apply_to(&self.issues, keys, full_replace, up_to_date, sqlite, cx),
-            "labels" => apply_to(&self.labels, keys, full_replace, up_to_date, sqlite, cx),
-            "issue_labels" => apply_to(&self.issue_labels, keys, full_replace, up_to_date, sqlite, cx),
-            "users" => apply_to(&self.users, keys, full_replace, up_to_date, sqlite, cx),
-            "team_members" => apply_to(&self.team_members, keys, full_replace, up_to_date, sqlite, cx),
-            "team_invites" => apply_to(&self.team_invites, keys, full_replace, up_to_date, sqlite, cx),
-            "comments" => apply_to(&self.comments, keys, full_replace, up_to_date, sqlite, cx),
-            "attachments" => apply_to(&self.attachments, keys, full_replace, up_to_date, sqlite, cx),
-            "notifications" => apply_to(&self.notifications, keys, full_replace, up_to_date, sqlite, cx),
-            "issue_events" => apply_to(&self.issue_events, keys, full_replace, up_to_date, sqlite, cx),
-            "issue_subscribers" => {
-                apply_to(&self.issue_subscribers, keys, full_replace, up_to_date, sqlite, cx)
+            "teams" => prepare_for(|c| &c.teams, keys, full_replace, up_to_date, sqlite),
+            "boards" => prepare_for(|c| &c.boards, keys, full_replace, up_to_date, sqlite),
+            "issues" => prepare_for(|c| &c.issues, keys, full_replace, up_to_date, sqlite),
+            "labels" => prepare_for(|c| &c.labels, keys, full_replace, up_to_date, sqlite),
+            "issue_labels" => prepare_for(|c| &c.issue_labels, keys, full_replace, up_to_date, sqlite),
+            "users" => prepare_for(|c| &c.users, keys, full_replace, up_to_date, sqlite),
+            "team_members" => prepare_for(|c| &c.team_members, keys, full_replace, up_to_date, sqlite),
+            "team_invites" => prepare_for(|c| &c.team_invites, keys, full_replace, up_to_date, sqlite),
+            "comments" => prepare_for(|c| &c.comments, keys, full_replace, up_to_date, sqlite),
+            "attachments" => prepare_for(|c| &c.attachments, keys, full_replace, up_to_date, sqlite),
+            "notifications" => prepare_for(|c| &c.notifications, keys, full_replace, up_to_date, sqlite),
+            "issue_events" => prepare_for(|c| &c.issue_events, keys, full_replace, up_to_date, sqlite),
+            "issue_subscribers" => prepare_for(|c| &c.issue_subscribers, keys, full_replace, up_to_date, sqlite),
+            "sessions" => prepare_for(|c| &c.sessions, keys, full_replace, up_to_date, sqlite),
+            "session_issues" => prepare_for(|c| &c.session_issues, keys, full_replace, up_to_date, sqlite),
+            "messages" => prepare_for(|c| &c.messages, keys, full_replace, up_to_date, sqlite),
+            "conversations" => prepare_for(|c| &c.conversations, keys, full_replace, up_to_date, sqlite),
+            "pull_requests" => prepare_for(|c| &c.pull_requests, keys, full_replace, up_to_date, sqlite),
+            "pull_request_issues" => prepare_for(|c| &c.pull_request_issues, keys, full_replace, up_to_date, sqlite),
+            "pull_request_checks" => prepare_for(|c| &c.pull_request_checks, keys, full_replace, up_to_date, sqlite),
+            "issue_statuses" => prepare_for(|c| &c.issue_statuses, keys, full_replace, up_to_date, sqlite),
+            "devices" => prepare_for(|c| &c.devices, keys, full_replace, up_to_date, sqlite),
+            "device_worktrees" => prepare_for(|c| &c.device_worktrees, keys, full_replace, up_to_date, sqlite),
+            "issue_relations" => prepare_for(|c| &c.issue_relations, keys, full_replace, up_to_date, sqlite),
+            "pins" => prepare_for(|c| &c.pins, keys, full_replace, up_to_date, sqlite),
+            "issue_drafts" => prepare_for(|c| &c.issue_drafts, keys, full_replace, up_to_date, sqlite),
+            "session_reads" => prepare_for(|c| &c.session_reads, keys, full_replace, up_to_date, sqlite),
+            "agents" => prepare_for(|c| &c.agents, keys, full_replace, up_to_date, sqlite),
+            "events" => prepare_for(|c| &c.events, keys, full_replace, up_to_date, sqlite),
+            "prompts" => prepare_for(|c| &c.prompts, keys, full_replace, up_to_date, sqlite),
+            "apps" => prepare_for(|c| &c.apps, keys, full_replace, up_to_date, sqlite),
+            "app_versions" => prepare_for(|c| &c.app_versions, keys, full_replace, up_to_date, sqlite),
+            "app_records" => prepare_for(|c| &c.app_records, keys, full_replace, up_to_date, sqlite),
+            "skills" => prepare_for(|c| &c.skills, keys, full_replace, up_to_date, sqlite),
+            other => {
+                log::warn!("[sync] delta for unknown shape {other}");
+                None
             }
-            "sessions" => {
-                apply_to(&self.sessions, keys, full_replace, up_to_date, sqlite, cx);
-                // EXP-1459: a digest opened before its session's row arrived
-                // learns its root now.
-                if crate::sealed::Opener::global().take_unresolved() {
-                    reopen_closed(&self.conversations, sqlite, cx);
-                }
+        }
+    }
+
+    /// Commit a [`Self::prepare`]d batch of `shape` (main thread).
+    pub(crate) fn commit(&self, shape: &str, prepared: Prepared, sqlite: &Arc<ShapeStore>, cx: &mut AsyncApp) {
+        prepared(self, cx);
+        if shape == "sessions" {
+            // EXP-1459: a digest opened before its session's row arrived
+            // learns its root now.
+            if crate::sealed::Opener::global().take_unresolved() {
+                reopen_closed(&self.conversations, sqlite, cx);
             }
-            "session_issues" => apply_to(&self.session_issues, keys, full_replace, up_to_date, sqlite, cx),
-            "messages" => apply_to(&self.messages, keys, full_replace, up_to_date, sqlite, cx),
-            "conversations" => apply_to(&self.conversations, keys, full_replace, up_to_date, sqlite, cx),
-            "pull_requests" => apply_to(&self.pull_requests, keys, full_replace, up_to_date, sqlite, cx),
-            "pull_request_issues" => {
-                apply_to(&self.pull_request_issues, keys, full_replace, up_to_date, sqlite, cx)
-            }
-            "pull_request_checks" => {
-                apply_to(&self.pull_request_checks, keys, full_replace, up_to_date, sqlite, cx)
-            }
-            "issue_statuses" => {
-                apply_to(&self.issue_statuses, keys, full_replace, up_to_date, sqlite, cx)
-            }
-            "devices" => apply_to(&self.devices, keys, full_replace, up_to_date, sqlite, cx),
-            "device_worktrees" => {
-                apply_to(&self.device_worktrees, keys, full_replace, up_to_date, sqlite, cx)
-            }
-            "issue_relations" => {
-                apply_to(&self.issue_relations, keys, full_replace, up_to_date, sqlite, cx)
-            }
-            "pins" => apply_to(&self.pins, keys, full_replace, up_to_date, sqlite, cx),
-            "issue_drafts" => apply_to(&self.issue_drafts, keys, full_replace, up_to_date, sqlite, cx),
-            "session_reads" => apply_to(&self.session_reads, keys, full_replace, up_to_date, sqlite, cx),
-            "agents" => apply_to(&self.agents, keys, full_replace, up_to_date, sqlite, cx),
-            "events" => apply_to(&self.events, keys, full_replace, up_to_date, sqlite, cx),
-            "prompts" => apply_to(&self.prompts, keys, full_replace, up_to_date, sqlite, cx),
-            "apps" => apply_to(&self.apps, keys, full_replace, up_to_date, sqlite, cx),
-            "app_versions" => apply_to(&self.app_versions, keys, full_replace, up_to_date, sqlite, cx),
-            "app_records" => apply_to(&self.app_records, keys, full_replace, up_to_date, sqlite, cx),
-            "skills" => apply_to(&self.skills, keys, full_replace, up_to_date, sqlite, cx),
-            other => log::warn!("[sync] delta for unknown shape {other}"),
+        }
+    }
+
+    /// Read, decode and commit one batch; the read runs on the background
+    /// executor while the main thread waits on nothing.
+    pub(crate) async fn apply(&self, shape: &str, keys: Vec<RowKey>, full_replace: bool, up_to_date: bool, sqlite: &Arc<ShapeStore>, cx: &mut AsyncApp) {
+        let read = {
+            let (shape, sqlite) = (shape.to_string(), Arc::clone(sqlite));
+            cx.background_executor().spawn(async move { Self::prepare(&shape, &keys, full_replace, up_to_date, &sqlite) })
+        };
+        if let Some(prepared) = read.await {
+            self.commit(shape, prepared, sqlite, cx);
         }
     }
 
@@ -1069,59 +1077,84 @@ fn hydrate_collection<T: ShapeRow>(
     });
 }
 
-fn apply_to<T: ShapeRow>(
-    entity: &Entity<Collection<T>>,
-    keys: &[RowKey],
-    full_replace: bool,
-    up_to_date: bool,
-    sqlite: &Arc<ShapeStore>,
-    cx: &mut AsyncApp,
-) {
+/// #LOGS-3: one shape batch read back from SQLite and decoded, OFF the main
+/// thread ([`read_batch`]); [`commit_batch`] writes it into the collection
+/// on the main thread. A point read waits on the disk, and on a busy machine
+/// (agents building, swap) that wait reached seconds on the UI thread.
+enum Batch<T> {
+    /// §5.6c atomic refetch: the whole table.
+    Replace(Vec<(RowKey, T)>),
+    /// Per key: the row (an upsert) or `None` (gone: a delete).
+    Rows(Vec<(RowKey, Option<T>)>),
+}
+
+/// A batch ready for the main thread.
+pub(crate) type Prepared = Box<dyn FnOnce(&Collections, &mut AsyncApp) + Send>;
+
+fn read_batch<T: ShapeRow>(keys: &[RowKey], full_replace: bool, sqlite: &ShapeStore) -> Option<(Batch<T>, ShapeSyncPhase)> {
     let spec = T::spec();
-    // #LOGS-2: the foreground half of a shape batch (point reads + notify).
-    let _span = tracing::debug_span!("sync.apply", shape = spec.name, rows = keys.len(), full_replace).entered();
+    let _span = tracing::debug_span!("sync.read", shape = spec.name, rows = keys.len(), full_replace).entered();
     let phase = phase_from_store(sqlite, spec.name);
     if full_replace {
         // §5.6c atomic refetch: the batch replaced the WHOLE table in one
         // commit — re-hydrate wholesale (point reads are not enough).
-        let rows = match sqlite.read_all(spec) {
-            Ok(maps) => decode_rows::<T>(maps),
+        return match sqlite.read_all(spec) {
+            Ok(maps) => Some((Batch::Replace(decode_rows::<T>(maps)), phase)),
             Err(err) => {
                 log::warn!("[sync {}] refetch re-hydrate failed: {err}", spec.name);
-                return;
+                None
             }
         };
-        entity.update(cx, |collection, cx| {
-            collection.replace_all(rows);
-            collection.set_phase(phase);
-            collection.caught_up |= up_to_date;
-            cx.notify();
-        });
-        return;
     }
+    let mut rows = Vec::with_capacity(keys.len());
+    for key in keys {
+        match sqlite.read_by_key(spec, key) {
+            // Present in SQLite → it was an upsert.
+            Ok(Some(map)) => match serde_json::from_value::<T>(Value::Object(map)) {
+                Ok(mut row) => {
+                    row.open_sealed();
+                    rows.push((key.clone(), Some(row)));
+                }
+                Err(err) => log::warn!("[sync {}] dropping unhydratable row: {err}", spec.name),
+            },
+            // Gone from SQLite → it was a delete.
+            Ok(None) => rows.push((key.clone(), None)),
+            Err(err) => log::warn!("[sync {}] point read failed: {err}", spec.name),
+        }
+    }
+    Some((Batch::Rows(rows), phase))
+}
 
+fn commit_batch<T: ShapeRow>(entity: &Entity<Collection<T>>, batch: Batch<T>, phase: ShapeSyncPhase, up_to_date: bool, cx: &mut AsyncApp) {
+    // #LOGS-2: the foreground half of a shape batch (the writes + notify).
+    let _span = tracing::debug_span!("sync.apply", shape = T::spec().name).entered();
     entity.update(cx, |collection, cx| {
-        for key in keys {
-            match sqlite.read_by_key(spec, key) {
-                // Present in SQLite → it was an upsert.
-                Ok(Some(map)) => match serde_json::from_value::<T>(Value::Object(map)) {
-                    Ok(mut row) => {
-                        row.open_sealed();
-                        collection.upsert(key.clone(), row)
+        match batch {
+            Batch::Replace(rows) => collection.replace_all(rows),
+            Batch::Rows(rows) => {
+                for (key, row) in rows {
+                    match row {
+                        Some(row) => collection.upsert(key, row),
+                        None => collection.remove(&key),
                     }
-                    Err(err) => {
-                        log::warn!("[sync {}] dropping unhydratable row: {err}", spec.name)
-                    }
-                },
-                // Gone from SQLite → it was a delete.
-                Ok(None) => collection.remove(key),
-                Err(err) => log::warn!("[sync {}] point read failed: {err}", spec.name),
+                }
             }
         }
         collection.set_phase(phase);
         collection.caught_up |= up_to_date;
         cx.notify();
     });
+}
+
+fn prepare_for<T: ShapeRow + Send + 'static>(
+    pick: fn(&Collections) -> &Entity<Collection<T>>,
+    keys: &[RowKey],
+    full_replace: bool,
+    up_to_date: bool,
+    sqlite: &ShapeStore,
+) -> Option<Prepared> {
+    let (batch, phase) = read_batch::<T>(keys, full_replace, sqlite)?;
+    Some(Box::new(move |collections, cx| commit_batch(pick(collections), batch, phase, up_to_date, cx)))
 }
 
 /// EXP-1459: re-reads and re-opens the rows whose sealed content stayed
@@ -1341,7 +1374,7 @@ impl Store {
                     return;
                 }
                 let keys: Vec<RowKey> = ids.into_iter().map(RowKey::Single).collect();
-                store.collections.apply(&table, &keys, false, true, &sqlite, cx);
+                store.collections.apply(&table, keys, false, true, &sqlite, cx).await;
             }
         })
         .detach();
@@ -1475,14 +1508,16 @@ impl Store {
         let store = self.clone();
         cx.spawn(async move |cx| {
             while let Ok(delta) = deltas.recv_async().await {
-                store.apply_delta(delta, cx);
+                store.apply_delta(delta, cx).await;
             }
         })
         .detach();
     }
 
-    fn apply_delta(&self, delta: ShapeDelta, cx: &mut AsyncApp) {
-        let _span = tracing::debug_span!("sync.delta").entered();
+    async fn apply_delta(&self, delta: ShapeDelta, cx: &mut AsyncApp) {
+        // Never held across an await: the main thread's span stack (#LOGS-2)
+        // would name it while other work runs.
+        let delta_span = tracing::debug_span!("sync.delta").entered();
         match delta {
             ShapeDelta::Unauthorized { account_id } => {
                 // §5.6b: the pipeline tore itself down and the token is
@@ -1544,8 +1579,18 @@ impl Store {
                 let Some(sqlite) = self.manager.store(&account_id) else {
                     return;
                 };
-                self.collections
-                    .apply(shape, &keys, full_replace, up_to_date, &sqlite, cx);
+                // #LOGS-3: read + decode off the main thread, then commit
+                // unless the account switched (or signed out) meanwhile.
+                drop(delta_span);
+                let read = {
+                    let sqlite = Arc::clone(&sqlite);
+                    cx.background_executor().spawn(async move { Collections::prepare(shape, &keys, full_replace, up_to_date, &sqlite) })
+                };
+                let Some(prepared) = read.await else { return };
+                let still_active = self.state.read_with(cx, |state, _| state.session.account_id() == Some(account_id.as_str()));
+                if still_active {
+                    self.collections.commit(shape, prepared, &sqlite, cx);
+                }
             }
             ShapeDelta::PollFailed {
                 account_id,

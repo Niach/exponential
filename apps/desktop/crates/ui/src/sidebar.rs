@@ -654,6 +654,9 @@ pub struct RailView {
     /// same inputs (a hover, a glyph's region, the Computer button) does
     /// not derive them again.
     derived: Option<RailInputs>,
+    /// #LOGS-3: a large account's rows cost tens of ms per derive; under a
+    /// burst of synced rows they derive at most a tenth of the time.
+    derive_cycle: crate::duty_cycle::DutyCycle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -672,10 +675,29 @@ struct RailInputs {
     minute: i64,
 }
 
+/// #LOGS-3: the shapes no rail row reads: the transcripts, the event
+/// stream, and what only an issue page or a settings page shows. CI checks
+/// and issue history change all day long; each change re-derived every row
+/// (a team's titles, Needs you, the chat lists).
+const RAIL_UNREAD: &[&str] = &[
+    "messages",
+    "events",
+    "pull_request_checks",
+    "issue_events",
+    "comments",
+    "attachments",
+    "issue_subscribers",
+    "issue_labels",
+    "device_worktrees",
+    "app_versions",
+    "app_records",
+    "team_invites",
+];
+
 impl RailInputs {
     fn read(nav: &Entity<Navigation>, cx: &App) -> Self {
         Self {
-            revisions: Store::global(cx).collections().revisions_except(&["messages", "events"], cx),
+            revisions: Store::global(cx).collections().revisions_except(RAIL_UNREAD, cx),
             screen: resolved_screen(nav, cx),
             team: crate::navigation::active_team_id(nav, cx),
             board: crate::navigation::active_board_id(nav, cx),
@@ -690,6 +712,12 @@ impl RailView {
     #[cfg(test)]
     pub(crate) fn region(&self) -> Entity<crate::shell_regions::SidebarRegion> {
         self.region.clone()
+    }
+
+    /// The rows were derived from the store as it is now.
+    #[cfg(test)]
+    pub(crate) fn rows_are_current(&self, cx: &App) -> bool {
+        self.derived.as_ref().is_some_and(|derived| *derived == RailInputs::read(&self.nav, cx))
     }
 
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
@@ -749,6 +777,7 @@ impl RailView {
             last_branch: None,
             region,
             derived: None,
+            derive_cycle: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -890,10 +919,11 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::chat_row_mark_state(needs_you, busy)
 }
 
-/// #LOGS-11: the rail's renders, for the bench.
+/// #LOGS-11: the rail's renders, for the bench; #LOGS-3: its row derives.
 #[cfg(test)]
 thread_local! {
     pub(crate) static RAIL_RENDERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static RAIL_DERIVES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Render for RailView {
@@ -986,7 +1016,11 @@ impl Render for RailView {
         };
         let nav = self.nav.clone();
         let inputs = RailInputs::read(&nav, cx);
-        let stale = self.derived.as_ref() != Some(&inputs);
+        // A screen or team move derives at once; a synced row may wait out
+        // the duty cycle (#LOGS-3).
+        let moved = self.derived.as_ref().is_none_or(|derived| (&derived.screen, &derived.team, &derived.board, &derived.account) != (&inputs.screen, &inputs.team, &inputs.board, &inputs.account));
+        let stale = self.derived.as_ref() != Some(&inputs) && (moved || self.derive_cycle.ready(cx, |rail| &mut rail.derive_cycle));
+        let started = std::time::Instant::now();
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
             if stale {
@@ -996,7 +1030,10 @@ impl Render for RailView {
             }
         });
         if stale {
+            self.derive_cycle.ran(started.elapsed(), cx.background_executor().now());
             self.derived = Some(inputs);
+            #[cfg(test)]
+            RAIL_DERIVES.with(|n| n.set(n.get() + 1));
         }
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
@@ -1230,6 +1267,76 @@ mod tests {
             ToolWindow::SourceControl.origin_screen(None),
             Screen::SourceControl
         );
+    }
+
+
+    /// #LOGS-3: a burst of synced rows (a busy team) derives the rail's rows
+    /// once per duty window when a derive is expensive, then once more with
+    /// the last write; nothing is lost, nothing derives in between.
+    #[gpui::test]
+    async fn a_burst_of_synced_rows_derives_the_rail_once_per_duty_window(cx: &mut gpui::TestAppContext) {
+        use std::time::Duration;
+        use sync::{ShapeRow as _, Store};
+
+        use super::{RailView, RAIL_DERIVES};
+
+        let write = |n: usize, cx: &mut gpui::App| {
+            let row: domain::rows::SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "s1", "team_id": "t1", "root_id": "s1", "status": "running", "busy": true, "shared": true,
+                "title": format!("Round {n}"), "created_at": "2026-11-11T09:00:00.000Z", "updated_at": format!("2026-11-11T09:00:{:02}.000Z", n % 60),
+            }))
+            .unwrap();
+            let sessions = Store::global(cx).collections().sessions.clone();
+            sessions.update(cx, |collection, cx| {
+                collection.seed(row.key(), row);
+                cx.notify();
+            });
+        };
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let team: domain::rows::Team = serde_json::from_value(serde_json::json!({"id": "t1", "name": "Acme", "slug": "acme"})).unwrap();
+            let teams = Store::global(cx).collections().teams.clone();
+            teams.update(cx, |collection, cx| {
+                collection.seed(team.key(), team);
+                cx.notify();
+            });
+            write(0, cx);
+        });
+        let (rail, cx) = cx.add_window_view(|window, cx| {
+            let nav = crate::navigation::nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            RailView::new(window, cx)
+        });
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        };
+        draw(cx);
+        crate::duty_cycle::enable_for_test(true);
+        crate::duty_cycle::cost_floor_for_test(Duration::from_millis(50));
+        // This derive costs "50 ms": the next waits 450 ms.
+        cx.update(|_, cx| write(1, cx));
+        draw(cx);
+        let armed = RAIL_DERIVES.with(std::cell::Cell::get);
+        assert!(rail.read_with(cx, |rail, cx| rail.rows_are_current(cx)));
+
+        for n in 2..12 {
+            cx.update(|_, cx| write(n, cx));
+            draw(cx);
+        }
+        assert_eq!(RAIL_DERIVES.with(std::cell::Cell::get), armed, "a burst inside the window derives nothing");
+        assert!(!rail.read_with(cx, |rail, cx| rail.rows_are_current(cx)));
+
+        cx.executor().advance_clock(Duration::from_millis(460));
+        draw(cx);
+        assert_eq!(RAIL_DERIVES.with(std::cell::Cell::get), armed + 1, "the window over: one derive");
+        assert!(rail.read_with(cx, |rail, cx| rail.rows_are_current(cx)), "with the last write");
+
+        crate::duty_cycle::cost_floor_for_test(Duration::ZERO);
+        crate::duty_cycle::enable_for_test(false);
     }
 
 }

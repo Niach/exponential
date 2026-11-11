@@ -265,15 +265,25 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     // walk and clone every synced message each time. #LOGS-11: ONE memo per
     // store change (Needs you titles every session of the team: a per-entry
     // cap thrashed past 512 sessions).
-    let revisions = [
-        collections.sessions.read(cx).revision(),
-        collections.session_issues.read(cx).revision(),
-        collections.issues.read(cx).revision(),
-    ];
+    let stamp = TitleStamp {
+        store: collections.sessions.entity_id(),
+        revisions: [
+            collections.sessions.read(cx).revision(),
+            collections.session_issues.read(cx).revision(),
+            collections.issues.read(cx).revision(),
+        ],
+    };
     if let Some(title) = TITLE_MEMO.with(|memo| {
         let mut memo = memo.borrow_mut();
-        if memo.0 != revisions {
-            *memo = (revisions, HashMap::new());
+        if memo.0 != Some(stamp) {
+            // #LOGS-3: forget only the titles a change can move (was every
+            // title on any session write: a team's Needs you re-titled all
+            // its sessions per synced row).
+            let keep = memo.0.is_some_and(|old| forget_moved_titles(old, stamp, &mut memo.1, cx));
+            if !keep {
+                memo.1.clear();
+            }
+            memo.0 = Some(stamp);
         }
         memo.1.get(session_id).cloned()
     }) {
@@ -284,10 +294,52 @@ pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     title
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TitleStamp {
+    store: gpui::EntityId,
+    /// sessions, session_issues, issues.
+    revisions: [u64; 3],
+}
+
+/// Drop from `titles` what moved between `old` and `new`: a written session
+/// (its row titles it), the sessions a written issue is linked to. `false`
+/// = the store cannot tell (another store, a wholesale write, a link
+/// change): forget them all.
+fn forget_moved_titles(old: TitleStamp, new: TitleStamp, titles: &mut HashMap<String, Option<String>>, cx: &App) -> bool {
+    if old.store != new.store || old.revisions[1] != new.revisions[1] {
+        return false;
+    }
+    let Some(store) = Store::try_global(cx) else { return false };
+    let collections = store.collections();
+    if old.revisions[0] != new.revisions[0] {
+        let sessions = collections.sessions.read(cx);
+        let Some(changed) = sessions.changed_since(old.revisions[0]) else { return false };
+        for key in changed {
+            if let sync::protocol::RowKey::Single(id) = key {
+                titles.remove(id);
+            }
+        }
+    }
+    if old.revisions[2] != new.revisions[2] {
+        let issues = collections.issues.read(cx);
+        let Some(changed) = issues.changed_since(old.revisions[2]) else { return false };
+        let changed: HashSet<&str> = changed.into_iter().filter_map(|key| match key {
+            sync::protocol::RowKey::Single(id) => Some(id.as_str()),
+            _ => None,
+        }).collect();
+        if !changed.is_empty() {
+            for link in collections.session_issues.read(cx).iter().filter(|link| changed.contains(link.issue_id.as_str())) {
+                titles.remove(&link.session_id);
+            }
+        }
+    }
+    true
+}
+
 thread_local! {
-    /// [`session_title_of`]'s memo: the store revisions it holds for, and
+    /// [`session_title_of`]'s memo: the store state it holds for, and
     /// session id → title.
-    static TITLE_MEMO: std::cell::RefCell<([u64; 3], HashMap<String, Option<String>>)> = Default::default();
+    static TITLE_MEMO: std::cell::RefCell<(Option<TitleStamp>, HashMap<String, Option<String>>)> = Default::default();
 }
 
 /// #LOGS-11: the `session_issues` rows of one session, through an index
@@ -435,16 +487,47 @@ pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<Mess
         return Vec::new();
     };
     // #EXP-1730: the digest lives on the session row (`sessions.digest`).
-    let sessions = store.collections().sessions.read(cx);
-    let mut out: Vec<MessageRow> = Vec::new();
-    for session in sessions.iter() {
-        if !keep(session.id.as_str()) {
-            continue;
+    let collection = &store.collections().sessions;
+    let sessions = collection.read(cx);
+    let stamp = (collection.entity_id(), sessions.revision());
+    // #LOGS-3: each row's digest decoded once per write of THAT row (every
+    // sessions delta decoded every session's digest, twice: the chat list
+    // and Needs you).
+    DIGESTS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.0 != Some(stamp) {
+            let told = cache.0.filter(|old| old.0 == stamp.0).and_then(|old| sessions.changed_since(old.1));
+            match told {
+                Some(changed) => {
+                    for key in changed {
+                        if let sync::protocol::RowKey::Single(id) = key {
+                            cache.1.remove(id);
+                        }
+                    }
+                }
+                None => cache.1.clear(),
+            }
+            cache.0 = Some(stamp);
         }
-        let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
-        out.extend(domain::chats::digest_messages(&session.id, digest.as_ref()));
-    }
-    out
+        let mut out: Vec<MessageRow> = Vec::new();
+        for session in sessions.iter() {
+            if !keep(session.id.as_str()) {
+                continue;
+            }
+            let rows = cache.1.entry(session.id.clone()).or_insert_with(|| {
+                let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
+                Rc::new(domain::chats::digest_messages(&session.id, digest.as_ref()))
+            });
+            out.extend(rows.iter().cloned());
+        }
+        out
+    })
+}
+
+thread_local! {
+    /// [`digest_messages`]' decoded digests: the store state they hold for,
+    /// session id → its digest's rows.
+    static DIGESTS: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, HashMap<String, Rc<Vec<MessageRow>>>)> = Default::default();
 }
 
 /// #EXP-1730: the synced messages that live in the sessions `ids` (their
@@ -577,10 +660,12 @@ pub(crate) fn conversation_cards(session_id: &str, cx: &App) -> Rc<Vec<SessionCh
 /// #LOGS-7: derived once per change of what it reads (and per second: a
 /// working session's card counts its elapsed seconds), never per frame or
 /// twice per change.
+thread_local! {
+    static ROOT_CHAT_VIEWS: std::cell::RefCell<HashMap<String, ChatViewMemo>> = Default::default();
+}
+
 pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<SessionChatView>> {
-    thread_local! {
-        static MEMO: std::cell::RefCell<HashMap<String, ChatViewMemo>> = Default::default();
-    }
+    use ROOT_CHAT_VIEWS as MEMO;
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let messages = collections.messages.read(cx);
@@ -609,10 +694,11 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
     };
     let mut stale: Option<ChatViewMemo> = None;
     if let Some(hit) = MEMO.with(|memo| {
-        let memo = memo.borrow();
-        let entry = memo.get(root_id)?;
+        let mut memo = memo.borrow_mut();
+        let entry = memo.get_mut(root_id)?;
         let stamp = at(messages_at(&entry.groups));
         if entry.stamp == stamp {
+            entry.held = false;
             return Some(entry.view.clone());
         }
         stale = Some(entry.clone());
@@ -622,7 +708,7 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
     }
     // #LOGS-11: new agent replies at the chat's end append their rows to
     // the last view (a streaming reply re-derived the whole long chat).
-    if let Some(entry) = stale.filter(|entry| {
+    if let Some(entry) = stale.as_ref().filter(|entry| {
         let now = at(messages_at(&entry.groups));
         let mut was = entry.stamp;
         was.0[2] = now.0[2];
@@ -635,18 +721,42 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
             return view;
         }
     }
+    // #LOGS-3: only rows outside the chat's own messages moved (a busy team
+    // syncing) and the last derive was expensive: the previous view holds
+    // until its duty window passes ([`root_chat_view_stale_until`] tells
+    // the screen when to ask again).
+    if let Some(entry) = stale.as_ref() {
+        let now = at(messages_at(&entry.groups));
+        let held = entry.stamp.0[2] == now.0[2] && entry.next_at.is_some_and(|at| at > cx.background_executor().now());
+        if held {
+            MEMO.with(|memo| {
+                if let Some(entry) = memo.borrow_mut().get_mut(root_id) {
+                    entry.held = true;
+                }
+            });
+            return entry.view.clone();
+        }
+    }
+    let started = std::time::Instant::now();
     let view = chat_view(root_id, None, now_ms, false, false, cx).map(|(view, _)| Rc::new(view));
     let groups = chat_view_groups(root_id, cx);
     let stamp = at(messages_at(&groups));
     let tail = chat_tail(root_id, &groups, &messages);
+    let next_at = crate::duty_cycle::next_run(started.elapsed(), cx.background_executor().now());
     MEMO.with(|memo| {
         let mut memo = memo.borrow_mut();
         if memo.len() > 64 {
             memo.clear();
         }
-        memo.insert(root_id.to_string(), ChatViewMemo { stamp, groups, view: view.clone(), tail });
+        memo.insert(root_id.to_string(), ChatViewMemo { stamp, groups, view: view.clone(), tail, next_at, held: false });
     });
     view
+}
+
+/// #LOGS-3: when [`root_chat_view`] of `root_id` re-derives, if its last
+/// answer was a held (stale) view; `None` = it was fresh.
+pub(crate) fn root_chat_view_stale_until(root_id: &str) -> Option<std::time::Instant> {
+    ROOT_CHAT_VIEWS.with(|memo| memo.borrow().get(root_id).filter(|entry| entry.held).and_then(|entry| entry.next_at))
 }
 
 /// [`root_chat_view`]'s memo of one root.
@@ -658,6 +768,11 @@ struct ChatViewMemo {
     groups: Vec<String>,
     view: Option<Rc<SessionChatView>>,
     tail: ChatTail,
+    /// #LOGS-3: before this instant a stale entry whose messages held may
+    /// answer as it is ([`crate::duty_cycle`]); `None` = it was cheap.
+    next_at: Option<std::time::Instant>,
+    /// The last answer was the held view.
+    held: bool,
 }
 
 /// #LOGS-11: what an append needs of the messages a view was derived from.
@@ -732,7 +847,7 @@ fn appended_view(root_id: &str, entry: &ChatViewMemo, messages: &sync::Collectio
             }
         }
     }
-    Some(ChatViewMemo { stamp: entry.stamp, groups: entry.groups.clone(), view: Some(Rc::new(next)), tail })
+    Some(ChatViewMemo { stamp: entry.stamp, groups: entry.groups.clone(), view: Some(Rc::new(next)), tail, next_at: entry.next_at, held: false })
 }
 
 /// [`chat_view_groups`]' stand-in for every group: an origin not synced yet
@@ -1316,8 +1431,10 @@ struct ChatsKey {
     hour: i64,
 }
 
+/// The key and model; #LOGS-3: the instant a held answer re-derives, and
+/// the duty window's end.
 #[derive(Default)]
-struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>);
+struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>, Option<std::time::Instant>, Option<std::time::Instant>);
 
 impl gpui::Global for ChatsMemo {}
 
@@ -1344,15 +1461,31 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
         ],
         hour: now_ms() / 3_600_000,
     };
-    if let Some((cached, model)) = &cx.default_global::<ChatsMemo>().0 {
+    let now = cx.background_executor().now();
+    let memo = cx.default_global::<ChatsMemo>();
+    if let Some((cached, model)) = &memo.0 {
         if *cached == key {
+            memo.1 = None;
+            return model.clone();
+        }
+        // #LOGS-3: the same team, an expensive last derive still inside its
+        // duty window: the list holds ([`chats_model_stale_until`]).
+        if cached.team_id == key.team_id && memo.2.is_some_and(|at| at > now) {
+            memo.1 = memo.2;
             return model.clone();
         }
     }
+    let started = std::time::Instant::now();
     let groups = chat_lists(team_id, cx);
     let model = Rc::new(derive_chats_model(team_id, &groups, cx));
-    cx.global_mut::<ChatsMemo>().0 = Some((key, model.clone()));
+    let next_at = crate::duty_cycle::next_run(started.elapsed(), cx.background_executor().now());
+    *cx.global_mut::<ChatsMemo>() = ChatsMemo(Some((key, model.clone())), None, next_at);
     model
+}
+
+/// #LOGS-3: when [`chats_model`] re-derives, if its last answer was held.
+pub(crate) fn chats_model_stale_until(cx: &App) -> Option<std::time::Instant> {
+    cx.try_global::<ChatsMemo>().and_then(|memo| memo.1)
 }
 
 fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> ChatsModel {
@@ -1560,19 +1693,24 @@ pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut A
     let collections = store.collections();
     // #LOGS-11: the scanned sessions' own messages, not every synced one (a
     // busy team's every message re-scanned the open chat).
+    // #LOGS-3: the tree's MEMBERS, not the sessions revision (any session
+    // syncing anywhere re-scanned a long chat's every message).
+    let tree: Rc<Vec<String>> = if whole_tree { tree_session_ids(session_id, cx) } else { Rc::default() };
     let messages_at = {
         let messages = collections.messages.read(cx);
         if whole_tree {
-            tree_session_ids(session_id, cx).iter().map(|id| messages.group_revision(id)).max().unwrap_or(0)
+            tree.iter().map(|id| messages.group_revision(id)).max().unwrap_or(0)
         } else {
             messages.group_revision(session_id)
         }
     };
-    let revisions = (
-        messages_at,
-        collections.session_reads.read(cx).revision(),
-        if whole_tree { collections.sessions.read(cx).revision() } else { 0 },
-    );
+    let members = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::hash::DefaultHasher::new();
+        tree.hash(&mut hasher);
+        hasher.finish()
+    };
+    let revisions = (messages_at, collections.session_reads.read(cx).revision(), members);
     let scans = cx.default_global::<ReadScans>();
     if scans.0.get(session_id) == Some(&revisions) {
         return;

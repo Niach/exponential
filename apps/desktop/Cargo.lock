@@ -8174,6 +8174,7 @@ name = "observability"
 version = "0.14.148"
 dependencies = [
  "exp-http",
+ "libc",
  "log",
  "reqwest",
  "sentry",
