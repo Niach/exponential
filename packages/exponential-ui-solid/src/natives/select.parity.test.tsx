@@ -129,6 +129,21 @@ describe(`select: open popup`, () => {
     expect(solid).toEqual(react)
     expect(react).toEqual({ items: [`var(--xui-color-success)`, `rgb(239, 68, 68)`, ``], value: `var(--xui-color-success)` })
   })
+  it(`a button trigger leads with the picked option's icon in its tint, no prop (#EXP-1629)`, async () => {
+    const glyph = async (render: typeof renderReact | typeof renderSolidSurface, value: string) => {
+      const r = await render({ tree: sel({ triggerVariant: `button`, value, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Do nothing`, value: `none` }] }), theme: `exponential`, mode: `dark` })
+      try {
+        const icon = r.root.querySelector<SVGElement>(`.xui-Select-valueIcon`)
+        return icon ? [icon.getAttribute(`data-icon`), icon.style.color] : null
+      } finally {
+        r.cleanup()
+      }
+    }
+    for (const render of [renderReact, renderSolidSurface]) {
+      expect(await glyph(render, `review`)).toEqual([`status-in-review`, `var(--xui-color-success)`])
+      expect(await glyph(render, `none`)).toBeNull()
+    }
+  })
   it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
