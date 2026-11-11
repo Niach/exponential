@@ -328,6 +328,12 @@ pub struct SkillPage {
 }
 
 impl SkillPage {
+    /// The page's document (its focus, for tests).
+    #[cfg(test)]
+    pub(crate) fn surface(&self) -> Entity<SurfaceView> {
+        self.view.clone()
+    }
+
     pub(crate) fn new(team_id: String, skill: Option<api::skills::Skill>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let creating = skill.is_none();
         let builtin = skill.as_ref().is_some_and(|skill| skill.builtin);
@@ -393,12 +399,9 @@ impl SkillPage {
         if creating {
             // The name field takes the focus on a NEW page, once the
             // projection has made it.
-            let view = this.view.clone();
             let projection = this.project(cx);
             this.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
-            window.defer(cx, move |window, cx| {
-                view.update(cx, |view, cx| view.focus_field("name", window, cx));
-            });
+            super::doc::focus_input(this.view.clone(), "name", window, cx);
         } else {
             this.fetch_body(window, cx);
         }

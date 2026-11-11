@@ -2791,7 +2791,10 @@
     "backgroundClip",
     "paddingTop",
     "paddingBottom",
-    "textAlign"
+    "textAlign",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius"
   ],
   "components": [
     {
@@ -3495,7 +3498,10 @@
         "count",
         "list",
         "empty",
-        "fade"
+        "fade",
+        "identifier",
+        "detail",
+        "preview"
       ],
       "props": [
         "openOn"
@@ -4018,7 +4024,9 @@
         "multiple",
         "searchable",
         "disabled",
-        "triggerVariant"
+        "triggerVariant",
+        "joinTop",
+        "joinBottom"
       ]
     },
     {

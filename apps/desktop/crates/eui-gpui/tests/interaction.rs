@@ -1669,11 +1669,34 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
         if !slots.is_empty() {
             composer["slots"] = c["slots"].clone();
         }
+        // #EXP-1762 `field`: an empty flat composer's height first (its row
+        // = the disc's), then the case's draft.
+        let empty_h = c.get("field").map(|_| {
+            let (view, _, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer.clone()]}), rtl);
+            view.update(vcx, |v, _| v.record_bounds(true));
+            draw(vcx);
+            view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
+        });
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
-        view.update(vcx, |v, _| v.record_bounds(true));
+        view.update(vcx, |v, cx| {
+            v.record_bounds(true);
+            for (path, value) in c.get("data").and_then(Value::as_object).into_iter().flatten() {
+                v.set_data(&format!("/{path}"), Some(value.clone()), cx).unwrap();
+            }
+        });
         draw(vcx);
         let bounds = |vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).map(|b| (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height)));
         let cb = bounds(vcx, "c").unwrap_or_else(|| panic!("{name}: the composer painted"));
+        if let Some(empty_h) = empty_h {
+            // The row is the disc's while one line (paddingTop 8 + 20 < 36),
+            // taller once grown (8 + 3 × 20); the text's place in it is
+            // `flat_field_box` (view::paint's unit test).
+            if c["field"]["grown"] == true {
+                assert!(cb.3 > empty_h + 0.5, "{name}: the row grew ({} vs {empty_h})", cb.3);
+            } else {
+                assert!((cb.3 - empty_h).abs() < 0.5, "{name}: a one-line row is the disc's ({} vs {empty_h})", cb.3);
+            }
+        }
         let mut along: Vec<(f32, &str)> = Vec::new();
         for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
             let Some(b) = bounds(vcx, id) else {
@@ -1683,12 +1706,24 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
             // #EXP-1762: a one-line flat composer IS its bottom row (the
             // disc's height): its slots sit on its centre line.
-            if c["props"]["layout"] == "flat" {
+            if c["props"]["layout"] == "flat" && !slots.contains_key("above") {
                 assert!((b.1 + b.3 / 2.0 - (cb.1 + cb.3 / 2.0)).abs() < 0.5, "{name}: {slot} centred in the one row");
             } else {
                 assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
             }
             along.push((if rtl { -(b.0 + b.2) } else { b.0 }, slot));
+        }
+        // #EXP-1762: `above` paints inside the card at its top, the content
+        // width (the same inset either side), over the row's slots.
+        if slots.contains_key("above") {
+            let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: above painted"));
+            let (l, r) = (s.0 - cb.0, cb.0 + cb.2 - (s.0 + s.2));
+            assert!(l > 0.0 && (l - r).abs() < 0.5 && s.1 > cb.1 && s.1 - cb.1 <= l + 0.5, "{name}: above at the content top, full width: {s:?} in {cb:?}");
+            for id in ["plus", "ring"] {
+                if let Some(b) = bounds(vcx, id) {
+                    assert!(b.1 >= s.1 + s.3, "{name}: above over {id}");
+                }
+            }
         }
         along.sort_by(|a, b| a.0.total_cmp(&b.0));
         let order: Vec<&str> = c["order"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).filter(|o| *o == "leading" || *o == "trailing").collect();
@@ -1822,4 +1857,79 @@ fn an_autosize_textarea_grows_when_its_bound_value_arrives_later(cx: &mut TestAp
     draw(vcx);
     draw(vcx);
     assert_eq!(view.read_with(vcx, |v, _| v.surface_height()), forty, "the loaded body fills maxRows");
+}
+
+/// #EXP-1629 (interactions-round1.json `menuPreview`) through the painter:
+/// a real pointer over a row with a `preview` shows it beside the row only
+/// after the 150 ms wait (the core's `HoverTimer` on gpui's clock), as a
+/// nested surface (the Embed leaf `m.preview.<row>.surface`); another row
+/// restarts the wait; a keyboard highlight shows its row's at once; an
+/// inner press fires the Menu's `action` {name, context}; the preview never
+/// takes Escape (it closes the menu, the preview with it).
+#[gpui::test]
+fn a_menu_item_preview_shows_on_hover_and_highlight(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["menuPreview"];
+    let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["menu"].clone()]}), false);
+    view.update(vcx, |v, _| v.record_bounds(true));
+    draw(vcx);
+    let shown = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| {
+        view.read_with(vcx, |v, _| v.layers().iter().filter_map(|l| v.placed_nodes().get(l.root as usize)).find(|n| n.part.as_deref() == Some("preview")).map(|n| n.id.clone()))
+    };
+    let wait = |vcx: &mut VisualTestContext, ms: u64| {
+        vcx.executor().advance_clock(Duration::from_millis(ms));
+        vcx.run_until_parked();
+        draw(vcx);
+    };
+    let center = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted")).center();
+    let t = center(&view, vcx, "m.trigger");
+    vcx.simulate_mouse_down(t, MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(t, MouseButton::Left, Modifiers::default());
+    draw(vcx);
+    draw(vcx);
+    assert_eq!(shown(&view, vcx), None, "nothing shows on its own");
+    let row0 = center(&view, vcx, "m.item.0");
+    vcx.simulate_mouse_move(row0, None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_eq!(shown(&view, vcx), None, "not before 150 ms");
+    wait(vcx, 60);
+    assert_eq!(shown(&view, vcx).as_deref(), Some("m.preview.0"), "after the wait");
+    let texts = view.read_with(vcx, |v, _| v.embedded("m.preview.0.surface")).expect("the nested surface");
+    let inner: Vec<String> = vcx.read(|cx| texts.read(cx).placed_nodes().iter().filter_map(|n| n.props.get("text").and_then(Value::as_str).map(str::to_string)).collect());
+    assert!(inner.iter().any(|t| t == "Usage"), "{inner:?}");
+    // Beside its row, at the inline end.
+    let (row, card) = view.read_with(vcx, |v, _| (v.painted_bounds("m.item.0").unwrap(), v.painted_bounds("m.preview.0").unwrap()));
+    assert!(card.origin.x >= row.origin.x + row.size.width, "{row:?} {card:?}");
+    // Another row restarts the wait.
+    let row1 = center(&view, vcx, "m.item.1");
+    vcx.simulate_mouse_move(row1, None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_ne!(shown(&view, vcx).as_deref(), Some("m.preview.1"), "row 1 waits its own 150 ms");
+    wait(vcx, 60);
+    assert_eq!(shown(&view, vcx).as_deref(), Some("m.preview.1"));
+    // An inner press: the Menu's `action`, the menu stays open.
+    let child = view.read_with(vcx, |v, _| v.embedded("m.preview.1.surface")).expect("the nested surface");
+    vcx.update(|window, cx| child.update(cx, |v, cx| v.press(v.index_of("yes").unwrap(), window, cx)));
+    draw(vcx);
+    let fired: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name != "picked").map(|a| json!({"name": a.name, "context": a.context})).collect();
+    assert_eq!(fired, vec![json!({"name": "previewed", "context": {"menu": "more", "name": "reply", "context": {"text": "Yes"}}})]);
+    assert!(view.read_with(vcx, |v, _| v.layers().iter().any(|l| l.owner == "m" && v.placed_nodes()[l.root as usize].id == "m.content")), "the menu stays open");
+    // The pointer leaves everything: hidden 80 ms later.
+    vcx.simulate_mouse_move(gpui::point(px(900.0), px(700.0)), None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_eq!(shown(&view, vcx), None, "hidden after the pointer left");
+    // A keyboard highlight shows at once.
+    key(&view, vcx, "down");
+    let focused = view.read_with(vcx, |v, _| v.focused().and_then(|i| v.placed_nodes().get(i as usize)).map(|n| n.id.clone()));
+    assert!(focused.as_deref().is_some_and(|id| id.starts_with("m.item.")), "the arrow moved the menu's focus: {focused:?}");
+    if let Some(row) = focused.as_deref().and_then(|id| id.strip_prefix("m.item.")).filter(|k| matches!(*k, "0" | "1")) {
+        assert_eq!(shown(&view, vcx), Some(format!("m.preview.{row}")), "the highlighted row's, at once");
+        // Escape is the menu's: it closes, the preview with it.
+        assert!(vcx.update(|window, cx| view.update(cx, |v, cx| v.escape(window, cx))));
+        draw(vcx);
+        assert!(view.read_with(vcx, |v, _| v.layers().is_empty()), "Escape closed the menu");
+    }
 }

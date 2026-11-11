@@ -26,7 +26,7 @@
 // before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, propColor, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
@@ -48,6 +48,8 @@ export interface SelectOption {
   mono?: boolean
   /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
   description?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -181,8 +183,9 @@ export function SelectNative(props: NativeProps): JSX.Element {
   )
 
   const row = () => str(props.props.triggerVariant) === `row`
-  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint.
-  const pill = () => str(props.props.triggerVariant) === `pill`
+  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint;
+  // #EXP-1778: nor does a `button` (the same parts, an outline button).
+  const pill = () => str(props.props.triggerVariant) === `pill` || str(props.props.triggerVariant) === `button`
   // A `description`: under a field trigger; in a row UNDER the label (the
   // `labels` column), the value and chevron in the trailing `control`.
   const description = () => str(props.props.description)
@@ -218,7 +221,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
   const ValueIcon = () => (
     <Show when={chosenIcon()} keyed>
-      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} />}
+      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} style={propColor(options().find((o) => o.value === str(value()))?.iconColor) ? { color: propColor(options().find((o) => o.value === str(value()))?.iconColor) } : undefined} />}
     </Show>
   )
   const [valueEl, setValueEl] = createSignal<HTMLElement>()
@@ -423,6 +426,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     onPlaced: () => {
@@ -521,7 +525,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                     if (e.key === ` `) e.preventDefault()
                   }}
                 >
-                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {o.icon ? <span {...part(`itemIcon`)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                   {str(o.description) ? (
                     <span {...part(`itemText`)}>
                       <span {...part(`itemLabel`)}><span id={textId}>{str(o.label)}</span>{trailingText(o)}</span>
@@ -690,6 +694,7 @@ function ComboboxContent(props: {
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     dir: () => undefined,
@@ -785,13 +790,13 @@ function ComboboxContent(props: {
                   aria-selected={isSel()}
                   aria-disabled={bool(o.disabled) || undefined}
                   data-active={isActive() ? `` : undefined}
-                  {...part(`item`, isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
+                  {...part.with(`item`, selectItemJoins(s.multiple(), props.shown().length, (j) => props.selected().includes(props.shown()[j]!.value), i()), isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
                   data-mono={bool(o.mono) ? `` : undefined}
                   onPointerMove={() => props.nav.setActive(i())}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => props.pick(i())}
                 >
-                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {o.icon ? <span {...part(`itemIcon`)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                   {str(o.description) ? (
                     <span {...part(`itemText`)}>
                       <span {...part(`itemLabel`)}>{str(o.label)}{trailingText(o)}</span>

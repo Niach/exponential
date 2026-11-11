@@ -2,7 +2,7 @@ package at.exponential.ui.compose
 
 import android.graphics.BitmapFactory
 import android.util.LruCache
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -681,6 +681,9 @@ internal fun SkeletonLeaf(cx: LeafContext) {
 /** EXP-1259 (`catalog/layout.json`, feedback-states.json): the pending Button's delay and the placeholder's pulse. */
 internal val FeedbackTiming = CatalogConstants
 
+/** The pulse's ease-in-out (CSS `ease-in-out`, gpui's and SwiftUI's `easeInOut`). */
+private val SKELETON_EASE = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+
 /**
  * The Skeleton pulse on a Skeleton LEAF's whole box (a Skeleton with `rows`
  * is a container whose dots and bars pulse each): `SKELETON_OPACITY_LOW` ↔
@@ -695,7 +698,7 @@ internal fun Modifier.skeletonPulse(on: Boolean, reduced: Boolean): Modifier {
     val alpha by pulse.animateFloat(
         initialValue = FeedbackTiming.SKELETON_OPACITY_LOW,
         targetValue = FeedbackTiming.SKELETON_OPACITY_HIGH,
-        animationSpec = infiniteRepeatable(tween(FeedbackTiming.SKELETON_PULSE_MS / 2, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(FeedbackTiming.SKELETON_PULSE_MS / 2, easing = SKELETON_EASE), RepeatMode.Reverse),
         label = "skeleton-alpha",
     )
     return this.graphicsLayer { this.alpha = alpha }

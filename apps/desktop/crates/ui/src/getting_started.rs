@@ -483,8 +483,10 @@ impl GettingStartedProgress {
         let entity = cx.new(|cx| {
             // Coarse-grained on purpose: the block reads a handful of
             // collections and derives booleans; observers of THIS entity
-            // re-render on any of them.
-            let subscriptions = store.observe_collections(cx);
+            // re-render on any of them. #LOGS-11: never on the transcripts
+            // or the event stream (it reads neither; the rail observes it
+            // and re-rendered on every streamed message).
+            let subscriptions = store.observe_collections_except(&["messages", "events"], cx);
             GettingStartedProgress {
                 teams: HashMap::new(),
                 mcp_connected: None,

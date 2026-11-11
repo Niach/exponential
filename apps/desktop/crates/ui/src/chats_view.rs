@@ -4,51 +4,34 @@
 //! the phones ([`crate::chat_list`]), one centred column. #FEED-191: the Agents
 //! section, then `chat_sections` under their headers (the Archived entry first
 //! under Chats; the Archived page flat, no headers). A row opens the chat, its
-//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`); selection
-//! follows the displayed order.
+//! right-click = THE chat menu (`menuCases`); selection follows the
+//! displayed order.
 //!
-//! The helpers below still paint the rail's rows and the styleguide's
-//! `chat-parts` specimen: bands Needs you · Running · Recent
-//! (`domain::session_tree::partition_chats`, through the memoised
-//! [`crate::session_data::chat_lists`]), each a glass band with its glyph
-//! (no count) over flat gapless ONE-line rows ([`crate::pr_rows::pr_row`],
-//! no dividers, EXP-1320): the lead (EXP-1344: the amber badge when it
-//! needs you beats the working mark while busy; else the root's PR glyph:
-//! open emerald, merged violet, else the root session's agent mark) · the title (EXP-1316: it
-//! names the issue already, no identifier slot) · the contract's quiet word
-//! (`domain::session_tree::chat_row_word`; EXP-1339: no lock, and
-//! `merged` draws no word, the violet lead says it) · the device icon. A row
-//! opens the chat. #EXP-1461: every row is a ROOT (no nested children,
-//! no fold row); an unread title is semibold.
+//! The helpers below still feed the rail's rows and the chat page: a row's
+//! pull request ([`root_pull_request`]), the contract's quiet word
+//! ([`chat_word`], `domain::session_tree::chat_row_word`; EXP-1339: no
+//! lock, and `merged` draws no word) and the device icon
+//! ([`chat_device_icon`]).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     px, App, ClickEvent, Entity, FocusHandle, InteractiveElement as _, IntoElement, ParentElement, Render,
     ScrollHandle, SharedString, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::{chat_selection_range, chat_sections, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
-use domain::session_tree::{
-    chat_in_stack, chat_row_mark_state, chat_row_word_on, SessionState, StackPr, ChatRowWord, ChatsListGroup, ChatsListKey, ChatsListRow,
-    CHATS_LIST,
-};
+use domain::session_tree::{chat_in_stack, chat_row_word_on, StackPr, ChatRowWord};
 
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
-use crate::pr_rows::{pr_row, PrRowSpec};
-use crate::session_data::{self, PrSnapshot};
+use crate::session_data;
 
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
 /// queue, not a table).
 const CHATS_COLUMN_W: f32 = 768.;
-
-/// A row's lead glyph.
-const LEAD_PX: f32 = 14.;
-/// The amber needs-you dot on a row's lead.
-const LEAD_BADGE_PX: f32 = 6.;
 
 /// The pull request a row speaks for: the root's pull requests through THE
 /// Guide rule (`domain::session_tree::guide_pull_request`, EXP-1306).
@@ -82,48 +65,6 @@ pub(crate) fn chat_word(
     chat_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline)
 }
 
-/// The lead of a chat row ×4 (chat-list.json, EXP-1344
-/// `chatRowMarkState` first): needs you (the amber badge) beats busy (the
-/// working mark); otherwise the root's Guide PR glyph (open emerald, merged
-/// violet), else the root session's mark. NEW-41: needs you draws the brand
-/// mark with the badge BEFORE the PR glyph, like web's `rowLead`.
-pub(crate) fn chat_row_lead(
-    root_id: &str,
-    busy: bool,
-    needs_you: bool,
-    team_pulls: &[PullRequestRow],
-    cx: &App,
-) -> gpui::AnyElement {
-    let root = session_data::session(root_id, cx);
-    let working = chat_row_mark_state(needs_you, busy) == SessionState::Working;
-    match root_pull_request(root_id, team_pulls) {
-        _ if needs_you && root.is_some() => {
-            let root = root.as_ref().expect("checked by the guard");
-            crate::session_chat::root_mark(root, false, true, LEAD_PX, LEAD_BADGE_PX)
-        }
-        _ if working => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX).into_any_element(),
-        Some(pull) => {
-            let (glyph, tint) = if pull.is_merged() {
-                (registry::PR_MERGED, crate::pr_rows::PR_MERGED_TINT)
-            } else {
-                (registry::PR_OPEN, theme::tokens::GREEN)
-            };
-            crate::session_chat::with_needs_you_dot(
-                Icon::new(glyph).with_size(px(LEAD_PX)).text_color(tint.to_hsla()),
-                needs_you,
-                LEAD_BADGE_PX,
-            )
-        }
-        None => match root.as_ref() {
-            Some(root) => crate::session_chat::root_mark(root, false, needs_you, LEAD_PX, LEAD_BADGE_PX),
-            None => Icon::new(registry::SETTINGS_AGENTS)
-                .with_size(px(LEAD_PX))
-                .text_color(cx.theme().muted_foreground)
-                .into_any_element(),
-        },
-    }
-}
-
 /// EXP-1318: a chat row's trailing DEVICE ICON — the root session's
 /// device resolved against the synced `devices` rows, its pick through the
 /// device-icon concept map (the Devices page's glyph), the device's name as
@@ -146,136 +87,6 @@ pub(crate) fn chat_device_icon(device_id: Option<&str>, row_key: &str, cx: &App)
             .child(Icon::new(glyph).xsmall().text_color(cx.theme().muted_foreground))
             .into_any_element(),
     )
-}
-
-/// The row's trailing slot: the quiet word (the stack word carries the
-/// stack glyph in front; EXP-1339: `Merged` has no text, the violet lead
-/// says it), then the device icon; `None` when both are absent.
-pub(crate) fn chat_row_trailing(
-    word: Option<ChatRowWord>,
-    device: Option<gpui::AnyElement>,
-    cx: &App,
-) -> Option<gpui::AnyElement> {
-    let muted = cx.theme().muted_foreground;
-    let word = word.and_then(|word| word.text().map(|text| (word, text)));
-    if word.is_none() && device.is_none() {
-        return None;
-    }
-    Some(
-        h_flex()
-            .flex_shrink_0()
-            .gap_2()
-            .items_center()
-            .children(word.map(|(word, text)| {
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_1()
-                    .items_center()
-                    .text_size(px(11.5))
-                    .text_color(muted)
-                    .when(word == ChatRowWord::Stack, |this| {
-                        this.child(Icon::new(registry::PR_STACK).xsmall().text_color(muted))
-                    })
-                    .child(text)
-            }))
-            .children(device)
-            .into_any_element(),
-    )
-}
-
-/// The band glyph ×4: Needs you = coding-needs-input amber, Running = the
-/// working mark, Recent = ui-check.
-fn band_glyph(key: ChatsListKey, cx: &App) -> gpui::AnyElement {
-    let quiet = cx.theme().foreground.opacity(0.7);
-    match key {
-        ChatsListKey::NeedsYou => Icon::new(registry::CODING_NEEDS_INPUT)
-            .xsmall()
-            .flex_shrink_0()
-            .text_color(theme::tokens::YELLOW.to_hsla())
-            .into_any_element(),
-        ChatsListKey::Running => crate::coding_selects::agent_mark(coding::CodingAgent::default())
-            .xsmall()
-            .flex_shrink_0()
-            .into_any_element(),
-        ChatsListKey::Recent => Icon::new(registry::UI_CHECK)
-            .xsmall()
-            .flex_shrink_0()
-            .text_color(quiet)
-            .into_any_element(),
-    }
-}
-
-/// One row of the Chats page (the styleguide's `chat-parts` specimen
-/// draws the same): the lead, the title, the trailing word + device icon.
-fn chat_list_row(
-    row: &ChatsListRow,
-    snapshot: &PrSnapshot,
-    cx: &App,
-) -> gpui::AnyElement {
-    // #EXP-1461: every row is a ROOT (its tree's state rolled up); it
-    // opens the chat.
-    let lead = chat_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
-    let word = chat_word(&row.session_id, row.busy, row.needs_you, row.offline, &snapshot.pulls);
-    let device = chat_device_icon(row.device_id.as_deref(), &row.session_id, cx);
-    let trailing = chat_row_trailing(word, device, cx);
-    let session_id = row.session_id.clone();
-    let element = pr_row(
-        PrRowSpec {
-            lead: Some(lead),
-            trailing,
-            strong: row.unread,
-            on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                crate::navigation::navigate(window, cx, Screen::Chat { session_id: session_id.clone() });
-            })),
-            ..PrRowSpec::open(
-                format!("{}-{}", CHATS_LIST.test_ids.row, row.session_id),
-                row.title.clone(),
-            )
-        },
-        cx,
-    );
-    chat_row_menu(&row.session_id, element, cx)
-}
-
-/// Session 58cb32df (chats.json MENUS): a chat row's right-click = THE chat
-/// menu (`chatMenuEntries`); a viewer who cannot steer it gets none.
-pub(crate) fn chat_row_menu(root_id: &str, element: gpui::AnyElement, cx: &App) -> gpui::AnyElement {
-    use crate::controls::PointerContextMenuExt as _;
-    if crate::chat_actions::chat_entries(root_id, cx).is_empty() {
-        return element;
-    }
-    let menu_root = root_id.to_string();
-    gpui::div()
-        .id(SharedString::from(format!("chat-row-menu-{root_id}")))
-        .w_full()
-        .min_w_0()
-        .child(element)
-        .pointer_context_menu(move |menu, _, cx| crate::chat_actions::chat_menu_items(menu.min_w(px(220.)), &menu_root, false, cx))
-        .into_any_element()
-}
-
-/// The Chats page's bands: per group its glass band (glyph + title, no
-/// count) over its ROOT rows (#EXP-1461: no nested children). The page and
-/// the styleguide's `chat-parts` specimen both draw this.
-pub(crate) fn chat_list_bands(
-    groups: &[ChatsListGroup],
-    snapshot: &PrSnapshot,
-    cx: &App,
-) -> Vec<gpui::AnyElement> {
-    groups
-        .iter()
-        .map(|group| {
-            let band = crate::surface::glass_section_band(
-                Some(band_glyph(group.key, cx)),
-                SharedString::from(group.title.clone()),
-                None,
-                cx,
-            );
-            let rows: Vec<gpui::AnyElement> =
-                group.rows.iter().map(|row| chat_list_row(row, snapshot, cx)).collect();
-            v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element()
-        })
-        .collect()
 }
 
 /// The agent CLI a root runs.
