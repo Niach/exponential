@@ -24,8 +24,9 @@ enum BlockKind {
     Case { case: &'static str, local: bool, toggle: bool, busy: &'static [&'static str] },
     /// The device settings dialog: another device's block with the switch
     /// on, the Computer use model + Work screen rows under it and a
-    /// finished update's note under Codex.
-    Device,
+    /// finished update's note under Codex; `model` / `screen` the
+    /// pickers' values (`None` = Auto).
+    Device { model: &'static str, screen: Option<&'static str> },
     /// The device settings dialog for an older build (no doctor): the bare
     /// switch row and its tail.
     DeviceBare,
@@ -37,19 +38,25 @@ enum BlockKind {
 
 struct BlockShot {
     kind: BlockKind,
-    model: crate::coding_selects::ChoiceSelect,
-    work_screen: crate::coding_selects::ChoiceSelect,
+    tail: Vec<crate::device_readiness::TailPicker>,
     block: gpui::Entity<crate::settings::readiness::ReadinessBlock>,
+    /// A node to press once laid out (a picker's trigger), frames to wait.
+    press: Option<(&'static str, u8)>,
 }
 
 impl BlockShot {
     fn new(kind: BlockKind, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let settings = coding::Settings::default();
+        let (model, screen) = match kind {
+            BlockKind::Device { model, screen } => (model.to_string(), screen),
+            _ => (settings.computer_use_model.clone(), None),
+        };
+        let screens = domain::work_screen::work_screen_options(&crate::coding_selects::demo_displays(), screen);
         Self {
             kind,
-            model: crate::coding_selects::model_select(coding::CodingAgent::Claude, &settings.computer_use_model, window, cx),
-            work_screen: crate::coding_selects::work_screen_select(&crate::coding_selects::demo_displays(), None, window, cx),
+            tail: crate::device_settings::computer_use_tail(model, crate::coding_selects::work_screen_value(screen).to_string(), &screens),
             block: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("shot", window, cx)),
+            press: None,
         }
     }
 }
@@ -91,7 +98,36 @@ fn settings_readiness_loading() {
 #[test]
 #[ignore]
 fn settings_readiness_device() {
-    block("readiness-device", BlockKind::Device);
+    block("readiness-device", BlockKind::Device { model: coding::settings::DEFAULT_COMPUTER_USE_MODEL, screen: None });
+}
+
+/// #EXP-1771: the pickers at other values (Opus, the second display).
+#[test]
+#[ignore]
+fn settings_readiness_device_picked() {
+    block("readiness-device-picked", BlockKind::Device { model: "opus", screen: Some("uuid-b") });
+}
+
+/// A device block picker's menu open: its trigger pressed by node id (a
+/// headless click never opened the IDE Select's popup, so these have no
+/// earlier picture).
+fn device_menu(name: &str, trigger: &'static str) {
+    let kind = BlockKind::Device { model: coding::settings::DEFAULT_COMPUTER_USE_MODEL, screen: Some("uuid-b") };
+    shoot_pane_settled(name, move |window, cx| BlockShot { press: Some((trigger, 2)), ..BlockShot::new(kind, window, cx) }, |_, _| {}, Some(std::time::Duration::from_millis(1200)));
+}
+
+/// #EXP-1771: the Computer use model picker open.
+#[test]
+#[ignore]
+fn settings_readiness_menu_model() {
+    device_menu("readiness-menu-model", "readiness_computer_use_computer_use_model.trigger");
+}
+
+/// #EXP-1771: the Work screen picker open.
+#[test]
+#[ignore]
+fn settings_readiness_menu_work_screen() {
+    device_menu("readiness-menu-work-screen", "readiness_computer_use_work_screen.trigger");
 }
 
 #[test]
@@ -130,11 +166,11 @@ impl Render for BlockShot {
                 };
                 show(Shape::Sections(&readiness::sections(&doctor_case(case), local, None)), props, cx);
             }
-            BlockKind::Device => {
+            BlockKind::Device { .. } => {
                 let mut props = BlockProps {
                     on_action: Some(noop_action),
                     on_toggle: Some(noop_toggle),
-                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    computer_use_tail: self.tail.clone(),
                     ..BlockProps::default()
                 };
                 props.notes.insert("codex".into(), "Updated to 0.156.1".into());
@@ -143,7 +179,7 @@ impl Render for BlockShot {
             BlockKind::DeviceBare => {
                 let props = BlockProps {
                     on_toggle: Some(noop_toggle),
-                    computer_use_tail: crate::device_settings::computer_use_rows(&self.model, &self.work_screen),
+                    computer_use_tail: self.tail.clone(),
                     ..BlockProps::default()
                 };
                 show(Shape::Single(&readiness::bare_switch_row(true)), props, cx);
@@ -156,6 +192,24 @@ impl Render for BlockShot {
                 return div().w_full().child(gpui_component::v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs().child(self.block.clone()));
             }
             BlockKind::Loading => show(Shape::Loading, BlockProps::default(), cx),
+        }
+        let view = self.block.read(cx).view_for_shots();
+        match &mut self.press {
+            Some((trigger, 0)) => {
+                let trigger = *trigger;
+                self.press = None;
+                view.update(cx, |view, cx| {
+                    let ix = view.index_of(trigger).expect("the trigger");
+                    view.fire(ix, "press", None, cx);
+                });
+            }
+            Some((_, wait)) => {
+                *wait -= 1;
+                cx.notify();
+            }
+            // The headless clock stands still: run the popup's fade out.
+            None if !view.read(cx).layers().is_empty() => view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx)),
+            None => {}
         }
         div().w_full().child(self.block.clone())
     }

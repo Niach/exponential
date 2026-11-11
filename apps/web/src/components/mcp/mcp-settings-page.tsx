@@ -149,7 +149,8 @@ function ClientsSection({ teamId, isOwner }: { teamId: string; isOwner: boolean 
                   {clientCaption(scope, { ...c, lastUsed: c.lastUsedAt ? compactRelativeTime(c.lastUsedAt) : null })}
                 </div>
               </div>
-              <Button size="sm" variant="outline" onClick={() => setTarget(c)}>
+              {/* #EXP-1788: every Revoke is off while one revoke is in flight (the IDE's `revoking`). */}
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => setTarget(c)}>
                 {S.revoke}
               </Button>
             </ListRow>
@@ -166,6 +167,11 @@ function ClientsSection({ teamId, isOwner }: { teamId: string; isOwner: boolean 
       />
     </div>
   )
+}
+
+/** #EXP-1788: a member without a name reads as their email (the IDE's Access rows). */
+function memberLabel(member: { name: string; email: string }): string {
+  return member.name.trim() || member.email
 }
 
 function AccessSection({ teamId, teamSlug }: { teamId: string; teamSlug: string }) {
@@ -202,13 +208,13 @@ function AccessSection({ teamId, teamSlug }: { teamId: string; teamSlug: string 
             </ListRow>
             {data.rows.map((m) => (
               <ListRow key={m.userId} className="gap-3 px-3 py-2">
-                <UserAvatar user={{ id: m.userId, name: m.name, image: m.image }} size={20} />
-                <span className="min-w-0 flex-1 truncate text-sm">{m.name}</span>
+                <UserAvatar user={{ id: m.userId, name: memberLabel(m), image: m.image }} size={20} />
+                <span className="min-w-0 flex-1 truncate text-sm">{memberLabel(m)}</span>
                 {data.canEdit ? (
                   <Picker<McpPolicyLevel>
                     mode="single"
                     triggerVariant="inline"
-                    mobileTitle={m.name}
+                    mobileTitle={memberLabel(m)}
                     value={m.levels[app.id] ?? `write`}
                     onChange={(level) => void setLevel(app.id, m.userId, level)}
                     items={S.levels.map((l) => ({ value: l.value as McpPolicyLevel, label: l.label }))}

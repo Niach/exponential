@@ -148,6 +148,7 @@ export const mcpActivityRouter = router({
           error: mcpCalls.error,
           appName: apps.name,
           userName: users.name,
+          userEmail: users.email,
           clientName: oauthClients.name,
           createdAt: mcpCalls.createdAt,
         })
@@ -160,7 +161,12 @@ export const mcpActivityRouter = router({
         .limit(input.limit)
       return {
         owner,
-        calls: rows.map((r) => ({ ...r, userName: r.userName ?? ``, createdAt: r.createdAt.toISOString() })),
+        // #EXP-1788: a member without a name reads as their email, on every client.
+        calls: rows.map(({ userEmail, ...r }) => ({
+          ...r,
+          userName: r.userName?.trim() || userEmail || ``,
+          createdAt: r.createdAt.toISOString(),
+        })),
       }
     }),
 })

@@ -23,7 +23,9 @@
 //! `/pane`): the band with the owner's Add server pill and the reload
 //! spinner, the skeleton, the failed and empty states, and the rows (glyph,
 //! name + Default pill over the caption, the one connection control) and each
-//! row's ⋯ (a genUI `Menu`, [`menu_items`]); the dialogs stay native.
+//! row's ⋯ (a genUI `Menu`, [`menu_items`]); the dialogs stay native, the
+//! Set key / Disconnect / Remove alerts' bodies documents ([`KeyContent`],
+//! [`ServerName`]).
 
 use crate::toast::Toast;
 use std::cell::RefCell;
@@ -32,8 +34,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window};
-use gpui::FontWeight;
-use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _};
 use serde_json::{json, Value};
 
 use api::mcp_servers::{McpServerConfig, McpServerListEntry};
@@ -42,7 +43,6 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 use sync::Store;
 
-use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -221,9 +221,6 @@ pub struct McpServersPane {
     /// Cancel or a second Connect retires the old poll.
     connecting: Option<String>,
     connect_generation: u64,
-    /// The "Set key" dialog's field. One input reused by every row: only
-    /// one dialog is ever open.
-    value_input: Entity<InputState>,
     /// EXP-1274: a refetch of a list that is already showing. The rows stay
     /// and the band spins ([`crate::surface::glass_section_header_loading`]);
     /// only the FIRST load draws the skeleton. `reload_requested` asks the
@@ -256,11 +253,6 @@ impl McpServersPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let value_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Paste the key")
-                .masked(true)
-        });
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         // The actions leave the binding for the pane: Add server and Connect
         // open dialogs or the browser, Retry and Cancel restart the reads.
@@ -298,7 +290,6 @@ impl McpServersPane {
             pending: None,
             connecting: None,
             connect_generation: 0,
-            value_input,
             reload_requested: false,
             reloading: false,
             retry_pressed: false,
@@ -577,26 +568,24 @@ impl McpServersPane {
     /// Set key: the person's OWN API key for an `auth: secret` server, sent
     /// once to `mcpServers.setSecret` (stored encrypted, never shown again —
     /// web `SecretDialog`).
-    // dialog stays native: the native alert's content is a boxed `glass_input` (genUI Input `box` lands first, EXP-1629).
+    // dialog stays native: the native alert; its body is a document ([`KeyContent`]).
     fn open_key_dialog(
         &mut self,
         config: &McpServerConfig,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.value_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
-        let content_input = self.value_input.clone();
-        let ok_input = self.value_input.clone();
-        let field: SharedString = config
+        let field = config
             .secret_names()
             .first()
             .cloned()
-            .unwrap_or_else(|| "Key".to_string())
-            .into();
+            .unwrap_or_else(|| "Key".to_string());
+        // The alert is a layer in this window: the body mounts on it.
+        let content = cx.new(|cx| KeyContent::new(&field, "", window, cx));
+        let ok_content = content.clone();
+        let focus_view = content.clone();
         let server_id = config.id.clone();
         let server = config.name.clone();
         let spec = AlertSpec::new(
@@ -604,21 +593,9 @@ impl McpServersPane {
             "Only your sessions use it. Stored encrypted; nobody can read it back.",
             "Save key",
         )
-        .content(move |window, cx| {
-            v_flex()
-                .gap_1()
-                .mt_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(field.clone()),
-                )
-                .child(glass_input(&content_input, window, cx).web_input_sm())
-                .into_any_element()
-        })
+        .content(move |_, _| content.clone().into_any_element())
         .on_ok(move |_, cx| {
-            let value = ok_input.read(cx).value().trim().to_string();
+            let value = ok_content.read(cx).typed(cx).trim().to_string();
             if value.is_empty() {
                 return false;
             }
@@ -659,6 +636,9 @@ impl McpServersPane {
             true
         });
         open_alert(window, cx, spec);
+        // Web dialogs focus their first field; Enter in it confirms.
+        let view = focus_view.read(cx).view.clone();
+        super::doc::focus_input(view, "value", window, cx);
     }
 
     /// Test connection (http only): an MCP `initialize` + `tools/list` the
@@ -698,7 +678,7 @@ impl McpServersPane {
 
     /// Disconnect: delete the person's credential for the server (the row
     /// stays on the team; runs just stop getting its tools).
-    // dialog stays native: the shared native confirm alert.
+    // dialog stays native: the shared native confirm alert; its body is a document ([`ServerName`]).
     fn confirm_disconnect(
         &mut self,
         config: &McpServerConfig,
@@ -709,20 +689,14 @@ impl McpServersPane {
         let handle = window.window_handle();
         let server_id = config.id.clone();
         let name = config.name.clone();
-        let identity: SharedString = name.clone().into();
+        let identity = cx.new(|cx| ServerName::new(&name, window, cx));
         let spec = AlertSpec::new(
             "Disconnect",
             "Your credential for this server is deleted. Your sessions stop getting its \
              tools until you connect again; other members keep theirs.",
             "Disconnect",
         )
-        .content(move |_, _| {
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(identity.clone())
-                .into_any_element()
-        })
+        .content(move |_, _| identity.clone().into_any_element())
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
@@ -804,7 +778,7 @@ impl McpServersPane {
 
     /// Owner-only `mcpServers.remove`. The row goes for the whole TEAM, and
     /// with it every member's connection — so the confirm says so.
-    // dialog stays native: the shared native confirm alert.
+    // dialog stays native: the shared native confirm alert; its body is a document ([`ServerName`]).
     fn confirm_remove(
         &mut self,
         config: &McpServerConfig,
@@ -815,20 +789,14 @@ impl McpServersPane {
         let handle = window.window_handle();
         let server_id = config.id.clone();
         let name = config.name.clone();
-        let identity: SharedString = name.clone().into();
+        let identity = cx.new(|cx| ServerName::new(&name, window, cx));
         let spec = AlertSpec::new(
             "Remove server",
             "Sessions stop offering it and every member's connection to it is deleted. \
              This cannot be undone.",
             "Remove",
         )
-        .content(move |_, _| {
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(identity.clone())
-                .into_any_element()
-        })
+        .content(move |_, _| identity.clone().into_any_element())
         .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
@@ -1213,10 +1181,108 @@ impl Render for McpServersPane {
     }
 }
 
+/// The Set key alert's body (#EXP-1629: an eUI document, web
+/// `SecretDialog`): the secret's name (`text_xs` muted) over the masked
+/// boxed field (`web_input_sm`), `gap_1` under the description's `mt_2`.
+/// Its own entity so the alert reads the field's live text on Save.
+pub(crate) struct KeyContent {
+    view: Entity<SurfaceView>,
+}
+
+impl KeyContent {
+    /// `typed`: the field's bound text (only the bench writes one).
+    fn new(field: &str, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, json!({"value": typed}), |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding
+        });
+        let view = super::doc::mount("mcp-server-key", key_document(&Ink::of(cx), field), &binding, window, cx);
+        Self { view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(field: &str, typed: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(field, typed.unwrap_or_default(), window, cx)
+    }
+
+    /// The key as typed (the field's live text, never a debounced echo).
+    fn typed(&self, cx: &App) -> String {
+        self.view.read(cx).field_text("value.field", cx).unwrap_or_default()
+    }
+}
+
+impl Render for KeyContent {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "KeyContent").entered();
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The Set key body's tree (`gap_1`, `mt_2` as the root's top padding):
+/// the secret's name, the masked field.
+fn key_document(ink: &Ink, field: &str) -> Value {
+    let input = json!({"id": "value", "component": "Input", "props": {"type": "password", "variant": "box", "size": "sm", "label": field, "name": "value", "placeholder": "Paste the key", "value": path("/pane/value")},
+        "style": {"width": "100%"}});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25), "paddingTop": ink.r(0.5)},
+        "children": [ink.text("label", json!(field), XS, &ink.muted), input]})
+}
+
+/// The Disconnect / Remove alerts' body (#EXP-1629: an eUI document): the
+/// server the action hits, `text_sm` medium.
+pub(crate) struct ServerName {
+    view: Entity<SurfaceView>,
+}
+
+impl ServerName {
+    fn new(name: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, json!({"name": name}), |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding
+        });
+        let view = super::doc::mount("mcp-server-name", name_document(&Ink::of(cx)), &binding, window, cx);
+        Self { view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(name: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(name, window, cx)
+    }
+}
+
+impl Render for ServerName {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "ServerName").entered();
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The Disconnect / Remove body's tree: the server's name.
+fn name_document(ink: &Ink) -> Value {
+    let mut name = ink.text("name", path("/pane/name"), SM, &ink.foreground);
+    name["style"]["fontWeight"] = json!(500);
+    name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use api::mcp_servers::{McpConnection, McpTestResult};
+
+    /// #EXP-1629: the alert bodies raise no issue a debug build's mount
+    /// check refuses (#EXP-1767's class).
+    #[test]
+    fn the_alert_documents_raise_no_unexpected_issue() {
+        let ink = super::super::readiness::tests::test_ink();
+        for (id, tree) in [("mcp-server-key", key_document(&ink, "STRIPE_API_KEY")), ("mcp-server-name", name_document(&ink))] {
+            let bound = super::super::doc::bound_values(&tree);
+            let mut surface = eui_core::surface::Surface::new(id, Default::default());
+            let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+            let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+            assert!(issues.is_empty(), "{id}: {issues:?}");
+        }
+    }
 
     fn entry(auth: &str, status: &str) -> McpServerListEntry {
         McpServerListEntry {
