@@ -1177,6 +1177,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1629: a locked row (the IDE's Effort row under ultracode): the
+    // value and the chevron at 0.35 (the 0.7 value tone halved).
+    label: `triggerVariant · row + description, disabled`,
+    node: {
+      id: `agent_effort`,
+      component: `Group`,
+      children: [
+        { id: `effort_locked`, component: `Select`, props: { label: `Effort`, name: `effort`, triggerVariant: `row`, description: `ultracode sets effort`, disabled: true, value: `max`, options: [{ label: `High`, value: `high` }, { label: `Max`, value: `max` }] } },
+      ],
+    },
+  }, {
     // #EXP-1629: a status picker: each option's glyph in its own tint
     // (`iconColor`), the chosen one's leading the row's value.
     label: `option iconColor + triggerIcon`,

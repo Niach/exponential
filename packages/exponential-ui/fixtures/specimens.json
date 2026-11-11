@@ -13120,16 +13120,63 @@
                 "id": "specimen_select_case_9_label",
                 "component": "Text",
                 "props": {
+                  "text": "triggerVariant · row + description, disabled",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_agent_effort",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c9_effort_locked",
+                    "component": "Select",
+                    "props": {
+                      "label": "Effort",
+                      "name": "effort",
+                      "triggerVariant": "row",
+                      "description": "ultracode sets effort",
+                      "disabled": true,
+                      "value": "max",
+                      "options": [
+                        {
+                          "label": "High",
+                          "value": "high"
+                        },
+                        {
+                          "label": "Max",
+                          "value": "max"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_10_label",
+                "component": "Text",
+                "props": {
                   "text": "option iconColor + triggerIcon",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c9_pr_automation",
+                "id": "c10_pr_automation",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c9_pr_opened",
+                    "id": "c10_pr_opened",
                     "component": "Select",
                     "props": {
                       "label": "When a PR opens",
@@ -13171,7 +13218,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_10",
+            "id": "specimen_select_case_11",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13180,7 +13227,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_10_label",
+                "id": "specimen_select_case_11_label",
                 "component": "Text",
                 "props": {
                   "text": "multiple · searchable · row + option icon, description",
@@ -13188,11 +13235,11 @@
                 }
               },
               {
-                "id": "c10_agent_skills",
+                "id": "c11_agent_skills",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c10_skills",
+                    "id": "c11_skills",
                     "component": "Select",
                     "props": {
                       "label": "Skills",

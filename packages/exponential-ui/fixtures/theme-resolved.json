@@ -12863,6 +12863,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": 0.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
+              }
             }
           ],
           "chevron": [
@@ -12908,6 +12917,15 @@
                 "height": 10.5,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
               }
             }
           ],
@@ -31370,6 +31388,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": 0.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
+              }
             }
           ],
           "chevron": [
@@ -31415,6 +31442,15 @@
                 "height": 10.5,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
               }
             }
           ],

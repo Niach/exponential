@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.
 - Select option `iconColor` (#EXP-1629): the `itemIcon` and the `triggerIcon` `valueIcon` take `propColor(iconColor)` as their colour.
 - Composer matches the app: the send glyph is `ui-submit` (`CircleArrowUp`, in `FALLBACK_ICONS`); a flat field stretches across the row (`align-self: stretch`, grown by its `min-height`, never a `height`) with its text at the recipe's padding-top. Snapshots: every `Composer/*` case (the glyph; `Composer/layout=flat` = `min-height` instead of `height`).
 - Menu item `iconColor` (#EXP-1629): the item's glyph takes `propColor(iconColor)` as its colour; a `checkbox` entry draws its `icon` (the core's row: check, glyph, label).

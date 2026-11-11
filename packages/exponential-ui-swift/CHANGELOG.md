@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` disabled (#EXP-1629): the regenerated themes dim the value + chevron.
 - Select option `iconColor` (#EXP-1629): the core sets the tint as the `itemIcon` / `valueIcon` part's colour; painted as any Icon leaf.
 - Composer matches the app: the send glyph is `ui-submit` (`circle-arrow-up`, `BuiltinIcons` + `BuiltinGlyphs`); a flat `ComposerLeaf` places its text view `paddingTop` (the field recipe's) below the row's top down to its bottom, one line or grown (`flatField`), and the measurer adds the field's paddingTop/paddingBottom. Snapshots: every Composer case needs re-recording (the glyph; flat geometry).
 - Menu item `iconColor` (#EXP-1629): `MenuItemLabelLeaf` paints the glyph in `LeafContext.propColor` (a `$color.<name>` token, else the host's hex), else the ink.
