@@ -52,9 +52,14 @@ jobs:
         with:
           path: ~/ede-xwayland
           key: xwayland-noble-${{ hashFiles('apps/ede/packaging/xwayland/build.sh') }}
+      # The Xwayland build deps go in even on a cache hit: they change what
+      # cargo links (build-ids), and a release must not depend on the cache
+      # (glitchtip-symbols.yml rebuilds a tag and matches the build-ids).
+      - name: Xwayland build deps
+        run: apps/ede/packaging/xwayland/build.sh --deps-only
       - name: Build Xwayland
         if: steps.xwayland.outputs.cache-hit != 'true'
-        run: apps/ede/packaging/xwayland/build.sh --install-deps ~/ede-xwayland
+        run: apps/ede/packaging/xwayland/build.sh ~/ede-xwayland
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
