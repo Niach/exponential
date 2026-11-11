@@ -81,7 +81,7 @@ jobs:
   react:
     needs: pick
     if: ${{ !inputs.swift_only }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # ubuntu-26.04's apt mirror config can't resolve security.ubuntu.com, so playwright --with-deps fails there (#2661)
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -89,7 +89,7 @@ jobs:
         with:
           node-version: '24'
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install --with-deps chromium || (sleep 20 && bunx playwright install --with-deps chromium)
       - name: Catalog package tests (TS reference, host fixtures)
         run: bun run --filter @exponential_app/eui test
       - name: The primitives' stylesheet
@@ -148,7 +148,7 @@ jobs:
   solid:
     needs: pick
     if: ${{ !inputs.swift_only }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # ubuntu-26.04's apt mirror config can't resolve security.ubuntu.com, so playwright --with-deps fails there (#2661)
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -156,7 +156,7 @@ jobs:
         with:
           node-version: '24'
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install --with-deps chromium || (sleep 20 && bunx playwright install --with-deps chromium)
       - name: The primitives' stylesheets (React's, then Solid's byte-identical copy)
         run: bun run --filter @exponential_app/eui-react build:css && bun run --filter @exponential_app/eui-solid build:css
       - name: Solid renderer tests (jsdom, DOM parity with React)
@@ -210,7 +210,7 @@ jobs:
 
   element:
     if: ${{ !inputs.swift_only }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # ubuntu-26.04's apt mirror config can't resolve security.ubuntu.com, so playwright --with-deps fails there (#2661)
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -218,7 +218,7 @@ jobs:
         with:
           node-version: '24'
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install --with-deps chromium || (sleep 20 && bunx playwright install --with-deps chromium)
       - name: Element tests (jsdom)
         if: ${{ !inputs.conformance_only }}
         run: bun run --filter @exponential_app/eui-element test
