@@ -4,7 +4,7 @@
 // need five messages, and the official SDK would double the bundle.
 //
 //   view → host  ui/initialize (request), ui/notifications/initialized,
-//                tools/call (request), ui/open-link (request),
+//                tools/call (request), ui/open-link (request), ui/message,
 //                ui/notifications/size-changed
 //   host → view  ui/notifications/tool-input, ui/notifications/tool-result,
 //                ui/notifications/host-context-changed, ui/resource-teardown
@@ -87,6 +87,15 @@ export class AppBridge {
     void this.request(`ui/open-link`, { url }).catch(() => {
       // A host without the capability: fall back to a plain new tab.
       this.self.open(url, `_blank`, `noopener`)
+    })
+  }
+
+  /** #VAPP-292: a message in the person's name (a card's `reply` press, a
+   *  question's answer): the host posts it to the conversation. */
+  sendMessage(text: string): Promise<unknown> {
+    return this.request(`ui/message`, {
+      role: `user`,
+      content: [{ type: `text`, text }],
     })
   }
 
