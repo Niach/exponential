@@ -37,34 +37,26 @@
 //! line in each of its states, the failed and empty states, the rows
 //! (glyph, name, static branch chip, Private, remove, the access banner,
 //! the board chips and the sharer) and the Local account's folders. Each
-//! managed row's branch picker stays the IDE's own element, drawn into the
-//! document as a `host_leaf` Embed (`branch_picker`); the dialogs and the
-//! alerts stay native.
+//! managed row's branch picker is a `pill` Select (#EXP-1765) whose `open`
+//! kicks the lazy branch fetch; the dialogs and the alerts stay native.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, WeakEntity, Window,
+    div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariant},
-    input::InputState,
-    popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _, Icon, Sizable as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sync::Store;
 
 use eui_gpui::binding::Binding;
-use eui_gpui::controls::{CTL_MD_H, CTL_SM_H};
+use eui_gpui::controls::CTL_MD_H;
 use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
-use crate::controls::{search_field, SearchFieldSize};
 use crate::github_connect::{copy, fetch_github_status, GithubStatus, Prerequisite};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
@@ -179,7 +171,7 @@ enum Load {
 /// One repo's lazily-fetched branch list for the default-branch picker
 /// (EXP-462). Fetched on first menu open, cached until the pane reloads.
 #[derive(Clone)]
-pub(crate) enum BranchLoad {
+enum BranchLoad {
     Loading,
     /// The fetch failed (a toast said so); the picker reads empty and the
     /// next open fetches again.
@@ -215,8 +207,6 @@ pub struct RepositoriesPane {
     local: Option<Vec<api::repositories::LocalRepository>>,
     #[cfg(test)]
     shot: Option<RepoShot>,
-    /// The rows' branch pickers the document's host draws.
-    host: Rc<RefCell<HostState>>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
@@ -250,12 +240,8 @@ impl RepositoriesPane {
         // the per-repo board chips mirror `boards.repository_id` — a
         // synced repo-link change drive the re-render/re-fetch (EXP-139).
         let boards = Store::global(cx).collections().boards.clone();
-        let branch_query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search branches..."));
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            // Typing in a branch picker re-filters its rows.
-            cx.observe(&branch_query, |_, _, cx| cx.notify()),
             cx.observe(&boards, |this: &mut Self, _, cx| {
                 this.refresh_if_links_changed(cx);
             }),
@@ -318,15 +304,17 @@ impl RepositoriesPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["add", "link_folder", "status_retry", "retry", "connect", "disconnect", "manage_suspended", "install", "configure", "regrant", "remove"] {
+            for name in ["add", "link_folder", "status_retry", "retry", "connect", "disconnect", "manage_suspended", "install", "configure", "regrant", "remove", "branches", "branch"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+                    // A branch pick's Select value.
+                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).map(str::to_string);
                     let pane = pane.clone();
                     // Deferred: the binding is mid-update and these write it.
                     cx.defer(move |cx| {
                         let _ = handle.update(cx, |_, window, cx| {
-                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, window, cx));
+                            let _ = pane.update(cx, |pane, cx| pane.action(name, &key, value, window, cx));
                         });
                     });
                     None
@@ -334,7 +322,6 @@ impl RepositoriesPane {
             }
             binding
         });
-        let host = Rc::new(RefCell::new(HostState { rows: HashMap::new(), pane: Some(pane), query: Some(branch_query.clone()) }));
         let theme = cx.theme();
         let tints = Tints {
             skeleton: hex(theme.muted_foreground.opacity(0.18)),
@@ -344,8 +331,8 @@ impl RepositoriesPane {
             link: hex(theme.link),
             list_hover: hex(theme.list_hover),
         };
-        let plugin = Rc::new(RepoHost { ide: super::doc::ide_plugin(), state: host.clone() });
-        let view = mount_with("settings-repositories", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
+        let plugin = Rc::new(RepoHost { ide: super::doc::ide_plugin() });
+        let view = mount_with("settings-repositories", document(&Ink::of(cx), &tints), &binding, plugin, true, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -359,7 +346,6 @@ impl RepositoriesPane {
             local: None,
             #[cfg(test)]
             shot: None,
-            host,
             binding,
             view,
             _subscriptions: subscriptions,
@@ -825,31 +811,9 @@ const PATH: &str = "/pane";
 /// An icon the projection names by its asset path (a board's own glyph).
 const ASSET: &str = "asset:";
 
-/// The row's branch picker (`branch.<key>` once painted).
-const BRANCH_NODE: &str = "branch";
-
-/// What a row's branch picker needs to draw and open.
-struct BranchRow {
-    index: usize,
-    repo: RepoRow,
-    busy: bool,
-}
-
-#[derive(Default)]
-struct HostState {
-    rows: HashMap<String, BranchRow>,
-    pane: Option<WeakEntity<RepositoriesPane>>,
-    /// Search query of the default-branch pickers (EXP-469 — the searchable
-    /// popover recipe of `crate::pickers`). ONE shared state — only one
-    /// popover is ever open, and every open resets it.
-    query: Option<Entity<InputState>>,
-}
-
-/// The pane's host: the IDE's plugin, the boards' glyphs by asset path, and
-/// the rows' branch pickers drawn by the IDE itself.
+/// The pane's host: the IDE's plugin and the boards' glyphs by asset path.
 struct RepoHost {
     ide: crate::exponential_ui_host::IdePlugin,
-    state: Rc<RefCell<HostState>>,
 }
 
 impl HostPlugin for RepoHost {
@@ -862,29 +826,6 @@ impl HostPlugin for RepoHost {
 
     fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
         self.ide.on_unknown(node)
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        let key = component_id.strip_prefix(BRANCH_NODE)?.strip_prefix('.')?;
-        self.state.borrow().rows.contains_key(key).then_some(CTL_SM_H)
-    }
-
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let key = component_id.strip_prefix(BRANCH_NODE)?.strip_prefix('.')?;
-        let state = self.state.borrow();
-        let row = state.rows.get(key)?;
-        let pane = state.pane.as_ref()?.upgrade()?;
-        let query = state.query.clone()?;
-        // The IDE's own text style under the leaf (the surface sets 14 px
-        // on a 20 px line; the popover's rows inherit gpui's defaults in the
-        // IDE): gpui-component's Root family, a rem, `phi` lines.
-        let theme = cx.theme();
-        let ide_text = div()
-            .font(gpui::font(theme.font_family.clone()))
-            .text_size(gpui::rems(1.))
-            .line_height(gpui::phi())
-            .text_color(theme.foreground);
-        Some(ide_text.child(branch_picker(row.index, &row.repo, row.busy, pane, query, cx)).into_any_element())
     }
 }
 
@@ -928,8 +869,9 @@ impl RepositoriesPane {
         }
     }
 
-    /// A document action (on the row / installation `key` where it names one).
-    fn action(&mut self, name: &str, key: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    /// A document action (on the row / installation `key` where it names
+    /// one; a branch pick's `value`).
+    fn action(&mut self, name: &str, key: &str, value: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let status = self.loaded().and_then(|loaded| loaded.status.clone());
         match name {
             // dialog stays native: `add_repository_dialog` is its own window (the searchable GitHub picker + by-name lookup).
@@ -964,6 +906,21 @@ impl RepositoriesPane {
                     open_url(cx, url);
                 }
             }
+            // A row's branch picker opened: the lazy fetch (EXP-462).
+            "branches" => self.ensure_branches(key, cx),
+            // A branch picked: pin it; GitHub's own default clears the pin
+            // so the repo follows GitHub again.
+            "branch" if !self.busy => {
+                let Some(value) = value else { return };
+                let Some(repo) = self.loaded().and_then(|loaded| loaded.repos.as_ref().ok()).and_then(|rows| rows.iter().find(|row| row.id == key)) else {
+                    return;
+                };
+                if value == repo.default_branch {
+                    return;
+                }
+                let pick = (repo.github_default_branch.as_deref() != Some(value.as_str())).then_some(value);
+                self.set_default_branch(key.to_string(), pick, window.window_handle(), cx);
+            }
             "regrant" | "remove" => {
                 let Some(repo) = self.loaded().and_then(|loaded| loaded.repos.as_ref().ok()).and_then(|rows| rows.iter().find(|row| row.id == key)).cloned() else {
                     return;
@@ -980,10 +937,8 @@ impl RepositoriesPane {
         }
     }
 
-    /// The pane's state as the document reads it; the rows' branch pickers
-    /// are written into the host's table at the same time.
+    /// The pane's state as the document reads it.
     fn project(&self, local: bool, team: Option<&str>, cx: &App) -> Value {
-        let mut pickers = HashMap::new();
         let mut out = json!({"local": local, "noTeam": !local && team.is_none(), "list": !local && team.is_some(), "busy": self.busy,
             "localEmpty": false, "localHasRows": false, "localRows": [],
             "loading": false, "status": "", "failed": false, "empty": false, "hasRows": false, "rows": [],
@@ -1040,12 +995,9 @@ impl RepositoriesPane {
                             let muted = hex(cx.theme().muted_foreground);
                             let rows: Vec<Value> = repos
                                 .iter()
-                                .enumerate()
-                                .map(|(index, repo)| {
+                                .map(|repo| {
                                     let manage = owner || repo.shared_by.as_ref().is_some_and(|shared| me.as_deref() == Some(shared.id.as_str()));
-                                    if manage {
-                                        pickers.insert(repo.id.clone(), BranchRow { index, repo: repo.clone(), busy: self.busy });
-                                    }
+                                    let (branch_options, branch_loading) = if manage { self.branch_options(repo) } else { (Vec::new(), false) };
                                     let linked = repo.boards.len();
                                     let suspended = status
                                         .and_then(|status| status.installations.iter().find(|inst| Some(inst.installation_id) == repo.installation_id))
@@ -1072,8 +1024,11 @@ impl RepositoriesPane {
                                         "name": repo.full_name,
                                         "manage": manage,
                                         "branch": repo.default_branch,
-                                        // The picker leaf repaints when what it draws moves.
-                                        "branchSurface": {"root": {"id": "branch", "component": "Box"}, "data": {"busy": self.busy, "branch": repo.default_branch}},
+                                        "branchLive": manage && !self.busy,
+                                        "branchBusy": manage && self.busy,
+                                        "branchLabel": format!("Default branch for {}", repo.full_name),
+                                        "branchOptions": branch_options,
+                                        "branchLoading": branch_loading,
                                         "private": repo.private,
                                         "removeOn": manage && linked == 0 && !self.busy,
                                         "removeLinked": manage && linked > 0,
@@ -1097,8 +1052,37 @@ impl RepositoriesPane {
                 }
             }
         }
-        self.host.borrow_mut().rows = pickers;
         out
+    }
+
+    /// A managed row's picker options + whether they still load: the
+    /// branches in mono, "default" trailing GitHub's own; the effective
+    /// branch always lists, even when GitHub no longer has it (a pinned
+    /// branch deleted upstream) or the fetch failed (FEED-79: quiet).
+    fn branch_options(&self, repo: &RepoRow) -> (Vec<Value>, bool) {
+        let branches = match self.branches.get(&repo.id) {
+            // Not fetched yet (the open fetches) or in flight: the skeleton.
+            None | Some(BranchLoad::Loading) => return (Vec::new(), true),
+            Some(BranchLoad::Failed) => Vec::new(),
+            Some(BranchLoad::Ready(branches)) => branches.clone(),
+        };
+        let effective = &repo.default_branch;
+        let mut names: Vec<String> = Vec::new();
+        if !branches.contains(effective) {
+            names.push(effective.clone());
+        }
+        names.extend(branches);
+        let options = names
+            .into_iter()
+            .map(|name| {
+                let mut option = json!({"label": name, "value": name, "mono": true});
+                if repo.github_default_branch.as_deref() == Some(name.as_str()) {
+                    option["trailing"] = json!("default");
+                }
+                option
+            })
+            .collect();
+        (options, false)
     }
 }
 
@@ -1117,6 +1101,12 @@ impl Render for RepositoriesPane {
         }
         let projection = self.project(local, team.as_deref(), cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        // The bench's open branch picker: the headless clock stands still,
+        // so its popup's enter fade runs out on the frames after the click.
+        #[cfg(test)]
+        if self.pinned() && !self.view.read(cx).layers().is_empty() {
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+        }
         div().w_full().min_w_0().child(self.view.clone())
     }
 }
@@ -1272,27 +1262,27 @@ fn status_block(ink: &Ink, tints: &Tints) -> Vec<Value> {
 fn repo_row(ink: &Ink, tints: &Tints) -> Value {
     let mut name = grow_line(ink.text("row_name", path("name"), SM, &ink.foreground));
     name["style"]["fontWeight"] = json!(500);
-    // The picker leaf lies over an invisible twin of its pill that gives the
-    // slot its width (the glass pill button: a 1px stroke, `px 8`, the mono
-    // branch capped at 240, `gap_1`, the `size_3` chevron; 240 at most).
-    let mut sizer_text = ink.text("branch_sizer_text", path("branch"), XS, &ink.foreground);
-    sizer_text["props"]["lines"] = json!(1);
-    sizer_text["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
-    sizer_text["style"]["maxWidth"] = json!(240);
-    sizer_text["style"]["minWidth"] = json!(0);
-    let sizer = json!({"id": "branch_sizer", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "height": CTL_SM_H, "maxWidth": 240, "paddingHorizontal": 8, "gap": ink.r(0.25), "borderWidth": 1, "borderColor": "#00000000", "opacity": 0},
-        "children": [sizer_text, {"id": "branch_sizer_chevron", "component": "Box", "style": {"width": ink.r(0.75), "height": ink.r(0.75), "flexShrink": 0}}]});
-    let leaf = json!({"id": BRANCH_NODE, "component": "Embed", "props": {"surface": path("branchSurface")}, "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0}});
-    let branch = json!({"id": "branch_slot", "component": "Box", "visible": path("manage"), "style": {"position": "relative", "flexShrink": 0}, "children": [sizer, leaf]});
+    // The branch picker (EXP-462, web `DefaultBranchMenu`): a `pill` Select
+    // on the effective branch over the repo's branches, fetched live from
+    // GitHub on its first open behind a search (EXP-469); picking GitHub's
+    // own ("default") clears the pin. The busy pane shows its disabled twin.
+    let picker = |id: &str, disabled: bool, visible: Value| {
+        json!({"id": id, "component": "Select", "visible": visible,
+            "props": {"triggerVariant": "pill", "name": id, "value": path("branch"), "options": path("branchOptions"), "loading": path("branchLoading"),
+                "searchable": true, "searchPlaceholder": "Search branches...", "emptyText": "No branches found.", "disabled": disabled},
+            "accessibility": {"label": path("branchLabel")},
+            "style": {"flexShrink": 0, "maxWidth": 240},
+            "on": {"open": {"event": {"name": "branches", "context": {"key": path("key")}}}, "change": {"event": {"name": "branch", "context": {"key": path("key")}}}}})
+    };
     let mut chip = ink.pill("row_branch_static", path("branch"), true, None);
     chip["visible"] = not(path("manage"));
-    chip["children"][0]["style"]["fontFamily"] = json!(theme::terminal::FONT_FAMILY);
+    chip["children"][0]["style"]["fontFamily"] = json!("$type.family.mono");
     let mut private = ink.pill("row_private", json!("Private"), false, None);
     private["visible"] = path("private");
     let mut lock = icon("row_private_icon", json!("ui-private"), 12., &ink.foreground);
     lock["style"]["opacity"] = json!(VALUE_ALPHA);
     private["children"].as_array_mut().expect("the pill's children").insert(0, lock);
-    let mut head = vec![icon("row_icon", json!("ui-github"), ink.r(0.875), &ink.muted), name, branch, chip, private];
+    let mut head = vec![icon("row_icon", json!("ui-github"), ink.r(0.875), &ink.muted), name, picker("branch", false, path("branchLive")), picker("branch_busy", true, path("branchBusy")), chip, private];
     head.extend(ghost(ink, tints, "row_remove", "ui-delete", ink.r(0.875), "Remove repository", json!({"name": "remove", "context": {"key": path("key")}}), path("removeOn"), None, path("removeLinked"), Some(path("removeTip"))));
     // `row_remove_dim` stands in for both disabled faces: the busy one has
     // no tooltip.
@@ -1394,196 +1384,6 @@ fn document(ink: &Ink, tints: &Tints) -> Value {
         "children": [local, section("list", path("/pane/list"), list), empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]});
     nudge_pills(&mut root);
     root
-}
-
-/// The row's branch chip as a picker (EXP-462, web parity:
-/// `DefaultBranchMenu`): shows the effective default branch; the popover
-/// lists the repo's branches (fetched live from GitHub on first open)
-/// behind a search input (EXP-469 — repos routinely carry more branches
-/// than a scrollable menu can be skimmed for), "default" marks GitHub's
-/// own — picking it clears the pin so the repo follows GitHub again.
-// drop with EXP-1765: the picker stays the IDE's own element (a `host_leaf`
-// Embed) until genUI's searchable picker with a lazy option fetch lands.
-fn branch_picker(
-    index: usize,
-    repo: &RepoRow,
-    busy: bool,
-    pane: Entity<RepositoriesPane>,
-    query: Entity<InputState>,
-    cx: &App,
-) -> AnyElement {
-    let button = branch_trigger(index, &repo.full_name, &repo.default_branch, busy, cx);
-    let repo_id = repo.id.clone();
-    let effective = repo.default_branch.clone();
-    let github_default = repo.github_default_branch.clone();
-    let query_for_open = query.clone();
-    let pane_for_open = pane.clone();
-    let repo_id_for_open = repo_id.clone();
-    Popover::new(("repo-branch-picker", index))
-        .p_1()
-        .w(px(crate::pickers::PICKER_SEARCH_WIDTH))
-        .trigger(button)
-        .on_open_change(move |open, window, cx| {
-            // Fresh search per open; the input takes focus like the web
-            // CommandInput. Opening also kicks the lazy branch fetch —
-            // the popover content re-renders on pane notify, so the list
-            // appears in place once it lands.
-            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
-            if *open {
-                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
-                pane_for_open.update(cx, |this, cx| {
-                    this.ensure_branches(&repo_id_for_open, cx);
-                });
-            }
-        })
-        .content(move |_, window, cx| {
-            let popover_state = cx.entity();
-            let load = pane.read(cx).branches.get(&repo_id).cloned();
-            let handle = window.window_handle();
-            let (pane, repo_id) = (pane.clone(), repo_id.clone());
-            let pick: BranchPick = std::rc::Rc::new(move |pick, window, cx| {
-                pane.update(cx, |this, cx| {
-                    this.set_default_branch(repo_id.clone(), pick, handle, cx);
-                });
-                popover_state.update(cx, |state, cx| state.dismiss(window, cx));
-            });
-            branch_picker_column(index, load, &effective, github_default.as_deref(), &query, pick, window, cx)
-        })
-        .into_any_element()
-}
-
-/// What picking a branch row does: `None` = GitHub's default (the pin is
-/// cleared), else the branch to pin.
-pub(crate) type BranchPick = std::rc::Rc<dyn Fn(Option<String>, &mut Window, &mut gpui::App)>;
-
-/// The row's branch chip as a picker (EXP-462, web parity:
-/// `DefaultBranchMenu`): shows the effective default branch; the popover
-/// lists the repo's branches (fetched live from GitHub on first open)
-/// behind a search input (EXP-469 — repos routinely carry more branches
-/// than a scrollable menu can be skimmed for), "default" marks GitHub's
-/// own — picking it clears the pin so the repo follows GitHub again.
-///
-/// Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
-/// chevron-down (the chip opens a dropdown, it is not a picker row).
-pub(crate) fn branch_trigger(index: usize, full_name: &str, branch: &str, busy: bool, cx: &gpui::App) -> Button {
-    crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
-        .accessibility_label(format!("Default branch for {full_name}"))
-        .max_w(px(240.))
-        .font_family(theme::terminal::FONT_FAMILY)
-        .child(crate::surface::picker_value_label(SharedString::from(branch.to_string())))
-        .child(
-            Icon::new(registry::UI_CHEVRON_DOWN)
-                .size_3()
-                .flex_shrink_0()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .disabled(busy)
-}
-
-/// The branch picker's popover column: the search row, a hairline, then
-/// the skeleton rows while the list loads, "No branches found." for an
-/// empty or failed one, else the (filtered) branches, "default" trailing
-/// GitHub's own and a check on the effective one.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn branch_picker_column(
-    index: usize,
-    load: Option<BranchLoad>,
-    effective: &str,
-    github_default: Option<&str>,
-    query: &Entity<InputState>,
-    pick: BranchPick,
-    window: &mut Window,
-    cx: &mut gpui::App,
-) -> gpui::Div {
-    use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
-    let filter = query.read(cx).value().trim().to_lowercase();
-    let column = v_flex()
-        .w_full()
-        .child(search_field(query, SearchFieldSize::Sm, window, cx).appearance(false))
-        .child(
-            div()
-                .h(px(1.))
-                .w_full()
-                .my_1()
-                .bg(cx.theme().border.opacity(0.5)),
-        );
-    let branches = match load {
-        // First load: the picker's rows as placeholders (D8).
-        None | Some(BranchLoad::Loading) => {
-            return column.child(crate::feedback::skeleton_rows(
-                ("repo-branch-skeleton", index),
-                crate::feedback::SKELETON_ROWS,
-                crate::controls::MENU_ROW_H,
-                cx,
-            ));
-        }
-        // A failed load is quiet (FEED-79): the empty list.
-        Some(BranchLoad::Failed) => Vec::new(),
-        Some(BranchLoad::Ready(branches)) => branches,
-    };
-    // The effective branch always renders even when GitHub no longer has
-    // it (a pinned branch deleted upstream) — the list must show what the
-    // row is set to.
-    let mut names: Vec<String> = Vec::new();
-    if !branches.iter().any(|b| b == effective) {
-        names.push(effective.to_string());
-    }
-    names.extend(branches);
-    names.retain(|name| filter.is_empty() || name.to_lowercase().contains(&filter));
-    if names.is_empty() {
-        return column.child(crate::pickers::empty_picker_row("No branches found.", cx));
-    }
-    let mut rows = v_flex()
-        .id(("repo-branch-rows", index))
-        .w_full()
-        .max_h(px(240.))
-        .overflow_y_scroll();
-    for name in names {
-        let is_github_default = github_default == Some(name.as_str());
-        let checked = name == effective;
-        let mut row = crate::pickers::picker_row(
-            ElementId::Name(SharedString::from(format!("repo-branch-{index}-{name}"))),
-            cx,
-        )
-        .role(gpui::Role::ListItem)
-        .aria_selected(checked)
-        .aria_label(SharedString::from(name.clone()))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .font_family(theme::terminal::FONT_FAMILY)
-                .text_xs()
-                .child(SharedString::from(name.clone())),
-        );
-        if is_github_default {
-            row = row.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .flex_shrink_0()
-                    .child("default"),
-            );
-        }
-        if checked {
-            row = row.child(
-                Icon::new(registry::UI_CHECK)
-                    .size_3()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            );
-        } else {
-            let pick = pick.clone();
-            row = row.on_click(move |_, window, cx| {
-                pick(if is_github_default { None } else { Some(name.clone()) }, window, cx);
-            });
-        }
-        rows = rows.child(row);
-    }
-    column.child(rows)
 }
 
 /// The TRAILING external-link glyph of a hand-off to GitHub (the add

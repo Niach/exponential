@@ -27,7 +27,7 @@ use crate::settings::board_detail::{BoardDetailPane, BoardShot};
 use crate::settings::prompts::{PageShot as PromptPageShot, PromptPage, PromptsPane, PromptsShot};
 use crate::settings::branch_row_shots::{EuiBranchRow, IdeBranchRow};
 use crate::settings::account_row_shots::{EuiAccountRow, IdeAccountRow};
-use crate::settings::branch_picker_shots::{EuiBranchPicker, IdeBranchPicker, PickerState};
+use crate::settings::branch_picker_shots::{EuiBranchPicker, PickerState};
 use crate::settings::statuses::{DeleteStatusContent, StatusesPane, StatusesShot};
 use crate::settings::skills::{ListShot as SkillsListShot, SkillPage, SkillsPane};
 use crate::shell_bench::headless;
