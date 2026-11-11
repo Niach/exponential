@@ -406,6 +406,7 @@ impl Ink {
     /// disabled ghost `Button` instead (the muted glyph at half, inert);
     /// `loading` = its glyph turned spinner.
     pub(super) fn row_menu(&self, id: &str, label: Value, visible: Value, list_hover: &str, locked: Option<Value>, loading: Option<Value>) -> Value {
+        // a11y: named by the caller (`label`, the node's accessibility label).
         let mut more = self.ghost_icon_button(&format!("{id}_more"), "ui-more", label.clone(), Value::Null, list_hover);
         more.as_object_mut().expect("the trigger").remove("on");
         let mut menu = json!({"id": id, "component": "Menu", "props": {"items": path("items"), "align": "start"},
