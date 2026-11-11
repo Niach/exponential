@@ -73,13 +73,18 @@ const FILE_HEADER_H_COMPACT: f32 = 29.0;
 const HEADER_TEXT_SIZE: f32 = 12.0;
 const NOTE_ROW_H: f32 = 22.0;
 const FILE_GAP_H: f32 = 8.0;
-/// Line-number gutter width — 4 digits + padding at 11px mono.
-const GUTTER_W: f32 = 36.0;
+/// Line-number gutter width = web's `FileDiffCard` grid (`3rem`; #EXP-1789),
+/// right-aligned with web's `pr-2`.
+const GUTTER_W: f32 = 48.0;
+/// The edited-files card's gutters: web's compact `2.5rem`.
+const GUTTER_W_COMPACT: f32 = 40.0;
 /// The virtual list's own inset around the file cards (and the status
 /// lines): hosts that put the cards on an edge subtract it (EXP-1191).
 pub(crate) const LIST_PAD: f32 = 8.;
-/// The `+`/`−`/`` sign column between the gutters and the text.
-const SIGN_W: f32 = 14.0;
+/// The `+`/`−`/`` sign column between the gutters and the text: web's
+/// `1rem`, compact `0.75rem`.
+const SIGN_W: f32 = 16.0;
+const SIGN_W_COMPACT: f32 = 12.0;
 /// Estimated mono advance at 11px — sizes rows for horizontal scrolling
 /// (slightly generous so the longest line never clips at the right edge).
 const CHAR_W: f32 = 6.8;
@@ -175,6 +180,22 @@ impl DiffOptions {
             LINE_ROW_H_COMPACT
         } else {
             LINE_ROW_H
+        }
+    }
+
+    fn gutter_w(&self) -> f32 {
+        if self.compact {
+            GUTTER_W_COMPACT
+        } else {
+            GUTTER_W
+        }
+    }
+
+    fn sign_w(&self) -> f32 {
+        if self.compact {
+            SIGN_W_COMPACT
+        } else {
+            SIGN_W
         }
     }
 
@@ -1056,13 +1077,13 @@ pub(crate) fn render_diff_row(
             };
             let number = |value: Option<u32>| {
                 div()
-                    .w(px(GUTTER_W))
+                    .w(px(options.gutter_w()))
                     .h_full()
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_end()
-                    .px_1()
+                    .pr(px(8.))
                     .text_color(gutter)
                     .child(SharedString::from(
                         value.map(|n| n.to_string()).unwrap_or_default(),
@@ -1077,16 +1098,22 @@ pub(crate) fn render_diff_row(
             if let Some(wash) = wash {
                 line = line.bg(wash);
             }
-            // The OLD gutter is the first thing a narrow surface gives up —
-            // the transcript's inline card is ~400px wide and the new-side
-            // number is the one a reader follows.
-            if !options.compact {
-                line = line.child(number(*old_no));
-            }
-            line.child(number(*new_no))
+            // #EXP-1789: both gutters on every face, web's grid (the card's
+            // narrower, `2.5rem 2.5rem 0.75rem`).
+            // Web's text colour: a highlighted patch reads in the foreground
+            // at 90 %; an unhighlighted one (the card) takes the line's kind.
+            let ink = match kind {
+                DiffLineKind::Meta => gutter,
+                _ if options.highlight => theme.foreground.opacity(0.9),
+                DiffLineKind::Add => theme::tokens::diff::ADD_FG.to_hsla(),
+                DiffLineKind::Del => theme::tokens::diff::DEL_FG.to_hsla(),
+                DiffLineKind::Context => theme.muted_foreground,
+            };
+            line.child(number(*old_no))
+                .child(number(*new_no))
                 .child(
                     div()
-                        .w(px(SIGN_W))
+                        .w(px(options.sign_w()))
                         .h_full()
                         .flex_shrink_0()
                         .flex()
@@ -1107,13 +1134,9 @@ pub(crate) fn render_diff_row(
                             div()
                                 .flex_shrink_0()
                                 .ml(shift)
-                                .pr_2()
+                                .pr(px(12.))
                                 .whitespace_nowrap()
-                                .text_color(if *kind == DiffLineKind::Meta {
-                                    gutter
-                                } else {
-                                    theme.foreground.opacity(0.9)
-                                })
+                                .text_color(ink)
                                 .child(
                                     StyledText::new(if text.is_empty() {
                                         SharedString::from(" ")
@@ -1360,7 +1383,7 @@ impl DiffView {
     ) {
         self.text_w = required_text_width(&rows);
         self.h_scroll
-            .set_content_width(px(2. * GUTTER_W + SIGN_W + self.text_w));
+            .set_content_width(px(2. * self.options.gutter_w() + self.options.sign_w() + self.text_w));
         self.rows = rows;
         self.files = summaries;
         self.expanded.clear();
