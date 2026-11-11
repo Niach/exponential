@@ -201,6 +201,7 @@ mod repositories;
 mod resend_invite;
 mod row_parity;
 mod select_button_glyph;
+mod select_button_menu;
 mod select_icon_color;
 mod select_multi;
 mod select_row_disabled;
