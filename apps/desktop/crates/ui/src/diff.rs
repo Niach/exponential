@@ -62,7 +62,11 @@ const LINE_ROW_H_COMPACT: f32 = 15.0;
 /// The per-file header is a glass row CARD (a clickable disclosure), so it
 /// needs a control's height.
 const FILE_HEADER_H: f32 = 30.0;
-const FILE_HEADER_H_COMPACT: f32 = 24.0;
+/// #EXP-1789: the edited-files card's row = web's flush `FileDiffCard`
+/// header: `py-1.5` around a 16px `text-xs` line, plus its 1px `border-b`.
+const FILE_HEADER_H_COMPACT: f32 = 29.0;
+/// The file header's type: web's `text-xs` (12px) on every face.
+const HEADER_TEXT_SIZE: f32 = 12.0;
 const NOTE_ROW_H: f32 = 22.0;
 const FILE_GAP_H: f32 = 8.0;
 /// Line-number gutter width — 4 digits + padding at 11px mono.
@@ -971,6 +975,8 @@ pub(crate) fn render_diff_row(
             let chevron = gpui_component::Icon::new(crate::icons::registry::UI_CHEVRON_DOWN)
                 .xsmall()
                 .text_color(theme.muted_foreground);
+            // #EXP-1789: the card's chevron is web's `size-3.5`.
+            let chevron = if options.compact { chevron.size(px(14.)) } else { chevron };
             let chevron: AnyElement = if expanded {
                 chevron
                     .transform(gpui::Transformation::rotate(gpui::percentage(0.5)))
@@ -1139,7 +1145,10 @@ fn file_header_row(
     let theme = cx.theme();
     let mono = theme.mono_font_family.clone();
     let muted = theme.muted_foreground;
-    let text_size = px(options.text_size() + 1.);
+    let text_size = px(HEADER_TEXT_SIZE);
+    // #EXP-1789: the edited-files card's row takes web's `px-3`; the review
+    // page keeps its own inset.
+    let inset = if options.compact { px(12.) } else { px(8.) };
     let mut header = card_row(shape, options)
         // EXP-916: the file header is the ONE glassy band of a diff — the
         // section-band fill every other grouped list wears, never an opaque
@@ -1148,7 +1157,7 @@ fn file_header_row(
         .flex()
         .items_center()
         .h(px(options.header_h()))
-        .px_2()
+        .px(inset)
         .gap_2()
         .text_size(text_size)
         .font_family(mono)
@@ -1157,6 +1166,7 @@ fn file_header_row(
                 .flex_shrink_0()
                 .w(px(12.))
                 .text_center()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(status_color(*status, cx))
                 .child(status_letter(*status)),
         )
@@ -1179,17 +1189,33 @@ fn file_header_row(
                 .child(SharedString::from(format!("\u{2190} {previous}"))),
         );
     }
+    let add = theme::tokens::diff::ADD_FG.to_hsla();
+    let del = theme::tokens::diff::DEL_FG.to_hsla();
+    if options.compact {
+        // #EXP-1789: web's `DiffCounts`, ONE mono run `+12 -0` (a space, not
+        // the row's gap, between the two).
+        let added = additions_label(*additions);
+        let text = SharedString::from(format!("{added} {}", deletions_label(*deletions)));
+        let split = added.len();
+        let counts = StyledText::new(text.clone()).with_highlights([
+            (0..split, HighlightStyle { color: Some(add), ..Default::default() }),
+            (split..text.len(), HighlightStyle { color: Some(del), ..Default::default() }),
+        ]);
+        return header
+            .child(div().flex_shrink_0().whitespace_nowrap().child(counts))
+            .child(div().flex_shrink_0().child(chevron));
+    }
     header
         .child(
             div()
                 .flex_shrink_0()
-                .text_color(theme::tokens::diff::ADD_FG.to_hsla())
+                .text_color(add)
                 .child(SharedString::from(additions_label(*additions))),
         )
         .child(
             div()
                 .flex_shrink_0()
-                .text_color(theme::tokens::diff::DEL_FG.to_hsla())
+                .text_color(del)
                 .child(SharedString::from(deletions_label(*deletions))),
         )
         .child(div().flex_shrink_0().child(chevron))
