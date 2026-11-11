@@ -430,6 +430,20 @@ impl Builder<'_, '_> {
                 self.tint(index, color.as_ref());
             }
         }
+        // #EXP-1629: a `button` trigger leads with the picked option's own
+        // glyph (web's PR trigger): the one source is the option, no prop.
+        if button && chosen.len() == 1 {
+            if let Some(option) = options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())) {
+                if let Some(icon) = option.get("icon").filter(|i| i.as_str().is_some_and(|i| !i.is_empty())).cloned() {
+                    let color = option.get("iconColor").filter(|c| c.is_string()).cloned();
+                    let props = &mut self.nodes[trigger as usize].props;
+                    props.insert("valueIcon".to_string(), icon);
+                    if let Some(color) = color {
+                        props.insert("iconColor".to_string(), color);
+                    }
+                }
+            }
+        }
         if let Some(label) = str_prop(&owner.props, "label").filter(|l| (pill || button) && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }

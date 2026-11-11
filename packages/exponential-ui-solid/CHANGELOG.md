@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
+- Select `button` trigger glyph (#EXP-1629), React's.
 - Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
 - Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.
 - Menu item `detail`, `identifier`, `preview` (#EXP-1629), React's: the `identifier` / `detail` parts, the preview box beside its row (`natives/menu-preview.tsx`, the keyboard modality from `isUsingKeyboard`), its events the Menu's `action`; `menuRows` + `menuPreview` replay here.

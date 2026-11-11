@@ -1250,6 +1250,11 @@ impl<'a> GpuiMeasure<'a> {
         let chevron = self.part("Select", "chevron", leaf.props, &[]);
         let glyph = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0);
         let mut w = self.line(text, ts) + gap + glyph;
+        // #EXP-1629: a `button`'s picked-option glyph.
+        if !str_prop(leaf.props, "valueIcon").is_empty() {
+            let picked = self.part("Select", "valueIcon", leaf.props, &[]);
+            w += px_prop(&picked, "width").or_else(|| px_prop(&picked, "height")).unwrap_or(16.0) + gap;
+        }
         let mut h = ts.line_height;
         let label = str_prop(leaf.props, "label");
         if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {
