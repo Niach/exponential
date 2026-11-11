@@ -1,6 +1,7 @@
 package at.exponential.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
@@ -11,9 +12,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
-import at.exponential.ui.model.SurfaceOptions
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -37,12 +35,10 @@ class A11yStatesTest {
     fun setUp() = Fixtures.require()
 
     private fun model(case: JsonValue): SurfaceModel {
-        val m = SurfaceModel("t", SurfaceOptions(), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
-        m.fixedMeasure = true
-        val outcome = m.setNested(case["tree"].toString())
+        val m = makeModel()
+        val outcome = m.setNested(case["tree"]!!.json)
         assertEquals(case["name"]?.string, emptyList<JsonValue>(), JsonValue.parse(outcome.issuesJson).array.orEmpty())
         case["data"]?.obj?.forEach { (k, v) -> m.setData("/$k", v) }
-        m.setViewport(390f, 800f)
         return m
     }
 
@@ -51,11 +47,14 @@ class A11yStatesTest {
 
     @Test
     fun theFixtureReplays() {
-        for (case in Fixtures.json("a11y-states.json")["cases"]!!.array!!) {
+        val cases = Fixtures.json("a11y-states.json")["cases"]!!.array!!
+        // One content per test: every case's surface in one column (their
+        // labels are distinct).
+        val models = cases.map { model(it) }
+        compose.setContent { Column(Modifier.fillMaxWidth()) { models.forEach { m -> Box(Modifier.fillMaxWidth()) { ExponentialSurface(m) } } } }
+        compose.waitForIdle()
+        for (case in cases) {
             val name = case["name"]?.string
-            val m = model(case)
-            compose.setContent { Box(Modifier.fillMaxWidth()) { ExponentialSurface(m) } }
-            compose.waitForIdle()
             // Each node's label: its literal, or its template row's `label`.
             fun labelOf(id: String): String {
                 val rows = case["data"]?.get("rows")?.array.orEmpty()
