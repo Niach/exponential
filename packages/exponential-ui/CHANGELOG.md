@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer (#EDE-65): a hidden `above` child (`visible` falsy) is the slot absent (no gap, no top offset, no extra height; re-lays out when shown), and the send/stop glyph's size is the new `sendIcon` recipe part (neutral 16, exponential `flat` 24, the IDE's). A disabled send's dim is the `send` part's `state: disabled` opacity (neutral 0.5 as before, exponential 0.4 in both layouts, the IDE's; 0.5 when a theme sets none). `interactions-round1.json` gains two composerSlots cases (`hiddenAbove`).
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Menu: a searchable submenu matches and draws its rows' `identifier`: the field finds a row by its `label` OR its `identifier`, SearchList's rule (`search_matches`: typing `EXP-12` finds `Fix the tray`), and a row draws its mono `identifier`, its `iconColor` tint and its `detail` like a normal Menu row. Absent fields = unchanged. No catalog change.
 - Select `button` popup keeps its starting cursor (#EXP-1629): opened by the pointer, it starts on the first enabled option like web's picker and the other Selects; only a `pill` still starts without one. `interactions-round1.json` gains `selectPointerOpen`.

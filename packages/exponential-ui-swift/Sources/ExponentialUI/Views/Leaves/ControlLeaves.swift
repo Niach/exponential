@@ -84,6 +84,8 @@ struct ComposerLeaf: View {
     var body: some View {
         let field = cx.part("Composer", "field")
         let send = cx.part("Composer", "send")
+        // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+        let sendIcon = cx.part("Composer", "sendIcon").width ?? 16
         let placeholder = cx.part("Composer", "placeholder")
         let sendSize = send.height ?? cx.control("buttonIcon", 36)
         let gap = cx.style.gap
@@ -153,17 +155,17 @@ struct ComposerLeaf: View {
                 }
                 let sendW = send.width ?? sendSize
                 // Web: busy = the recipe's `when busy` opacity; an empty
-                // draft = the disabled button (`.xui-Composer-send:disabled`
-                // opacity .5), inert.
+                // draft = the disabled button (the `send` part's `state:
+                // disabled` opacity, 0.5 without one), inert.
                 let empty = !busy && !cx.model.composerHasText(cx.index)
                 Button {
                     cx.model.composerSubmit(cx.index)
                 } label: {
-                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 16, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
+                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: sendIcon, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
                         .frame(width: sendW, height: sendSize)
                         .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: send.style.radius > 0 ? AnyShape(send.style.shape(CGSize(width: sendW, height: sendSize))) : AnyShape(Circle()))
                         .compositingGroup()
-                        .opacity(empty ? 0.5 : (send.style.opacity ?? 1))
+                        .opacity(empty ? (cx.part("Composer", "send", states: ["disabled"]).style.opacity ?? 0.5) : (send.style.opacity ?? 1))
                 }
                 .buttonStyle(.plain)
                 // Inert, not `.disabled`: the plain style would dim the

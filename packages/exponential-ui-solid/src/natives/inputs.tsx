@@ -16,9 +16,9 @@
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
-import { boundPath, composerMenuKey, composerPaste, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
+import { boundPath, composerMenuKey, composerPaste, hostPath, resolveVisible, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
 import { checkboxAriaChecked, checkboxPress } from "@exponential_app/eui"
-import { useSurfaceContext } from "../context"
+import { resolveContextOf, useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import { IconGlyph } from "../icons"
 import { createHostOwnedValue } from "../inputs"
@@ -843,11 +843,16 @@ export function ComposerNative(props: NativeProps): JSX.Element {
   }
   const placeholder = () => str(props.props.placeholder)
   const submitLabel = () => str(props.props.submitLabel) || ctx.t(`send`)
+  // #EDE-65: a hidden `above` child = no slot at all (no wrapper, so no root gap).
+  const showAbove = createMemo(() => {
+    const above = props.node.slots?.above
+    return above !== undefined && resolveVisible(above.visible, resolveContextOf(ctx, props.scope))
+  })
   return (
-    <div {...props.rootProps} data-busy={busy() ? `true` : undefined} data-above={props.node.slots?.above ? `true` : undefined}>
+    <div {...props.rootProps} data-busy={busy() ? `true` : undefined} data-above={showAbove() ? `true` : undefined}>
       {/* #EXP-1762: `above` = one child over the field, inside the card,
           the content's full width (a flat root wraps it onto its own line). */}
-      <Show when={props.node.slots?.above}>
+      <Show when={showAbove()}>
         <div class="xui-composer-above">{props.slots.above}</div>
       </Show>
       <Show when={flat() && props.node.slots?.leading}>
@@ -909,7 +914,7 @@ export function ComposerNative(props: NativeProps): JSX.Element {
           <div class="xui-composer-trailing">{props.slots.trailing}</div>
         </Show>
         <button type="button" {...part(`send`, busy() && `pressed`)} aria-label={busy() ? ctx.t(`stop`) : submitLabel()} disabled={!busy() && field.value.trim() === ``} onClick={submit}>
-          {busy() ? <BuiltinIcon slot="Composer.stop" /> : <BuiltinIcon slot="Composer.send" />}
+          {busy() ? <BuiltinIcon slot="Composer.stop" part={part(`sendIcon`)} /> : <BuiltinIcon slot="Composer.send" part={part(`sendIcon`)} />}
         </button>
       </div>
     </div>
