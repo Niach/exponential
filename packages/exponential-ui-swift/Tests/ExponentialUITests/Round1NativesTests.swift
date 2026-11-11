@@ -524,6 +524,27 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertNotEqual(m.ink(plain), success, "no `iconColor`: the inherited ink")
     }
 
+    /// #EXP-1629: a `button` trigger leaf carries the picked option's `icon`
+    /// + `iconColor` as `valueIcon` / `iconColor`; a picked option with no
+    /// glyph leaves the trigger bare.
+    func testSelectButtonTriggerCarriesThePickedGlyph() throws {
+        let options: JSONValue = .array([
+            .object(["label": .string("In Review"), "value": .string("review"), "icon": .string("status-in-review"), "iconColor": .string("$color.success")]),
+            .object(["label": .string("Do nothing"), "value": .string("none")]),
+        ])
+        for (value, icon, color) in [("review", "status-in-review", "$color.success"), ("none", "", "")] {
+            let m = try surface(node("pr", "Select", ["label": .string("When a PR opens"), "triggerVariant": .string("button"), "value": .string(value), "options": options]))
+            paint(m)
+            let props = try XCTUnwrap(m.node(XCTUnwrap(m.index(of: "pr.trigger")))?.props)
+            XCTAssertEqual(props.str("valueIcon"), icon, value)
+            XCTAssertEqual(props.str("iconColor"), color, value)
+            if icon.isEmpty {
+                XCTAssertNil(props["valueIcon"], value)
+                XCTAssertNil(props["iconColor"], value)
+            }
+        }
+    }
+
     // MARK: - #EXP-1765: the `pill` Select, `loading`, `mono` options
 
     func pillSelect(_ extra: [String: JSONValue] = [:]) -> JSONValue {
