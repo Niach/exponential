@@ -50,8 +50,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 66900,
-        "sha256": "d8a52391011ca040f9c1d24edebd2af10677cb924b982a7f3d47c2db15a8b98c"
+        "bytes": 66812,
+        "sha256": "dadc662a15465e6cf90ac09050662f604da23063aa8c624589d35be9c0626bc7"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -1467,8 +1467,8 @@
         "file": "shots/chat-replies/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 45756,
-        "sha256": "5973b3817c2cdd244393f6261537e5e0afe979ba755c24904aab2022c0615784"
+        "bytes": 45778,
+        "sha256": "c3fe0fca1bceb651eb1501d9e71fa0fd7e30f3d1bdc1fba451a954ef906f4008"
       },
       "ios": {
         "file": "shots/chat-replies/ios.webp",
@@ -1541,8 +1541,8 @@
         "file": "shots/chat-screen/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 82376,
-        "sha256": "45a5e8101e3db033532802a299ad051251cc543edf5f60bd6e602aa6045c23b3"
+        "bytes": 55920,
+        "sha256": "a70856df55135eef72ab717cc230fb8aca69aa3227fa54863c2c79e2bf5d7ddf"
       },
       "ios": {
         "file": "shots/chat-screen/ios.webp",
@@ -6702,8 +6702,8 @@
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 103844,
-        "sha256": "4ebd9857239671f67dd699f587a83f54dcbbd57b363c1fc6458936de16008291"
+        "bytes": 104898,
+        "sha256": "0899be55458460ecd1c6f653608bfad27fec142a8b036088631e81795fbfbaea"
       },
       "ios": {
         "file": "shots/session/ios.webp",
@@ -6762,8 +6762,8 @@
         "file": "shots/session-slash-menu/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 56030,
-        "sha256": "2f4e43735ae0c797a6148f914c032d6e2fc1a427597454bda6abf1dcd6fc03d7"
+        "bytes": 52598,
+        "sha256": "f3358ad3ccd1ef062b92ffe094237abe8611b9a6e7fd102f68c50a498a2b006c"
       },
       "ios": {
         "file": "shots/session-slash-menu/ios.webp",
@@ -7684,8 +7684,8 @@
         "file": "shots/steering/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 76218,
-        "sha256": "49bb6dc6f69e8bbb2d118d4a2ee6714ca9a8d7451a09faf9cabd54b5940dac00"
+        "bytes": 103884,
+        "sha256": "ff6282201eb0edcfe3d19d5e029d608feef6b163777cc6aababd2b17cc85e32f"
       },
       "ios": {
         "file": "shots/steering/ios.webp",
