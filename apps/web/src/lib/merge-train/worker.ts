@@ -15,8 +15,8 @@
 //   4. the queue positions (`Queued · 2nd`).
 // Every outcome posts ONE waking `pr_merge` line (messages.ts). The train is
 // the only merge, for every team and every repository (#EXP-1711).
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
-import { gatedChecksState } from "@exp/domain-contract/pr-checks"
+import { and, asc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
+import { requiredChecksState } from "@exp/domain-contract/pr-checks"
 import {
   composeBatch,
   MERGE_TRAIN_LIMITS,
@@ -26,6 +26,7 @@ import {
   mergeStep,
   mergeWait,
   mergedText,
+  noChecksVerdict,
   trainQueue,
   trainVerdict,
   type HoldReason,
@@ -175,7 +176,7 @@ function stepPullRequest(prId: string, event: MergeEvent, ctx: StepContext): Pro
 
 type ReadinessInputs = Awaited<ReturnType<typeof readinessInputs>>
 
-async function readinessInputs(prs: PrRow[]) {
+async function readinessInputs(prs: PrRow[], repo: RepoRow, forge: Forge) {
   const roots = [...new Set(prs.flatMap((pr) => (pr.rootSessionId ? [pr.rootSessionId] : [])))]
   const tree =
     roots.length === 0
@@ -188,6 +189,12 @@ async function readinessInputs(prs: PrRow[]) {
   for (const teamId of new Set(prs.map((pr) => pr.teamId))) {
     const [team] = await db.select({ mode: teams.mergeMode }).from(teams).where(eq(teams.id, teamId)).limit(1)
     modes.set(teamId, (team?.mode as TeamMergeMode | undefined) ?? `auto`)
+  }
+  // #FEED-221: the base's required names, per base; unreadable = none known
+  // (the rows' flags decide, and nothing is held for missing CI).
+  const required = new Map<string, string[]>()
+  for (const base of new Set(prs.map((pr) => pr.base))) {
+    required.set(base, await forge.requiredChecks(forgeRepo(repo), base).catch(() => []))
   }
   // #EXP-1711: readiness reads the GATED checks (required when the base
   // names any), never an informational leg.
@@ -207,14 +214,15 @@ async function readinessInputs(prs: PrRow[]) {
           .where(inArray(pullRequestChecks.pullRequestId, ids))
   const checks = new Map<string, typeof rows>()
   for (const row of rows) checks.set(row.pullRequestId, [...(checks.get(row.pullRequestId) ?? []), row])
-  return { tree, modes, checks }
+  return { tree, modes, checks, required }
 }
 
-function waitOf(pr: PrRow, { tree, modes, checks }: ReadinessInputs): MergeWait | null {
-  const rows = checks.get(pr.id)
+function waitOf(pr: PrRow, { tree, modes, checks, required }: ReadinessInputs): MergeWait | null {
+  const rows = checks.get(pr.id) ?? []
+  const names = required.get(pr.base) ?? []
   return mergeWait({
     draft: pr.state === `draft`,
-    checksState: rows && rows.length > 0 ? gatedChecksState(rows) : pr.checksState,
+    checksState: rows.length > 0 || names.length > 0 ? requiredChecksState(rows, names) : pr.checksState,
     subtreeIdle: subtreeIdle(
       pr.sessionId,
       tree.filter((s) => s.rootId === pr.rootSessionId)
@@ -224,8 +232,27 @@ function waitOf(pr: PrRow, { tree, modes, checks }: ReadinessInputs): MergeWait 
   })
 }
 
+/** #FEED-221 (merge-train.json `noChecks`): a PR with no check runs at its
+ *  head where the base expects some. → the hold it takes, else null. */
+async function noChecksHold(
+  repo: RepoRow,
+  pr: PrRow,
+  inputs: ReadinessInputs,
+  forge: Forge,
+  now: Date
+): Promise<`no_checks` | `conflict` | null> {
+  if ((inputs.checks.get(pr.id)?.length ?? 0) > 0 || pr.state !== `open` || pr.mergeNow) return null
+  const expected = (inputs.required.get(pr.base)?.length ?? 0) > 0
+  if (!expected) return null
+  const live = await forge.readPullRequest(forgeRepo(repo), pr.number).catch(() => null)
+  if (!live) return null
+  const since = live.updatedAt ?? pr.createdAt
+  const verdict = noChecksVerdict({ expected, mergeable: live.mergeable ?? null, ageMs: now.getTime() - since.getTime() })
+  return verdict === `no_checks` || verdict === `conflict` ? verdict : null
+}
+
 async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): Promise<void> {
-  const inputs = await readinessInputs(prs)
+  const inputs = await readinessInputs(prs, repo, forge)
   const at = now.toISOString()
   for (const pr of prs) {
     const base = pr.base
@@ -252,9 +279,21 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
         }
       }
     }
+    // #FEED-221: CI showed up on a head held for having none.
+    if (pr.mergeState === `held` && (inputs.checks.get(pr.id)?.length ?? 0) > 0) {
+      const released = await stepPullRequest(pr.id, { type: `checks_appeared` }, { base, now })
+      if (released) pr.mergeState = released.state
+    }
     if (pr.mergeState !== `testing` && pr.mergeState !== `held`) {
+      const hold = pr.mergeState === `draft` ? null : await noChecksHold(repo, pr, inputs, forge, now)
+      if (hold) {
+        await stepPullRequest(pr.id, { type: `forge_hold`, reason: hold }, { base, now })
+        continue
+      }
       const wait = waitOf(pr, inputs)
-      await stepPullRequest(pr.id, { type: `readiness`, wait, at }, { base, now, extra: { mergeWait: wait } })
+      // A queued PR stays queued through its opener's work: no `session` pill.
+      const shown = pr.mergeState === `queued` && wait === `session` ? null : wait
+      await stepPullRequest(pr.id, { type: `readiness`, wait, at }, { base, now, extra: { mergeWait: shown } })
     }
     await stepPullRequest(pr.id, { type: `tick`, now: at }, { base, now })
   }
@@ -336,7 +375,9 @@ async function pollRun(repo: RepoRow, run: RunRow, forge: Forge, now: Date): Pro
   }
   const dispatched = outcome.checks === `dispatched` && !!outcome.head
   const checks = dispatched ? ((await readCommitChecks(forge, fr, outcome.head!)) ?? []) : []
-  const required = dispatched ? await forge.requiredChecks(fr, run.base) : []
+  // #FEED-221: unreadable is no verdict (an empty list would read as green).
+  const required = dispatched ? await forge.requiredChecks(fr, run.base).catch(() => null) : []
+  if (!required) return true
   const verdict = trainVerdict({ outcome, checks, required })
   if (verdict.state === `pending`) {
     if (now.getTime() - run.createdAt.getTime() <= RUN_TIMEOUT_MS) return true
@@ -635,7 +676,10 @@ async function landDirect(
 
 // ── one repository pass ──────────────────────────────────────────────────
 
-function unitsOf(prs: PrRow[]): { units: PrRow[][]; train: TrainUnit[] } {
+function unitsOf(
+  prs: PrRow[],
+  eligible: (pr: PrRow) => boolean = (pr) => pr.mergeState === `queued`
+): { units: PrRow[][]; train: TrainUnit[] } {
   const units = buildUnits(prs)
   const numberOf = new Map(prs.map((pr) => [pr.id, pr.number]))
   const train = units.map((unit) => ({
@@ -644,7 +688,7 @@ function unitsOf(prs: PrRow[]): { units: PrRow[][]; train: TrainUnit[] } {
       const parent = pr.basePullRequestId ? numberOf.get(pr.basePullRequestId) : undefined
       return {
         number: pr.number,
-        ready: pr.mergeState === `queued`,
+        ready: eligible(pr),
         readyAt: pr.mergeReadyAt?.toISOString() ?? null,
         ...(parent !== undefined ? { parent } : {}),
       }
@@ -757,15 +801,30 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
 
   // Queue positions (the pill's `Queued · 2nd`), written only when changed.
   const prs = await livePrs(repo.id)
-  const { train } = unitsOf(prs)
+  // #FEED-221: the live run's units hold the first places, so a re-queued
+  // batch never pushes the PRs behind it back.
+  const { train } = unitsOf(prs, (pr) => pr.mergeState === `queued` || pr.mergeState === `testing`)
   const byNumber = new Map(prs.map((pr) => [pr.number, pr]))
-  const positions = queuePositions(trainQueue(train).map((unit) => unit.members.map((m) => byNumber.get(m.number)!.id)))
+  const queue = trainQueue(train).map((unit) => unit.members.map((m) => byNumber.get(m.number)!))
+  const testing = (unit: PrRow[]) => unit.some((pr) => pr.mergeState === `testing`)
+  const positions = queuePositions([...queue.filter(testing), ...queue.filter((unit) => !testing(unit))].map((unit) => unit.map((pr) => pr.id)))
   for (const pr of prs) {
     const position = pr.mergeState === `queued` ? (positions.get(pr.id) ?? null) : null
     if (pr.mergePosition !== position) {
       await db.update(pullRequests).set({ mergePosition: position }).where(eq(pullRequests.id, pr.id))
     }
   }
+  // A PR closed in the queue keeps no place.
+  await db
+    .update(pullRequests)
+    .set({ mergePosition: null })
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repo.id),
+        notInArray(pullRequests.state, [...LIVE_PR_STATES]),
+        isNotNull(pullRequests.mergePosition)
+      )
+    )
 }
 
 // ── serialization, edges, the tick ───────────────────────────────────────
