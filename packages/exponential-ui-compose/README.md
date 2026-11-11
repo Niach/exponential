@@ -132,7 +132,7 @@ Every answer is the BORDER box: the recipe's padding (per side) and border aroun
 - picker triggers (Select, DatePicker, TimePicker, DateRangePicker) size their text plus the glyph, no 160 floor;
 - text fields are 160 wide at max-content (`catalog/layout.json`); inline fields (NumberField / ChipInput `input`, Select `search`) and autosize Textareas size their LIVE text;
 - Image / Video take `aspectRatio` (16:9), 320 at max-content, 0 at min-content; a Chart's `height` is the whole box; an AudioPlayer is the title line + `$control.row`;
-- the leaf's `FfiTextStyle`: size, weight, line height, family, `letterSpacing`, `textTransform` and italics, inherited like CSS (the leaves paint with the same style);
+- the leaf's `FfiTextStyle`: size, weight, line height, family, `letterSpacing`, `textTransform`, italics and `fontVariantNumeric` (`tabular-nums` → `fontFeatureSettings = "tnum"`), inherited like CSS (the leaves paint with the same style);
 - a number or boolean in a text prop shows as its display string (`412`);
 - Markdown measures with the same block layout it paints; platform controls have recipe-fixed boxes.
 - Markdown fenced blocks whose fence names a catalog language (` ```ts `) paint CodeBlock's tokens in its `CodeBlock/token` colours (colour only: the box and height do not change); `MarkdownView` takes them as a `codeHighlighter`.

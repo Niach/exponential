@@ -125,8 +125,8 @@ public struct TextStyle: Equatable, Hashable, Sendable {
     public var textTransform: String?
     /// `fontStyle: italic`.
     public var italic: Bool
-    /// Tabular figures (`font-variant-numeric: tabular-nums`): a painter-side
-    /// rule, never the core's (`forPart`).
+    /// Tabular figures (OpenType `tnum`): the core's `fontVariantNumeric:
+    /// tabular-nums` (inherited like CSS), or a part's own rule (`forPart`).
     public var tabular: Bool = false
 
     public init(fontSize: CGFloat, fontWeight: Int, lineHeight: CGFloat, fontFamily: String?, letterSpacing: CGFloat? = nil, textTransform: String? = nil, italic: Bool = false) {
@@ -149,6 +149,7 @@ public struct TextStyle: Equatable, Hashable, Sendable {
         letterSpacing = f.letterSpacing.flatMap { $0 == 0 ? nil : CGFloat($0) }
         textTransform = f.textTransform.flatMap { $0 == "none" || $0.isEmpty ? nil : $0 }
         italic = f.fontStyle == "italic"
+        tabular = f.fontVariantNumeric == "tabular-nums"
     }
 
     /// EXP-1495 (round-6 §3): the parts whose figures are tabular, so a

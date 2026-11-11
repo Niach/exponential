@@ -54,6 +54,24 @@ class PainterAsksTest {
     }
 
     @Test
+    fun fontVariantNumericTabularNumsMeasuresAndPaintsWithTnum() {
+        val m = makeModel(theme = "neutral")
+        m.setNested(
+            """{"id":"row","component":"Box","style":{"flexDirection":"row","alignItems":"flex-start"},
+               "children":[{"id":"age","component":"Text","props":{"text":"10m"},"style":{"fontVariantNumeric":"tabular-nums"}},
+                           {"id":"col","component":"Box","style":{"fontVariantNumeric":"tabular-nums"},"children":[{"id":"kid","component":"Text","props":{"text":"3h"}}]},
+                           {"id":"plain","component":"Text","props":{"text":"11"}}]}""",
+        )
+        val age = m.indexOf("age")!!
+        val ts = m.textStyle(age)
+        assertEquals("tnum", ts.fontFeatures)
+        assertEquals("inherited like CSS", "tnum", m.textStyle(m.indexOf("kid")!!).fontFeatures)
+        assertEquals(null, m.textStyle(m.indexOf("plain")!!).fontFeatures)
+        assertEquals("tnum", m.textShaper().style(ts).fontFeatureSettings)
+        assertEquals("measured as painted (tnum)", m.textShaper().maxContent("10m", ts), m.frame(age).width, 1f)
+    }
+
+    @Test
     fun aNumberInATextPropShowsAsItsDisplayString() {
         val m = makeModel(theme = "neutral")
         m.setNested(

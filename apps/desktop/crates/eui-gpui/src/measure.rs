@@ -222,9 +222,12 @@ impl Fonts {
         plain_font(fam, weight, italic, Some(fallbacks))
     }
 
-    /// The font of a resolved text style.
+    /// The font of a resolved text style; `fontVariantNumeric:
+    /// tabular-nums` adds the OpenType `tnum` feature, so the measurer and
+    /// the painter (both shape with this font) set the same tabular digits.
     pub fn for_style(&self, ts: &TextStyle) -> Font {
-        self.font(ts.font_family.as_deref(), ts.font_weight, ts.font_style.as_deref() == Some("italic"))
+        let font = self.font(ts.font_family.as_deref(), ts.font_weight, ts.font_style.as_deref() == Some("italic"));
+        if ts.tabular_nums() { with_tabular_nums(font) } else { font }
     }
 
     /// The measurer identity: the resolved fonts and the font epoch.
@@ -1189,6 +1192,7 @@ impl<'a> GpuiMeasure<'a> {
             letter_spacing: None,
             text_transform: None,
             font_style: None,
+            font_variant_numeric: None,
         }
     }
 

@@ -1243,6 +1243,42 @@ fn leaf_requests_name_the_owner_and_the_width_changing_text_style() {
     assert_eq!((loud.2.as_deref(), loud.3.as_deref()), (Some("uppercase"), Some("italic")));
 }
 
+/// `fontVariantNumeric: tabular-nums` reaches the measurer on the leaf's
+/// text style (so it shapes with `tnum`), inherited like CSS; a node
+/// without it (or outside the styled subtree) has none.
+#[test]
+fn leaf_requests_carry_tabular_nums_inherited() {
+    struct Seen(Vec<(String, Option<String>)>);
+    impl Measure for Seen {
+        fn measure_intrinsics(&mut self, leaves: &[LeafRequest]) -> Vec<Intrinsics> {
+            for l in leaves {
+                self.0.push((l.id.to_string(), l.text_style.font_variant_numeric.clone()));
+            }
+            FixedMeasure::default().measure_intrinsics(leaves)
+        }
+        fn measure_heights(&mut self, leaves: &[LeafRequest], requests: &[HeightRequest]) -> Vec<f32> {
+            FixedMeasure::default().measure_heights(leaves, requests)
+        }
+    }
+    let mut s = Surface::new("tnum", SurfaceOptions::default());
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [
+        {"id": "age", "component": "Text", "props": {"text": "10m"}, "style": {"fontVariantNumeric": "tabular-nums"}},
+        {"id": "col", "component": "Box", "style": {"fontVariantNumeric": "tabular-nums"}, "children": [
+            {"id": "kid", "component": "Text", "props": {"text": "3h"}}
+        ]},
+        {"id": "plain", "component": "Text", "props": {"text": "11"}}
+    ]}))
+    .unwrap();
+    s.set_nested(tree);
+    s.set_viewport(400.0, 0.0, None);
+    let mut m = Seen(Vec::new());
+    s.layout(&mut m);
+    let of = |id: &str| m.0.iter().find(|(i, _)| i == id).unwrap_or_else(|| panic!("{id} measured")).1.clone();
+    assert_eq!(of("age").as_deref(), Some("tabular-nums"));
+    assert_eq!(of("kid").as_deref(), Some("tabular-nums"), "inherited from the Box");
+    assert_eq!(of("plain"), None);
+}
+
 /// The NESTED authoring form names a list template by the id of a node in
 /// the tree (the kitchen sink's `/posts` list): it instantiates per item
 /// like a flat component does.

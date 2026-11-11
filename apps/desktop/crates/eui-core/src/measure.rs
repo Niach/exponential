@@ -29,11 +29,23 @@ pub struct TextStyle {
     pub text_transform: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub letter_spacing: Option<f32>,
+    /// `fontVariantNumeric`: `tabular-nums` = shape the digits with the
+    /// OpenType `tnum` feature (measure AND paint); `None` = the font's own.
+    /// Inherited like CSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_variant_numeric: Option<String>,
+}
+
+impl TextStyle {
+    /// `fontVariantNumeric: tabular-nums`: tabular figures (`tnum`).
+    pub fn tabular_nums(&self) -> bool {
+        self.font_variant_numeric.as_deref() == Some("tabular-nums")
+    }
 }
 
 impl Default for TextStyle {
     fn default() -> Self {
-        TextStyle { font_size: 14.0, font_weight: 400, line_height: 20.0, font_family: None, font_style: None, text_transform: None, letter_spacing: None }
+        TextStyle { font_size: 14.0, font_weight: 400, line_height: 20.0, font_family: None, font_style: None, text_transform: None, letter_spacing: None, font_variant_numeric: None }
     }
 }
 

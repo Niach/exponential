@@ -47,6 +47,8 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
   { name: `style: a literal colour (a node colour is a token)`, input: { id: `root`, component: `Box`, style: { backgroundColor: `#ff0000`, color: `$color.foreground` } } },
   { name: `style: a literal colour inside a media block`, input: { id: `root`, component: `Box`, style: { "@media (min-width: $breakpoint.md)": { borderColor: `#000000` } } } },
   { name: `style: a literal gradient stop`, input: { id: `root`, component: `Box`, style: { backgroundGradient: { angle: 90, stops: [{ color: `$color.primary`, offset: 0 }, { color: `#00000000`, offset: 1 }] } } } },
+  { name: `style: fontVariantNumeric tabular-nums passes (a Text's relative times line up)`, input: { id: `root`, component: `Text`, props: { text: `10m` }, style: { fontVariantNumeric: `tabular-nums` } } },
+  { name: `style: fontVariantNumeric outside its one value`, input: { id: `root`, component: `Text`, props: { text: `10m` }, style: { fontVariantNumeric: `oldstyle-nums` } } },
   { name: `prop: a literal colour`, input: { id: `root`, component: `Chip`, props: { label: `Bug`, dot: `#ef4444` } } },
   { name: `prop: a colour token passes`, input: { id: `root`, component: `Chip`, props: { label: `Bug`, dot: `$color.destructive` } } },
   {
