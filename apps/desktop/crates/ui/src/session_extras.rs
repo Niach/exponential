@@ -555,33 +555,13 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
         .text_size(gpui::px(11.))
         .font_family(theme.mono_font_family.clone())
         .child(div().flex_shrink_0().w(gpui::px(12.)))
+        // #EXP-1789: the same path run as the file header — the directory
+        // cut in the middle by the shared rule, the name kept.
         .child(
-            h_flex()
+            crate::diff::path_run(dir, name, theme.muted_foreground, tint)
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                // #EXP-1789: the same path run as the file header — the
-                // directory cut in the middle, the name kept.
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis_middle()
-                        // The cut run is narrower than its box: the slack goes left,
-                        // so the directory hugs the name.
-                        .text_right()
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(dir)),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w_full()
-                        .truncate()
-                        .text_color(tint)
-                        .child(SharedString::from(name)),
-                ),
+                .h_full(),
         );
     if failed {
         line = line.child(

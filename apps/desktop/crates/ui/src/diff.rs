@@ -38,7 +38,6 @@ use gpui::{
     ScrollEvent, SharedString, Size, Styled, StyledText, Window,
 };
 use gpui_component::{
-    h_flex,
     scroll::{ScrollableElement as _, ScrollbarAxis, ScrollbarHandle},
     v_flex, v_virtual_list, ActiveTheme as _, ElementExt as _, Sizable as _,
     VirtualListScrollHandle,
@@ -423,6 +422,95 @@ pub(crate) fn split_path(path: &str) -> (String, String) {
         Some(slash) => (path[..=slash].to_string(), path[slash + 1..].to_string()),
         None => (String::new(), path.to_string()),
     }
+}
+
+/// #EXP-1789: a path run's shown (directory, name) in `width` px, the look
+/// web and the phones share: the directory gets the room the name leaves,
+/// never less than 2 characters, cut by the genUI middle rule
+/// (`eui_core::text_truncate`: 4 characters kept or the `…` alone), so a long
+/// name leaves a lone `…` before it; the name end-cuts only once the
+/// directory is down to that `…`. Pure over a per-character `measure`.
+pub(crate) fn path_run_cut(dir: &str, name: &str, width: f64, measure: impl Fn(char) -> f64) -> (String, String) {
+    let run_w = |s: &str| s.chars().map(&measure).sum::<f64>();
+    let name_w = run_w(name);
+    if dir.is_empty() || run_w(dir) + name_w <= width {
+        let shown_dir = dir.to_string();
+        let room = width - run_w(&shown_dir);
+        return (shown_dir, end_cut(name, room, &measure));
+    }
+    let dir_room = (width - name_w).max(2. * measure('0'));
+    let shown_dir = eui_core::text_truncate::middle_truncate_width(dir, dir_room, &measure, "\u{2026}");
+    let room = width - run_w(&shown_dir);
+    (shown_dir, end_cut(name, room, &measure))
+}
+
+/// `text` in `width` px, end-cut with a `…` (CSS `text-overflow: ellipsis`).
+fn end_cut(text: &str, width: f64, measure: &impl Fn(char) -> f64) -> String {
+    if text.chars().map(measure).sum::<f64>() <= width {
+        return text.to_string();
+    }
+    let budget = width - measure('\u{2026}');
+    if budget < 0. {
+        return String::new();
+    }
+    let mut used = 0.;
+    let mut kept = String::new();
+    for ch in text.chars() {
+        let w = measure(ch);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        kept.push(ch);
+    }
+    kept.push('\u{2026}');
+    kept
+}
+
+/// #EXP-1789: the dimmed directory + the file name as ONE painted run that
+/// fills its flex slot ([`path_run_cut`] over the slot's width, measured
+/// with the row's inherited font by per-character advance), left-aligned and
+/// vertically centred. The row keeps the hover tooltip with the full path.
+pub(crate) fn path_run(dir: impl Into<SharedString>, name: impl Into<SharedString>, dir_color: gpui::Hsla, name_color: gpui::Hsla) -> gpui::Canvas<()> {
+    let (dir, name): (SharedString, SharedString) = (dir.into(), name.into());
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let font = style.font();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let line_height = window.line_height();
+            let ts = window.text_system().clone();
+            let id = ts.resolve_font(&font);
+            let measure = |ch: char| match ts.advance(id, size, ch) {
+                Ok(advance) => f64::from(f32::from(advance.width)),
+                Err(_) => f64::from(f32::from(size)) * 0.6,
+            };
+            let (shown_dir, shown_name) = path_run_cut(&dir, &name, f64::from(f32::from(bounds.size.width)), measure);
+            let text = SharedString::from(format!("{shown_dir}{shown_name}"));
+            let run = |len: usize, color: gpui::Hsla| gpui::TextRun {
+                len,
+                font: font.clone(),
+                color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let runs: Vec<gpui::TextRun> = [(shown_dir.len(), dir_color), (shown_name.len(), name_color)]
+                .into_iter()
+                .filter(|(len, _)| *len > 0)
+                .map(|(len, color)| run(len, color))
+                .collect();
+            if runs.is_empty() {
+                return;
+            }
+            let line = ts.shape_line(text, size, &runs, None);
+            let origin = point(bounds.origin.x, bounds.origin.y + (bounds.size.height - line_height) / 2.);
+            window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
+                let _ = line.paint(origin, line_height, gpui::TextAlign::Left, None, window, cx);
+            });
+        },
+    )
 }
 
 /// What a file with NO hunks says instead of rows — web `noHunksNote`, word
@@ -1073,33 +1161,13 @@ fn file_header_row(
                 .child(status_letter(*status)),
         )
         .child(
-            h_flex()
+            // #EXP-1789: the DIRECTORY gives way, cut in the middle by the
+            // genUI Text `truncate: "middle"` rule; the file name keeps its
+            // full width unless it alone outgrows the row.
+            path_run(dir.clone(), name.clone(), muted, theme.foreground)
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                // #EXP-1789: the DIRECTORY gives way, cut in the middle (the
-                // genUI Text `truncate: "middle"` rule); the file name keeps
-                // its full width unless it alone outgrows the row.
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis_middle()
-                        // The cut run is narrower than its box: the slack goes left,
-                        // so the directory hugs the name.
-                        .text_right()
-                        .text_color(muted)
-                        .child(dir.clone()),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w_full()
-                        .truncate()
-                        .text_color(theme.foreground)
-                        .child(name.clone()),
-                ),
+                .h_full(),
         );
     if let Some(previous) = previous_path {
         header = header.child(
@@ -1549,6 +1617,21 @@ impl Render for DiffView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1789: the path run in a mono row (every character 1 wide): the
+    /// directory takes the room the name leaves, down to 2 characters, cut by
+    /// the genUI middle rule; the name end-cuts only once it is a lone `…`.
+    #[test]
+    fn the_path_run_cuts_the_directory_first() {
+        let mono = |_: char| 1.;
+        let cut = |dir: &str, name: &str, width: f64| path_run_cut(dir, name, width, mono);
+        assert_eq!(cut("apps/web/", "a.tsx", 20.), ("apps/web/".into(), "a.tsx".into()));
+        assert_eq!(cut("apps/web/src/components/", "agent.tsx", 25.), ("apps/web/s\u{2026}ents/".into(), "agent.tsx".into()));
+        // Fewer than 4 characters kept = the `…` alone, never `/h…/`.
+        assert_eq!(cut("/home/niach/", "a-long-memory-file.md", 26.), ("\u{2026}".into(), "a-long-memory-file.md".into()));
+        assert_eq!(cut("/home/niach/", "a-long-memory-file.md", 12.), ("\u{2026}".into(), "a-long-mem\u{2026}".into()));
+        assert_eq!(cut("", "main.rs", 4.), (String::new(), "mai\u{2026}".into()));
+    }
 
     /// EXP-1142: the pre-layout height IS the render-time height — the
     /// compact card rows at their constants, the note and the gap at theirs.

@@ -985,7 +985,7 @@ impl SurfaceView {
             _ if is_text_field(n) && self.ghosting.get() => {
                 let v = display_text(n.props.get("value"));
                 let shown = if v.is_empty() { lcx.str("placeholder").to_string() } else { v };
-                natives::text_lines(&lcx, &[shown], Some(1))
+                natives::text_lines(&lcx, &[shown], Some(1), window)
             }
             _ if is_text_field(n) => {
                 if n.component == "Composer" {
@@ -1051,7 +1051,7 @@ impl SurfaceView {
             ("Input" | "Select" | "DatePicker" | "Textarea" | "NumberField" | "TimePicker" | "DateRangePicker" | "ChipInput", None) => {
                 let v = display_text(n.props.get("value"));
                 let shown = if v.is_empty() { lcx.str("placeholder").to_string() } else { v };
-                natives::text_lines(&lcx, &[shown], Some(1))
+                natives::text_lines(&lcx, &[shown], Some(1), window)
             }
             // Geometry mode only: an expanded native paints its parts.
             ("Table" | "CodeBlock" | "FileUpload", None) if n.children.is_empty() => {
@@ -1062,7 +1062,7 @@ impl SurfaceView {
                     "Table" => self.builtin_string("table"),
                     _ => self.builtin_string("dropFiles"),
                 };
-                natives::text_lines(&lcx, &label.split('\n').map(str::to_string).collect::<Vec<_>>(), None)
+                natives::text_lines(&lcx, &label.split('\n').map(str::to_string).collect::<Vec<_>>(), None, window)
             }
             _ => return None,
         })
@@ -1218,9 +1218,9 @@ impl SurfaceView {
             // `align-items: center`).
             if owner == "Table" && matches!(part, Some("cell" | "headerCell")) && h > ts.line_height * lines.len() as f32 {
                 let pad = (h - ts.line_height * lines.len().min(clamp.unwrap_or(usize::MAX)) as f32) / 2.0;
-                return div().absolute().left_0().top(px(pad)).w(px(lcx.w)).h(px(lcx.h - pad)).child(natives::text_lines(lcx, &lines, clamp)).into_any_element();
+                return div().absolute().left_0().top(px(pad)).w(px(lcx.w)).h(px(lcx.h - pad)).child(natives::text_lines(lcx, &lines, clamp, window)).into_any_element();
             }
-            return natives::text_lines(lcx, &lines, clamp);
+            return natives::text_lines(lcx, &lines, clamp, window);
         }
         // A one-line text with chrome: [lead] text [trail], mirrored in RTL.
         let gap = lcx.style.gap.max(4.0);
