@@ -23,8 +23,8 @@
 
 use std::rc::Rc;
 
-use gpui::{div, App, AppContext as _, ClipboardItem, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Window};
-use gpui_component::{button::ButtonVariant, h_flex, input::InputState, v_flex, ActiveTheme as _};
+use gpui::{div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window};
+use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _};
 use serde_json::{json, Value};
 
 use eui_gpui::binding::Binding;
@@ -478,33 +478,15 @@ impl ApiKeysPane {
         // EXP-771: the title names the ACTION (web parity), so the row it hits
         // rides the body — its name and, for a key, the visible prefix. A
         // login session is never named by its token.
-        let identity_name: SharedString = label.clone().into();
-        let identity_preview: Option<SharedString> = (!device_row).then(|| {
+        let preview = (!device_row).then(|| {
             row.start
                 .clone()
-                .map(|start| format!("{start}\u{2026}").into())
-                .unwrap_or_else(|| "expu_\u{2026}".into())
+                .map(|start| format!("{start}\u{2026}"))
+                .unwrap_or_else(|| "expu_\u{2026}".to_string())
         });
+        let identity = cx.new(|cx| RevokeIdentity::new(label.clone(), preview, window, cx));
         let spec = AlertSpec::new(title, description, ok_label)
-            .content(move |_, cx| {
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(identity_name.clone()),
-                    )
-                    .children(identity_preview.clone().map(|preview| {
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(preview)
-                    }))
-                    .into_any_element()
-            })
+            .content(move |_, _| identity.clone().into_any_element())
             .ok_variant(ButtonVariant::Danger)
             .on_ok(move |_, cx| {
                 let Some(trpc) = queries::trpc_client(cx) else {
@@ -561,6 +543,50 @@ impl ApiKeysPane {
             });
         open_alert(window, cx, spec);
     }
+}
+
+/// The revoke / disconnect alert's body (EXP-771; #EXP-1629: an eUI
+/// document): the row it hits, its name (`text_sm` medium) and, for an API
+/// key, the visible prefix (`text_xs` muted mono). A login session is never
+/// named by its token.
+pub(crate) struct RevokeIdentity {
+    view: Entity<SurfaceView>,
+}
+
+impl RevokeIdentity {
+    fn new(name: String, preview: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding
+        });
+        let state = json!({"name": name, "hasPreview": preview.is_some(), "preview": preview.unwrap_or_default()});
+        binding.update(cx, |binding, cx| binding.update_state(|s| *s = state, cx));
+        let view = mount("api-key-revoke", revoke_document(&Ink::of(cx)), &binding, window, cx);
+        Self { view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(name: &str, preview: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(name.to_string(), preview.map(str::to_string), window, cx)
+    }
+}
+
+impl Render for RevokeIdentity {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "RevokeIdentity").entered();
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The revoke body's tree (`gap_2`, centred): the name, the key's prefix.
+fn revoke_document(ink: &Ink) -> Value {
+    let mut name = ink.text("identity_name", path("/pane/name"), SM, &ink.foreground);
+    name["style"]["fontWeight"] = json!(500);
+    let mut preview = ink.text("identity_preview", path("/pane/preview"), XS, &ink.muted);
+    preview["visible"] = path("/pane/hasPreview");
+    preview["style"]["fontFamily"] = json!(ink.mono);
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5)}, "children": [name, preview]})
 }
 
 /// The row's subline (web `api-keys-section.tsx`, string for string): a
@@ -767,6 +793,18 @@ fn local_store(cx: &App) -> Option<(TokenStore, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1629: the revoke body raises no issue a debug build's mount
+    /// check refuses (#EXP-1767's class).
+    #[test]
+    fn the_revoke_document_raises_no_unexpected_issue() {
+        let tree = revoke_document(&super::super::readiness::tests::test_ink());
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("api-key-revoke", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     #[test]
     fn row_subline_matches_the_web() {
