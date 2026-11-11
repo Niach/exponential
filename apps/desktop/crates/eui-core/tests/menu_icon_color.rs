@@ -125,5 +125,5 @@ fn an_identifier_is_the_mono_family() {
     open(&mut s);
     let index = s.index_of("m.identifier.0").expect("the identifier");
     let family = s.text_style(index).expect("its text style").font_family.clone();
-    assert_eq!(family.as_deref(), Some("Geist Mono"), "the theme's $type.family.mono");
+    assert_eq!(family.as_deref(), Some("JetBrains Mono"), "the exponential theme's $type.family.mono");
 }
