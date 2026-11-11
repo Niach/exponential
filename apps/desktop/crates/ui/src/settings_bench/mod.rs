@@ -194,6 +194,7 @@ mod pending_pill;
 mod prompts;
 mod readiness;
 mod repositories;
+mod resend_invite;
 mod row_parity;
 mod select_multi;
 mod select_variants;

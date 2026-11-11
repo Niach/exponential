@@ -751,7 +751,7 @@ impl MembersPane {
 
 /// The copy button's glyph (gpui-component `Clipboard`: the check while
 /// copied).
-fn copy_icon(copied: bool) -> &'static str {
+pub(super) fn copy_icon(copied: bool) -> &'static str {
     if copied {
         CHECK_ICON
     } else {
@@ -763,6 +763,16 @@ fn copy_icon(copied: bool) -> &'static str {
 /// them to their asset paths).
 const COPY_ICON: &str = "ide-copy";
 const CHECK_ICON: &str = "ide-check";
+
+/// The registry's copy / check (the same Lucide paths gpui-component's
+/// `Clipboard` draws), for a host drawing [`link_row`]'s button.
+pub(super) fn copy_glyph(name: &str) -> Option<SharedString> {
+    match name {
+        COPY_ICON => Some(registry::UI_COPY.path()),
+        CHECK_ICON => Some(registry::UI_CHECK.path()),
+        _ => None,
+    }
+}
 
 /// A profile picture's src: an absolute http(s) URL (Better Auth `image`).
 fn picture_src(url: &str) -> bool {
@@ -811,13 +821,7 @@ struct MembersHost {
 
 impl HostPlugin for MembersHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
-        match name {
-            // The registry's copy / check (the same Lucide paths gpui-component's
-            // `Clipboard` draws).
-            COPY_ICON => Some(registry::UI_COPY.path()),
-            CHECK_ICON => Some(registry::UI_CHECK.path()),
-            _ => self.ide.icon(name),
-        }
+        copy_glyph(name).or_else(|| self.ide.icon(name))
     }
 
     fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
@@ -891,7 +895,7 @@ fn member_actions_menu(
                             .icon(Icon::new(registry::UI_MAIL))
                             .on_click(move |_, window, cx| {
                                 let resend = resend.clone();
-                                // dialog stays native: its own window around the shared gpui `InviteForm`.
+                                // dialog stays a native window, around its own document.
                                 super::resend_invite_dialog::open(
                                     window,
                                     cx,
@@ -1064,10 +1068,10 @@ fn row_id(kind: &str, id: &str) -> ElementId {
 // ---------------------------------------------------------------------------
 
 /// The colours the document needs beyond [`Ink`].
-struct Tints {
+pub(super) struct Tints {
     /// The theme radius (the text buttons, the notice, the link box).
     radius: f32,
-    danger: String,
+    pub(super) danger: String,
     /// The link box's hairline (`row_stroke`).
     stroke: String,
     /// The seat notice's 40% primary stroke over its 5% primary wash.
@@ -1089,7 +1093,29 @@ struct Tints {
 }
 
 impl Tints {
-    fn of(cx: &App) -> Self {
+    /// Plain literals, for a document's issue check.
+    #[cfg(test)]
+    pub(super) fn sample() -> Self {
+        let c = |hex: &str| hex.to_string();
+        Self {
+            radius: 6.,
+            danger: c("#f87171ff"),
+            stroke: c("#ffffff14"),
+            notice_stroke: c("#fafafa66"),
+            notice_wash: c("#fafafa0d"),
+            outline_fill: c("#ffffff08"),
+            outline_stroke: c("#ffffff26"),
+            outline_fg: c("#fafafaff"),
+            outline_hover: c("#ffffff13"),
+            outline_fill_dim: c("#ffffff04"),
+            outline_stroke_dim: c("#ffffff13"),
+            ghost_fg: c("#fafafaff"),
+            ghost_hover: c("#ffffff0a"),
+            hues: Vec::new(),
+        }
+    }
+
+    pub(super) fn of(cx: &App) -> Self {
         use super::api_keys::premultiplied_hex;
         let theme = cx.theme();
         Self {
@@ -1230,7 +1256,7 @@ fn pending_row(ink: &Ink, tints: &Tints) -> Value {
 /// How a [`text_button`] paints: gpui-component's primary or outline
 /// `Button`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ButtonPaint {
+pub(super) enum ButtonPaint {
     Primary,
     Outline,
 }
@@ -1245,7 +1271,7 @@ enum ButtonPaint {
 /// at least as wide as its idle face with that label (`feedback::Pending`'s
 /// idle width).
 #[allow(clippy::too_many_arguments)]
-fn text_button(ink: &Ink, tints: &Tints, id: &str, paint: ButtonPaint, icon: &str, label: Value, disabled: Value, loading: Value, spin: Value, event: Value, min_label: Option<&str>) -> Value {
+pub(super) fn text_button(ink: &Ink, tints: &Tints, id: &str, paint: ButtonPaint, icon: &str, label: Value, disabled: Value, loading: Value, spin: Value, event: Value, min_label: Option<&str>) -> Value {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Face {
         Idle,
@@ -1331,10 +1357,10 @@ fn text_button(ink: &Ink, tints: &Tints, id: &str, paint: ButtonPaint, icon: &st
     json!({"id": format!("{id}_slot"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": faces})
 }
 
-/// `invite_form::out_of_seats_notice`: the web's seat-cap `UpgradeDialog`,
+/// The web's seat-cap `UpgradeDialog`,
 /// inline (`px_3` / `py_2`, `gap_1`, the theme radius in a 40% primary
 /// stroke over a 5% primary wash).
-fn seats_notice(ink: &Ink, tints: &Tints, id: &str, visible: Value) -> Value {
+pub(super) fn seats_notice(ink: &Ink, tints: &Tints, id: &str, visible: Value) -> Value {
     let mut title = ink.text(&format!("{id}_title"), json!(OUT_OF_SEATS_TITLE), SM, &ink.foreground);
     title["style"]["fontWeight"] = json!(500);
     json!({"id": id, "component": "Box", "visible": visible,
@@ -1346,12 +1372,12 @@ fn seats_notice(ink: &Ink, tints: &Tints, id: &str, visible: Value) -> Value {
         ]})
 }
 
-/// `invite_form::invite_link_row`: the minted link, read-only (`px_2` /
+/// Web `InviteLinkRow`: the minted link, read-only (`px_2` /
 /// `py_1`, the theme radius, the row hairline, `text_xs` mono, one line),
 /// with gpui-component's `Clipboard` (a ghost `XSmall` icon button: 20
 /// rems-quarter square, the theme radius, the `size_3` glyph) and its
 /// "Copy invite URL" tooltip; the copy is the `copy` action.
-fn link_row(ink: &Ink, tints: &Tints, id: &str, base: &str, link: &str, visible: Value) -> Value {
+pub(super) fn link_row(ink: &Ink, tints: &Tints, id: &str, base: &str, link: &str, visible: Value) -> Value {
     let mut url = ink.text(&format!("{id}_url"), path(&format!("{base}/link")), XS, &ink.foreground);
     url["props"]["lines"] = json!(1);
     url["style"]["fontFamily"] = json!(ink.mono);
