@@ -91,6 +91,26 @@ fn status_glyph(status: domain::IssueStatus) -> (&'static str, &'static str) {
     }
 }
 
+/// The `#` typeahead's status order (the IDE's issue typeahead): work in
+/// flight first.
+fn status_rank(status: domain::IssueStatus) -> u8 {
+    use domain::IssueStatus as S;
+    match status {
+        S::InProgress => 0,
+        S::InReview => 1,
+        S::Backlog => 2,
+        S::Done => 3,
+        S::Cancelled => 4,
+        S::Duplicate => 5,
+        S::Unknown => 6,
+    }
+}
+
+/// An identifier's number (`APP-12` → 12), for a numeric order.
+fn issue_number(identifier: &str) -> u64 {
+    identifier.rsplit('-').next().and_then(|n| n.parse().ok()).unwrap_or(u64::MAX)
+}
+
 /// The `$color.<name>` of a tone (a menu item's `iconColor`).
 fn tone_token(tone: &str) -> &'static str {
     match tone {
@@ -620,9 +640,15 @@ impl SteerSessionView {
                 }
                 domain::typeahead::CompletionTrigger::IssueRef => {
                     let query = token.query.to_lowercase();
-                    issues = crate::picker::issue_picker::snapshot_rows(cx, team_id, &Default::default())
+                    let mut rows: Vec<_> = crate::picker::issue_picker::snapshot_rows(cx, team_id, &Default::default())
                         .into_iter()
                         .filter(|row| query.is_empty() || row.identifier.to_lowercase().contains(&query) || row.title.to_lowercase().contains(&query))
+                        .collect();
+                    // #EDE-65 lane T: the IDE's `#` order: by status (in
+                    // progress first), then the issue number.
+                    rows.sort_by_key(|row| (status_rank(row.status), issue_number(&row.identifier), row.identifier.clone()));
+                    issues = rows
+                        .into_iter()
                         .take(domain::typeahead::MAX_ITEMS)
                         .map(|row| {
                             let (icon, tone) = status_glyph(row.status);
@@ -1113,6 +1139,8 @@ mod tests {
         assert_eq!(agent_mark(coding::CodingAgent::Claude), "brand-claude");
         assert_eq!(status_glyph(domain::IssueStatus::InReview), ("status-in-review", "success"));
         assert_eq!(tone_token("neutral"), "mutedForeground");
+        assert!(status_rank(domain::IssueStatus::InProgress) < status_rank(domain::IssueStatus::Backlog));
+        assert_eq!((issue_number("APP-12"), issue_number("APP-3") < issue_number("APP-12")), (12, true));
     }
 
     /// #EDE-65 lane T: the IDE card's look and rules through existing genUI:

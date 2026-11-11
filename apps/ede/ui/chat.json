@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (#EDE-65 lane O: every bubble is genUI's MessageBubble under the theme's recipe, the IDE's look: `side` out = the viewer's own right, `in` left with its `author` over it, its `time` inside; #EXP-1772 a RELAY's `relay` line (another session's name + ›, `thref` =caption's size, muted) sits `ABOVE the bubble, outside it, and is the ONLY press (ede_chat open {sessionId: link`}): no bubble is a link, the sender's `avatar` icon in a 32 px column LEFT of the bubble on an `indent`ed row (empty = its spacer; 8 px to the bubble, transcript-grouping `avatarGap`), so the bubble's 62 % cap is of the column right of it (`maxWidth.wide`), not of the row, a queued one at 0.7 with `queued` under it; each row's `gap` (3, 8, 12 or 16 px) is a spacer above it, the list itself has none; a `host` row is an Embed the host claims by its painted id and paints itself (the IDE's tool rows and Work card); the agent's plain prose in a transcript, muted lines, THE inline marker (#EXP-1772 kind `marker`, an event line or a system note: its `text` centred and muted between two hairline Separators), divider pills, cards that open their session (lane Q: a card with a genUI surface draws it in an Embed under its title, in the IDE's surface frame: the title caption over a 12 px card box; a plan keeps its row above the frame), questions whose options answer, pictures; #EXP-1780: `chat_scroll` scrolls them above the composer, the host holding it at the newest row until the reader scrolls up) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which opens the browser; never a credential), `installing` = Setting up Claude Code… (no action), `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in link), `failed` = the reason with Try again (an EmptyState's description is literal: the host sets it from /chatting/setup/message by id, `chat_cli_failed`, like the composer's); once signed in the desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). KEYS (#EDE-65 lane P, the IDE's composer menus): while /chatMenu is open the composer's menuKeys hands ArrowUp/ArrowDown/Enter/Tab/Escape to the host as the event ede_chat {action: key, key} (an event: its context carries the key); the host highlights one row (`selected`, domain::chat_document::menu_key): the arrows move it, wrapping, Enter and Tab pick it like its press, Escape shuts the menu for that draft; a rebuilt `/` menu keeps its row (clamped), the typeahead starts at its first. /chat/draft is the composer's text, owned by the document. ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label, image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and passes their ids with the text, a failed upload is the toast and keeps them for the retry. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send. COMPOSER (#EDE-65 lane O, the IDE draws this same footer): the composer's ONLY tool is the \"+\" Menu in its `leading` slot (composer-menu.json), shown while /chatting/composer/plus; its items are a literal prop the host sets from /chatting/composer/menu by id (`chat_plus`, `chat_home_plus`), a pick = the EVENT ede_chat {action: plus, value} (an event: its context carries the value) (`<row>` or `<row>:<entry>`, uicore-model chat::plus_pick): `add-file` opens the file chooser (no paperclip any more); a pasted image fires the Composer's attach as the EVENT ede_chat {action: attach, files} (the host already has the files through its upload hook; a bare attach = the chooser). The `trailing` slot holds `chat_ring`, an Embed the host claims (the IDE's context ring and its usage sheet) while /chatting/composer/ring. The quick replies (`chat_replies`, /chatting/composer/replies) sit directly above the card: each a Chip whose press is ede_chat reply {messageId, replyId}, then a dismiss (ede_chat dismissReplies {messageId}). #EDE-65 lane T: the IDE card through genUI: the staged files and team chips are the Composer's `above` slot (a wrapping strip inside the card: a team = a removable pill Chip, a picture = a 48 px tile, a file = a 160 × 48 tile, each tile's remove a 24 px round button in its corner); the `/` and @/#/: menus float in a Popover at the composer's width (`matchAnchorWidth`); a menu row's `hasLeading` leading slot = the @ member's avatar (`avatarName`, `avatarSrc`), the : `emoji`, or the # status glyph (`statusIcon`, `statusTone`), every row carrying those fields, blank when unused.",
+  "$comment": "Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page and conversation as one genUI document. The chat button next to the start button (or Super+Space) opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.json, uicore-model chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows (#EDE-65 lane O: every bubble is genUI's MessageBubble under the theme's recipe, the IDE's look: `side` out = the viewer's own right, `in` left with its `author` over it, its `time` inside; #EXP-1772 a RELAY's `relay` line (another session's name + ›, `thref` =caption's size, muted) sits `ABOVE the bubble, outside it, and is the ONLY press (ede_chat open {sessionId: link`}): no bubble is a link, the sender's `avatar` icon in a 32 px column LEFT of the bubble on an `indent`ed row (empty = its spacer; 8 px to the bubble, transcript-grouping `avatarGap`), so the bubble's 62 % cap is of the column right of it (`maxWidth.wide`), not of the row, a queued one at 0.7 with `queued` under it; each row's `gap` (3, 8, 12 or 16 px) is a spacer above it, the list itself has none; a `host` row is an Embed the host claims by its painted id and paints itself (the IDE's tool rows and Work card); the agent's plain prose in a transcript, muted lines, THE inline marker (#EXP-1772 kind `marker`, an event line or a system note: its `text` centred and muted between two hairline Separators), divider pills, cards that open their session (lane Q: a card with a genUI surface draws it in an Embed under its title, in the IDE's surface frame: the title caption over a 12 px card box; a plan keeps its row above the frame), questions whose options answer, pictures; #EXP-1780: `chat_scroll` scrolls them above the composer, the host holding it at the newest row until the reader scrolls up) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty state over the composer. EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which opens the browser; never a credential), `installing` = Setting up Claude Code… (no action), `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in link), `failed` = the reason with Try again (an EmptyState's description is literal: the host sets it from /chatting/setup/message by id, `chat_cli_failed`, like the composer's); once signed in the desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props (genUI binds only a Composer's value): the host sets them from /chatting/composer by id (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules): while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command, description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt}) loads its body into it; every composer change reports the draft (ede_chat draft {text}). KEYS (#EDE-65 lane P, the IDE's composer menus): while /chatMenu is open the composer's menuKeys hands ArrowUp/ArrowDown/Enter/Tab/Escape to the host as the event ede_chat {action: key, key} (an event: its context carries the key); the host highlights one row (`selected`, domain::chat_document::menu_key): the arrows move it, wrapping, Enter and Tab pick it like its press, Escape shuts the menu for that draft; a rebuilt `/` menu keeps its row (clamped), the typeahead starts at its first. /chat/draft is the composer's text, owned by the document. ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label, image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and passes their ids with the text, a failed upload is the toast and keeps them for the retry. Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send. COMPOSER (#EDE-65 lane O, the IDE draws this same footer): the composer's ONLY tool is the \"+\" Menu in its `leading` slot (composer-menu.json), shown while /chatting/composer/plus; its items are a literal prop the host sets from /chatting/composer/menu by id (`chat_plus`, `chat_home_plus`), a pick = the EVENT ede_chat {action: plus, value} (an event: its context carries the value) (`<row>` or `<row>:<entry>`, uicore-model chat::plus_pick): `add-file` opens the file chooser (no paperclip any more); a pasted image fires the Composer's attach as the EVENT ede_chat {action: attach, files} (the host already has the files through its upload hook; a bare attach = the chooser). The `trailing` slot holds `chat_ring`, an Embed the host claims (the IDE's context ring and its usage sheet) while /chatting/composer/ring. The quick replies (`chat_replies`, /chatting/composer/replies) sit directly above the card: each a Chip whose press is ede_chat reply {messageId, replyId}, then a dismiss (ede_chat dismissReplies {messageId}). #EDE-65 lane T: the IDE card through genUI: the staged files and team chips are the Composer's `above` slot (a wrapping strip inside the card: a team = a removable pill Chip, a picture = a 48 px tile, a file = a 160 × 48 tile, each tile's remove a 24 px round button in its corner); the `/` and @/#/: menus float in a Popover at the composer's width (`matchAnchorWidth`); a menu row's `hasLeading` leading slot = the @ member's avatar (`avatarName`, `avatarSrc`), the : `emoji`, or the # status glyph (`statusIcon`, `statusTone`), every row carrying those fields, blank when unused. A menu row draws the IDE's typeahead row: its `command` (`/name`, an issue id) in mono, the `description` muted after it (in the foreground when there is no command: a prompt's or a member's name), a member's muted `hint` (the email), the `argHint` (`<level>`) muted mono at the row's end; `hasIcon` shows a prompt's glyph.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -2463,11 +2463,8 @@
                     "style": {
                       "display": "flex",
                       "flexDirection": "column",
-                      "padding": 4,
-                      "borderRadius": 12,
-                      "borderWidth": 1,
-                      "borderColor": "$color.border",
-                      "backgroundColor": "$color.popover"
+                      "gap": 1.75,
+                      "margin": -12
                     },
                     "children": [
                       {
@@ -2487,18 +2484,7 @@
                         "id": "chat_slash_row",
                         "component": "Row",
                         "props": {
-                          "identifier": {
-                            "@path": "command"
-                          },
-                          "title": {
-                            "@path": "description"
-                          },
-                          "meta": {
-                            "@path": "hint"
-                          },
-                          "icon": {
-                            "@path": "icon"
-                          },
+                          "title": "",
                           "selected": {
                             "@path": "selected"
                           },
@@ -2523,62 +2509,149 @@
                         },
                         "slots": {
                           "leading": {
-                            "id": "chat_slash_lead",
+                            "id": "chat_slash_body",
                             "component": "Box",
                             "style": {
                               "display": "flex",
+                              "flexDirection": "row",
                               "alignItems": "center",
-                              "justifyContent": "center",
-                              "width": 16,
-                              "height": 16,
-                              "flexShrink": 0
-                            },
-                            "visible": {
-                              "@path": "hasLeading"
+                              "gap": 7,
+                              "minWidth": 0
                             },
                             "children": [
                               {
-                                "id": "chat_slash_avatar",
-                                "component": "Avatar",
+                                "id": "chat_slash_lead",
+                                "component": "Box",
+                                "style": {
+                                  "display": "flex",
+                                  "alignItems": "center",
+                                  "justifyContent": "center",
+                                  "width": 16,
+                                  "height": 16,
+                                  "flexShrink": 0
+                                },
+                                "visible": {
+                                  "@path": "hasLeading"
+                                },
+                                "children": [
+                                  {
+                                    "id": "chat_slash_avatar",
+                                    "component": "Avatar",
+                                    "props": {
+                                      "name": {
+                                        "@path": "avatarName"
+                                      },
+                                      "src": {
+                                        "@path": "avatarSrc"
+                                      },
+                                      "seed": {
+                                        "@path": "avatarName"
+                                      },
+                                      "size": "sm"
+                                    },
+                                    "style": {
+                                      "width": 16,
+                                      "height": 16
+                                    },
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "eq",
+                                          "args": {
+                                            "a": {
+                                              "@path": "avatarName"
+                                            },
+                                            "b": ""
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "id": "chat_slash_emoji",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": {
+                                        "@path": "emoji"
+                                      },
+                                      "lines": 1
+                                    },
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "eq",
+                                          "args": {
+                                            "a": {
+                                              "@path": "emoji"
+                                            },
+                                            "b": ""
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "id": "chat_slash_status",
+                                    "component": "Icon",
+                                    "props": {
+                                      "name": {
+                                        "@path": "statusIcon"
+                                      },
+                                      "size": "sm",
+                                      "tone": {
+                                        "@path": "statusTone"
+                                      }
+                                    },
+                                    "visible": {
+                                      "@call": "not",
+                                      "args": {
+                                        "value": {
+                                          "@call": "eq",
+                                          "args": {
+                                            "a": {
+                                              "@path": "statusIcon"
+                                            },
+                                            "b": ""
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "chat_slash_icon",
+                                "component": "Icon",
                                 "props": {
                                   "name": {
-                                    "@path": "avatarName"
-                                  },
-                                  "src": {
-                                    "@path": "avatarSrc"
-                                  },
-                                  "seed": {
-                                    "@path": "avatarName"
+                                    "@path": "icon"
                                   },
                                   "size": "sm"
                                 },
                                 "style": {
-                                  "width": 16,
-                                  "height": 16
+                                  "color": "$color.mutedForeground"
                                 },
                                 "visible": {
-                                  "@call": "not",
-                                  "args": {
-                                    "value": {
-                                      "@call": "eq",
-                                      "args": {
-                                        "a": {
-                                          "@path": "avatarName"
-                                        },
-                                        "b": ""
-                                      }
-                                    }
-                                  }
+                                  "@path": "hasIcon"
                                 }
                               },
                               {
-                                "id": "chat_slash_emoji",
+                                "id": "chat_slash_command",
                                 "component": "Text",
                                 "props": {
                                   "text": {
-                                    "@path": "emoji"
+                                    "@path": "command"
                                   },
                                   "lines": 1
+                                },
+                                "style": {
+                                  "fontFamily": "$type.family.mono",
+                                  "fontSize": 10.5,
+                                  "lineHeight": 14,
+                                  "color": "$color.foreground",
+                                  "flexShrink": 0
                                 },
                                 "visible": {
                                   "@call": "not",
@@ -2587,7 +2660,7 @@
                                       "@call": "eq",
                                       "args": {
                                         "a": {
-                                          "@path": "emoji"
+                                          "@path": "command"
                                         },
                                         "b": ""
                                       }
@@ -2596,16 +2669,19 @@
                                 }
                               },
                               {
-                                "id": "chat_slash_status",
-                                "component": "Icon",
+                                "id": "chat_slash_text",
+                                "component": "Text",
                                 "props": {
-                                  "name": {
-                                    "@path": "statusIcon"
+                                  "text": {
+                                    "@path": "description"
                                   },
-                                  "size": "sm",
-                                  "tone": {
-                                    "@path": "statusTone"
-                                  }
+                                  "lines": 1
+                                },
+                                "style": {
+                                  "fontSize": 12.25,
+                                  "lineHeight": 17.5,
+                                  "color": "$color.mutedForeground",
+                                  "minWidth": 0
                                 },
                                 "visible": {
                                   "@call": "not",
@@ -2614,7 +2690,62 @@
                                       "@call": "eq",
                                       "args": {
                                         "a": {
-                                          "@path": "statusIcon"
+                                          "@path": "command"
+                                        },
+                                        "b": ""
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "id": "chat_slash_name",
+                                "component": "Text",
+                                "props": {
+                                  "text": {
+                                    "@path": "description"
+                                  },
+                                  "lines": 1
+                                },
+                                "style": {
+                                  "fontSize": 12.25,
+                                  "lineHeight": 17.5,
+                                  "color": "$color.foreground",
+                                  "minWidth": 0
+                                },
+                                "visible": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "command"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              },
+                              {
+                                "id": "chat_slash_detail",
+                                "component": "Text",
+                                "props": {
+                                  "text": {
+                                    "@path": "hint"
+                                  },
+                                  "lines": 1
+                                },
+                                "style": {
+                                  "fontSize": 10.5,
+                                  "lineHeight": 14,
+                                  "color": "$color.mutedForeground",
+                                  "minWidth": 0
+                                },
+                                "visible": {
+                                  "@call": "not",
+                                  "args": {
+                                    "value": {
+                                      "@call": "eq",
+                                      "args": {
+                                        "a": {
+                                          "@path": "hint"
                                         },
                                         "b": ""
                                       }
@@ -2623,6 +2754,38 @@
                                 }
                               }
                             ]
+                          },
+                          "trailing": {
+                            "id": "chat_slash_arg",
+                            "component": "Text",
+                            "props": {
+                              "text": {
+                                "@path": "argHint"
+                              },
+                              "lines": 1
+                            },
+                            "style": {
+                              "fontFamily": "$type.family.mono",
+                              "fontSize": 10.5,
+                              "lineHeight": 14,
+                              "color": "$color.mutedForeground",
+                              "opacity": 0.7,
+                              "flexShrink": 0
+                            },
+                            "visible": {
+                              "@call": "not",
+                              "args": {
+                                "value": {
+                                  "@call": "eq",
+                                  "args": {
+                                    "a": {
+                                      "@path": "argHint"
+                                    },
+                                    "b": ""
+                                  }
+                                }
+                              }
+                            }
                           }
                         }
                       }

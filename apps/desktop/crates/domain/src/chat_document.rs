@@ -252,6 +252,16 @@ impl From<(String, String)> for MentionIssue {
 fn row_leading(mut row: serde_json::Value, avatar: Option<(&str, Option<&str>)>, emoji: &str, status: (&str, &str)) -> serde_json::Value {
     let (name, src) = avatar.unwrap_or(("", None));
     row["hasLeading"] = serde_json::json!(avatar.is_some() || !emoji.is_empty() || !status.0.is_empty());
+    // A command's argument hint (`<level>`), mono at the row's end, moves
+    // out of `hint` (a member's email stays there); `hasIcon` = a glyph.
+    if row["command"].as_str().is_some_and(|c| c.starts_with('/')) {
+        let arg = row["hint"].as_str().filter(|h| !h.is_empty()).map(|h| format!("<{h}>")).unwrap_or_default();
+        row["argHint"] = serde_json::json!(arg);
+        row["hint"] = serde_json::json!("");
+    } else if row.get("argHint").is_none() {
+        row["argHint"] = serde_json::json!("");
+    }
+    row["hasIcon"] = serde_json::json!(row["icon"].as_str().is_some_and(|i| !i.is_empty()));
     row["avatarName"] = serde_json::json!(name);
     row["avatarSrc"] = serde_json::json!(src.unwrap_or(""));
     row["emoji"] = serde_json::json!(emoji);
@@ -502,6 +512,13 @@ mod tests {
         assert!(emoji["rows"][0]["description"].as_str().unwrap().starts_with(':'));
         let slash = slash_menu("/", Some("claude"), &[]);
         assert_eq!((slash["rows"][0]["hasLeading"].as_bool(), slash["rows"][0]["emoji"].as_str()), (Some(false), Some("")));
+        // A command's argument is the mono `<arg>` at the row's end, never `hint`.
+        for row in slash["rows"].as_array().unwrap().iter().filter(|r| r["command"].as_str().is_some_and(|c| c.starts_with('/'))) {
+            assert_eq!(row["hint"], "");
+            let arg = row["argHint"].as_str().unwrap();
+            assert!(arg.is_empty() || (arg.starts_with('<') && arg.ends_with('>')), "{arg}");
+        }
+        assert!(slash["rows"].as_array().unwrap().iter().any(|r| r["argHint"].as_str().is_some_and(|a| !a.is_empty())), "some command takes an argument");
         assert!(mention_menu("plain text", &members, &issues).is_none());
         assert_eq!(mention_menu("@zzz", &members, &[]).unwrap()["open"], false);
     }
