@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` trigger glyph (#EXP-1629): `SelectTriggerContent` paints the core's `valueIcon` in its `iconColor` before the value; the measurer adds it.
 - Select `button` trigger + Text `truncate: middle` (#EXP-1778): the button paints as the pill's parts (its own recipe); its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it, no cursor when the pointer opened it; a `middle` Text shows `middleTruncateWidth` of its text at its content width (`fixtures/text-truncate.json`).
 - Select `row` disabled (#EXP-1629): the regenerated themes dim the value + chevron.
 - Menu item `detail`, `identifier`, `preview` (#EXP-1629): the core lays out the `identifier` / `detail` parts and the shown preview as the menu's layer holding an Embed leaf (mounted like any Embed); the preview's popup is not focusable and never takes Escape (`isMenuPreviewLayer`); the core's `hoverTimer` runs the waits. `MenuPreviewTest` replays `menuRows` + `menuPreview`.

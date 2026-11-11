@@ -11648,6 +11648,31 @@
       }
     },
     {
+      "name": "Select/triggerVariant=button+icon",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "In Review",
+              "value": "review",
+              "icon": "status-in-review",
+              "iconColor": "$color.success"
+            },
+            {
+              "label": "Do nothing",
+              "value": "none"
+            }
+          ],
+          "value": "review",
+          "triggerVariant": "button"
+        }
+      }
+    },
+    {
       "name": "SearchList/example",
       "node": {
         "id": "search_list",
