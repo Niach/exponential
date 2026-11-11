@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet.
 - Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. React: Radix's `onOpenAutoFocus` / `onCloseAutoFocus` are prevented for it (`isFieldAnchorElement`).
 - Select `triggerVariant: "inline"` (#EXP-1629): the field trigger's parts with no label part (the label = its `aria-label`), the `Select.dropdown` glyph, content-sized (base-css), the field's popup.
 - Composer (#EDE-65): a hidden `above` renders no wrapper (the slot's `visible` re-renders the composer); the send/stop glyph is the `sendIcon` recipe part. A disabled send's opacity is the recipe's (base-css .5 stays the fallback).

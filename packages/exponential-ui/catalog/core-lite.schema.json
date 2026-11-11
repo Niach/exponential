@@ -13140,6 +13140,11 @@
             "italic"
           ]
         },
+        "fontVariantNumeric": {
+          "enum": [
+            "tabular-nums"
+          ]
+        },
         "fontFamily": {
           "type": "string",
           "pattern": "^\\$type.family\\.[a-zA-Z0-9]+$"
@@ -14047,6 +14052,11 @@
               "enum": [
                 "normal",
                 "italic"
+              ]
+            },
+            "fontVariantNumeric": {
+              "enum": [
+                "tabular-nums"
               ]
             },
             "fontFamily": {
@@ -14961,6 +14971,11 @@
                 "italic"
               ]
             },
+            "fontVariantNumeric": {
+              "enum": [
+                "tabular-nums"
+              ]
+            },
             "fontFamily": {
               "type": "string",
               "pattern": "^\\$type.family\\.[a-zA-Z0-9]+$"
@@ -15871,6 +15886,11 @@
               "enum": [
                 "normal",
                 "italic"
+              ]
+            },
+            "fontVariantNumeric": {
+              "enum": [
+                "tabular-nums"
               ]
             },
             "fontFamily": {
@@ -16785,6 +16805,11 @@
               "enum": [
                 "normal",
                 "italic"
+              ]
+            },
+            "fontVariantNumeric": {
+              "enum": [
+                "tabular-nums"
               ]
             },
             "fontFamily": {

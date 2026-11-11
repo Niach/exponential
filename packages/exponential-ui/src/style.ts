@@ -148,6 +148,8 @@ export interface StyleProps {
   textDecoration?: `none` | `underline` | `line-through`
   textTransform?: `none` | `uppercase` | `lowercase` | `capitalize`
   fontStyle?: `normal` | `italic`
+  /** Tabular figures (OpenType `tnum`): digits line up in a column. Inherited. */
+  fontVariantNumeric?: `tabular-nums`
   fontFamily?: `$type.family.${string}`
   transition?: `$motion.${string}`
   transitionEasing?: `$ease.${string}`

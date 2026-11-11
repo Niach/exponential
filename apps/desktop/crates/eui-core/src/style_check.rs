@@ -312,7 +312,7 @@ mod tests {
         for key in ["zIndex", "order", "gridAutoFlow", "justifyItems", "borderTopColor"] {
             assert!(!STYLE_SPECS.contains_key(key), "{key}");
         }
-        for key in ["transition", "transitionEasing", "transform", "backgroundGradient", "borderTopWidth", "borderTopLeftRadius", "overflowX", "insetBlockStart", "visibility", "pointerEvents", "userSelect", "cursor", "letterSpacing", "textDecoration", "textTransform", "fontStyle", "borderStyle"] {
+        for key in ["transition", "transitionEasing", "transform", "backgroundGradient", "borderTopWidth", "borderTopLeftRadius", "overflowX", "insetBlockStart", "visibility", "pointerEvents", "userSelect", "cursor", "letterSpacing", "textDecoration", "textTransform", "fontStyle", "fontVariantNumeric", "borderStyle"] {
             assert!(STYLE_SPECS.contains_key(key), "{key}");
         }
         assert_eq!(STYLE_SPECS["borderWidth"].layout_effect, Some(true));

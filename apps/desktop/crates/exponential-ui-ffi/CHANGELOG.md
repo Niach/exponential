@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `FfiTextStyle.font_variant_numeric` (`tabular-nums` = shape with `tnum`; `None` = the font's own figures). Bindings regenerated.
 - #EXP-1629: `set_popup_bounds(x, y, width, height)`: the host's window around the surface, in surface coordinates, that anchored popups fit into (width or height <= 0 = unset, the surface).
 
 ## 0.21.0 (2026-11-09)

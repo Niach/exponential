@@ -25,6 +25,13 @@ describe(`compileNodeSheet`, () => {
   })
 })
 
+describe(`fontVariantNumeric`, () => {
+  it(`tabular-nums is CSS font-variant-numeric on the node (React and Solid share this sheet)`, () => {
+    const t = node(`root`, undefined, [{ id: `age`, component: `Text`, props: { text: `10m` }, children: [], style: { fontVariantNumeric: `tabular-nums` } } as UiNode])
+    expect(compileNodeSheet([t], `s`).chunks.get(`age`)).toContain(`.xui-s-s .xui-n-age{font-variant-numeric:tabular-nums}`)
+  })
+})
+
 describe(`@container (round 8)`, () => {
   it(`a real container query against the PARENT, made an inline-size container; @media stays on the surface`, () => {
     const t = node(`root`, undefined, [node(`kid`, { display: `flex`, "@container (max-width: 480px)": { display: `none` }, "@media (min-width: 900px)": { gap: 4 } })])

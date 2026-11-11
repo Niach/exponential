@@ -117,7 +117,8 @@ Never one FFI call per taffy measure request. `Measure` is batched:
 `LayoutOutput::upcalls` counts the crossings (≤ 3 by construction). Every
 `LeafRequest` carries the resolved `TextStyle` (font size × font scale,
 weight, line height, family, and the width-changing `fontStyle`,
-`textTransform`, `letterSpacing`), the part's `owner_component` and the
+`textTransform`, `letterSpacing`, `fontVariantNumeric`), the part's
+`owner_component` and the
 `ControlBox` (padding on EVERY side,
 logical keys resolved; `padding_horizontal/vertical` are the averages, so
 `2 ×` gives the total; border, gap, fixed or minimum sizes). `baseline:
