@@ -1255,6 +1255,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -1284,6 +1312,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -9817,6 +9854,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -9872,6 +9937,15 @@
               "style": {
                 "backgroundColor": "$color.secondary"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": "$control.buttonSm",
+                "width": "$control.buttonSm"
+              }
             }
           ],
           "icon": [
@@ -9879,6 +9953,24 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -19265,6 +19357,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -19350,6 +19470,31 @@
               "style": {
                 "paddingHorizontal": "$spacing.lg"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "paddingHorizontal": "$spacing.none"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
             }
           ],
           "icon": [
@@ -19357,6 +19502,15 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -28511,6 +28665,34 @@
             },
             {
               "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": 24,
+                "width": 24,
+                "paddingHorizontal": "$spacing.none",
+                "borderRadius": "$radius.full"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "tone": "muted",
+                "state": "hover"
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
                 "state": "pressed"
               },
               "style": {
@@ -28566,6 +28748,15 @@
               "style": {
                 "backgroundColor": "$color.secondary"
               }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "height": "$control.buttonSm",
+                "width": "$control.buttonSm"
+              }
             }
           ],
           "icon": [
@@ -28573,6 +28764,24 @@
               "style": {
                 "width": "$control.iconSm",
                 "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
+              }
+            },
+            {
+              "when": {
+                "size": "icon-xs"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],

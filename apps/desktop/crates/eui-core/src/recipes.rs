@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label", "badge"]);
         assert_eq!(parts["Menu"].props, ["openOn"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
-        assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
+        assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading", "tone"]); // #EXP-1629: + tone
         // EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave;
         // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic;
         // EXP-1586: + ZoomableImage; EXP-1604: + Motion; VAPP-232: + Calendar, Timeline; VAPP-217: + RecordForm, RecordTable; VAPP-280: + SettingsRow; #VAPP-285: + Tree.

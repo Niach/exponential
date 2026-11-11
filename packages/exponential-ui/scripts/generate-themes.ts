@@ -501,9 +501,11 @@ function walk(node: UiNode, visit: (n: UiNode) => void): void {
   node.children.forEach((c) => walk(c, visit))
 }
 
+const COMBO_TUPLES: [string, Record<string, unknown>][] = [[`Button`, { variant: `ghost`, size: `icon-xs`, tone: `muted` }]]
+
 /** Every (component, part, props) a theme can be asked about: each native
  *  part × its props varied one at a time over the defaults, each macro part
- *  as the component cases + the kitchen sink produce it. */
+ *  as the component cases + the kitchen sink produce it, + COMBO_TUPLES. */
 export function recipeTuples(componentCases: { node: NestedNode }[], kitchen: NestedNode): RecipeTuple[] {
   const parts = recipeParts()
   const seen = new Map<string, RecipeTuple>()
@@ -523,6 +525,13 @@ export function recipeTuples(componentCases: { node: NestedNode }[], kitchen: Ne
       for (const value of values) combos.push({ ...defaults, [prop]: value })
     }
     for (const part of spec.parts) for (const props of combos) add({ component: name, part, props })
+  }
+  // Prop COMBINATIONS whose look no single-prop variation shows. #EXP-1629:
+  // the IDE's composer tool, a muted ghost icon-xs (its hover fills, the
+  // glyph stays muted).
+  for (const [name, props] of COMBO_TUPLES) {
+    const defaults = nativeRecipeProps(name, coreCatalog.components[name].example ?? {})
+    for (const part of parts[name].parts) add({ component: name, part, props: { ...defaults, ...props } })
   }
   const trees = [...componentCases.map((c) => reduceNested(c.node, { catalogId: CORE_CATALOG_ID }).root), reduceNested(kitchen, { catalogId: CORE_CATALOG_ID }).root]
   for (const tree of trees) walk(tree, (n) => { if (n.recipe) add({ component: n.recipe.macro, part: n.recipe.part, props: n.recipe.props }) })

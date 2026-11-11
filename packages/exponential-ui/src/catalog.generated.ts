@@ -27,7 +27,7 @@ export const SPECIMEN_IDS = Object.fromEntries(COMPONENT_NAMES.map((n) => [n, `e
 
 export const ENUMS = {
   variant: ["default","secondary","outline","ghost","destructive","link"],
-  size: ["sm","default","lg","icon"],
+  size: ["sm","default","lg","icon","icon-xs"],
   tone: ["neutral","primary","success","warning","danger","info"],
   gap: ["none","xs","sm","md","lg","xl"],
   align: ["start","center","end","stretch"],
@@ -90,6 +90,7 @@ export const ENUMS = {
   selectTrigger: ["field","row","pill","button"],
   inputVariant: ["field","row","bare","code","box"],
   inputSize: ["default","sm"],
+  buttonTone: ["default","muted"],
   textareaVariant: ["field","row","code"],
 } as const
 export type VariantValue = (typeof ENUMS)["variant"][number]
@@ -156,6 +157,7 @@ export type StepperCollapseValue = (typeof ENUMS)["stepperCollapse"][number]
 export type SelectTriggerValue = (typeof ENUMS)["selectTrigger"][number]
 export type InputVariantValue = (typeof ENUMS)["inputVariant"][number]
 export type InputSizeValue = (typeof ENUMS)["inputSize"][number]
+export type ButtonToneValue = (typeof ENUMS)["buttonTone"][number]
 export type TextareaVariantValue = (typeof ENUMS)["textareaVariant"][number]
 
 /** Token NAMES by group (values come from a theme). */
@@ -287,7 +289,7 @@ export interface ComponentProps {
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; rows?: Record<string, unknown>[] | Dynamic; categoryField?: string; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; valueFormat?: Shapes["valueFormat"]; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
   StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic; pressable?: boolean }
-  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; checks?: Shapes["check"][]; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
+  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; tone?: ButtonToneValue; disabled?: boolean | Dynamic; checks?: Shapes["check"][]; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }
   Form: { name: string; disabled?: boolean | Dynamic; busy?: boolean | Dynamic; summary?: boolean }

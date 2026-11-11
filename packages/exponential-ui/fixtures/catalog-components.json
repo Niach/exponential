@@ -9451,6 +9451,69 @@
       }
     },
     {
+      "name": "Button/size=icon-xs",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "size": "icon-xs"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/tone=default",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "tone": "default"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Button/tone=muted",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Submit",
+          "variant": "default",
+          "tone": "muted"
+        },
+        "children": [
+          {
+            "id": "button_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Button/disabled=true",
       "node": {
         "id": "button",

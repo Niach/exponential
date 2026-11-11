@@ -17,7 +17,8 @@
       "sm",
       "default",
       "lg",
-      "icon"
+      "icon",
+      "icon-xs"
     ],
     "tone": [
       "neutral",
@@ -391,6 +392,10 @@
     "inputSize": [
       "default",
       "sm"
+    ],
+    "buttonTone": [
+      "default",
+      "muted"
     ],
     "textareaVariant": [
       "field",
@@ -3496,6 +3501,11 @@
         "size": {
           "type": "enum",
           "enum": "size",
+          "default": "default"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "buttonTone",
           "default": "default"
         },
         "disabled": {

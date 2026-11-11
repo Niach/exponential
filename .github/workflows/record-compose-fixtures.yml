@@ -62,6 +62,8 @@ name: record-compose-fixtures
 # the `Icon/size=xl` case of the Compose snapshot `components.json`).
 # EXP-1629 (2026-11-10): re-recorded for Input `variant: box` + `size`
 # (the catalog cases + the Input specimen in `components.json`).
+# EXP-1629 (2026-11-10): recorded locally (mint, heavy lane) for Button
+# `size: icon-xs` + `tone` (the three Button catalog cases in `components.json`).
 # EXP-1629 (2026-11-09): re-recorded for the Avatar (xl, the palette by
 # seed, half-size regular initials, the picture ring): `Avatar.png`, the
 # kitchen-sink goldens (seeded avatars), the CallSurface avatar.
