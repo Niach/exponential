@@ -406,7 +406,7 @@ final class AgentSessionModel {
     /// agent-less run that publishes a `config_state`, the external one that
     /// cannot name itself on the wire.
     var catalogAgent: String {
-        SlashCommands.agentId(session?.cli, acp: sessionConfig != nil)
+        SlashCommands.runAgent(session?.cli)
     }
 
     /// The composer's model pill: the live steer model, else the synced

@@ -1147,10 +1147,8 @@ impl SteerSessionView {
 
     /// The coding agent behind this session, for the usage sheet's account
     /// and windows, Account › and the usage wall. #EXP-1791: a REMOTE run
-    /// reads `sessions.cli` (NULL = claude, web's rule) — never the `/`
-    /// catalog's External arm, which a cli-less chat with an ACP config hit,
-    /// leaving the sheet on "Checking…" with no accounts. Always `Some`; the
-    /// `Option` stays for the callers' signatures.
+    /// reads `sessions.cli` (NULL = claude, [`slash_commands::run_agent`]).
+    /// Always `Some`; the `Option` stays for the callers' signatures.
     pub(crate) fn builtin_agent(&self) -> Option<coding::CodingAgent> {
         if let Some(session) = self.source.session() {
             return Some(session.agent());
@@ -3515,13 +3513,10 @@ impl SteerSessionView {
                 coding::CodingAgent::Codex => SessionAgent::Codex,
             };
         }
-        // A REMOTE run has only its row to go on; a row that names no agent
-        // (an older or foreign build) is told apart by the `config_state` it
-        // published.
-        let acp = self.feed.config().is_some();
+        // A REMOTE run has only its row to go on (#EXP-1792: no cli = claude).
         self.row
             .as_ref()
-            .map_or(SessionAgent::Claude, |row| slash_commands::agent_of(row, acp))
+            .map_or(SessionAgent::Claude, slash_commands::agent_of)
     }
 
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).

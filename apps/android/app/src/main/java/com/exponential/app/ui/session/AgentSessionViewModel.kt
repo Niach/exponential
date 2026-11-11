@@ -972,11 +972,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     val slashMatches: StateFlow<List<SlashCommand>> = combine(
         draft,
         session,
-        sessionConfig,
-    ) { text, row, config ->
+    ) { text, row ->
         SlashCommands.matches(
             text,
-            SlashCommands.agentId(row?.cli, config != null),
+            SlashCommands.runAgent(row?.cli),
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -1009,10 +1008,9 @@ class AgentSessionViewModel @AssistedInject constructor(
     val slashCandidates: StateFlow<List<com.exponential.app.domain.SlashCandidate>> = combine(
         draft,
         session,
-        sessionConfig,
         teamPrompts,
-    ) { text, row, config, prompts ->
-        SlashCommands.candidates(text, SlashCommands.agentId(row?.cli, config != null), prompts)
+    ) { text, row, prompts ->
+        SlashCommands.candidates(text, SlashCommands.runAgent(row?.cli), prompts)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
@@ -1050,13 +1048,11 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /** The catalog command the draft would RUN if sent, if any (EXP-724) — the
-     *  screen confirms before sending the ones that discard context. EXP-746:
-     *  keyed on the run's catalog agent, so an EXTERNAL run (agent-less, but
-     *  publishing a `config_state`) never confirms a `/clear` its agent would
-     *  only read as prose. */
+     *  screen confirms before sending the ones that discard context; keyed on
+     *  the run's agent (#EXP-1792: a cli-less run is claude). */
     fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
         draft.value,
-        SlashCommands.agentId(session.value?.cli, sessionConfig.value != null),
+        SlashCommands.runAgent(session.value?.cli),
     )
 
     // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────

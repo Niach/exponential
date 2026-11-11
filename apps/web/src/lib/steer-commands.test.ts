@@ -4,7 +4,7 @@ import {
   filterSteerCommands,
   matchSlashDraft,
   parseSteerCommand,
-  steerAgentId,
+  runAgentId,
   steerCommandDraft,
   steerCommandConfirmCopy,
   steerCommandsFor,
@@ -13,7 +13,6 @@ import {
   CONFIG_DEFAULT_VALUE_LABEL,
   CONFIG_MODE_LABEL,
   DEFAULT_STEER_AGENT,
-  EXTERNAL_STEER_AGENT,
   STEER_COMMANDS,
 } from "./steer-commands"
 
@@ -52,32 +51,21 @@ describe(`steerCommandsFor`, () => {
   })
 })
 
-// EXP-746: an external ACP agent syncs no agent at all, so "no agent" is not
-// enough to mean claude. Mirrored ×4 with this exact name (iOS
-// testAnAgentLessAcpRunIsAnExternalAgent, Android + desktop
-// `an agent-less acp run is an external agent`).
-describe(`steerAgentId`, () => {
-  it(`an agent-less acp run is an external agent`, () => {
-    // The sentinel is outside the contract on purpose: the curated rows
-    // describe claude/codex behaviour, and an external agent's own
-    // catalog is whatever it advertises.
-    expect(contract.codingAgent.values).not.toContain(EXTERNAL_STEER_AGENT)
-    expect(steerAgentId(null, true)).toBe(EXTERNAL_STEER_AGENT)
-    expect(steerCommandsFor(steerAgentId(null, true))).toEqual([])
+// #EXP-1791/#EXP-1792: a run with no agent name (every chat root) is claude,
+// whatever its ACP config says. Mirrored ×4 with this exact name (iOS
+// testACliLessRunIsClaude, Android + desktop `a cli-less run is claude`).
+describe(`runAgentId`, () => {
+  it(`a cli-less run is claude`, () => {
+    expect(runAgentId(null)).toBe(DEFAULT_STEER_AGENT)
+    expect(runAgentId(undefined)).toBe(DEFAULT_STEER_AGENT)
+    expect(runAgentId(`  `)).toBe(DEFAULT_STEER_AGENT)
+    expect(steerCommandsFor(runAgentId(null)).length).toBeGreaterThan(0)
   })
 
-  it(`a row that names its agent keeps it, ACP or not`, () => {
-    expect(steerAgentId(`codex`, true)).toBe(`codex`)
-    expect(steerAgentId(` codex `, true)).toBe(`codex`)
-    expect(steerAgentId(`claude`, false)).toBe(`claude`)
-  })
-
-  it(`an agent-less run with no config_state is still a claude run`, () => {
-    // A PTY run publishes no `config_state` — and neither does a row from a
-    // desktop too old to stamp its agent.
-    expect(steerAgentId(null, false)).toBe(DEFAULT_STEER_AGENT)
-    expect(steerAgentId(``, false)).toBe(DEFAULT_STEER_AGENT)
-    expect(steerAgentId(undefined, false)).toBe(DEFAULT_STEER_AGENT)
+  it(`a row that names its agent keeps it`, () => {
+    expect(runAgentId(`codex`)).toBe(`codex`)
+    expect(runAgentId(` codex `)).toBe(`codex`)
+    expect(runAgentId(`claude`)).toBe(`claude`)
   })
 })
 

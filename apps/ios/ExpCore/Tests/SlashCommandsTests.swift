@@ -84,26 +84,14 @@ final class SlashCommandsTests: XCTestCase {
     /// EXP-746: "no agent" alone does not mean claude — an EXTERNAL ACP agent
     /// syncs no agent either, and its curated catalog is empty. NEW-2: what it
     /// advertises stays hidden too, so its menu is empty.
-    /// #EXP-1791, mirrored ×4: to its MACHINE (the Usage overlay's login and
-    /// windows) a cli-less run is claude, ACP or not.
-    func testACliLessRunIsClaudeToTheMachine() {
-        XCTAssertEqual(SlashCommands.runAgent(nil), "claude")
-        XCTAssertEqual(SlashCommands.runAgent("  "), "claude")
+    /// #EXP-1791/#EXP-1792, mirrored ×4: a run with no agent name (every
+    /// chat root) is claude, whatever its ACP config says — its `/` menu
+    /// included.
+    func testACliLessRunIsClaude() {
+        XCTAssertEqual(SlashCommands.runAgent(nil), SlashCommands.defaultAgent)
+        XCTAssertEqual(SlashCommands.runAgent("  "), SlashCommands.defaultAgent)
         XCTAssertEqual(SlashCommands.runAgent(" codex "), "codex")
-    }
-
-    func testAnAgentLessAcpRunIsAnExternalAgent() {
-        XCTAssertFalse(DomainContract.codingAgentValues.contains(SlashCommands.externalAgent))
-        XCTAssertEqual(SlashCommands.agentId(nil, acp: true), SlashCommands.externalAgent)
-        XCTAssertEqual(SlashCommands.agentId("  ", acp: true), SlashCommands.externalAgent)
-        XCTAssertEqual(SlashCommands.agentId("codex", acp: true), "codex")
-        XCTAssertEqual(SlashCommands.agentId(nil, acp: false), SlashCommands.defaultAgent)
-        XCTAssertEqual(SlashCommands.agentId("", acp: false), SlashCommands.defaultAgent)
-
-        let external = SlashCommands.agentId(nil, acp: true)
-        XCTAssertTrue(SlashCommands.catalog(for: external).isEmpty)
-        XCTAssertTrue(SlashCommands.matches(draft: "/", agent: external).isEmpty)
-        XCTAssertNil(SlashCommands.command(for: "/compact", agent: external))
+        XCTAssertFalse(SlashCommands.catalog(for: SlashCommands.runAgent(nil)).isEmpty)
     }
 
     // MARK: - Menu query rule

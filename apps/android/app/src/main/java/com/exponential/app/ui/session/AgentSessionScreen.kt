@@ -784,20 +784,15 @@ private fun RunFaceContent(
     val switchingAccount by viewModel.switchingAccount.collectAsStateWithLifecycle()
     // EXP-849: a refused switch = `Couldn't switch the account`, raised by
     // THE SessionComposer (#EXP-1535: its Account › is the same switch).
-    // EXP-746: the agent's live configuration (the composer footer + the run's
-    // own `/` commands) and its context/spend meter. Both null on a PTY run,
-    // which publishes neither.
-    val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
+    // EXP-746: the run's context/spend meter (null until the agent reports).
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
     // EXP-1051: …and how that window is laid out — the device's attribution of
     // what it put in the context before the first turn. Null until a device
     // publishes one; the bar then draws the conversation alone.
     val sessionContextLayout by viewModel.sessionContextLayout.collectAsStateWithLifecycle()
-    // EXP-746: the `/` hint counts the MERGED catalog — an agent that
-    // advertises commands has a menu even if the contract had none for it.
-    // An agent-less run that publishes a `config_state` is an EXTERNAL agent
-    // (`SlashCommands.agentId`), which has no contract rows at all.
-    val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
+    // #EXP-1792: the `/` catalog keys off the run's agent (a cli-less run is
+    // claude, `SlashCommands.runAgent`).
+    val catalogAgent = SlashCommands.runAgent(session?.cli)
 
     // Attaching revives the connection (EXP-625): since EXP-621 a return visit
     // re-attaches to the running one and its feed is already there, but a dial
@@ -5195,7 +5190,7 @@ internal fun SessionComposer(
     val composerRefHandler = remember(issueRefCandidates) {
         IssueRefHandler(issueRefCandidates, searchServer = viewModel::searchIssueRefs) { }
     }
-    val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
+    val catalogAgent = SlashCommands.runAgent(session?.cli)
     val sessionEnded = session?.isEnded == true
     val awaitingInput = phase == AgentPhase.Live && composerActivity.asking
     // N-12: the composer never yields its slot; THE Dock sits above it.

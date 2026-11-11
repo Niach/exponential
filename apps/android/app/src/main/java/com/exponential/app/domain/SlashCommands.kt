@@ -79,38 +79,14 @@ object SlashCommands {
     private val defaultAgent: String = DomainContract.codingAgentValues.first()
 
     /**
-     * EXP-746: the catalog id of an EXTERNAL ACP agent — deliberately a value
-     * contract `codingAgent` (and so `steerCommands`) cannot name, so its
-     * curated catalog is EMPTY, exactly like the desktop's
-     * `steer::commands::agent_id(SessionAgent::External)`.
-     */
-    const val EXTERNAL_AGENT: String = "external"
-
-    /**
-     * EXP-746: which catalog a session's `/` menu and command rows key off.
-     *
-     * A row that names no agent is normally a claude run that predates the
-     * column — but an EXTERNAL agent syncs no agent EITHER, because
-     * `coding_sessions.agent` takes contract values only and there is none for
-     * one. [acp] tells them apart: only the ACP engine publishes a
-     * `config_state`, and an ACP run for claude/codex always stamps its id.
-     * Without this the phone offered `/compact` and `/clear` — confirm dialog
-     * and all — for a run whose desktop-side catalog is empty, and the literal
-     * text reached the agent as a prompt. Mirrored ×4 (web `steerAgentId`, iOS
-     * `SlashCommands.agentId`, desktop `slash_commands::agent_of`).
-     */
-    fun agentId(agent: String?, acp: Boolean): String =
-        agent?.takeIf { it.isNotBlank() }?.trim()
-            ?: if (acp) EXTERNAL_AGENT else defaultAgent
-
-    /**
-     * #EXP-1791: the CODING agent a run is on, for everything about its
-     * machine (the Usage overlay's login and windows, the account switch, the
-     * usage refresh): `sessions.cli`, a blank one being claude. Never
-     * [agentId]'s external arm: a chat root carries no `cli` at all, and
-     * reading it as "no agent" left the overlay on "Checking…" with no
-     * accounts. Mirrored ×4 (web `runAgentId`, iOS `SlashCommands.runAgent`,
-     * desktop `slash_commands::run_agent`).
+     * #EXP-1791/#EXP-1792: the coding agent a run is on: `sessions.cli`, a
+     * blank one being claude. ONE rule for the `/` catalog, the Usage
+     * overlay's login and windows, the account switch and the usage refresh.
+     * Chat roots carry no `cli` and every run publishes an ACP
+     * `config_state`, so the retired EXP-746 rule (no cli + config = an
+     * external agent, empty catalog) emptied the `/` menu of every chat;
+     * external agents are gone (EXP-862). Mirrored ×4 (web `runAgentId`, iOS
+     * `SlashCommands.runAgent`, desktop `slash_commands::run_agent`).
      */
     fun runAgent(cli: String?): String =
         cli?.trim()?.takeIf { it.isNotEmpty() } ?: defaultAgent
