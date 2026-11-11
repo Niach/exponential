@@ -671,13 +671,9 @@ export interface RunnerPicks {
   computerUse?: boolean
 }
 
-/** S-3: plan mode is gone (a plan is an `exponential_show {plan}` card, no
- *  gate): an old client's `planMode` pick is accepted and ignored, and the
- *  legacy `sessions.plan_mode` column is never written. */
 export function runnerPicks(input: {
   model?: string | null
   effort?: string | null
-  planMode?: boolean
   ultracode?: boolean
   computerUse?: boolean
 }): RunnerPicks {

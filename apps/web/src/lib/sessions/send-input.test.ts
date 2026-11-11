@@ -22,9 +22,11 @@ describe(`sessionsSendInputSchema — a message`, () => {
 
   // EXP-1376: a model (or any runner pick) alone configures the session.
   it(`takes a model or another runner pick alone`, () => {
-    for (const pick of [{ model: `opus` }, { effort: `high` }, { planMode: false }, { account: `0a1b2c3d`, model: `opus` }]) {
+    for (const pick of [{ model: `opus` }, { effort: `high` }, { ultracode: false }, { account: `0a1b2c3d`, model: `opus` }]) {
       expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, ...pick }).success).toBe(true)
     }
+    // #NEW-14: plan mode is gone; a pre-S-3 client's planMode is stripped, no pick.
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, planMode: false }).success).toBe(false)
     // A stale client's blank model is no pick.
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, model: `` }).success).toBe(false)
   })
@@ -85,7 +87,6 @@ describe(`sessionsSendInputSchema — no asides`, () => {
 describe(`sessionsConfigureInputSchema (EXP-1334)`, () => {
   it(`takes any one option, a null effort included`, () => {
     for (const option of [
-      { planMode: true },
       { effort: null },
       { effort: `high` },
       { ultracode: false },
@@ -99,6 +100,7 @@ describe(`sessionsConfigureInputSchema (EXP-1334)`, () => {
 
   it(`refuses nothing to configure and a non-uuid MCP pick`, () => {
     expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION }).success).toBe(false)
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, planMode: true }).success).toBe(false)
     expect(
       sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, mcpServerIds: [`linear`] }).success
     ).toBe(false)

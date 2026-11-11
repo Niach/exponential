@@ -328,11 +328,11 @@ describe(`devices.register`, () => {
     expect(seeded).toEqual({
       defaultAgent: `claude`,
       agents: {
+        // #NEW-14: a pre-S-3 device's planMode is stripped.
         claude: {
           model: `fable`,
           effort: ``,
           ultracode: false,
-          planMode: true,
         },
         // Every model is explicit: a blank codex model is dropped (it reads
         // as the contract default), a blank effort is still CLI default.
