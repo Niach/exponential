@@ -1669,11 +1669,34 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
         if !slots.is_empty() {
             composer["slots"] = c["slots"].clone();
         }
+        // #EXP-1762 `field`: an empty flat composer's height first (its row
+        // = the disc's), then the case's draft.
+        let empty_h = c.get("field").map(|_| {
+            let (view, _, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer.clone()]}), rtl);
+            view.update(vcx, |v, _| v.record_bounds(true));
+            draw(vcx);
+            view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
+        });
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
-        view.update(vcx, |v, _| v.record_bounds(true));
+        view.update(vcx, |v, cx| {
+            v.record_bounds(true);
+            for (path, value) in c.get("data").and_then(Value::as_object).into_iter().flatten() {
+                v.set_data(&format!("/{path}"), Some(value.clone()), cx).unwrap();
+            }
+        });
         draw(vcx);
         let bounds = |vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).map(|b| (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height)));
         let cb = bounds(vcx, "c").unwrap_or_else(|| panic!("{name}: the composer painted"));
+        if let Some(empty_h) = empty_h {
+            // The row is the disc's while one line (paddingTop 8 + 20 < 36),
+            // taller once grown (8 + 3 × 20); the text's place in it is
+            // `flat_field_box` (view::paint's unit test).
+            if c["field"]["grown"] == true {
+                assert!(cb.3 > empty_h + 0.5, "{name}: the row grew ({} vs {empty_h})", cb.3);
+            } else {
+                assert!((cb.3 - empty_h).abs() < 0.5, "{name}: a one-line row is the disc's ({} vs {empty_h})", cb.3);
+            }
+        }
         let mut along: Vec<(f32, &str)> = Vec::new();
         for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
             let Some(b) = bounds(vcx, id) else {
@@ -1683,12 +1706,24 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
             // #EXP-1762: a one-line flat composer IS its bottom row (the
             // disc's height): its slots sit on its centre line.
-            if c["props"]["layout"] == "flat" {
+            if c["props"]["layout"] == "flat" && !slots.contains_key("above") {
                 assert!((b.1 + b.3 / 2.0 - (cb.1 + cb.3 / 2.0)).abs() < 0.5, "{name}: {slot} centred in the one row");
             } else {
                 assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
             }
             along.push((if rtl { -(b.0 + b.2) } else { b.0 }, slot));
+        }
+        // #EXP-1762: `above` paints inside the card at its top, the content
+        // width (the same inset either side), over the row's slots.
+        if slots.contains_key("above") {
+            let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: above painted"));
+            let (l, r) = (s.0 - cb.0, cb.0 + cb.2 - (s.0 + s.2));
+            assert!(l > 0.0 && (l - r).abs() < 0.5 && s.1 > cb.1 && s.1 - cb.1 <= l + 0.5, "{name}: above at the content top, full width: {s:?} in {cb:?}");
+            for id in ["plus", "ring"] {
+                if let Some(b) = bounds(vcx, id) {
+                    assert!(b.1 >= s.1 + s.3, "{name}: above over {id}");
+                }
+            }
         }
         along.sort_by(|a, b| a.0.total_cmp(&b.0));
         let order: Vec<&str> = c["order"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).filter(|o| *o == "leading" || *o == "trailing").collect();

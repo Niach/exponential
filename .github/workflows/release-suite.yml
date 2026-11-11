@@ -14,7 +14,7 @@ run-name: release-suite${{ inputs.only && format(' (only {0})', inputs.only) || 
 # and package tests (`extras`), the real-DB suites (in `migrations`, on its
 # service Postgres; a not-ready DB fails them), the feedback-widget
 # Playwright e2e on the compose dev stack (`e2e`), the push-relay
-# image smoke build, site + styleguide builds + shots:check, the full
+# image smoke build, site build + shots:check, the full
 # desktop cargo test + Rust licence inventory (+ the engine's macOS-only
 # confine cases on the Mac, the coding crate's long-path removal on
 # Windows), the desktop fuzz targets (short
@@ -179,10 +179,6 @@ jobs:
           path: /tmp/site-shots
           retention-days: 14
           if-no-files-found: ignore
-      - name: Build styleguide
-        # EXP-566: same rationale — the styleguide deploys straight from Coolify,
-        # so its only pre-deploy gate is here.
-        run: bun run build:styleguide
       - name: Shots store vs catalog drift
         # Fails on any declared-but-uncaptured pair or stray file in shots/
         # (manual-lane desktop views are exempt until captured by hand).

@@ -38,7 +38,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, propColor, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -58,6 +58,8 @@ export interface SelectOption {
   mono?: boolean
   /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
   description?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -208,9 +210,10 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     )
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
   const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
+  const chosenTint = chosenIcon ? propColor(options.find((o) => o.value === str(value))?.iconColor) : undefined
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
-    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} /> : null,
+    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} style={chosenTint ? { color: chosenTint } : undefined} /> : null,
     field: row || pill ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
     describedBy: joinIds(!pill && description && `${id}-d`, f.describedBy),
     ariaLabel: pill ? str(props.label) || undefined : undefined,
@@ -284,6 +287,41 @@ interface PlainSelectProps {
   field: ReturnType<typeof useField>
 }
 
+/** #EXP-1629: a pill popup lands where `placeInsetOverlay` says (the inset,
+ *  the clamp, then whole px from the pill): Radix's popper takes no
+ *  middleware and rounds its wrapper to device px, so the content moves
+ *  (`translate`) from the wrapper onto that box each time Radix places it
+ *  (and as the pill, the popup or the window moves or resizes: a move
+ *  under a device px leaves Radix's wrapper where it was). */
+function useInsetNudge(content: HTMLElement | null, trigger: { current: HTMLElement | null }, geometry: ReturnType<typeof selectPopupGeometry>): void {
+  const { align, sideOffset, collisionPadding, inset } = geometry
+  useLayoutEffect(() => {
+    const wrapper = content?.closest<HTMLElement>(`[data-radix-popper-content-wrapper]`)
+    if (!content || !wrapper || inset === undefined) return
+    const apply = () => {
+      const t = trigger.current
+      // Radix parks an unplaced wrapper at translate(0, -200%).
+      const n = t && !wrapper.style.transform.includes(`-200%`) ? insetPopupNudge(t, wrapper, { align, sideOffset, collisionPadding, inset }) : null
+      content.style.translate = n && (n.x || n.y) ? `${n.x}px ${n.y}px` : ``
+    }
+    apply()
+    const watch = new MutationObserver(apply)
+    watch.observe(wrapper, { attributes: true, attributeFilter: [`style`] })
+    const sized = typeof ResizeObserver === `undefined` ? null : new ResizeObserver(apply)
+    sized?.observe(wrapper)
+    if (trigger.current) sized?.observe(trigger.current)
+    const win = wrapper.ownerDocument.defaultView
+    win?.addEventListener(`scroll`, apply, { capture: true, passive: true })
+    win?.addEventListener(`resize`, apply)
+    return () => {
+      watch.disconnect()
+      sized?.disconnect()
+      win?.removeEventListener(`scroll`, apply, { capture: true })
+      win?.removeEventListener(`resize`, apply)
+    }
+  }, [content, trigger, align, sideOffset, collisionPadding, inset])
+}
+
 function PlainSelect({ node, props, rootProps, part, id, options, value, commit, open, setOpen, cursor, setCursor, disabled, triggerRef, label, rowLabel, spacer, chevronSlot, source, placeholder, hasEmpty, setPlainRoot, triggerStates, geometry, hint, inButton, byPointer, loading, skeleton, field: f }: PlainSelectProps) {
   const ctx = useSurfaceContext()
   const chosen = options.find((o) => o.value === value)
@@ -302,6 +340,8 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
   useLayoutEffect(() => {
     if (open) measure()
   }, [open, options.length])
+  const [content, setContent] = useState<HTMLDivElement | null>(null)
+  useInsetNudge(content, triggerRef, geometry)
   return (
       <div ref={hasEmpty ? setPlainRoot : undefined} {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
         {label}
@@ -346,6 +386,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
           </SelectPrimitive.Trigger>
           <SelectPrimitive.Portal container={ctx.portal ?? undefined}>
             <SelectPrimitive.Content
+              ref={setContent}
               {...(part(`content`, open && `open`) as Record<string, string>)}
               position="popper"
               align={geometry.align}
@@ -377,7 +418,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                 {(loading ? [] : options).map((o) => (
                   // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
                   <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
-                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                     {str(o.description) ? (
                       <span {...(part(`itemText`) as Record<string, string>)}>
                         <span {...(part(`itemLabel`) as Record<string, string>)}><SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>{trailingText(o)}</span>
@@ -487,6 +528,8 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
     if (open) measure()
   }, [open, shown.length])
   const geometry = selectPopupGeometry(props, `--radix-popover-trigger-width`)
+  const [content, setContent] = useState<HTMLDivElement | null>(null)
+  useInsetNudge(content, triggerRef, geometry)
   const shownValue = <span>{chosen.length ? <span {...(part.with(`value`, { disabled }, inButton) as Record<string, string>)}>{chosen.map((o) => str(o.label)).join(`, `)}</span> : <span {...(part.with(`placeholder`, { disabled }, inButton) as Record<string, string>)}>{placeholder}</span>}</span>
   return (
     <div {...(rootProps as Record<string, unknown>)} data-source={source || undefined}>
@@ -525,6 +568,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
           <PopoverPrimitive.Content
+            ref={setContent}
             {...(part(`content`, open && `open`) as Record<string, string>)}
             dir={ctx.direction}
             align={geometry.align}
@@ -600,13 +644,13 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     aria-selected={isSel}
                     aria-disabled={bool(o.disabled) || undefined}
                     data-active={isActive ? `` : undefined}
-                    {...(part(`item`, isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
+                    {...(part.with(`item`, selectItemJoins(multiple, shown.length, (j) => selected.includes(shown[j]!.value), i), isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
                     data-mono={bool(o.mono) ? `` : undefined}
                     onPointerMove={() => nav.setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(i)}
                   >
-                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                     {str(o.description) ? (
                       <span {...(part(`itemText`) as Record<string, string>)}>
                         <span {...(part(`itemLabel`) as Record<string, string>)}>{str(o.label)}{trailingText(o)}</span>

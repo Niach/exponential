@@ -395,17 +395,20 @@ export async function pullRequestsForCheck(opts: {
 // The base branch's required checks (classic branch protection + rulesets),
 // cached 10 min per repo+branch; conditional GETs make the refresh free. A
 // read the App may not do (no permission, no protection) = none required.
+// #FEED-221: a read that FAILED (rate limited, GitHub down) is undefined and
+// never cached: "none required" would rewrite every row's flag to false.
 const requiredCache = new TtlPromiseCache<Set<string>>({ ttlMs: 10 * 60_000, maxEntries: 500 })
 
-export function requiredChecksFor(repoFullName: string, base: string, token: string): Promise<Set<string>> {
+export function requiredChecksFor(repoFullName: string, base: string, token: string): Promise<Set<string> | undefined> {
   // No checks readable on this installation = no checks known: which of them
   // would be required does not matter, so its two reads are not spent.
   if (checksDenied(token)) return Promise.resolve(new Set())
   return requiredCache.get(`${repoFullName}#${base}`, async () => {
     const names = new Set<string>()
     const branch = encodeURIComponent(base)
-    try {
+    {
       const res = await githubFetch(`/repos/${repoFullName}/branches/${branch}`, { headers: githubApiHeaders(token) })
+      if (res.status >= 500) throw new Error(`GitHub returned ${res.status}`)
       if (res.ok) {
         const data = (await res.json()) as {
           protection?: { required_status_checks?: { contexts?: string[]; checks?: Array<{ context?: string }> } }
@@ -415,6 +418,7 @@ export function requiredChecksFor(repoFullName: string, base: string, token: str
         for (const check of rsc?.checks ?? []) if (check.context) names.add(check.context)
       }
       const rules = await githubFetch(`/repos/${repoFullName}/rules/branches/${branch}`, { headers: githubApiHeaders(token) })
+      if (rules.status >= 500) throw new Error(`GitHub returned ${rules.status}`)
       if (rules.ok) {
         const data = (await rules.json()) as Array<{
           type?: string
@@ -425,10 +429,11 @@ export function requiredChecksFor(repoFullName: string, base: string, token: str
           for (const check of rule.parameters?.required_status_checks ?? []) if (check.context) names.add(check.context)
         }
       }
-    } catch (err) {
-      if (!isGithubRateLimited(err)) console.error(`[pr-checks] required checks of ${repoFullName}@${base}`, err)
     }
     return names
+  }).catch((err: unknown) => {
+    if (!isGithubRateLimited(err)) console.error(`[pr-checks] required checks of ${repoFullName}@${base}`, err)
+    return undefined
   })
 }
 
@@ -576,7 +581,7 @@ export async function repairPullRequestChecks(
     lastUnknown.delete(row.id)
     const required = await requiredChecksFor(row.fullName, row.base, token)
     // A list cut at the page cap is no full snapshot: upsert, drop nothing.
-    await writePullRequestChecks({ pullRequestId: row.id, headSha, checks: runs.checks, snapshot: runs.complete, required })
+    await writePullRequestChecks({ pullRequestId: row.id, headSha, checks: runs.checks, snapshot: runs.complete, ...(required ? { required } : {}) })
   } catch (err) {
     lastUnknown.set(pullRequestId, `unreadable`)
     console.error(`[pr-checks] repair of ${pullRequestId} failed`, err)

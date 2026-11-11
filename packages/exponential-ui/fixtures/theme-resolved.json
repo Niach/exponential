@@ -3611,6 +3611,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -4095,7 +4113,8 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -12539,6 +12558,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -12600,7 +12637,8 @@
               "style": {
                 "borderWidth": 1,
                 "borderColor": "#00000000",
-                "paddingHorizontal": 7
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5
               }
             },
             {
@@ -12616,10 +12654,31 @@
             },
             {
               "when": {
+                "joinTop": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderTopWidth": 0,
+                "paddingTop": 5
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderBottomWidth": 0,
+                "paddingBottom": 5
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "pill"
               },
               "style": {
                 "height": 24,
+                "minHeight": 24,
                 "paddingHorizontal": 7,
                 "gap": 7,
                 "fontSize": 10.5,
@@ -12804,6 +12863,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": 0.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
+              }
             }
           ],
           "chevron": [
@@ -12849,6 +12917,15 @@
                 "height": 10.5,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
               }
             }
           ],
@@ -13347,7 +13424,16 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],
@@ -21716,6 +21802,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -22224,7 +22328,8 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -30978,6 +31083,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -31039,7 +31162,8 @@
               "style": {
                 "borderWidth": 1,
                 "borderColor": "#00000000",
-                "paddingHorizontal": 7
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5
               }
             },
             {
@@ -31055,10 +31179,31 @@
             },
             {
               "when": {
+                "joinTop": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderTopWidth": 0,
+                "paddingTop": 5
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderBottomWidth": 0,
+                "paddingBottom": 5
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "pill"
               },
               "style": {
                 "height": 24,
+                "minHeight": 24,
                 "paddingHorizontal": 7,
                 "gap": 7,
                 "fontSize": 10.5,
@@ -31243,6 +31388,15 @@
                 "color": "$color.mutedForeground",
                 "opacity": 0.5
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
+              }
             }
           ],
           "chevron": [
@@ -31288,6 +31442,15 @@
                 "height": 10.5,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row",
+                "disabled": true
+              },
+              "style": {
+                "opacity": 0.35
               }
             }
           ],
@@ -31786,7 +31949,16 @@
                 "layout": "flat"
               },
               "style": {
-                "minHeight": 0
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],

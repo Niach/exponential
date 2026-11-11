@@ -412,6 +412,10 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "disabled": {
           "type": "boolean"
         },
@@ -478,6 +482,10 @@
         },
         "icon": {
           "type": "icon"
+        },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
         },
         "shortcut": {
           "type": "string"
@@ -1250,7 +1258,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",
@@ -2740,6 +2748,10 @@
           "type": "enum",
           "enum": "openOn",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -4583,7 +4595,8 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "props": {
         "placeholder": {

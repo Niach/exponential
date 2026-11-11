@@ -17,15 +17,12 @@ use std::sync::Arc;
 
 use domain::team_image::{team_mark, TeamMark, TEAM_IMAGE};
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, App, AppContext as _, Div, Entity, Global,
-    InteractiveElement as _, IntoElement as _, ParentElement as _, Pixels, SharedString,
-    StyledImage as _, Styled as _,
+    div, img, px, App, AppContext as _, Div, Entity, Global, IntoElement as _, ParentElement as _,
+    Pixels, StyledImage as _, Styled as _,
 };
 use gpui_component::avatar::Avatar;
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size};
+use gpui_component::{Icon, Sizable as _, Size};
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::markdown::{sniff_format, ImageCache, ImageSlot as MarkdownImageSlot};
 
@@ -350,16 +347,6 @@ fn team_images(cx: &mut App) -> Entity<ImageCache> {
     images
 }
 
-/// Register a specimen's bytes under `url` for [`team_avatar`] (the styleguide
-/// entry paints without a transport). Once: another decode per frame otherwise.
-pub(crate) fn seed_team_image(url: &str, content_type: &str, bytes: &[u8], cx: &mut App) {
-    team_images(cx).update(cx, |images, _| {
-        if images.ready_image(url).is_none() {
-            images.insert_bytes(url.to_string(), content_type, bytes.to_vec());
-        }
-    });
-}
-
 /// The no-image mark: the group glyph at the side, in the surrounding text
 /// colour, no chip and no fill.
 pub(crate) fn team_glyph(size: f32) -> gpui::AnyElement {
@@ -410,59 +397,6 @@ pub(crate) fn team_avatar_of(image: Option<crate::markdown::CachedImage>, size: 
             .into_any_element(),
         None => frame.child(team_glyph(size)).into_any_element(),
     }
-}
-
-/// The Settings › General row (team-image.json, web `TeamImageRow`): the
-/// label, the mark, the Upload pill, then, only with an image, the icon-only
-/// Remove ghost. `disabled` = not an owner, or a write is out.
-pub(crate) fn team_image_row(
-    icon_url: Option<&str>,
-    disabled: bool,
-    on_upload: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut App) + 'static,
-    on_remove: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut App) + 'static,
-    cx: &mut App,
-) -> Div {
-    let spec = &*TEAM_IMAGE;
-    let has_image = matches!(team_mark(icon_url), TeamMark::Image { .. });
-    let mark = team_avatar(icon_url, spec.row.mark_size, cx);
-    let muted = cx.theme().muted_foreground;
-    let foreground = cx.theme().foreground;
-    crate::surface::glass_row_shell()
-        .child(
-            div()
-                .id(SharedString::from(spec.test_ids.row.clone()))
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .text_color(foreground)
-                .child(SharedString::from(spec.copy.row.clone())),
-        )
-        .child(div().flex_shrink_0().text_color(foreground).child(mark))
-        .child(
-            crate::surface::glass_pill_button(
-                SharedString::from(spec.test_ids.upload.clone()),
-                crate::surface::PillSize::Sm,
-                cx,
-            )
-            .flex_shrink_0()
-            .disabled(disabled)
-            .label(SharedString::from(spec.copy.upload.clone()))
-            .on_click(on_upload),
-        )
-        .when(has_image, |row| {
-            row.child(
-                Button::new(SharedString::from(spec.test_ids.remove.clone()))
-                    .ghost()
-                    .web_icon_sm()
-                    .size(px(spec.row.mark_size))
-                    .flex_shrink_0()
-                    .disabled(disabled)
-                    .text_color(muted)
-                    .icon(Icon::new(registry::UI_DELETE).with_size(px(16.)))
-                    .tooltip(SharedString::from(spec.copy.remove.clone()))
-                    .on_click(on_remove),
-            )
-        })
 }
 
 /// One avatar + name row (EXP-426): the ONE shape every user-listing surface

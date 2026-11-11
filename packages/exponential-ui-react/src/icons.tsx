@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
+  CircleArrowUp,
   CircleCheck,
   CircleDashed,
   CircleStop,
@@ -106,6 +107,8 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   "ui-stop": CircleStop,
   "ui-attach": Paperclip,
   "ui-send": Send,
+  // The app Composer's submit (icons.json `ui-submit`: circle-arrow-up).
+  "ui-submit": CircleArrowUp,
   "ui-back": ArrowLeft,
   "ui-more": Ellipsis,
   "ui-menu": Menu,

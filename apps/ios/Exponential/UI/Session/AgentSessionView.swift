@@ -173,8 +173,8 @@ struct AgentSessionView: View {
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
     @State private var composerExpanded = false
-    /// EXP-1316: the floating bottom band's measured height (the feed's
-    /// bottom inset) — a pinned feed re-pins as it changes.
+    /// EXP-1316: the bottom band's measured height (#EXP-1782: where the
+    /// feed's scroll area ends) — a pinned feed re-pins as it changes.
     @State private var bottomBandHeight: CGFloat = 0
     /// Set by `expandComposer`, cleared once the editor takes focus (or the
     /// retry window passes): the EXP-931 idle fold stands down meanwhile.
@@ -275,10 +275,12 @@ struct AgentSessionView: View {
         }
     }
 
-    /// The transcript and the composer band, which FLOATS over the feed
-    /// (EXP-1161): the transcript scrolls beneath it, and the feed's scroll
-    /// view takes the band's height as its bottom inset so the follow pin and
-    /// "Jump to bottom" land on the true end.
+    /// The transcript and the composer band UNDER it (#EXP-1782,
+    /// fixtures/dock.json): the feed's scroll view ENDS at the band's top
+    /// edge (the composer's when no card waits) and clips there; nothing
+    /// scrolls under or behind the band, no edge fade. The band's measured
+    /// height re-pins a pinned feed when it changes, and the "Jump to
+    /// bottom" circle rides 12pt above its top.
     @ViewBuilder
     private func runFace(_ model: AgentSessionModel) -> some View {
         // #EXP-1623: the transcript is its own observation scope too, so a
@@ -289,29 +291,30 @@ struct AgentSessionView: View {
             BodySlice {
                 feedBody(model)
             }
-        }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // EXP-1358: the band is its OWN observation scope. Built
-                // inline, every draft read it makes (`trimmedDraft`,
-                // `slashMatches`, `hasContent`) was tracked by THIS view's
-                // body, so each keystroke re-rendered the whole transcript.
-                BodySlice {
-                    bottomBand(model)
-                }
-                // EXP-1316: the band's measured height IS the feed's
-                // bottom inset; a pinned feed re-pins when it changes
-                // (the composer expanding, the keyboard, late layout).
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                    bottomBandHeight = height
-                }
+            .frame(maxHeight: .infinity)
+            .clipped()
+            // EXP-1358: the band is its OWN observation scope. Built
+            // inline, every draft read it makes (`trimmedDraft`,
+            // `slashMatches`, `hasContent`) was tracked by THIS view's
+            // body, so each keystroke re-rendered the whole transcript.
+            BodySlice {
+                bottomBand(model)
             }
+            // EXP-1316: the band's measured height is where the feed's
+            // scroll area ends; a pinned feed re-pins when it changes
+            // (the composer expanding, a card landing, late layout).
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                bottomBandHeight = height
+            }
+        }
     }
 
     /// N-12: THE Dock on the feed's bottom edge (fixtures/dock.json): the
     /// waiting cards (the relay's own ask, the tool-posted ones), THE Queue,
     /// the queued messages and the status banners as DockCards, then the
     /// quick replies and THE composer (always: it never yields its slot).
-    /// The cards are opaque; the edge strip sits behind the band.
+    /// The cards are opaque; #EXP-1782: the band sits under the feed, no
+    /// edge strip, fade or shadow.
     private func bottomBand(_ model: AgentSessionModel) -> some View {
         let rows = dockRows(model)
         return DockView(
@@ -329,10 +332,6 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
-        // EXP-1162: the bottom edge strip behind the band — not behind an
-        // open composer card, which is opaque and rides the keyboard.
-        // EXP-1256 (D15): in the page's own ground — no tint, no blur.
-        .floatingBarEdge(!rows.isEmpty || bandRetired(model) || !composerOpen(model), ground: true)
     }
 
     // MARK: - Header
@@ -935,8 +934,8 @@ struct AgentSessionView: View {
                 }
                 .overlay(alignment: .bottom) {
                     // EXP-1191: the shared 32pt round jump button, centred
-                    // 12pt above the bottom band's top edge (the overlay
-                    // sits inside the band's safe-area inset). Only while
+                    // 12pt above the bottom band's top edge (#EXP-1782: the
+                    // feed's scroll view ends at that edge). Only while
                     // scrolled away from the newest row of a non-empty feed.
                     ZStack {
                         if !atBottom, model.hasFeed {

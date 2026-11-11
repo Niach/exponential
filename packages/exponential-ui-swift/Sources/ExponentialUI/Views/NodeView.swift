@@ -33,6 +33,11 @@ struct LeafContext {
     }
 
     func themeColor(_ name: String) -> Color? { model.color(name) }
+    /// #EXP-1629: a colour-typed prop: a `$color.<name>` token of the
+    /// theme, else the host's resolved colour (`#rrggbb[aa]`, bound data).
+    func propColor(_ value: String) -> Color? {
+        value.hasPrefix("$color.") ? themeColor(String(value.dropFirst("$color.".count))) : Color(hex: value)
+    }
     func spacing(_ name: String) -> CGFloat { model.spacing(name) }
     func control(_ name: String, _ fallback: CGFloat) -> CGFloat { model.control(name, fallback) }
 
