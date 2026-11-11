@@ -289,7 +289,9 @@ export function silentMinutes(alive: number, now: Date): number {
   return Math.max(contract.sessionWatchdog.stuckMinutes, minutes)
 }
 
-/** A BUSY session whose host device missed the online window: idle, not
+/** A BUSY session whose host device missed the online window (and that did
+ *  not itself speak to the server inside it: #FEED-210, an MCP call or a
+ *  push by the run proves it and its device up, whatever the beat says): idle, not
  *  busy, `device_offline` + `resume` (its next heartbeat clears it; its
  *  device continues it when back, `restoreDeviceSessionsInTx`). EXP-1374:
  *  an INTERRUPTION, not on a person (`needs_input` untouched). S-3: an idle
@@ -308,6 +310,10 @@ async function flagOffline(now: Date): Promise<number> {
           NOT_SUBAGENT,
           eq(sessions.busy, true),
           isNull(sessions.blocked),
+          // #FEED-210: the run's own sign of life the server saw inside the
+          // window (an MCP call, a push; the beat's activity is never later
+          // than the beat itself) keeps it live.
+          sql`NOT COALESCE(${sessions.lastActivityAt} BETWEEN ${cutoff} AND ${now}, false)`,
           // FEED-148: the resolved host's row only: a decoy row online
           // never keeps a dead host's sessions live.
           sql`NOT EXISTS (SELECT 1 FROM ${devices} h WHERE ${hostRowCondition(`h`)} AND h.last_seen_at >= ${cutoff})`
