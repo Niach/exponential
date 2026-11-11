@@ -6762,8 +6762,8 @@
         "file": "shots/session-slash-menu/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 54846,
-        "sha256": "926f01dc43489792365797e149cdcc658ee3eee604fd72b40ad26d61f79089d4"
+        "bytes": 53892,
+        "sha256": "d047fc8e5c707d15c15f921b1872d2bb2ce2b20619666d8b19cbef8d444bed09"
       },
       "ios": {
         "file": "shots/session-slash-menu/ios.webp",
