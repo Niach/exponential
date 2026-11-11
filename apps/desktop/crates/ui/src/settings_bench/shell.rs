@@ -235,14 +235,14 @@ fn settings_shell_nav_no_team() {
 #[ignore]
 fn settings_shell_nav_hover_row() {
     // The pointer on Members (owner, General lit).
-    shoot_nav("shell-nav-hover-row", team(true, SettingsSection::General), Some((120., 104.)), None);
+    shoot_nav("shell-nav-hover-row", team(true, SettingsSection::General), Some((120., 128.)), None);
 }
 
 #[test]
 #[ignore]
 fn settings_shell_nav_hover_lit() {
     // The pointer on the lit General row.
-    shoot_nav("shell-nav-hover-lit", team(true, SettingsSection::General), Some((120., 76.)), None);
+    shoot_nav("shell-nav-hover-lit", team(true, SettingsSection::General), Some((120., 99.)), None);
 }
 
 #[test]
