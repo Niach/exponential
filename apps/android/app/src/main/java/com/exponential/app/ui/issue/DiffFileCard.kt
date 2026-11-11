@@ -6,6 +6,7 @@ import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,9 +29,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.exponential.ui.measure.middleTruncateWidth
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
@@ -107,12 +113,13 @@ private val CountFontSize = 11.sp
 
 /**
  * `apps/web/src/` dimmed, `file.kt` at full weight — ONE monospace run.
- * EXP-698 + #EXP-1789: a trailing ellipsis eats the only part of a path that
- * identifies the file, so the DIRECTORY gives way — cut in the middle to the
- * width it gets (iOS `.truncationMode(.middle)`, web/desktop the genUI Text
- * `truncate: "middle"` rule) — and the file name keeps its full width unless
- * it alone outgrows the row. The Row measures the name first (unweighted),
- * the directory takes what is left.
+ * EXP-698 + #EXP-1789, the web `DiffPath` / iOS `DiffPathLabel` rule ×4: a
+ * trailing ellipsis eats the only part of a path that identifies the file, so
+ * the DIRECTORY gives way first, middle-cut by the genUI Text
+ * `truncate: "middle"` rule (`middleTruncateWidth`, never a platform ellipsis)
+ * to what the name leaves, never below the width of `00`; a name that alone
+ * fills the row keeps a lone `…` before it and only then cuts at its end. The
+ * label fills the room up to the counts; the cut directory hugs the name.
  */
 @Composable
 internal fun DiffPathLabel(path: String, failed: Boolean, modifier: Modifier = Modifier) {
@@ -123,28 +130,46 @@ internal fun DiffPathLabel(path: String, failed: Boolean, modifier: Modifier = M
     } else {
         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     }
-    Row(modifier.semantics(mergeDescendants = true) { contentDescription = path }) {
-        if (dir.isNotEmpty()) {
+    val style = LocalTextStyle.current.merge(TextStyle(fontFamily = ExpMono, fontSize = PathFontSize))
+    val measurer = rememberTextMeasurer()
+    // Per-character widths (px), the rule sums them; one cache per style.
+    val charWidths = remember(style, measurer) { HashMap<String, Double>() }
+    BoxWithConstraints(modifier.semantics(mergeDescendants = true) { contentDescription = path }) {
+        val width = constraints.maxWidth
+        val shownDir = remember(dir, base, width, style, measurer) {
+            if (dir.isEmpty() || width == Constraints.Infinity) {
+                dir
+            } else {
+                val measure = { ch: String ->
+                    charWidths.getOrPut(ch) {
+                        measurer.measure(ch, style, softWrap = false, maxLines = 1).size.width.toDouble()
+                    }
+                }
+                val baseWidth = measurer.measure(base, style, softWrap = false, maxLines = 1).size.width.toDouble()
+                val twoCh = measurer.measure("00", style, softWrap = false, maxLines = 1).size.width.toDouble()
+                val room = maxOf(width - baseWidth, twoCh)
+                middleTruncateWidth(dir, room, measure = measure)
+            }
+        }
+        Row {
+            if (shownDir.isNotEmpty()) {
+                Text(
+                    shownDir,
+                    style = style,
+                    color = dim,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
             Text(
-                dir,
-                fontFamily = ExpMono,
-                fontSize = PathFontSize,
-                color = dim,
+                base,
+                style = style,
+                color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 softWrap = false,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Text(
-            base,
-            fontFamily = ExpMono,
-            fontSize = PathFontSize,
-            color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
