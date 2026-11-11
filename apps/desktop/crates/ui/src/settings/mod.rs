@@ -66,7 +66,7 @@ mod invite_form;
 pub(crate) mod resend_invite_dialog;
 pub(crate) mod issues;
 pub(crate) mod labels;
-mod mcp;
+pub(crate) mod mcp;
 pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
@@ -786,7 +786,7 @@ impl SettingsView {
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
-        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
+        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(|cx| LocalReposPane::new(window, cx));
