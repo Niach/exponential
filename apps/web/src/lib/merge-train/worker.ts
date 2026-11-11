@@ -15,7 +15,7 @@
 //   4. the queue positions (`Queued · 2nd`).
 // Every outcome posts ONE waking `pr_merge` line (messages.ts). The train is
 // the only merge, for every team and every repository (#EXP-1711).
-import { and, asc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
 import { requiredChecksState } from "@exp/domain-contract/pr-checks"
 import {
   composeBatch,
@@ -465,8 +465,15 @@ async function land(
   // #FEED-212: a head equal to the base composed nothing (an empty squash):
   // fast-forwarding onto itself "succeeds" and lands nothing.
   if (head === run.baseSha) {
+    // #FEED-222: nothing composed because an earlier run already landed
+    // these heads (its confirmation read missed it): they landed there.
+    const earlier = await landedEarlier(repo, run, ids, forge)
+    for (const [sha, landedIds] of earlier) await landPullRequests(repo, landedIds, run.base, sha, forge, now)
+    const done = new Set([...earlier.values()].flat())
+    if (ids.every((id) => done.has(id))) return true
     console.error(`[merge-train] ${repo.fullName}: run ${run.id} composed nothing onto ${run.base}`)
-    await unland(run, ids, rest, now, `the train head is ${run.base} itself: nothing to land`)
+    const left = (list: string[]) => list.filter((id) => !done.has(id))
+    await unland(run, left(ids), left(rest), now, `the train head is ${run.base} itself: nothing to land`)
     return false
   }
   const ff = await forge.fastForward(fr, { branch: run.base, from: run.baseSha, to: head })
@@ -489,6 +496,39 @@ async function land(
   }
   await landPullRequests(repo, ids, run.base, head, forge, now)
   return true
+}
+
+/** #FEED-222: the PRs of `ids` an earlier unconfirmed run of the same base
+ *  already landed: one with the same head of the PR, whose tested commit
+ *  the base holds. → that commit → its PR ids. */
+async function landedEarlier(repo: RepoRow, run: RunRow, ids: string[], forge: Forge): Promise<Map<string, string[]>> {
+  const found = new Map<string, string[]>()
+  const earlier = await db
+    .select({ id: mergeTrains.id, testedSha: mergeTrains.testedSha, baseSha: mergeTrains.baseSha, heads: mergeTrains.heads })
+    .from(mergeTrains)
+    .where(
+      and(
+        eq(mergeTrains.repositoryId, repo.id),
+        eq(mergeTrains.base, run.base),
+        eq(mergeTrains.state, `error`),
+        ne(mergeTrains.id, run.id),
+        isNotNull(mergeTrains.testedSha)
+      )
+    )
+    .orderBy(desc(mergeTrains.createdAt))
+    .limit(20)
+  const held = new Map<string, boolean>()
+  for (const id of ids) {
+    for (const prior of earlier) {
+      const sha = prior.testedSha!
+      if (sha === prior.baseSha || !run.heads[id] || prior.heads[id] !== run.heads[id]) continue
+      if (!held.has(sha)) held.set(sha, (await forge.branchContains(forgeRepo(repo), run.base, sha).catch(() => null)) === true)
+      if (!held.get(sha)) continue
+      found.set(sha, [...(found.get(sha) ?? []), id])
+      break
+    }
+  }
+  return found
 }
 
 /** The landing of PRs whose commits are on `base` as `sha`: pr_merged (the
