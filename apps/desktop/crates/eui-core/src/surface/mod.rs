@@ -1833,6 +1833,24 @@ impl Surface {
         self.slot_of.get(id).copied()
     }
 
+    /// #EDE-65 typeaheadFocus: is the overlay `owner` a TYPEAHEAD, a
+    /// Popover whose `anchor` (the node it linked as its trigger) is a text
+    /// field ([`crate::overlay::is_field_anchor`])? Opening one never moves
+    /// the focus and closing it returns the focus nowhere; every painter
+    /// leaves its focus-on-open / return-on-close bookkeeping out for it.
+    pub fn is_typeahead(&self, owner: &str) -> bool {
+        let Some(o) = self.index_of(owner).and_then(|i| self.layout_node(i)) else { return false };
+        if o.component != "Popover" || !o.props.get("anchor").and_then(Value::as_str).is_some_and(|a| !a.is_empty()) {
+            return false;
+        }
+        self.nodes.iter().enumerate().any(|(i, n)| {
+            n.trigger_for.as_deref() == Some(owner) && self.live.get(i).copied().unwrap_or(false) && {
+                let component = n.owner_component.as_deref().filter(|_| n.part.is_some()).unwrap_or(&n.component);
+                crate::overlay::is_field_anchor(component, n.part.as_deref())
+            }
+        })
+    }
+
     /// Round 2 (VAPP-100): does the node restyle under the pointer? True
     /// when its style has a `:hover` block or its recipe (the native's own
     /// root recipe, its part or macro recipe) has a rule on `state: hover`

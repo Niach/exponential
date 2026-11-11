@@ -37,6 +37,8 @@ import at.exponential.ui.model.focus
 import at.exponential.ui.model.hover
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.press
+import at.exponential.ui.model.isTypeaheadLayer
+import at.exponential.ui.model.popupTakesFocus
 import at.exponential.ui.model.pressDown
 import at.exponential.ui.model.pressUp
 import at.exponential.ui.model.radioChecked
@@ -514,6 +516,43 @@ class InteractionTest {
             m.press("s.trigger")
             val hovered = m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id }
             assertEquals(variant, if (case["cursor"]!!.bool == true) listOf("s.item.0") else emptyList(), hovered)
+        }
+    }
+
+    /**
+     * #EDE-65 `typeaheadFocus`: a Popover anchored on a text field (a
+     * typeahead) never takes the window focus ([popupTakesFocus] = the
+     * Popup's `focusable`), so the field keeps it, its caret and the IME;
+     * a Button anchor or a trigger slot still does.
+     */
+    @Test
+    fun typeaheadFocusKeepsTheFieldFocused() {
+        val fx = Fixtures.json("interactions-round1.json")["typeaheadFocus"]!!
+        val cases = fx["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]!!.string!!
+            val which = c["surface"]!!.string!!
+            val m = SurfaceModel("typeahead", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(fx["surfaces"]!![which]!!.json)
+            m.setViewport(390f, 800f)
+            for ((k, v) in c["data"]?.obj.orEmpty()) m.setData("/$k", v)
+            val field = when (which) { "composer" -> "c"; "input" -> "q.field"; else -> "" }
+            for (step in c["steps"]?.array.orEmpty()) {
+                when (val op = step["do"]!!.string!!) {
+                    "focusField" -> m.fieldFocused(m.idx(field), true)
+                    "open", "close" -> m.setData("/open", JsonValue.Bool(op == "open"))
+                    "pressTrigger" -> m.press("t")
+                }
+                val menu = m.layers.firstOrNull { it.owner == "menu" }
+                assertEquals("$name: open", step["open"]!!.bool, menu != null)
+                if (menu != null) {
+                    assertEquals(name, c["typeahead"]!!.bool, m.isTypeaheadLayer(menu))
+                    assertEquals("$name: the popup takes the focus", step["focus"]!!.string == "content", m.popupTakesFocus(menu))
+                }
+                if (step["focus"]!!.string == "field") assertEquals("$name: the field keeps the focus", field, m.focusedField)
+            }
         }
     }
 

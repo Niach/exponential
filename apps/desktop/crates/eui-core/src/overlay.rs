@@ -140,6 +140,16 @@ fn room(side: OverlaySide, anchor: &Rect, viewport: &Size, padding: f64) -> f64 
     }
 }
 
+/// #EDE-65 (interactions-round1.json typeaheadFocus): a Popover whose
+/// `anchor` is a TEXT FIELD (a Composer, an Input or a Textarea: the node
+/// itself or its `field` part) is a typeahead: opening it never moves the
+/// focus (the field keeps it and its caret) and closing it returns the focus
+/// nowhere. `component` / `part` = the anchor node's (a part: its owner's
+/// component). Mirrors `isFieldAnchor` (TS).
+pub fn is_field_anchor(component: &str, part: Option<&str>) -> bool {
+    matches!(component, "Composer" | "Input" | "Textarea") && matches!(part, None | Some("root" | "field"))
+}
+
 fn round3(n: f64) -> f64 {
     (n * 1000.0).round() / 1000.0
 }

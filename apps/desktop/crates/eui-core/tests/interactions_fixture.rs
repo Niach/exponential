@@ -1202,3 +1202,32 @@ fn menu_preview_cases_show_hide_and_forward_like_the_reference() {
         }
     }
 }
+
+/// #EDE-65 typeaheadFocus at the core: `Surface::is_typeahead` names the
+/// open Popovers anchored on a text field (a Composer, an Input, a
+/// Textarea), whose open / close every painter keeps out of its focus
+/// bookkeeping; a Button anchor or a trigger slot is no typeahead. The focus
+/// itself replays in each painter.
+#[test]
+fn typeahead_focus_cases_name_the_field_anchored_popovers_like_the_reference() {
+    let f = fixture();
+    let fx = &f["typeaheadFocus"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(fx["surfaces"][c["surface"].as_str().unwrap()].clone());
+        let mut m = fixed();
+        for (k, v) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+        }
+        if c["surface"] == json!("trigger") {
+            s.set_open("menu", true);
+        } else {
+            s.set_data("/open", Some(json!(true))).unwrap();
+        }
+        let out = s.layout(&mut m);
+        assert!(out.layers.iter().any(|l| l.owner == "menu"), "{name}: opens");
+        assert_eq!(s.is_typeahead("menu"), c["typeahead"].as_bool().unwrap(), "{name}");
+    }
+    assert!(eui_core::overlay::is_field_anchor("Input", Some("field")) && eui_core::overlay::is_field_anchor("Textarea", None));
+    assert!(!eui_core::overlay::is_field_anchor("Input", Some("label")) && !eui_core::overlay::is_field_anchor("Select", Some("search")));
+}

@@ -1036,3 +1036,56 @@ describe(`fixtures/interactions-round1.json menuPreview`, () => {
     })
   }
 })
+
+// #EDE-65 typeaheadFocus: a Popover anchored on a text field (a typeahead)
+// never takes the focus from it; every other Popover still focuses its
+// content and returns the focus on close.
+interface TypeaheadStep {
+  do: `focusField` | `open` | `close` | `pressTrigger`
+  open: boolean
+  focus: `field` | `content` | `anchor`
+}
+interface TypeaheadCase {
+  name: string
+  surface: string
+  data: Record<string, unknown>
+  steps: TypeaheadStep[]
+}
+const typeaheadFixture = (fixture as unknown as { typeaheadFocus: { surfaces: Record<string, NestedNode>; cases: TypeaheadCase[] } }).typeaheadFocus
+
+function TypeaheadSurface({ initial, data, onState }: { initial: NestedNode; data: Record<string, unknown>; onState: (s: SurfaceState) => void }) {
+  const surface = useSurface({ surfaceId: `tf`, data: structuredClone(data), initial })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="tf" />
+}
+
+describe(`fixtures/interactions-round1.json typeaheadFocus`, () => {
+  for (const c of typeaheadFixture.cases) {
+    it(`typeaheadFocus: ${c.name}`, async () => {
+      let state!: SurfaceState
+      const { container } = render(<TypeaheadSurface initial={typeaheadFixture.surfaces[c.surface]!} data={c.data} onState={(s) => (state = s)} />)
+      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+      await settle()
+      const field = () => container.querySelector<HTMLElement>(`[data-xui-id="c"] textarea, [data-xui-id="q"] input`)!
+      const popover = () => document.querySelector(`[data-xui-overlay="Popover"]`)
+      const where = (): string => {
+        const at = document.activeElement
+        if (!at || at === document.body) return `none`
+        if (at === field()) return `field`
+        if (popover()?.contains(at)) return `content`
+        if (container.querySelector(`[data-xui-id="b"]`)?.contains(at)) return `anchor`
+        return at.outerHTML.slice(0, 80)
+      }
+      for (const s of c.steps) {
+        if (s.do === `focusField`) act(() => field().focus())
+        else if (s.do === `open` || s.do === `close`) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `tf`, path: `/open`, value: s.do === `open` } }))
+        else fireEvent.click(container.querySelector(`[data-xui-id="t"]`)!)
+        await settle()
+        expect(popover() !== null, `${c.name}: ${s.do} open`).toBe(s.open)
+        expect(where(), `${c.name}: ${s.do} focus`).toBe(s.focus)
+      }
+    })
+  }
+})
