@@ -1883,6 +1883,54 @@ fn an_autosize_textarea_grows_when_its_bound_value_arrives_later(cx: &mut TestAp
     assert_eq!(view.read_with(vcx, |v, _| v.surface_height()), forty, "the loaded body fills maxRows");
 }
 
+/// interactions-round1.json `menuRows` (the searchable submenu's cases)
+/// through the painter: typing into the field keeps the rows that match
+/// its label or `identifier`, each painting its parts in order.
+#[gpui::test]
+fn a_searchable_submenu_paints_and_matches_its_rows_identifiers(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let cases: Vec<Value> = f["menuRows"].as_array().unwrap().iter().filter(|c| c["shown"].is_array()).cloned().collect();
+    assert!(!cases.is_empty());
+    for c in cases {
+        let name = c["name"].as_str().unwrap().to_string();
+        let (view, _log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [{"id": "m", "component": "Menu", "props": {"label": "More", "items": c["items"]}}]}), false);
+        view.update(vcx, |v, _| v.record_bounds(true));
+        draw(vcx);
+        let sub = c["submenu"].as_u64().unwrap();
+        let press = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, id: &str| {
+            let id = id.to_string();
+            vcx.update(|window, cx| view.update(cx, |v, cx| v.press(v.index_of(&id).unwrap(), window, cx)));
+            draw(vcx);
+        };
+        press(&view, vcx, "m.trigger");
+        press(&view, vcx, &format!("m.item.{sub}"));
+        if let Some(q) = c["query"].as_str() {
+            let field = format!("m.search.{sub}");
+            vcx.update(|window, cx| view.update(cx, |v, cx| assert!(v.type_into(&field, q, window, cx), "the field takes the text")));
+            vcx.executor().advance_clock(Duration::from_millis(200));
+            vcx.run_until_parked();
+            draw(vcx);
+        }
+        let shown: Vec<String> = view.read_with(vcx, |v, _| {
+            let nodes = v.placed_nodes();
+            let list = nodes.iter().find(|n| n.id == format!("m.list.{sub}")).expect("the list");
+            list.children.iter().map(|&i| &nodes[i as usize]).filter(|n| n.part.as_deref() == Some("item")).map(|n| n.id.trim_start_matches("m.item.").to_string()).collect()
+        });
+        assert_eq!(json!(shown), c["shown"], "{name}: shown rows");
+        for r in c["rows"].as_array().unwrap() {
+            let key = r["key"].as_str().unwrap();
+            if let Some(id) = r["identifier"].as_str() {
+                let (ident, label) = view.read_with(vcx, |v, _| (v.painted_bounds(&format!("m.identifier.{key}")), v.painted_bounds(&format!("m.itemLabel.{key}"))));
+                let (ident, label) = (ident.unwrap_or_else(|| panic!("{name}: {key} identifier {id} painted")), label.unwrap_or_else(|| panic!("{name}: {key} label painted")));
+                assert!(ident.origin.x < label.origin.x, "{name}: {key}: the id before the label");
+            } else {
+                assert!(view.read_with(vcx, |v, _| v.painted_bounds(&format!("m.identifier.{key}")).is_none()), "{name}: {key}: no id");
+            }
+            assert_eq!(view.read_with(vcx, |v, _| v.painted_bounds(&format!("m.detail.{key}")).is_some()), r["detail"].is_string(), "{name}: {key}: detail");
+        }
+    }
+}
+
 /// #EXP-1629 (interactions-round1.json `menuPreview`) through the painter:
 /// a real pointer over a row with a `preview` shows it beside the row only
 /// after the 150 ms wait (the core's `HoverTimer` on gpui's clock), as a

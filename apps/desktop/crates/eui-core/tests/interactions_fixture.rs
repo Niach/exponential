@@ -1052,8 +1052,19 @@ fn menu_row_cases_lay_out_identifier_and_detail_like_the_reference() {
             let at = s.nodes().iter().position(|n| n.id == format!("m.item.{sub}")).unwrap() as u32;
             let _ = s.event(at, "press", None);
             s.layout(&mut m);
+            // A searchable submenu: type into its field.
+            if let Some(q) = c["query"].as_str() {
+                let field = s.nodes().iter().position(|n| n.id == format!("m.search.{sub}")).unwrap_or_else(|| panic!("{name}: no field")) as u32;
+                let _ = s.event(field, "change", Some(json!({"value": q})));
+                s.layout(&mut m);
+            }
         }
         let nodes = s.nodes();
+        if let Some(shown) = c["shown"].as_array() {
+            let list = nodes.iter().find(|n| n.id == format!("m.list.{}", c["submenu"])).unwrap_or_else(|| panic!("{name}: no list"));
+            let got: Vec<String> = list.children.iter().map(|&i| &nodes[i as usize]).filter(|n| n.part.as_deref() == Some("item")).map(|n| n.id.trim_start_matches("m.item.").to_string()).collect();
+            assert_eq!(json!(got), json!(shown), "{name}: shown rows");
+        }
         for r in c["rows"].as_array().unwrap() {
             let key = r["key"].as_str().unwrap();
             let row = nodes.iter().find(|n| n.id == format!("m.item.{key}")).unwrap_or_else(|| panic!("{name}: no row {key}"));
@@ -1067,8 +1078,20 @@ fn menu_row_cases_lay_out_identifier_and_detail_like_the_reference() {
                         }
                         parts.push("label");
                         assert_eq!(n.props["text"], r["label"], "{name}: {key} label");
+                        if !r["iconColor"].is_null() && n.props.get("icon").is_some_and(|i| !i.is_null()) {
+                            assert_eq!(n.props["iconColor"], r["iconColor"], "{name}: {key} tint");
+                        }
                     }
-                    Some("itemIcon") => parts.push("icon"),
+                    Some("itemIcon") => {
+                        parts.push("icon");
+                        // The glyph's ink is the tint, not the row's muted text.
+                        if !r["iconColor"].is_null() {
+                            let identifier = row.children.iter().copied().find(|&i| nodes[i as usize].part.as_deref() == Some("identifier")).unwrap();
+                            let ink = s.visual(child).expect("the glyph's visual").color.clone();
+                            assert!(ink.as_deref().is_some_and(|c| c.starts_with('#')), "{name}: {key} tint resolves: {ink:?}");
+                            assert_ne!(ink, s.visual(identifier).expect("the id's visual").color.clone(), "{name}: {key} tint");
+                        }
+                    }
                     Some("check") => parts.push("check"),
                     Some("identifier") => {
                         parts.push("identifier");

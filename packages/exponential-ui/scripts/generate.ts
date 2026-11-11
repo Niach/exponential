@@ -1046,7 +1046,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
               detail: `Healthy`,
               preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
             },
-            { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
+            { label: `Issue`, kind: `submenu`, searchable: true, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
           ],
         },
         children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],

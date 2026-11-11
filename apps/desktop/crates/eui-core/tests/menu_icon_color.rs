@@ -115,3 +115,15 @@ fn a_bound_identifier_row_carries_the_hosts_colour() {
     let index = s.index_of("m.itemIcon.0").expect("the glyph");
     assert_eq!(s.visual(index).expect("its visual").color.as_deref(), Some("#ef4444ff"));
 }
+
+/// `identifier` is the mono run on every theme (SearchList's look): the
+/// recipe's `$type.family.mono`, resolved into the part's text style.
+#[test]
+fn an_identifier_is_the_mono_family() {
+    let (mut s, issues) = mount(menu(json!([{"label": "Fix it", "value": "a", "identifier": "EXP-1"}])));
+    assert!(issues.is_empty(), "{issues:?}");
+    open(&mut s);
+    let index = s.index_of("m.identifier.0").expect("the identifier");
+    let family = s.text_style(index).expect("its text style").font_family.clone();
+    assert_eq!(family.as_deref(), Some("JetBrains Mono"), "the exponential theme's $type.family.mono");
+}

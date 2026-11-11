@@ -259,44 +259,10 @@ impl Builder<'_, '_> {
                         }
                     }
                     let mut label_props = json!({"text": label, "lines": 1});
-                    // #EXP-1629: the mono `identifier` between the icon and
-                    // the label: the icon then leads as its own glyph.
-                    let identifier = item.get("identifier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
-                    if let Some(icon) = item.get("icon") {
-                        // #EXP-1629: the glyph's own tint (a status picker's
-                        // coloured glyphs): `$color.<name>`, or the host's
-                        // resolved colour in bound data.
-                        let tint = item.get("iconColor").filter(|c| c.is_string()).cloned();
-                        if identifier.is_some() {
-                            let g = self.part_in(row, owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon.clone(), "size": "sm"}), &suffix);
-                            self.nodes[g as usize].part_query = None;
-                            if let Some(color) = tint {
-                                self.nodes[g as usize].base_style.insert("color".into(), color);
-                            }
-                        } else {
-                            label_props["icon"] = icon.clone();
-                            if let Some(color) = tint {
-                                label_props["iconColor"] = color;
-                            }
-                        }
-                    }
-                    if let Some(identifier) = &identifier {
-                        let n = self.text_part(row, owner, "identifier", identifier, "muted", &suffix);
-                        self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
-                        self.nodes[n as usize].props.insert("lines".into(), json!(1));
-                        self.nodes[n as usize].lines = Some(1);
-                    }
+                    self.menu_row_lead(row, owner, item, &suffix, &mut label_props);
                     let l = self.part_in(row, owner, "itemLabel", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), label_props, &suffix);
                     self.nodes[l as usize].part_query = None;
-                    // #EXP-1629: the muted `detail` after the label (a
-                    // submenu parent's current value too).
-                    if let Some(detail) = item.get("detail").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-                        let detail = detail.to_string();
-                        let n = self.text_part(row, owner, "detail", &detail, "muted", &suffix);
-                        self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
-                        self.nodes[n as usize].props.insert("lines".into(), json!(1));
-                        self.nodes[n as usize].lines = Some(1);
-                    }
+                    self.menu_row_detail(row, owner, item, &suffix);
                     if let Some(shortcut) = item.get("shortcut").map(js) {
                         self.text_part(row, owner, "shortcut", &shortcut, "muted", &suffix);
                     }
@@ -333,6 +299,48 @@ impl Builder<'_, '_> {
                     }
                 }
             }
+        }
+    }
+
+    /// #EXP-1629: a menu row's icon and mono `identifier` (a normal row and a
+    /// searchable submenu's): before an identifier the icon leads as its own
+    /// `itemIcon` glyph, otherwise it rides the label (`label_props`), tinted
+    /// by `iconColor` either way (`$color.<name>`, or the host's resolved
+    /// colour in bound data).
+    pub(crate) fn menu_row_lead(&mut self, row: u32, owner: &LNode, item: &Value, suffix: &str, label_props: &mut Value) {
+        let identifier = item.get("identifier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+        if let Some(icon) = item.get("icon") {
+            let tint = item.get("iconColor").filter(|c| c.is_string()).cloned();
+            if identifier.is_some() {
+                let g = self.part_in(row, owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon.clone(), "size": "sm"}), suffix);
+                self.nodes[g as usize].part_query = None;
+                if let Some(color) = tint {
+                    self.nodes[g as usize].base_style.insert("color".into(), color);
+                }
+            } else {
+                label_props["icon"] = icon.clone();
+                if let Some(color) = tint {
+                    label_props["iconColor"] = color;
+                }
+            }
+        }
+        if let Some(identifier) = &identifier {
+            let n = self.text_part(row, owner, "identifier", identifier, "muted", suffix);
+            self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
+            self.nodes[n as usize].props.insert("lines".into(), json!(1));
+            self.nodes[n as usize].lines = Some(1);
+        }
+    }
+
+    /// #EXP-1629: a menu row's muted `detail` after its label (a submenu
+    /// parent's current value too).
+    pub(crate) fn menu_row_detail(&mut self, row: u32, owner: &LNode, item: &Value, suffix: &str) {
+        if let Some(detail) = item.get("detail").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            let detail = detail.to_string();
+            let n = self.text_part(row, owner, "detail", &detail, "muted", suffix);
+            self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(0));
+            self.nodes[n as usize].props.insert("lines".into(), json!(1));
+            self.nodes[n as usize].lines = Some(1);
         }
     }
 
