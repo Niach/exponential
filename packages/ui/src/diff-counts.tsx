@@ -91,10 +91,14 @@ export function DiffStatusLetter({
 // so both ends of it stay readable) — and the filename is never cut unless it
 // alone outgrows the row. The full path is the hover title.
 //
-// The directory's box is sized by an invisible copy of the whole directory
-// (`::before`, so it never reaches `textContent`), shrinks as a flex item when
-// the row runs out of room, and the line shown over it is re-cut whenever that
-// box resizes.
+// Two layers, so the shown line never feeds back into the room it gets: an
+// INVISIBLE sizer row claims the room — the whole directory and the whole
+// name as `::before` copies (never in `textContent`), the directory shrinking
+// first (down to its `…`), the name only after it — and `watchMiddleTruncate`
+// cuts the directory to its sizer's width. The VISIBLE row lies over it from
+// the left edge: the cut directory hugs the name, any slack the cut leaves
+// falls after the name, and the name end-cuts only once the directory is down
+// to its `…`.
 
 /** `apps/web/src/` dimmed, `file.tsx` at full weight — one mono run. */
 export function DiffPath({
@@ -116,22 +120,32 @@ export function DiffPath({
   }, [dir])
   return (
     <span
-      className={cn(`flex min-w-0 overflow-hidden font-mono`, className)}
+      className={cn(`relative flex min-w-0 overflow-hidden font-mono`, className)}
       title={path}
       data-slot="diff-path"
     >
       {dir ? (
         <span
           ref={dirRef}
+          aria-hidden
           data-full={dir}
-          className="relative min-w-0 overflow-hidden whitespace-pre before:invisible before:content-[attr(data-full)]"
-        >
-          <span className="absolute inset-0 text-right text-muted-foreground">
+          data-slot="diff-path-dir-sizer"
+          className="invisible min-w-[2ch] shrink-[1000] overflow-hidden whitespace-pre before:content-[attr(data-full)]"
+        />
+      ) : null}
+      <span
+        aria-hidden
+        data-full={base}
+        className="invisible min-w-0 overflow-hidden whitespace-pre before:content-[attr(data-full)]"
+      />
+      <span className="absolute inset-0 flex min-w-0">
+        {dir ? (
+          <span className="shrink-0 whitespace-pre text-muted-foreground">
             {shown ?? dir}
           </span>
-        </span>
-      ) : null}
-      <span className="max-w-full shrink-0 truncate">{base}</span>
+        ) : null}
+        <span className="min-w-0 truncate">{base}</span>
+      </span>
     </span>
   )
 }

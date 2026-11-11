@@ -59,13 +59,19 @@ describe(`DiffPath`, () => {
     expect(screen.getByText(`example.ts`)).toBeTruthy()
   })
 
-  it(`titles the full path and never cuts the filename (#EXP-1789)`, () => {
+  it(`titles the full path; the directory gives way before the name (#EXP-1789)`, () => {
     const path = `apps/web/src/components/deeply/nested/example.ts`
     const { container } = render(<DiffPath path={path} />)
     const root = container.querySelector(`[data-slot="diff-path"]`)
     expect(root?.getAttribute(`title`)).toBe(path)
     expect(container.textContent).toBe(path)
-    expect(screen.getByText(`example.ts`).className).toContain(`shrink-0`)
+    // The sizer row: the directory shrinks first and keeps room for its `…`.
+    const sizer = container.querySelector(`[data-slot="diff-path-dir-sizer"]`)
+    expect(sizer?.getAttribute(`data-full`)).toBe(`apps/web/src/components/deeply/nested/`)
+    expect(sizer?.className).toContain(`shrink-[1000]`)
+    expect(sizer?.className).toContain(`min-w-[2ch]`)
+    // The visible name end-cuts only once the directory is down to its `…`.
+    expect(screen.getByText(`example.ts`).className).toContain(`truncate`)
   })
 
   it(`a bare filename has no dimmed run at all`, () => {
