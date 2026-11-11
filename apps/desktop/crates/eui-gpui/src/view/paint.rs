@@ -1219,8 +1219,10 @@ impl SurfaceView {
         let mut row = lcx.row(lcx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))).items_center().gap(px(gap)).whitespace_nowrap();
         if lead > 0.0 {
             if let Some(icon) = n.props.get("icon").and_then(Value::as_str) {
-                let own = lcx.host.icon_element(icon, 16.0, lcx.ink, cx);
-                row = row.child(div().flex_none().child(own.unwrap_or_else(|| icons::concept_mirrored(lcx.host, icon, 16.0, lcx.ink, lcx.rtl))));
+                // #EXP-1629: a menu item's `iconColor` tints its glyph.
+                let ink = n.props.get("iconColor").and_then(Value::as_str).and_then(|c| lcx.prop_color(c)).unwrap_or(lcx.ink);
+                let own = lcx.host.icon_element(icon, 16.0, ink, cx);
+                row = row.child(div().flex_none().child(own.unwrap_or_else(|| icons::concept_mirrored(lcx.host, icon, 16.0, ink, lcx.rtl))));
             }
         }
         let align = if owner == "Tabs" { "center" } else { lcx.align() };
@@ -1276,7 +1278,10 @@ impl SurfaceView {
                 let cp = lcx.part_props("Select", "check", &[]);
                 let size = px_prop(&cp, "width").or_else(|| px_prop(&cp, "height")).unwrap_or(16.0) * lcx.scale;
                 let ink = lcx.part("Select", "check", &[]).color.unwrap_or(lcx.ink);
-                row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
+                // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+                if selected || lcx.str("checkSlot") != "chosen" {
+                    row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
+                }
             }
             ("Table", Some("headerCell")) => {
                 let icon = lcx.str("sortIcon");
@@ -1533,28 +1538,27 @@ impl SurfaceView {
         let field_ink = crate::paint::color::color_of(field_props.get("color").and_then(Value::as_str)).unwrap_or(lcx.ink);
         let gap = lcx.style.gap;
         // #EXP-1762: `flat` = one row: the field between the leading slot and
-        // the controls, centred on the send disc while one line, the row's
-        // full height once it grows (upward: the controls stay at the bottom).
+        // the controls, spanning the row (the disc's height while one line,
+        // growing upward: the controls stay at the bottom).
+        // #EXP-1762: the core lays an `above` slot out at the content top; the
+        // field (and a flat row) start one gap below it.
+        let top = self.cache.index_of(&format!("{}.above", n.id)).and_then(|i| self.frames.get(i as usize)).map_or(0.0, |f| f.h + gap);
+        let rh = (h - top).max(0.0);
         let (field_x, field_y, field_w, field_h) = if lcx.str("layout") == "flat" {
             let slot = |name: &str| self.cache.index_of(&format!("{}.{name}", n.id)).and_then(|i| self.frames.get(i as usize)).map_or(0.0, |f| f.w + gap);
             let lead = slot("leading");
             let att = if lcx.bool("attachments") { eui_core::measure::COMPOSER_ATTACH_W + gap } else { 0.0 };
             let fw = (w - lead - slot("trailing") - att - send - gap).max(0.0);
-            let line = px_prop(&field_props, "lineHeight").unwrap_or(lcx.text_style.line_height);
             let x = if lcx.rtl { w - lead - fw } else { lead };
-            if h > send + 0.5 {
-                (x, 0.0, fw, h)
-            } else {
-                // A one-line draft's TEXT is centred on the disc: gpui-component's
-                // Textarea draws its text its own editor inset (`Size::Medium`
-                // `input_py`) below its top, so the widget sits that inset
-                // above the line's box (the IDE's flat card: #EDE-65 lane T).
-                let fh = line.min(h);
-                let ey = f32::from(gpui_component::Size::Medium.input_py());
-                (x, (h - fh) / 2.0 - ey, fw, fh + 2.0 * ey)
-            }
+            // The TEXT starts the field recipe's `paddingTop` below the row's
+            // top, one line or grown (the IDE's bottom-aligned row):
+            // gpui-component's Textarea draws its text its own editor inset
+            // (`Size::Medium` `input_py`) below its top, so the widget sits
+            // that inset above it and covers the rest of the row.
+            let (y, fh) = flat_field_box(rh, px_prop(&field_props, "paddingTop").unwrap_or(0.0), f32::from(gpui_component::Size::Medium.input_py()));
+            (x, top + y, fw, fh)
         } else {
-            (0.0, 0.0, w, (h - send - gap).max(0.0))
+            (0.0, top, w, (rh - send - gap).max(0.0))
         };
         let empty = self.fields.get(&n.id).is_none_or(|f| f.value(cx).trim().is_empty());
         let mut out = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
@@ -1624,7 +1628,12 @@ impl SurfaceView {
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(label))
                 .on_click(cx.listener(move |this, _, window, cx| this.submit_composer(&fid, window, cx)))
-                .child(icons::concept(lcx.host, if busy { "ui-stop" } else { "ui-send" }, 16.0, send_ink)),
+                .child(icons::concept(
+                    lcx.host,
+                    if busy { eui_core::layout_tree::builtin_icon("Composer.stop").unwrap_or("ui-stop") } else { eui_core::layout_tree::builtin_icon("Composer.send").unwrap_or("ui-submit") },
+                    16.0,
+                    send_ink,
+                )),
         );
         out.child(bar).into_any_element()
     }
@@ -1967,6 +1976,16 @@ pub(crate) fn window_layer_at(position: &str, size: (f32, f32), window: (f32, f3
     }
 }
 
+/// #EXP-1762 (interactions-round1.json composerSlots `field`): a flat
+/// Composer's Textarea `(top, height)` in a row `row_h` tall: its text
+/// starts `pad_top` (the field recipe's `paddingTop`) below the row's top,
+/// one line or grown; the widget draws its text `inset` below its own top,
+/// so it sits that inset higher and reaches the row's bottom.
+pub(crate) fn flat_field_box(row_h: f32, pad_top: f32, inset: f32) -> (f32, f32) {
+    let top = pad_top - inset;
+    (top, (row_h - top).max(0.0))
+}
+
 /// Did the user pick something (the trigger shows a value, not the
 /// placeholder)?
 fn has_value(n: &PlacedNode) -> bool {
@@ -2031,6 +2050,19 @@ mod tests {
         let grown = window_layer_at("centered", (400.0, 260.0), window, Some(200.0));
         assert_eq!(grown.1 + 260.0, 400.0, "the bottom edge holds");
         assert_eq!(window_layer_at("centered", (400.0, 590.0), window, Some(200.0)).1, 8.0, "a tall one stops at the top padding");
+    }
+
+    /// #EXP-1762 composerSlots `field`: a flat field's text starts the
+    /// recipe's paddingTop below the row's top, one line (the disc's row)
+    /// or grown, the widget reaching the row's bottom.
+    #[test]
+    fn a_flat_composer_sets_its_text_at_the_field_top_padding() {
+        let ey = f32::from(gpui_component::Size::Medium.input_py());
+        for (row, pad) in [(36.0, 8.0), (68.0, 8.0), (32.0, 4.25), (56.75, 4.25)] {
+            let (top, h) = flat_field_box(row, pad, ey);
+            assert!((top + ey - pad).abs() < 1e-4, "row {row}: the text's top is the field's paddingTop");
+            assert!((top + h - row).abs() < 1e-4, "row {row}: the field reaches the row's bottom");
+        }
     }
 
     #[test]

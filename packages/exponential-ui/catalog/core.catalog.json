@@ -380,7 +380,8 @@
     "selectTrigger": [
       "field",
       "row",
-      "pill"
+      "pill",
+      "button"
     ],
     "inputVariant": [
       "field",
@@ -417,6 +418,11 @@
         "icon": {
           "type": "icon",
           "description": "Icon shown before the label."
+        },
+        "iconColor": {
+          "type": "color",
+          "bindable": true,
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
         },
         "disabled": {
           "type": "boolean",
@@ -504,9 +510,27 @@
           "type": "icon",
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true,
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "type": "object",
+          "bindable": true,
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
         },
         "checked": {
           "type": "boolean",
@@ -1399,7 +1423,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",
@@ -2052,6 +2076,14 @@
         "lines": {
           "type": "number",
           "description": "Truncates to this many lines with an ellipsis."
+        },
+        "truncate": {
+          "type": "enum",
+          "values": [
+            "end",
+            "middle"
+          ],
+          "description": "One line; `middle` keeps the start and end (start…end)."
         },
         "tone": {
           "type": "enum",
@@ -3492,7 +3524,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "props": {
         "label": {
           "type": "string",
@@ -3535,7 +3567,8 @@
         }
       },
       "events": [
-        "select"
+        "select",
+        "action"
       ],
       "example": {
         "label": "More",
@@ -5368,7 +5401,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
         },
         "triggerIcon": {
           "type": "boolean",
@@ -6000,9 +6033,10 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "props": {
         "placeholder": {
           "type": "string",

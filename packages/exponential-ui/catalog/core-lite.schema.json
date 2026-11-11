@@ -1968,6 +1968,13 @@
           "type": "number",
           "description": "Truncates to this many lines with an ellipsis."
         },
+        "truncate": {
+          "enum": [
+            "end",
+            "middle"
+          ],
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
         "tone": {
           "enum": [
             "neutral",
@@ -8170,9 +8177,10 @@
           "enum": [
             "field",
             "row",
-            "pill"
+            "pill",
+            "button"
           ],
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule.",
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button.",
           "default": "field"
         },
         "triggerIcon": {
@@ -8726,7 +8734,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -8792,7 +8800,8 @@
             "children": "none",
             "slots": [
               "leading",
-              "trailing"
+              "trailing",
+              "above"
             ],
             "events": [
               "submit",
@@ -17797,6 +17806,11 @@
           ],
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "type": "boolean",
           "description": "Shows the option but refuses it."
@@ -19098,9 +19112,26 @@
           ],
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "$ref": "common_types.json#/$defs/DynamicValue",
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
         },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -21861,6 +21892,9 @@
           "$ref": "common_types.json#/$defs/ComponentId"
         },
         "trailing": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "above": {
           "$ref": "common_types.json#/$defs/ComponentId"
         }
       },

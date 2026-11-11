@@ -26,7 +26,8 @@
 //! undershoot and a "0-count" status may still hold issues. The dialog shows
 //! the server-authoritative `statuses.referencingCount` once it arrives, and
 //! always sends `reassignToId`, so the delete can never bounce
-//! `PRECONDITION_FAILED`. The dialog stays native (`DeleteStatusContent`).
+//! `PRECONDITION_FAILED`. The alert stays native; #EXP-1629: its body
+//! (`DeleteStatusContent`) is an eUI document, web's inline target list.
 //!
 //! Writes are member-level (`mutate_resources`, like labels — NOT owner-only).
 //! Reads come from the synced `issue_statuses` collection.
@@ -39,10 +40,7 @@ use gpui::{
     div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariant},
-    h_flex, v_flex, ActiveTheme as _,
-};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _};
 use serde_json::{json, Value};
 use sync::Store;
 
@@ -50,7 +48,6 @@ use domain::contract::ISSUE_STATUS_STARTED_MAX;
 use domain::rows::IssueStatusRow;
 use domain::statuses::{resolve_row, resolve_status_sorted, IssueStatusCategory, ResolvedStatus};
 
-use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
@@ -668,13 +665,7 @@ impl StatusesPane {
         cx.notify();
 
         let pr_pin_notice = self.pr_pin_notice(&status_id, cx);
-        let content = cx.new(|_| DeleteStatusContent {
-            candidates,
-            selected_id: preselected,
-            server_count: None,
-            synced_count,
-            pr_pin_notice,
-        });
+        let content = cx.new(|cx| DeleteStatusContent::new(candidates, preselected, None, synced_count, pr_pin_notice, window, cx));
 
         // The server count (trashed-board issues included) lands async and
         // re-renders the dialog body — the content is its own entity exactly
@@ -1053,145 +1044,182 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
         "children": [column("categories", path("/pane/list"), categories), none]})
 }
 
-/// The delete dialog's body (EXP-320): the live referencing count + the
-/// destination picker. Its own entity so the async `referencingCount` fetch
-/// can re-render just this block (the surrounding alert never re-renders).
+/// The delete dialog's body (EXP-320, #EXP-1629: an eUI document): the live
+/// referencing count + the destination picker. Its own entity so the async
+/// `referencingCount` fetch can re-render just this block (the surrounding
+/// native alert never re-renders).
 pub(crate) struct DeleteStatusContent {
-    /// The offered targets — the duplicate category and the deletee
-    /// excluded. Resolved rows, so the picker can draw glyph + tint; every
-    /// one is SYNCED, so its `group_key` IS its row id (what `selected_id`
-    /// holds and what `reassignToId` sends).
+    /// The offered targets, the duplicate category and the deletee
+    /// excluded. Every one is SYNCED, so its `group_key` IS its row id (what
+    /// `selected_id` holds and what `reassignToId` sends).
     candidates: Vec<ResolvedStatus>,
     selected_id: String,
     /// Server-authoritative count (trashed-board issues included); `None`
-    /// while loading or after a failed fetch — the copy stays hedged then.
+    /// while loading or after a failed fetch: the copy stays hedged then.
     server_count: Option<i64>,
-    /// The client-visible count — flags when part of the total is on
+    /// The client-visible count: flags when part of the total is on
     /// trashed boards the client can't see.
     synced_count: usize,
-    /// Web `prPinNotice` — set only when a live PR automation points here.
+    /// Web `prPinNotice`: set only when a live PR automation points here.
     pr_pin_notice: Option<SharedString>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
 }
 
 impl DeleteStatusContent {
+    #[allow(clippy::too_many_arguments)]
+    fn new(candidates: Vec<ResolvedStatus>, selected_id: String, server_count: Option<i64>, synced_count: usize, pr_pin_notice: Option<SharedString>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let me = cx.weak_entity();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding.on_action("target", move |_, event, cx| {
+                let key = event.context.get("key").and_then(Value::as_str).map(str::to_string);
+                let me = me.clone();
+                cx.defer(move |cx| {
+                    let _ = me.update(cx, |state, cx| {
+                        if let Some(key) = key {
+                            // Every candidate is a synced row, so its
+                            // `group_key` IS the id `reassignToId` wants.
+                            state.selected_id = key;
+                            cx.notify();
+                        }
+                    });
+                });
+                None
+            });
+            binding
+        });
+        let view = mount("status-delete", delete_document(&Ink::of(cx), &DeleteChrome::of(cx)), &binding, window, cx);
+        Self {
+            candidates,
+            selected_id,
+            server_count,
+            synced_count,
+            pr_pin_notice,
+            binding,
+            view,
+        }
+    }
+
     /// The bench's dialog body: `rows` minus the deletee and the duplicate
     /// as the targets, Backlog picked.
     #[cfg(test)]
-    pub(crate) fn for_shots(rows: &[IssueStatusRow], deletee: &str, server_count: Option<i64>, pr_pin_notice: Option<&str>) -> Self {
+    pub(crate) fn for_shots(rows: &[IssueStatusRow], deletee: &str, server_count: Option<i64>, pr_pin_notice: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let sorted = domain::statuses::sort_team_statuses(rows);
         let candidates: Vec<ResolvedStatus> = (0..sorted.len())
             .map(|index| resolve_row(&sorted, index))
             .filter(|status| status.group_key != deletee && status.category != IssueStatusCategory::Duplicate)
             .collect();
         let selected_id = sorted.iter().find(|row| row.builtin_key.as_deref() == Some("backlog")).map(|row| row.id.clone()).unwrap_or_default();
-        Self { candidates, selected_id, server_count, synced_count: 2, pr_pin_notice: pr_pin_notice.map(|notice| SharedString::from(notice.to_string())) }
+        Self::new(candidates, selected_id, server_count, 2, pr_pin_notice.map(|notice| SharedString::from(notice.to_string())), window, cx)
+    }
+
+    /// The bench's press on the row of `key`, as a click makes it.
+    #[cfg(test)]
+    pub(crate) fn press_target(&mut self, key: &str, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(&format!("target_row.{key}")).expect("the target's row");
+            view.fire(index, "press", None, cx);
+        });
+    }
+
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        // Web copy: the alert's own description carries the hedged sentence
+        // while the server count is in flight, so this line only speaks once
+        // the real number lands.
+        let count_line = match self.server_count {
+            None => None,
+            Some(0) => Some("No issues use this status right now. Anything referencing it when you confirm will move to the status you pick.".to_string()),
+            Some(n) => {
+                let trashed = if n as usize > self.synced_count { " (some on trashed boards)" } else { "" };
+                Some(format!("{n} issue{}{trashed} will move to the status you pick.", if n == 1 { "" } else { "s" }))
+            }
+        };
+        let theme = cx.theme();
+        let accent = hex(theme.accent);
+        // Web `space-y-3` under whatever leads the list (the column's own
+        // gap is `gap_2`).
+        let list_top = if self.pr_pin_notice.is_some() || count_line.is_some() { f32::from(theme.font_size) * 0.25 } else { 0. };
+        let targets: Vec<Value> = self
+            .candidates
+            .iter()
+            .map(|status| {
+                let selected = status.group_key == self.selected_id;
+                json!({
+                    "key": status.group_key,
+                    "label": status.name,
+                    "glyph": status.glyph.file_name(),
+                    "tint": hex(crate::icons::status_tint_color(&status.tint, cx)),
+                    "fill": if selected { accent.as_str() } else { "#00000000" },
+                    "state": if selected { "Selected" } else { "" },
+                })
+            })
+            .collect();
+        json!({
+            "hasNotice": self.pr_pin_notice.is_some(),
+            "notice": self.pr_pin_notice.as_ref().map(|notice| notice.to_string()).unwrap_or_default(),
+            "hasCount": count_line.is_some(),
+            "count": count_line.unwrap_or_default(),
+            "listTop": list_top,
+            "targets": targets,
+        })
     }
 }
 
 impl Render for DeleteStatusContent {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DeleteStatusContent").entered();
-        // Web copy: the alert's own description carries the hedged sentence
-        // while the server count is in flight, so this line only speaks once
-        // the real number lands.
-        let count_line: Option<SharedString> = match self.server_count {
-            None => None,
-            Some(0) => Some(
-                "No issues use this status right now. Anything referencing it \
-                 when you confirm will move to the status you pick."
-                    .into(),
-            ),
-            Some(n) => {
-                let trashed = if n as usize > self.synced_count {
-                    " (some on trashed boards)"
-                } else {
-                    ""
-                };
-                Some(
-                    format!(
-                        "{n} issue{}{trashed} will move to the status you pick.",
-                        if n == 1 { "" } else { "s" }
-                    )
-                    .into(),
-                )
-            }
-        };
-        let selected = self
-            .candidates
-            .iter()
-            .find(|status| status.group_key == self.selected_id);
-        let selected_name: SharedString = selected
-            .map(|status| SharedString::from(status.name.clone()))
-            .unwrap_or_else(|| "Choose status".into());
-        let selected_icon = selected.map(|status| crate::icons::resolved_status_icon(status, cx));
-        let candidates = self.candidates.clone();
-        let selected_id = self.selected_id.clone();
-        let picker = cx.entity().downgrade();
-
-        v_flex()
-            .gap_2()
-            .when_some(self.pr_pin_notice.clone(), |col, notice| {
-                col.child(
-                    div()
-                        .px_2p5()
-                        .py_2()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(super::row_stroke(cx))
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(notice),
-                )
-            })
-            .when_some(count_line, |col, line| {
-                col.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(line),
-                )
-            })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().text_sm().child("Move issues to"))
-                    // EXP-1045: THE status picker — the target reads by its
-                    // own glyph and tint here too, not by a bare name.
-                    .child(crate::picker::deferred(move |window, cx| {
-                        let trigger = Button::new("status-delete-reassign-target")
-                            .outline().cursor_pointer()
-                            .web_input_sm()
-                            .when_some(selected_icon, |button, icon| button.icon(icon))
-                            .label(selected_name)
-                            .into_any_element();
-                        crate::picker::status_picker::status_picker(
-                            &candidates,
-                            crate::picker::PickerMode::Single,
-                            vec![selected_id],
-                            trigger,
-                            std::rc::Rc::new(move |keys: Vec<String>, _window, cx: &mut App| {
-                                let Some(key) = keys.first().cloned() else {
-                                    return;
-                                };
-                                let _ = picker.update(cx, |state, cx| {
-                                    // Every candidate is a synced row, so its
-                                    // `group_key` IS the id `reassignToId`
-                                    // wants.
-                                    state.selected_id = key;
-                                    cx.notify();
-                                });
-                            }),
-                        )
-                        .empty_text("No other status")
-                        .id("status-delete-reassign-picker")
-                        .render(window, cx)
-                    })),
-            )
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
     }
 }
 
-use gpui::prelude::FluentBuilder as _;
+/// The colours the delete body needs beyond [`Ink`].
+struct DeleteChrome {
+    radius: f32,
+    accent: String,
+    notice_stroke: String,
+}
+
+impl DeleteChrome {
+    fn of(cx: &App) -> Self {
+        let theme = cx.theme();
+        Self { radius: f32::from(theme.radius), accent: hex(theme.accent), notice_stroke: hex(super::row_stroke(cx)) }
+    }
+}
+
+/// The body's tree (`gap_2`): the PR-pin notice, the count line, then web's
+/// inline target list (`statuses-section.tsx`, `space-y-1`): a pressable row
+/// per target (`px-2 py-2`, `gap-2`, `rounded-md`, the `h-4` glyph in its
+/// tint, the `text-sm` name truncated), the chosen one and the hovered one
+/// on `bg-accent`. The alert's body scrolls past its cap (#EXP-1588).
+fn delete_document(ink: &Ink, chrome: &DeleteChrome) -> Value {
+    let at = |key: &str| path(&format!("/pane/{key}"));
+    let notice_line = ink.text("notice_text", at("notice"), XS, &ink.muted);
+    let notice = json!({"id": "notice", "component": "Box", "visible": at("hasNotice"),
+        "style": {"display": "flex", "flexDirection": "column", "paddingHorizontal": ink.r(0.625), "paddingVertical": ink.r(0.5), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.notice_stroke},
+        "children": [notice_line]});
+    let mut count = ink.text("count", at("count"), SM, &ink.muted);
+    count["visible"] = at("hasCount");
+    let glyph = json!({"id": "target_glyph", "component": "Icon", "props": {"name": path("glyph")}, "style": {"width": ink.r(1.), "height": ink.r(1.), "color": path("tint"), "flexShrink": 0}});
+    let mut name = ink.text("target_name", path("label"), SM, &ink.foreground);
+    name["props"]["lines"] = json!(1);
+    name["style"]["lineHeight"] = json!(ink.r(1.25));
+    name["style"]["flexGrow"] = json!(1);
+    name["style"]["flexShrink"] = json!(1);
+    name["style"]["minWidth"] = json!(0);
+    let row = json!({"id": "target_row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "description": path("state")},
+        "on": {"press": {"event": {"name": "target", "context": {"key": path("key")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "backgroundColor": path("fill"), "cursor": "pointer", ":hover": {"backgroundColor": chrome.accent}},
+        "children": [glyph, name]});
+    let list = json!({"id": "targets", "component": "List", "props": {"gap": "none"}, "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25), "marginTop": at("listTop")},
+        "template": {"component": "target_row", "path": "/pane/targets", "key": "key"},
+        "children": [row]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.5)}, "children": [notice, count, list]})
+}
 
 /// Web `CreateStatusForm`'s placeholder: "New {category} status", the category
 /// LOWERCASED (`statuses-section.tsx`).
@@ -1232,12 +1260,14 @@ mod tests {
             primary_button_fg: "#18181bff".into(),
         };
         let chrome = Chrome { list_hover: "#ffffff10".into(), skeleton: "#a1a1aa2e".into(), danger: "#fb7185ff".into(), radius: 10. };
-        let tree = document(&ink, &chrome);
-        let bound = super::super::doc::bound_values(&tree);
-        let mut surface = eui_core::surface::Surface::new("settings-statuses", Default::default());
-        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
-        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
-        assert!(issues.is_empty(), "{issues:?}");
+        let delete = DeleteChrome { radius: 10., accent: "#27272aff".into(), notice_stroke: "#ffffff14".into() };
+        for tree in [document(&ink, &chrome), delete_document(&ink, &delete)] {
+            let bound = super::super::doc::bound_values(&tree);
+            let mut surface = eui_core::surface::Surface::new("settings-statuses", Default::default());
+            let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+            let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+            assert!(issues.is_empty(), "{issues:?}");
+        }
     }
 
     #[test]

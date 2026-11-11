@@ -378,6 +378,8 @@ pub struct LocalState {
     pub range_anchor: HashMap<String, String>,
     /// The open submenu of a menu (item index).
     pub submenu: HashMap<String, usize>,
+    /// #EXP-1629: each open menu's item `preview` state (which row's shows).
+    pub menu_preview: HashMap<String, crate::menu_preview::MenuPreview>,
     /// EXP-1259: the highlighted row of a SearchList (by its id) or of a
     /// searchable submenu (by its `search` part's id), a position in the
     /// FILTERED rows.
@@ -1007,6 +1009,10 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         n.base_style = base;
         n.lines = props.get("lines").and_then(Value::as_u64).map(|l| l as u32);
+        // #EXP-1778: a `truncate` Text keeps one line (`middle`: start…end).
+        if node.component == "Text" && matches!(str_prop(&props, "truncate"), Some("end" | "middle")) {
+            n.lines = Some(1);
+        }
         n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold"))) || (matches!(node.component.as_str(), "Box" | "Button" | "Link") && str_prop(&props, "href").is_some_and(|href| !href.is_empty()))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
         n.on = node.on.clone();
         n.source = self.source_of(&node.id).cloned();

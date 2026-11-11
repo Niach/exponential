@@ -78,8 +78,14 @@ pub(crate) fn upstream_select(
     on_pick: impl Fn(String, &mut App) + 'static,
     cx: &App,
 ) -> impl IntoElement {
+    let on_pick: std::rc::Rc<dyn Fn(String, &mut App)> = std::rc::Rc::new(on_pick);
+    upstream_trigger(id, name, &picker, disabled, cx).pointer_menu(move |menu, _window, _cx| upstream_menu(menu, &picker, on_pick.clone()))
+}
+
+/// [`upstream_select`]'s trigger: the outline sm Button holding the shown
+/// option's label and the chevron (the bench draws it open, #EXP-1778).
+pub(crate) fn upstream_trigger(id: SharedString, name: SharedString, picker: &domain::apps::UpstreamPicker, disabled: bool, cx: &App) -> Button {
     let label = picker.options.iter().find(|(value, _)| *value == picker.value).map(|(_, label)| label.clone()).unwrap_or_default();
-    let on_pick = std::rc::Rc::new(on_pick);
     Button::new(id)
         .accessibility_label(name)
         .outline()
@@ -89,18 +95,25 @@ pub(crate) fn upstream_select(
         .disabled(disabled)
         .child(div().flex_1().min_w_0().truncate().child(label))
         .child(Icon::new(registry::UI_CHEVRON_DOWN).size(px(14.)).text_color(cx.theme().muted_foreground))
-        .pointer_menu(move |mut menu, _window, _cx| {
-            menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
-            for (value, label) in &picker.options {
-                let (on_pick, picked) = (on_pick.clone(), value.clone());
-                menu = menu.item(
-                    crate::controls::pointer_label_item(label.clone(), false)
-                        .checked(*value == picker.value)
-                        .on_click(move |_, _, cx| on_pick(picked.clone(), cx)),
-                );
-            }
-            menu
-        })
+}
+
+/// [`upstream_select`]'s menu: the options, the shown one checked (the
+/// bench draws it in place, #EXP-1778).
+pub(crate) fn upstream_menu(
+    mut menu: gpui_component::menu::PopupMenu,
+    picker: &domain::apps::UpstreamPicker,
+    on_pick: std::rc::Rc<dyn Fn(String, &mut App)>,
+) -> gpui_component::menu::PopupMenu {
+    menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
+    for (value, label) in &picker.options {
+        let (on_pick, picked) = (on_pick.clone(), value.clone());
+        menu = menu.item(
+            crate::controls::pointer_label_item(label.clone(), false)
+                .checked(*value == picker.value)
+                .on_click(move |_, _, cx| on_pick(picked.clone(), cx)),
+        );
+    }
+    menu
 }
 
 /// What an Accounts row shows on its right.
@@ -315,7 +328,7 @@ pub(super) fn automations_rows(data: &AppToolsOut) -> Value {
 }
 
 /// What a middle-truncated run needs (the IDE's own text, `mid_text`).
-pub(super) struct MidText {
+pub(crate) struct MidText {
     pub text: String,
     /// `text_sm` (else `text_xs`).
     pub sm: bool,
@@ -326,7 +339,7 @@ pub(super) struct MidText {
 /// secret keeps its both ends).
 // drop with EXP-1778: the text stays the IDE's own (a `host_leaf`
 // Embed) until genUI's Text truncates in the middle.
-pub(super) fn mid_text(text: &MidText, cx: &App) -> gpui::AnyElement {
+pub(crate) fn mid_text(text: &MidText, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
     let run = div()
         .font_family(theme.mono_font_family.clone())

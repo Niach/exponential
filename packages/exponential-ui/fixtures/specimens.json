@@ -2368,6 +2368,68 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen_text_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_text_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "truncate · middle",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_hook",
+                "component": "Stack",
+                "props": {
+                  "gap": "xs"
+                },
+                "style": {
+                  "maxWidth": 240
+                },
+                "children": [
+                  {
+                    "id": "c9_hook_url",
+                    "component": "Text",
+                    "props": {
+                      "text": "https://app.exponential.at/api/apps/hooks/0f6a3c1e-7d2b-4a8e-9c51-2be4d7a1f093/github-push",
+                      "variant": "caption",
+                      "truncate": "middle"
+                    },
+                    "style": {
+                      "fontFamily": "$type.family.mono"
+                    }
+                  },
+                  {
+                    "id": "c9_hook_secret",
+                    "component": "Text",
+                    "props": {
+                      "text": "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddccbbaa",
+                      "truncate": "middle"
+                    },
+                    "style": {
+                      "fontFamily": "$type.family.mono"
+                    }
+                  },
+                  {
+                    "id": "c9_hook_end",
+                    "component": "Text",
+                    "props": {
+                      "text": "truncate · end keeps the start of a long line and cuts its end",
+                      "truncate": "end"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -6629,6 +6691,183 @@
                     "props": {
                       "label": "More",
                       "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_menu_case_3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_menu_case_3_label",
+                "component": "Text",
+                "props": {
+                  "text": "items · icon + iconColor",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3_status_menu",
+                "component": "Menu",
+                "props": {
+                  "align": "end",
+                  "items": [
+                    {
+                      "label": "Backlog",
+                      "value": "backlog",
+                      "kind": "checkbox",
+                      "icon": "status-backlog",
+                      "iconColor": "$color.mutedForeground"
+                    },
+                    {
+                      "label": "In Progress",
+                      "value": "in_progress",
+                      "kind": "checkbox",
+                      "icon": "status-in-progress",
+                      "iconColor": "$color.warning",
+                      "checked": true
+                    },
+                    {
+                      "label": "Done",
+                      "value": "done",
+                      "kind": "checkbox",
+                      "icon": "status-done",
+                      "iconColor": "$color.success"
+                    },
+                    {
+                      "label": "Cancelled",
+                      "value": "cancelled",
+                      "kind": "checkbox",
+                      "icon": "status-cancelled",
+                      "iconColor": "$color.destructive"
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c3_status_trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "In Progress",
+                      "icon": "status-in-progress",
+                      "variant": "outline"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_menu_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_menu_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "items · detail + identifier + preview",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_composer_menu",
+                "component": "Menu",
+                "props": {
+                  "label": "Options",
+                  "items": [
+                    {
+                      "label": "Model",
+                      "kind": "submenu",
+                      "detail": "Opus",
+                      "items": [
+                        {
+                          "label": "Opus",
+                          "value": "opus",
+                          "kind": "checkbox",
+                          "checked": true
+                        },
+                        {
+                          "label": "Sonnet",
+                          "value": "sonnet",
+                          "kind": "checkbox"
+                        }
+                      ]
+                    },
+                    {
+                      "label": "ada@example.com",
+                      "value": "account",
+                      "icon": "brand-claude",
+                      "detail": "Healthy",
+                      "preview": {
+                        "root": {
+                          "id": "usage",
+                          "component": "Stack",
+                          "props": {
+                            "gap": "xs"
+                          },
+                          "children": [
+                            {
+                              "id": "usage_title",
+                              "component": "Text",
+                              "props": {
+                                "text": "5-hour limit",
+                                "variant": "caption"
+                              }
+                            },
+                            {
+                              "id": "usage_bar",
+                              "component": "Progress",
+                              "props": {
+                                "value": 42,
+                                "label": "42%"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "label": "Issue",
+                      "kind": "submenu",
+                      "items": [
+                        {
+                          "label": "Fix the login redirect",
+                          "value": "EXP-12",
+                          "identifier": "EXP-12",
+                          "icon": "status-in-progress"
+                        },
+                        {
+                          "label": "Ship the composer menu",
+                          "value": "EXP-14",
+                          "identifier": "EXP-14",
+                          "icon": "status-done"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c4_composer_plus",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-add",
+                      "label": "Options",
+                      "variant": "ghost",
+                      "size": "icon"
                     }
                   }
                 ]
@@ -13038,6 +13277,250 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_select_case_9",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_9_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · button",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_accounts",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c9_upstream",
+                    "component": "Select",
+                    "props": {
+                      "label": "github",
+                      "name": "upstream",
+                      "triggerVariant": "button",
+                      "value": "s1",
+                      "options": [
+                        {
+                          "label": "Not set up",
+                          "value": "none"
+                        },
+                        {
+                          "label": "GitHub",
+                          "value": "s1"
+                        },
+                        {
+                          "label": "GitHub (work account)",
+                          "value": "s2"
+                        }
+                      ]
+                    },
+                    "style": {
+                      "width": 144
+                    }
+                  },
+                  {
+                    "id": "c9_upstream_busy",
+                    "component": "Select",
+                    "props": {
+                      "label": "linear",
+                      "name": "upstreamBusy",
+                      "triggerVariant": "button",
+                      "value": "none",
+                      "disabled": true,
+                      "options": [
+                        {
+                          "label": "Not set up",
+                          "value": "none"
+                        }
+                      ]
+                    },
+                    "style": {
+                      "width": 144
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "triggerVariant · row + description, disabled",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_agent_effort",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c10_effort_locked",
+                    "component": "Select",
+                    "props": {
+                      "label": "Effort",
+                      "name": "effort",
+                      "triggerVariant": "row",
+                      "description": "ultracode sets effort",
+                      "disabled": true,
+                      "value": "max",
+                      "options": [
+                        {
+                          "label": "High",
+                          "value": "high"
+                        },
+                        {
+                          "label": "Max",
+                          "value": "max"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_11",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_11_label",
+                "component": "Text",
+                "props": {
+                  "text": "option iconColor + triggerIcon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c11_pr_automation",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c11_pr_opened",
+                    "component": "Select",
+                    "props": {
+                      "label": "When a PR opens",
+                      "name": "prOpened",
+                      "triggerVariant": "row",
+                      "triggerIcon": true,
+                      "popupMinWidth": 170,
+                      "value": "in_review",
+                      "options": [
+                        {
+                          "label": "Backlog",
+                          "value": "backlog",
+                          "icon": "status-backlog",
+                          "iconColor": "$color.mutedForeground"
+                        },
+                        {
+                          "label": "In Progress",
+                          "value": "in_progress",
+                          "icon": "status-in-progress",
+                          "iconColor": "$color.warning"
+                        },
+                        {
+                          "label": "In Review",
+                          "value": "in_review",
+                          "icon": "status-in-review",
+                          "iconColor": "$color.success"
+                        },
+                        {
+                          "label": "Cancelled",
+                          "value": "cancelled",
+                          "icon": "status-cancelled",
+                          "iconColor": "$color.destructive"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_12",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_12_label",
+                "component": "Text",
+                "props": {
+                  "text": "multiple · searchable · row + option icon, description",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c12_agent_skills",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c12_skills",
+                    "component": "Select",
+                    "props": {
+                      "label": "Skills",
+                      "name": "skills",
+                      "triggerVariant": "row",
+                      "multiple": true,
+                      "searchable": true,
+                      "value": "deploy,review",
+                      "options": [
+                        {
+                          "label": "deploy",
+                          "value": "deploy",
+                          "icon": "ui-docs",
+                          "description": "Ship a build to staging"
+                        },
+                        {
+                          "label": "review",
+                          "value": "review",
+                          "icon": "ui-docs",
+                          "description": "Review the open pull request"
+                        },
+                        {
+                          "label": "triage",
+                          "value": "triage",
+                          "icon": "ui-docs",
+                          "description": "Sort the inbox by priority"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -14243,6 +14726,73 @@
                     "props": {
                       "value": 0.42,
                       "size": "sm"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen_composer_case_5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_composer_case_5_label",
+                "component": "Text",
+                "props": {
+                  "text": "slots · above",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5_above",
+                "component": "Composer",
+                "props": {
+                  "placeholder": "Reply…",
+                  "layout": "flat"
+                },
+                "slots": {
+                  "above": {
+                    "id": "c5_above_strip",
+                    "component": "Stack",
+                    "props": {
+                      "direction": "horizontal",
+                      "wrap": true,
+                      "gap": "xs"
+                    },
+                    "children": [
+                      {
+                        "id": "c5_above_file",
+                        "component": "Chip",
+                        "props": {
+                          "label": "screenshot.png",
+                          "icon": "ui-attach",
+                          "removable": true
+                        }
+                      },
+                      {
+                        "id": "c5_above_team",
+                        "component": "Chip",
+                        "props": {
+                          "label": "Design",
+                          "removable": true
+                        }
+                      }
+                    ]
+                  },
+                  "leading": {
+                    "id": "c5_above_plus",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-add",
+                      "label": "Options",
+                      "variant": "ghost",
+                      "size": "icon"
                     }
                   }
                 }

@@ -83,6 +83,9 @@ enum class Glyph(
     /** An arrow up (send). */
     Send(listOf("M5 12l7-7 7 7", "M12 19V5")),
 
+    /** The app Composer's submit (`ui-submit`: Lucide `circle-arrow-up`). */
+    Submit(listOf("M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M16 12l-4-4-4 4", "M12 16V8")),
+
     /** A paperclip (attach). */
     Attach(listOf("M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48")),
 

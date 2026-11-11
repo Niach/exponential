@@ -130,6 +130,15 @@ impl LeafCx<'_> {
         theme_color(self.theme, self.mode, name)
     }
 
+    /// A colour-typed prop: a `$color.<name>` token of the theme, else the
+    /// host's resolved colour (`#rrggbb[aa]`, bound data).
+    pub fn prop_color(&self, value: &str) -> Option<Hsla> {
+        match value.strip_prefix("$color.") {
+            Some(name) => self.theme_color(name),
+            None => crate::paint::color::parse_hex(value),
+        }
+    }
+
     /// The physical text alignment: the style's, else the `align` prop
     /// (start/end by the direction), else the direction's start.
     pub fn align(&self) -> &'static str {
@@ -427,6 +436,12 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
     match clamp {
         // One ellipsized line: 1 px of slack on the trailing side, so a line
         // the measurer fitted exactly (sub-pixel float noise) never ellipsizes.
+        // #EXP-1778: `truncate: middle` = gpui's own middle ellipsis over
+        // exactly the content box (the IDE's `text_ellipsis_middle`).
+        Some(1) if cx.str("truncate") == "middle" => {
+            let (x, y, w, h) = cx.inner();
+            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(SharedString::from(lines.join(" "))).into_any_element()
+        }
         Some(1) => {
             let (x, y, w, h) = cx.inner();
             let x = match a {

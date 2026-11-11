@@ -343,6 +343,9 @@
         "lines": {
           "description": "Truncates to this many lines with an ellipsis."
         },
+        "truncate": {
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
         "tone": {
           "description": "Colour tone instead of the default foreground."
         },
@@ -1220,7 +1223,7 @@
           "description": "Child's press, or right-click/long-press."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "example": {
         "label": "More",
         "items": [
@@ -2292,7 +2295,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
@@ -2690,7 +2693,7 @@
           "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
         }
       },
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "example": {
         "placeholder": "Ask anything"
       }
@@ -3524,6 +3527,9 @@
         "icon": {
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "description": "Shows the option but refuses it."
         },
@@ -3587,8 +3593,20 @@
         "icon": {
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "description": "Key-cap hint after the text (`⌘K`)."
+        },
+        "identifier": {
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
         },
         "checked": {
           "description": "Checkbox entry's state; bind it."

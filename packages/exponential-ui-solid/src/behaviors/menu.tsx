@@ -22,6 +22,9 @@ import { getNextMatch } from "./typeahead"
  *  `isUsingKeyboardRef`: a keydown says yes, a pointer says no). */
 let usingKeyboard = false
 let keyboardListeners = 0
+/** #EXP-1629: the last input was a key (a row's focus is then a keyboard
+ *  highlight: a Menu item's preview shows at once). */
+export const isUsingKeyboard = (): boolean => usingKeyboard
 export function useKeyboardTracking() {
   const key = () => (usingKeyboard = true)
   const pointer = () => (usingKeyboard = false)

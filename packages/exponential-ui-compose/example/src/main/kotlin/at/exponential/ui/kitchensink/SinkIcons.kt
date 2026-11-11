@@ -61,6 +61,7 @@ private val lChevronUp = outline("chevron-up", "m18 15-6-6-6 6")
 private val lChevronsUpDown = outline("chevrons-up-down", "m7 15 5 5 5-5", "m7 9 5-5 5 5")
 private val lChromium = outline("chromium", "M10.88 21.94 15.46 14", "M21.17 8H12", "M3.95 6.06 8.54 14", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "M8 12A4 4 0 1 0 16 12A4 4 0 1 0 8 12Z")
 private val lCircle = outline("circle", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z")
+private val lCircleArrowUp = outline("circle-arrow-up", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "m16 12-4-4-4 4", "M12 16V8")
 private val lCircleCheck = outline("circle-check", "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z", "m9 12 2 2 4-4")
 private val lCircleCheckBig = outline("circle-check-big", "M21.801 10A10 10 0 1 1 17 3.335", "m9 11 3 3L22 4")
 private val lCircleDashed = outline("circle-dashed", "M10.1 2.182a10 10 0 0 1 3.8 0", "M13.9 21.818a10 10 0 0 1-3.8 0", "M17.609 3.721a10 10 0 0 1 2.69 2.7", "M2.182 13.9a10 10 0 0 1 0-3.8", "M20.279 17.609a10 10 0 0 1-2.7 2.69", "M21.818 10.1a10 10 0 0 1 0 3.8", "M3.721 6.391a10 10 0 0 1 2.7-2.69", "M6.391 20.279a10 10 0 0 1-2.69-2.7")
@@ -359,6 +360,7 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "ui-selector" to lChevronsUpDown,
     "ui-send" to lSend,
     "ui-stop" to lCircleStop,
+    "ui-submit" to lCircleArrowUp,
     "ui-success" to lCircleCheck,
     "ui-undo" to lUndo2,
     "ui-warning" to lTriangleAlert,

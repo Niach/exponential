@@ -1,6 +1,7 @@
 package at.exponential.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
+import at.exponential.ui.compose.flatComposerField
 import at.exponential.ui.compose.handleKey
 import at.exponential.ui.compose.keyRecorderKeyName
 import at.exponential.ui.compose.keyRecorderKeyPayload
@@ -437,6 +438,25 @@ class InteractionTest {
         }
     }
 
+    /** #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is one block (`joinTop` / `joinBottom`). */
+    @Test
+    fun selectItemJoinsRules() {
+        val picked = listOf(true, true, true, false, true)
+        val joins = picked.indices.map { at.exponential.ui.compose.selectItemJoins(true, picked, it) }
+        assertEquals(listOf(false to true, true to true, true to false, false to false, false to false), joins)
+        assertEquals(false to false, at.exponential.ui.compose.selectItemJoins(false, picked, 1))
+        // The model resolves the joined edge: no top stroke, no top corners, the IDE's 5 of padding.
+        val owner = mapOf("multiple" to JsonValue.Bool(true), "triggerVariant" to JsonValue.Str("row"))
+        val theme = at.exponential.ui.theme.ThemeHandle.builtin("exponential")!!
+        val top = theme.part("Select", "item", owner + ("joinTop" to JsonValue.Bool(true)), listOf("selected"), mode = at.exponential.ui.theme.Mode.Dark)
+        assertEquals(0f, top.style.sides[0])
+        assertEquals(0f, top.style.corners[0])
+        assertEquals(5f, top.px("paddingTop"))
+        val free = theme.part("Select", "item", owner, listOf("selected"), mode = at.exponential.ui.theme.Mode.Dark)
+        assertEquals(1f, free.style.sides[0])
+        assertTrue(free.style.corners[0] > 0f)
+    }
+
     /** #EXP-1629: the popup's cursor rules, alignment, spacing and width (a row: under its value, `start`, layout `selectRowPopupWidth`). */
     @Test
     fun selectPopupRules() {
@@ -833,7 +853,7 @@ class InteractionTest {
     fun composerSlotCasesSitInTheControlsRow() = runTest {
         val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
         val cases = f["cases"]?.array.orEmpty()
-        assertEquals(10, cases.size)
+        assertEquals(16, cases.size)
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val rtl = c["direction"]?.string == "rtl"
@@ -852,6 +872,18 @@ class InteractionTest {
                 continue
             }
             val send = m.frame(m.idx("c.sendSpace"))
+            // #EXP-1762: `above` sits inside the card at its content top, the
+            // content's full width (the same inset either side), over the row.
+            if (slots["above"] != null) {
+                val above = m.frame(m.idx("c.above"))
+                val strip = m.frame(m.idx("strip"))
+                val inset = above.left - cf.left
+                assertTrue("$name: above inside the card", inset > 0f)
+                assertEquals("$name: above spans the content width", inset, cf.right - above.right, 0.01f)
+                assertEquals("$name: above at the content top", inset, above.top - cf.top, 0.01f)
+                assertEquals("$name: the above child spans it", above.width, strip.width, 0.01f)
+                assertTrue("$name: above over the row", above.bottom <= send.top + 0.01f)
+            }
             val along = ArrayList<Pair<Float, String>>()
             for ((slot, id) in listOf("leading" to "plus", "trailing" to "ring")) {
                 val i = m.indexOf(id)
@@ -870,6 +902,28 @@ class InteractionTest {
             for (step in c["steps"]?.array.orEmpty()) m.press(step["press"]!!.string!!)
             runCurrent()
             assertEquals("$name: events", c["events"]?.array.orEmpty().map { it["name"]?.string }, host.actions.map { it.name })
+        }
+    }
+
+    /**
+     * #EXP-1762 composerSlots `field`: a flat Composer's text starts the field
+     * recipe's paddingTop below the row's top, one line (the disc's row) or
+     * grown, the text field reaching the row's bottom (neutral: paddingTop
+     * `$spacing.sm` 8, line 20, disc 36; the core replays the recipe values).
+     */
+    @Test
+    fun aFlatComposerSetsItsTextAtTheFieldTopPadding() {
+        val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
+        val cases = f["cases"]?.array.orEmpty().filter { it["field"] != null }
+        assertEquals(2, cases.size)
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val rows = c["field"]!!["rows"]!!.number!!.toFloat()
+            val row = maxOf(36f, 8f + rows * 20f)
+            assertEquals("$name: grown", c["field"]!!["grown"]?.bool == true, row > 36.5f)
+            val (top, height) = flatComposerField(row, 8f)
+            assertEquals("$name: the text at the field's paddingTop", 8f, top, 0.001f)
+            assertEquals("$name: the field reaches the row's bottom", row, top + height, 0.001f)
         }
     }
 

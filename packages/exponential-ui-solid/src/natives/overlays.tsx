@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, isPickerPopover, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -29,7 +29,8 @@ import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type Attrs, type PartFn } from "./shared"
 import { SearchBody, type SearchItem } from "./search"
-import { bindStyle, createDragToDismiss, createFocusScope, createLayer, createMenuRow, createPresence, createSelectable, graceArea, inPolygon, LayerContext, LayerPortal, MenuContent, Popper, popperContentStyle, searchMatches, useFocusGuards, useKeyboardTracking, useModalEffects, useScrollLock, VisuallyHidden, type Point, type Side } from "../behaviors"
+import { MenuPreviewContext, MenuPreviewPanel, anyPreview, createMenuPreview, hasPreview, insidePreview, menuPreviewRow, useMenuPreviewApi } from "./menu-preview"
+import { bindStyle, createDragToDismiss, createFocusScope, createLayer, createMenuRow, createPresence, createSelectable, graceArea, inPolygon, LayerContext, LayerPortal, MenuContent, Popper, popperContentStyle, searchMatches, useFocusGuards, isUsingKeyboard, useKeyboardTracking, useModalEffects, useScrollLock, VisuallyHidden, type Point, type Side } from "../behaviors"
 
 // The machinery (Radix's primitives on plain elements: the layer stack, the
 // focus scopes, the popper, the menu content) lives in `../behaviors`; this
@@ -689,6 +690,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -698,6 +701,11 @@ export interface MenuItem {
   /** EXP-1259: the submenu is a search list of its entries. */
   searchable?: boolean
   placeholder?: string
+  /** #EXP-1629: a mono id before the label, muted text after it, a nested
+   *  surface beside the row while hovered or highlighted. */
+  identifier?: string
+  detail?: string
+  preview?: unknown
 }
 
 interface MenuRoot {
@@ -743,20 +751,32 @@ function MenuLabel(props: EntryProps): JSX.Element {
   return <div {...props.root.part(`label`)}>{str(props.item.label)}</div>
 }
 
-function ItemIcon(props: { name?: string }): JSX.Element {
+function ItemIcon(props: { name?: string; color?: string }): JSX.Element {
   const ctx = useSurfaceContext()
-  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} />}</Show>
+  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} style={propColor(props.color) ? { color: propColor(props.color) } : undefined} />}</Show>
 }
 function Shortcut(props: { text?: string; part: PartFn }): JSX.Element {
   return <Show when={props.text}>{(t) => <span {...props.part(`shortcut`)}>{t()}</span>}</Show>
+}
+/** #EXP-1629: the mono id between the icon and the label. */
+function Identifier(props: { text?: unknown; part: PartFn }): JSX.Element {
+  return <Show when={typeof props.text === `string` && props.text ? (props.text as string) : null}>{(t) => <span {...props.part(`identifier`)}>{t()}</span>}</Show>
+}
+/** #EXP-1629: the muted detail after the label (before the shortcut / the indicator). */
+function Detail(props: { text?: unknown; part: PartFn }): JSX.Element {
+  return <Show when={typeof props.text === `string` && props.text ? (props.text as string) : null}>{(t) => <span {...props.part(`detail`)}>{t()}</span>}</Show>
 }
 
 function MenuPlainItem(props: EntryProps): JSX.Element {
   const disabled = () => bool(props.item.disabled)
   const row = createSelectable(disabled, () => void props.root.emit(`select`, { value: props.item.value ?? props.item.label }), props.root.close)
+  const pv = menuPreviewRow(useMenuPreviewApi(), props.path, hasPreview(props.item), isUsingKeyboard)
   return (
     <div
-      ref={row.ref}
+      ref={(el) => {
+        row.ref(el)
+        pv.ref(el)
+      }}
       role="menuitem"
       {...props.root.part(`item`, disabled() && `disabled`)}
       data-destructive={props.item.destructive ? `true` : undefined}
@@ -765,13 +785,28 @@ function MenuPlainItem(props: EntryProps): JSX.Element {
       onPointerDown={row.handlers.onPointerDown}
       onPointerUp={row.handlers.onPointerUp}
       onPointerMove={row.handlers.onPointerMove}
-      onPointerLeave={row.handlers.onPointerLeave}
-      onKeyDown={row.handlers.onKeyDown}
-      onFocus={row.handlers.onFocus}
-      onBlur={row.handlers.onBlur}
+      onPointerEnter={pv.enter}
+      onPointerLeave={(e: PointerEvent) => {
+        row.handlers.onPointerLeave(e)
+        pv.leave()
+      }}
+      onKeyDown={(e: KeyboardEvent) => {
+        pv.key()
+        row.handlers.onKeyDown(e)
+      }}
+      onFocus={() => {
+        row.handlers.onFocus()
+        pv.focus()
+      }}
+      onBlur={() => {
+        row.handlers.onBlur()
+        pv.blur()
+      }}
     >
-      <ItemIcon name={props.item.icon} />
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
+      <Identifier text={props.item.identifier} part={props.root.part} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
+      <Detail text={props.item.detail} part={props.root.part} />
       <Shortcut text={props.item.shortcut} part={props.root.part} />
     </div>
   )
@@ -788,9 +823,13 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
     void props.root.emit(`select`, { value: props.item.value ?? props.item.label, checked: next })
     e.preventDefault()
   }, props.root.close)
+  const pv = menuPreviewRow(useMenuPreviewApi(), props.path, hasPreview(props.item), isUsingKeyboard)
   return (
     <div
-      ref={row.ref}
+      ref={(el) => {
+        row.ref(el)
+        pv.ref(el)
+      }}
       role="menuitemcheckbox"
       aria-checked={checked() ? `true` : `false`}
       {...props.root.part(`item`, disabled() && `disabled`, checked() && `checked`)}
@@ -800,10 +839,23 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
       onPointerDown={row.handlers.onPointerDown}
       onPointerUp={row.handlers.onPointerUp}
       onPointerMove={row.handlers.onPointerMove}
-      onPointerLeave={row.handlers.onPointerLeave}
-      onKeyDown={row.handlers.onKeyDown}
-      onFocus={row.handlers.onFocus}
-      onBlur={row.handlers.onBlur}
+      onPointerEnter={pv.enter}
+      onPointerLeave={(e: PointerEvent) => {
+        row.handlers.onPointerLeave(e)
+        pv.leave()
+      }}
+      onKeyDown={(e: KeyboardEvent) => {
+        pv.key()
+        row.handlers.onKeyDown(e)
+      }}
+      onFocus={() => {
+        row.handlers.onFocus()
+        pv.focus()
+      }}
+      onBlur={() => {
+        row.handlers.onBlur()
+        pv.blur()
+      }}
     >
       <span {...props.root.part(`check`)}>
         <Show when={checked()}>
@@ -812,7 +864,10 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
           </span>
         </Show>
       </span>
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
+      <Identifier text={props.item.identifier} part={props.root.part} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
+      <Detail text={props.item.detail} part={props.root.part} />
       <Shortcut text={props.item.shortcut} part={props.root.part} />
     </div>
   )
@@ -909,8 +964,10 @@ function MenuSub(props: EntryProps): JSX.Element {
         onFocus={row.handlers.onFocus}
         onBlur={row.handlers.onBlur}
       >
-        <ItemIcon name={props.item.icon} />
+        <ItemIcon name={props.item.icon} color={props.item.iconColor} />
+        <Identifier text={props.item.identifier} part={props.root.part} />
         <span class="xui-menu-label">{str(props.item.label)}</span>
+        <Detail text={props.item.detail} part={props.root.part} />
         <span {...props.root.part(`submenuIndicator`)}>
           <BuiltinIcon slot="Menu.submenuIndicator" />
         </span>
@@ -939,8 +996,10 @@ function MenuSub(props: EntryProps): JSX.Element {
               e.preventDefault()
             }}
             onFocusOutside={(e) => {
+              if (insidePreview(e)) return
               if (e.target !== trigger()) setOpen(false)
             }}
+            onInteractOutside={(e) => void insidePreview(e)}
             onCloseAutoFocus={(e) => e.preventDefault()}
             onKeyDown={(e) => {
               const el = content()
@@ -1154,6 +1213,7 @@ export function PressMenu(props: {
   const hosted = createHostedPopup(() => props.hostAs ?? ``, `Menu`, () => !!props.hostAs && open(), trigger, () => props.side ?? `bottom`, () => props.align ?? `start`)
   useKeyboardTracking()
   const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
+  const preview = createMenuPreview(open)
   const presence = createPresence(open)
   let interactedOutside = false
   const triggerAttrs = (): Attrs => ({
@@ -1178,6 +1238,7 @@ export function PressMenu(props: {
   }
   return (
     <MenuRootContext.Provider value={root}>
+    <MenuPreviewContext.Provider value={anyPreview(props.items) ? preview : null}>
       {props.trigger({ ref: setTrigger, attrs: triggerAttrs, onPointerDown, onKeyDown })}
       <LayerPortal mount={popupMount(hosted(), ctx.portal)}>
         <Show when={presence.mounted()}>
@@ -1196,6 +1257,7 @@ export function PressMenu(props: {
             setContent={(el) => el && presence.ref(el)}
             onDismiss={() => setOpen(false)}
             onInteractOutside={(e) => {
+              if (insidePreview(e)) return
               const original = e.detail.originalEvent as PointerEvent
               const ctrlLeftClick = original.button === 0 && original.ctrlKey === true
               if (original.button === 2 || ctrlLeftClick) interactedOutside = true
@@ -1210,6 +1272,10 @@ export function PressMenu(props: {
           </MenuContent>
         </Show>
       </LayerPortal>
+      <Show when={open() && anyPreview(props.items)}>
+        <MenuPreviewPanel api={preview} items={props.items} part={props.part} emit={props.emit} />
+      </Show>
+    </MenuPreviewContext.Provider>
     </MenuRootContext.Provider>
   )
 }
@@ -1221,6 +1287,7 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [point, setPoint] = createSignal({ x: 0, y: 0 })
   const root = createMenuRoot(props, part, () => setOpen(false), `contextmenu`)
+  const preview = createMenuPreview(open)
   const presence = createPresence(open)
   let longPress: ReturnType<typeof setTimeout> | undefined
   const clearLongPress = () => clearTimeout(longPress)
@@ -1234,6 +1301,7 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
   closeOnAnchorLost(open, () => area, () => setOpen(false))
   return (
     <MenuRootContext.Provider value={root}>
+    <MenuPreviewContext.Provider value={anyPreview(items()) ? preview : null}>
       <div
         {...props.rootProps}
         ref={(el: HTMLDivElement) => (area = el)}
@@ -1275,12 +1343,17 @@ function ContextMenuOpening(props: NativeProps): JSX.Element {
             attrs={() => ({ ...part(`content`, open() && `open`), "data-xui-overlay": `Menu`, "data-open-on": `contextmenu` })}
             setContent={(el) => el && presence.ref(el)}
             onDismiss={() => setOpen(false)}
+            onInteractOutside={(e) => void insidePreview(e)}
             onCloseAutoFocus={() => undefined}
           >
             <MenuEntries items={items()} raws={objects<Record<string, unknown>>(props.node.props.items)} path="" />
           </MenuContent>
         </Show>
       </LayerPortal>
+      <Show when={open() && anyPreview(items())}>
+        <MenuPreviewPanel api={preview} items={items()} part={part} emit={props.emit} />
+      </Show>
+    </MenuPreviewContext.Provider>
     </MenuRootContext.Provider>
   )
 }

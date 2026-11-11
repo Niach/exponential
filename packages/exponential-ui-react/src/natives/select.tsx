@@ -38,7 +38,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { Popover as PopoverPrimitive, Select as SelectPrimitive } from "radix-ui"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { boundPath, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
+import { boundPath, propColor, insetPopupNudge, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry, valueAnchorOffsets } from "@exponential_app/eui/web"
 import { DEBOUNCE_MS } from "../inputs"
 import { FieldErrors, joinIds, useField } from "../form"
 import { IconGlyph } from "../icons"
@@ -58,6 +58,8 @@ export interface SelectOption {
   mono?: boolean
   /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
   description?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -181,8 +183,9 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
 
   // #EXP-1629: a `row` trigger carries its label inside, leading.
   const row = str(props.triggerVariant) === `row`
-  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint.
-  const pill = str(props.triggerVariant) === `pill`
+  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint;
+  // #EXP-1778: nor does a `button` (the same parts, an outline button).
+  const pill = str(props.triggerVariant) === `pill` || str(props.triggerVariant) === `button`
   const label = row || pill ? null : <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
   const description = str(props.description)
   const described = row && description !== ``
@@ -208,9 +211,10 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     )
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
   const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
+  const chosenTint = chosenIcon ? propColor(options.find((o) => o.value === str(value))?.iconColor) : undefined
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
-    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} /> : null,
+    valueIcon: chosenIcon ? <IconGlyph icons={ctx.host.icons} name={chosenIcon} {...(part(`valueIcon`, inButton) as Record<string, string>)} style={chosenTint ? { color: chosenTint } : undefined} /> : null,
     field: row || pill ? null : <TextPart part={part(`description`)} text={description} id={`${id}-d`} />,
     describedBy: joinIds(!pill && description && `${id}-d`, f.describedBy),
     ariaLabel: pill ? str(props.label) || undefined : undefined,
@@ -415,7 +419,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                 {(loading ? [] : options).map((o) => (
                   // #EXP-1629: Radix focuses the cursor's item: that is `hover`.
                   <SelectPrimitive.Item key={o.value} value={toRadix(o.value)} disabled={bool(o.disabled)} {...(part(`item`, o.value === value && `selected`, bool(o.disabled) && `disabled`, o.value === cursor && `hover`) as Record<string, string>)} data-mono={bool(o.mono) ? `` : undefined} onFocus={() => setCursor(o.value)} onBlur={() => setCursor((c) => (c === o.value ? null : c))}>
-                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                     {str(o.description) ? (
                       <span {...(part(`itemText`) as Record<string, string>)}>
                         <span {...(part(`itemLabel`) as Record<string, string>)}><SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>{trailingText(o)}</span>
@@ -641,13 +645,13 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                     aria-selected={isSel}
                     aria-disabled={bool(o.disabled) || undefined}
                     data-active={isActive ? `` : undefined}
-                    {...(part(`item`, isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
+                    {...(part.with(`item`, selectItemJoins(multiple, shown.length, (j) => selected.includes(shown[j]!.value), i), isSel && `selected`, bool(o.disabled) && `disabled`, isActive && `hover`) as Record<string, string>)}
                     data-mono={bool(o.mono) ? `` : undefined}
                     onPointerMove={() => nav.setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(i)}
                   >
-                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                    {o.icon ? <span {...(part(`itemIcon`) as Record<string, string>)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                     {str(o.description) ? (
                       <span {...(part(`itemText`) as Record<string, string>)}>
                         <span {...(part(`itemLabel`) as Record<string, string>)}>{str(o.label)}{trailingText(o)}</span>

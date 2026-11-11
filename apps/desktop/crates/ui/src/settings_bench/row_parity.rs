@@ -32,11 +32,10 @@ fn settings_account_row_eui() {
     shoot_pane("account-row", EuiAccountRow::for_shots, |_, _| {});
 }
 
-/// #EXP-1765: Repositories' per-repo branch picker: the IDE's glass pill
-/// (`repositories::branch_trigger` + its `Popover`) vs genUI's `pill`
-/// Select, closed (normal, disabled) and open (loading, empty, ready with
-/// `main` the default and checked). Shoot `settings_repo_branch_ide`, then
-/// `settings_repo_branch_eui` with `EXP_SETTINGS_BEFORE` at the first.
+/// #EXP-1765: Repositories' per-repo branch picker, genUI's `pill` Select:
+/// closed (normal, disabled) and open (loading, empty, ready with `main`
+/// the default and checked). The IDE's picker it replaced was judged
+/// against it here (#2556) and now in `settings_repositories_branch_*`.
 const REPO_BRANCH_STATES: [(&str, PickerState); 5] = [
     ("repo-branch-trigger", PickerState::Trigger),
     ("repo-branch-disabled", PickerState::Disabled),
@@ -44,14 +43,6 @@ const REPO_BRANCH_STATES: [(&str, PickerState); 5] = [
     ("repo-branch-empty", PickerState::Empty),
     ("repo-branch-ready", PickerState::Ready),
 ];
-
-#[test]
-#[ignore]
-fn settings_repo_branch_ide() {
-    for (name, state) in REPO_BRANCH_STATES {
-        shoot_pane(name, IdeBranchPicker::for_shots(state), |_, _| {});
-    }
-}
 
 #[test]
 #[ignore]

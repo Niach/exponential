@@ -171,6 +171,9 @@ public final class SurfaceModel {
     @ObservationIgnored var justDismissed: String?
     @ObservationIgnored var hoverDelay: Task<Void, Never>?
     @ObservationIgnored var hoverCloseTimers: [String: Task<Void, Never>] = [:]
+    /// #EXP-1629: a test's clock for the core's `hoverTimer` (a Menu item
+    /// preview's waits): set, it hears (owner, ms) instead of a Task sleeping.
+    @ObservationIgnored var hoverTimerSink: ((String, Double) -> Void)?
     @ObservationIgnored var toastTimers: [String: ToastTimer] = [:]
     @ObservationIgnored var toastHeld: [String: Set<String>] = [:]
     @ObservationIgnored var copyResets: [String: Task<Void, Never>] = [:]

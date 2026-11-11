@@ -521,13 +521,26 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
   const field = useHostOwnedValue<string>({ external, send, writeLocal, epoch })
   const busy = bool(props.busy)
   const ref = useRef<HTMLTextAreaElement>(null)
+  // #EXP-1762: `flat` = one row: the leading slot LEFT of the field, the
+  // controls right of it (bottom-aligned while the field grows upward).
+  const flat = str(props.layout) === `flat`
   const grow = () => {
     const el = ref.current
     if (!el) return
+    if (flat) {
+      // A flat field STRETCHES across the row, its text at its own
+      // padding-top (the app's row): it grows by its min-height, as a
+      // height would stop the stretch.
+      el.style.height = ``
+      el.style.minHeight = `0px`
+      el.style.minHeight = `${Math.min(200, el.scrollHeight)}px`
+      return
+    }
+    el.style.minHeight = ``
     el.style.height = `auto`
     el.style.height = `${Math.min(200, el.scrollHeight)}px`
   }
-  useEffect(grow, [field.value])
+  useEffect(grow, [field.value, flat])
   const submit = () => {
     if (busy) {
       void emit(`stop`)
@@ -541,12 +554,13 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
   }
   const placeholder = str(props.placeholder)
   const submitLabel = str(props.submitLabel) || ctx.t(`send`)
-  // #EXP-1762: `flat` = one row: the leading slot LEFT of the field, the
-  // controls right of it (bottom-aligned while the field grows upward).
-  const flat = str(props.layout) === `flat`
   const leading = slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null
+  // #EXP-1762: `above` = one child over the field, inside the card, the
+  // content's full width (a flat root wraps it onto its own line).
+  const above = slots.above ? <div className="xui-composer-above">{slots.above}</div> : null
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined}>
+    <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined} data-above={above ? `true` : undefined}>
+      {above}
       {flat && leading ? <div className="xui-composer-bar">{leading}</div> : null}
       <textarea
         ref={ref}

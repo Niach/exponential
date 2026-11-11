@@ -64,6 +64,8 @@ interface FakePr {
   title: string
   state: `open` | `closed`
   draft: boolean
+  mergeable?: boolean | null
+  updatedAt?: Date | null
 }
 
 class FakeForge {
@@ -73,6 +75,9 @@ class FakeForge {
   closed: Array<{ number: number; sha: string }> = []
   squashed: number[] = []
   missingPipeline = false
+  required = [`gate`]
+  /** The pipeline reports nothing yet: a run stays live across passes. */
+  hold = false
   refuseFastForward = false
   /** Every commit a branch ever pointed at (#FEED-212: `branchContains`). */
   history = new Set<string>([`base0`])
@@ -99,10 +104,12 @@ class FakeForge {
           mergedAt: null,
           mergedBy: null,
           author: `dev <dev@example.com>`,
+          mergeable: pr.mergeable ?? null,
+          updatedAt: pr.updatedAt ?? null,
         }
       },
       readBranch: async (_repo, branch) => this.branch.get(branch) ?? null,
-      requiredChecks: async () => [`gate`],
+      requiredChecks: async () => this.required,
       dispatchPipeline: async (_repo, inputs) => {
         if (this.missingPipeline) return { ok: false, missing: true, message: `no train.yml` }
         const units = JSON.parse(inputs.units) as TrainPipelineUnit[]
@@ -133,7 +140,7 @@ class FakeForge {
         return { ok: true, runRef: null }
       },
       readPipeline: async (_repo, trainId) => {
-        const outcome = this.outcomes.get(trainId) ?? null
+        const outcome = this.hold ? null : (this.outcomes.get(trainId) ?? null)
         return { outcome, finished: !!outcome }
       },
       checksAt: async (_repo, sha) => this.checks.get(sha) ?? [],
@@ -190,7 +197,7 @@ async function world() {
   const fullName = `o/mt-${id8()}`
   const [repo] = await db.insert(repositories).values({ teamId, fullName, defaultBranch: `main` }).returning({ id: repositories.id })
   const children: Record<number, string> = {}
-  async function pr(number: number, opts: { base?: string } = {}) {
+  async function pr(number: number, opts: { base?: string; checks?: boolean } = {}) {
     const child = (await sendSession({ userId: owner, input: { parentId: chat, text: `part ${number}` } })).sessionId
     children[number] = child
     const { pullRequest } = await recordPullRequestOpened({
@@ -208,6 +215,10 @@ async function world() {
       actorUserId: owner,
     })
     fake.prs.set(number, { headSha: `head-${number}`, title: `Part ${number}`, state: `open`, draft: false })
+    // The fake forge requires `gate`: a PR has its green run unless a case says not.
+    if (opts.checks !== false) {
+      await db.insert(pullRequestChecks).values({ teamId, pullRequestId: pullRequest.id, headSha: `head-${number}`, name: `gate`, status: `completed`, conclusion: `success`, required: true })
+    }
     return pullRequest.id
   }
   // Every session idle: the opener's subtree does not hold the PR back.
@@ -215,6 +226,8 @@ async function world() {
   return { owner, teamId, deviceId, chat, repoId: repo!.id, fullName, pr, idle, children }
 }
 
+const gateRunning = (id: string) =>
+  db.update(pullRequestChecks).set({ status: `in_progress`, conclusion: null }).where(and(eq(pullRequestChecks.pullRequestId, id), eq(pullRequestChecks.name, `gate`)))
 const prRow = async (id: string) => (await db.select().from(pullRequests).where(eq(pullRequests.id, id)))[0]!
 const lines = (sessionId: string) =>
   db
@@ -258,7 +271,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
 
   it(`an informational leg never holds a PR: only the required checks do (#EXP-1711)`, async () => {
     const w = await world()
-    const a = await w.pr(221)
+    const a = await w.pr(221, { checks: false })
     await w.idle()
     const check = (name: string, status: `queued` | `completed` | `in_progress`, conclusion: `success` | null, required: boolean) => ({
       teamId: w.teamId,
@@ -434,7 +447,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const ready = await w.pr(512, { base: `exp/511` })
     const waiting = await w.pr(513, { base: `exp/511` })
     await db.update(pullRequests).set({ basePullRequestId: bottom }).where(inArray(pullRequests.id, [ready, waiting]))
-    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, waiting))
+    await gateRunning(waiting)
     await w.idle()
     await pass(w.repoId)
     expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[511, 512]])
@@ -508,7 +521,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await pass(w.repoId)
     expect((await prRow(a)).mergeState).toBe(`testing`)
     // The push brings CI running on the new head.
-    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, a))
+    await gateRunning(a)
     await worker.onPullRequestPush(a)
     await worker.drainMergeTrainEdges()
     expect((await prRow(a)).mergeState).toBe(`checks`)
@@ -542,6 +555,118 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(b)).mergeState).toBe(`merged`)
     const root = (await db.select({ rootId: sessions.rootId }).from(sessions).where(eq(sessions.id, conversation!.id)))[0]!.rootId
     expect((await lines(root)).map((l) => l.body)).toEqual([`Merged #801, #802 into main.`])
+  })
+
+  it(`#FEED-221: a required name decides even when no row carries the flag`, async () => {
+    const w = await world()
+    const a = await w.pr(801, { checks: false })
+    await w.idle()
+    const row = (name: string, status: `completed` | `queued`, conclusion: `success` | null) => ({ teamId: w.teamId, pullRequestId: a, headSha: `head-801`, name, status, conclusion, required: false })
+    await db.insert(pullRequestChecks).values([row(`gate`, `completed`, `success`), row(`ios-core / ios-core`, `queued`, null)])
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `testing`, mergeWait: null })
+  })
+
+  it(`#FEED-221: a head that conflicts with no CI is held at once and takes no slot; a push revives it`, async () => {
+    const w = await world()
+    const stuck = await w.pr(811, { checks: false })
+    const green = await w.pr(812)
+    fake.prs.get(811)!.mergeable = false
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(stuck)).toMatchObject({ mergeState: `held`, mergeHold: `conflict`, mergePosition: null, mergeWait: null })
+    expect((await lines(w.children[811]!)).map((l) => l.body)).toEqual([
+      `Auto-merge of #811 is held: it conflicts with its base, so no CI ran. Rebase, resolve and push: it re-queues by itself.`,
+    ])
+    expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[812]]])
+    expect((await prRow(green)).mergeState).toBe(`testing`)
+    // The agent rebased: the new head composes, its CI is on the way.
+    fake.prs.get(811)!.mergeable = true
+    await worker.onPullRequestPush(stuck)
+    await worker.drainMergeTrainEdges()
+    expect(await prRow(stuck)).toMatchObject({ mergeHold: null })
+    expect((await prRow(stuck)).mergeState).not.toBe(`held`)
+  })
+
+  it(`#FEED-221: no CI waits out the grace as checks, then is held; check rows release it`, async () => {
+    const w = await world()
+    const a = await w.pr(821, { checks: false })
+    fake.prs.get(821)!.mergeable = true
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks`, mergeHold: null })
+    expect(fake.dispatches).toHaveLength(0)
+    fake.prs.get(821)!.updatedAt = new Date(Date.now() - 6 * 60_000)
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `no_checks` })
+    expect(fake.dispatches).toHaveLength(0)
+    await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: a, headSha: `head-821`, name: `gate`, status: `completed`, conclusion: `success`, required: true })
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `testing`, mergeHold: null })
+  })
+
+  it(`#FEED-221: a repo whose base requires nothing still lands a PR with no CI`, async () => {
+    const w = await world()
+    const a = await w.pr(831, { checks: false })
+    fake.required = []
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+  })
+
+  it(`#FEED-221: a queued PR keeps its place through its opener's wake`, async () => {
+    process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV] = `1`
+    try {
+      const w = await world()
+      const first = await w.pr(841)
+      const second = await w.pr(842)
+      await w.idle()
+      await pass(w.repoId)
+      const before = await prRow(second)
+      expect(before).toMatchObject({ mergeState: `queued`, mergePosition: 2 })
+      expect((await prRow(first)).mergeState).toBe(`testing`)
+      await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.children[842]!))
+      fake.hold = true
+      await pass(w.repoId)
+      const after = await prRow(second)
+      expect(after).toMatchObject({ mergeState: `queued`, mergeWait: null, mergePosition: 2 })
+      expect(after.mergeReadyAt).toEqual(before.mergeReadyAt)
+    } finally {
+      delete process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV]
+    }
+  })
+
+  it(`#FEED-221: a re-queued batch pushes nobody back; several green PRs ride one batch`, async () => {
+    process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV] = `2`
+    try {
+      const w = await world()
+      const a = await w.pr(851)
+      const b = await w.pr(852)
+      const c = await w.pr(853)
+      await w.idle()
+      fake.judge = () => ({ error: `boom` })
+      await pass(w.repoId)
+      expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[851], [852]])
+      expect((await prRow(a)).mergeState).toBe(`testing`)
+      expect((await prRow(b)).mergeState).toBe(`testing`)
+      expect((await prRow(c)).mergePosition).toBe(3)
+      // The pipeline errors: the batch re-queues ahead of the PR behind it,
+      // and that PR's place does not move.
+      await pass(w.repoId)
+      expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergePosition: 1 })
+      expect(await prRow(b)).toMatchObject({ mergeState: `queued`, mergePosition: 2 })
+      expect((await prRow(c)).mergePosition).toBe(3)
+    } finally {
+      delete process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV]
+    }
+  })
+
+  it(`#FEED-221: a closed PR keeps no queue place`, async () => {
+    const w = await world()
+    const a = await w.pr(861)
+    await db.update(pullRequests).set({ state: `closed`, mergePosition: 4 }).where(eq(pullRequests.id, a))
+    await pass(w.repoId)
+    expect((await prRow(a)).mergePosition).toBeNull()
   })
 
   it(`hold, resume and the queue report`, async () => {
