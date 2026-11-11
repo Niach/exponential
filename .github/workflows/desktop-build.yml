@@ -28,10 +28,12 @@ jobs:
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+        if: runner.os == 'Linux'
       - name: Linux system deps (wgpu/gpui + AppImage packaging)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \

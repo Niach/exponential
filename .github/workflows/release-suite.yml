@@ -196,9 +196,10 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
       - name: Linux system deps (smithay + wgpu/gpui)
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config libxcb1-dev libssl-dev libfontconfig1-dev clang \
             mesa-vulkan-drivers libegl1
       - uses: dtolnay/rust-toolchain@stable
@@ -382,9 +383,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
       - name: Linux system deps (wgpu/gpui)
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
@@ -531,8 +533,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
       - name: libopus (the fallback's system library)
-        run: sudo apt-get update && sudo apt-get install -y libopus-dev pkg-config
+        run: sudo apt-get install -y libopus-dev pkg-config
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
