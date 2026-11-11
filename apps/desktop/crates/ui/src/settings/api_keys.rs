@@ -15,7 +15,7 @@
 //! sign-in, so revoking it cuts the runs' wiring while the device stays
 //! signed in. Everything else is an **API key** for scripts and MCP clients.
 //! FEED-76: the Create-key dialog scopes a key to teams/boards with the
-//! same `scope_picker::ScopePicker` the web shows (Everything = a full key;
+//! same picker the web shows (`ScopePicker`; Everything = a full key;
 //! a scoped key is MCP-only and wears its pick as the row caption).
 //! THIS device's own session row gets a badge; disconnecting it also deletes
 //! the local token-store copy, otherwise `ensure_personal_key` would keep
@@ -24,7 +24,7 @@
 use std::rc::Rc;
 
 use gpui::{div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window};
-use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _};
 use serde_json::{json, Value};
 
 use eui_gpui::binding::Binding;
@@ -33,8 +33,7 @@ use eui_gpui::view::SurfaceView;
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
-use crate::controls::{glass_input, WebControl as _};
-use crate::scope_picker::{ScopePicker, ScopeSelection, ScopeTeam};
+use crate::scope_picker::{copy, effective_scope_selection, toggle, ScopeSelection, ScopeTeam};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
 use crate::session::AuthContext;
@@ -96,7 +95,6 @@ pub struct ApiKeysPane {
     /// The last mint's raw key — the one-time reveal block. Cleared on
     /// [`Self::mark_stale`] (pane re-entry) and by the dismiss button.
     minted: Option<MintedPersonalKey>,
-    name_input: Entity<InputState>,
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
@@ -109,7 +107,6 @@ const PATH: &str = "/pane";
 
 impl ApiKeysPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Personal key"));
         // The actions leave the binding for the pane: Create and Revoke
         // confirm in a native alert, Copy writes the clipboard.
         let pane = cx.weak_entity();
@@ -157,7 +154,6 @@ impl ApiKeysPane {
             generation: 0,
             busy: false,
             minted: None,
-            name_input,
             retry_pressed: false,
             binding,
             view,
@@ -323,53 +319,28 @@ impl ApiKeysPane {
         self.refetch(cx);
     }
 
-    /// The "Create key" confirm: a name input and the FEED-76 scope picker
-    /// ride the alert as extra content; OK mints (scoped when Everything is
-    /// off) and surfaces the raw key in the pane's one-time reveal. An
-    /// empty pick keeps the dialog open with the refusal under the picker.
+    /// The "Create key" confirm: the name field and the FEED-76 scope
+    /// picker ride the alert as its body ([`MintKeyContent`]); OK mints
+    /// (scoped when Everything is off) and surfaces the raw key in the
+    /// pane's one-time reveal. An empty pick keeps the dialog open with the
+    /// refusal under the picker.
     fn open_mint_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.name_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
         // The member's synced teams + live boards — the web dialog's
         // `mcpGrants.scopeTree`, read off the store instead of the wire.
         let tree = ScopeTeam::from_store(cx);
-        let picker = cx.new(|_| {
-            ScopePicker::new("api-key-scope", tree, ScopeSelection::everything())
-                .scoped_note(SCOPED_KEY_NOTE)
-                .tree_max_height(gpui::px(168.))
-        });
+        let content = cx.new(|cx| MintKeyContent::new(tree, ScopeSelection::everything(), String::new(), window, cx));
+        // Web's dialog opens on the Name field.
+        super::doc::focus_input(content.read(cx).view.clone(), "name", window, cx);
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
-        let content_input = self.name_input.clone();
-        let content_picker = picker.clone();
-        let ok_input = self.name_input.clone();
-        let ok_picker = picker.clone();
+        let dialog_content = content.clone();
         let spec = AlertSpec::new(
             "Create API key",
             "For scripts and MCP clients. The key acts as you within the \
              teams and boards you choose; revoke it here at any time.",
             "Create key",
         )
-        .content(move |window, cx| {
-            let muted = cx.theme().muted_foreground;
-            v_flex()
-                .gap_4()
-                .mt_2()
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(div().text_xs().text_color(muted).child("Name"))
-                        .child(glass_input(&content_input, window, cx).web_input_sm()),
-                )
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(div().text_xs().text_color(muted).child("Access"))
-                        .child(content_picker.clone()),
-                )
-                .into_any_element()
-        })
+        .content(move |_, _| dialog_content.clone().into_any_element())
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
@@ -377,15 +348,15 @@ impl ApiKeysPane {
             // FEED-76: "Everything" sends no scope — the key stays an
             // ordinary full key. An empty pick never mints (the web's
             // `hasScopeSelection` gate).
-            let scope = ok_picker.read(cx).effective();
+            let scope = content.read(cx).effective();
             if !scope.has_selection() {
-                ok_picker.update(cx, |picker, cx| {
-                    picker.set_error(Some(EMPTY_SCOPE_MESSAGE.into()), cx);
+                content.update(cx, |content, cx| {
+                    content.set_error(Some(EMPTY_SCOPE_MESSAGE.into()), cx);
                 });
                 return false;
             }
             let scope = (!scope.all_teams).then_some(scope);
-            let typed = ok_input.read(cx).value().trim().to_string();
+            let typed = content.read(cx).typed_name(cx).trim().to_string();
             let name = if typed.is_empty() {
                 "Personal key".to_string()
             } else {
@@ -544,6 +515,247 @@ impl ApiKeysPane {
         open_alert(window, cx, spec);
     }
 }
+
+/// The Create dialog's body (FEED-76; #EXP-1629: an eUI document): the name
+/// field over web's `ScopePicker` (an Everything switch over the member's
+/// teams, each a whole-team checkbox with its boards indented beneath; a
+/// board under a ticked team reads checked and disabled). Its own entity so
+/// a toggle re-renders just this block (the surrounding native alert never
+/// re-renders). The RAW pick lives here; what is SENT is
+/// [`effective_scope_selection`], so unticking a team restores the boards
+/// ticked under it.
+pub(crate) struct MintKeyContent {
+    tree: Vec<ScopeTeam>,
+    value: ScopeSelection,
+    /// The refusal under the picker (an empty pick on Create); cleared by
+    /// the next change.
+    error: Option<SharedString>,
+    /// The name field's bound text (only the bench writes one).
+    name: String,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+}
+
+impl MintKeyContent {
+    fn new(tree: Vec<ScopeTeam>, value: ScopeSelection, name: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let me = cx.weak_entity();
+        // The first layout already holds the pick (a Null first state would
+        // animate the switch into it).
+        let first = project(&tree, &value, &None, &name);
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, first, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["all", "team", "board"] {
+                let me = me.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let id = event.context.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let me = me.clone();
+                    cx.defer(move |cx| {
+                        let _ = me.update(cx, |this, cx| this.toggle(name, &id, cx));
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let view = mount("api-key-create", mint_document(&Ink::of(cx), &hex(cx.theme().danger)), &binding, window, cx);
+        Self { tree, value, error: None, name, binding, view }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(tree: Vec<ScopeTeam>, value: ScopeSelection, name: &str, error: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut this = Self::new(tree, value, name.to_string(), window, cx);
+        this.error = error.map(|error| SharedString::from(error.to_string()));
+        this
+    }
+
+    /// The bench's press on a node, as a click makes it.
+    #[cfg(test)]
+    pub(crate) fn press(&mut self, id: &str, event: &str, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(id).expect("the node");
+            view.fire(index, event, None, cx);
+        });
+    }
+
+    /// The bench's wait for a running transition (the headless clock never
+    /// moves on its own).
+    #[cfg(test)]
+    pub(crate) fn settle(&mut self, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_secs(1), cx));
+    }
+
+    /// A press on the Everything switch, a team's or a board's line (web
+    /// `toggle`; a board its team covers stays as it is).
+    fn toggle(&mut self, kind: &str, id: &str, cx: &mut gpui::Context<Self>) {
+        match kind {
+            "all" => self.value.all_teams = !self.value.all_teams,
+            "team" => {
+                let on = !self.value.team_ids.iter().any(|team| team == id);
+                toggle(&mut self.value.team_ids, id, on);
+            }
+            "board" => {
+                if self.covered(id) {
+                    return;
+                }
+                let on = !self.value.board_ids.iter().any(|board| board == id);
+                toggle(&mut self.value.board_ids, id, on);
+            }
+            _ => return,
+        }
+        self.error = None;
+        cx.notify();
+    }
+
+    /// Whether `board` sits under a ticked whole team.
+    fn covered(&self, board: &str) -> bool {
+        self.tree.iter().any(|team| self.value.team_ids.contains(&team.id) && team.boards.iter().any(|b| b.id == board))
+    }
+
+    /// The pick to SEND (see [`effective_scope_selection`]).
+    fn effective(&self) -> ScopeSelection {
+        effective_scope_selection(&self.tree, &self.value)
+    }
+
+    /// The name as typed (the field's live text, never a debounced echo).
+    fn typed_name(&self, cx: &App) -> String {
+        self.view.read(cx).field_text("name.field", cx).unwrap_or_default()
+    }
+
+    fn set_error(&mut self, error: Option<SharedString>, cx: &mut gpui::Context<Self>) {
+        self.error = error;
+        cx.notify();
+    }
+
+    /// The state as the document binds it.
+    fn project(&self) -> Value {
+        project(&self.tree, &self.value, &self.error, &self.name)
+    }
+}
+
+/// [`MintKeyContent`]'s state as the document binds it.
+fn project(tree: &[ScopeTeam], value: &ScopeSelection, error: &Option<SharedString>, name: &str) -> Value {
+    let teams: Vec<Value> = tree
+        .iter()
+        .map(|team| {
+            let whole = value.team_ids.contains(&team.id);
+            let boards: Vec<Value> = team
+                .boards
+                .iter()
+                .map(|board| {
+                    json!({
+                        "id": board.id,
+                        "name": board.name,
+                        "prefix": board.prefix,
+                        "checked": whole || value.board_ids.contains(&board.id),
+                        "covered": whole,
+                        "cursor": if whole { "default" } else { "pointer" },
+                    })
+                })
+                .collect();
+            json!({"id": team.id, "name": team.name, "checked": whole, "noBoards": team.boards.is_empty(), "boards": boards})
+        })
+        .collect();
+    json!({
+        "name": name,
+        "all": value.all_teams,
+        "noTeams": tree.is_empty(),
+        "teams": teams,
+        "hasError": error.is_some(),
+        "error": error.as_ref().map(|error| error.to_string()).unwrap_or_default(),
+    })
+}
+
+impl Render for MintKeyContent {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MintKeyContent").entered();
+        let projection = self.project();
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// A row of a checkbox line: the box, then the words as the rest of the
+/// press target (the IDE's `gap_2` as the words' own lead, so the line is
+/// one target as web's `Label htmlFor` makes it).
+fn check_line(ink: &Ink, id: &str, event: &str, disabled: Option<Value>, words: Vec<Value>, align: &str, gap: f32) -> Value {
+    let mut check = json!({"id": format!("{id}_box"), "component": "Checkbox", "props": {"label": "", "name": id, "checked": path("checked")},
+        "accessibility": {"label": path("name")},
+        // Its empty label part grows: the box keeps its own 16 px, no gap.
+        "style": {"flexGrow": 0, "flexShrink": 0, "gap": 0},
+        "on": {"change": {"event": {"name": event, "context": {"id": path("id")}}}}});
+    let mut words = json!({"id": format!("{id}_words"), "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")},
+        "on": {"press": {"event": {"name": event, "context": {"id": path("id")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": align, "flexGrow": 1, "minWidth": 0, "gap": ink.r(gap), "paddingLeft": ink.r(0.5), "cursor": "pointer"},
+        "children": words});
+    if let Some(disabled) = disabled {
+        check["props"]["disabled"] = disabled;
+        words["style"]["cursor"] = path("cursor");
+    }
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0}, "children": [check, words]})
+}
+
+/// The Create body's tree (`gap_4`, `mt_2`): the Name field (`gap_1`: the
+/// `text_xs` muted label over the boxed `web_input_sm`), then Access over
+/// the picker (`gap_3`): the Everything group row (`px_3 py_2p5`, the label
+/// over its hint, the switch trailing); while Everything is off, the team
+/// tree on a group under its 168 px scroll cap (`p_3`, `gap_3` between
+/// teams; a team `gap_1p5` over its boards, indented `ml_6`, `gap_1`) and
+/// the scoped note; the refusal last.
+fn mint_document(ink: &Ink, danger: &str) -> Value {
+    let label = |id: &str, text: &str| ink.text(id, json!(text), XS, &ink.muted);
+    let name_input = json!({"id": "name", "component": "Input", "props": {"variant": "box", "size": "sm", "label": "Name", "name": "name", "placeholder": "Personal key", "value": path("/pane/name")},
+        "style": {"width": "100%"}});
+    let column = |id: &str, gap: f32, children: Vec<Value>| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(gap)}, "children": children});
+    let name = column("name_block", 0.25, vec![label("name_label", "Name"), name_input]);
+
+    let mut everything = ink.text("everything_label", json!(copy::EVERYTHING), SM, &ink.foreground);
+    everything["style"]["fontWeight"] = json!(500);
+    let words = json!({"id": "everything_words", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "minWidth": 0, "gap": ink.r(0.125)},
+        "children": [everything, ink.text("everything_hint", json!(copy::EVERYTHING_HINT), XS, &ink.muted)]});
+    let switch = json!({"id": "everything_switch", "component": "Switch", "props": {"label": "", "name": "allTeams", "checked": path("/pane/all")},
+        "on": {"change": {"event": {"name": "all"}}}});
+    let row = json!({"id": "everything_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "justifyContent": "space-between", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.625)},
+        "children": [words, switch]});
+    let everything = ink.group("everything", vec![row]);
+
+    let mut team_name = ink.text("team_name", path("name"), SM, &ink.foreground);
+    team_name["style"]["fontWeight"] = json!(500);
+    let header = check_line(ink, "team", "team", None, vec![team_name, ink.text("team_whole", json!(copy::WHOLE_TEAM), XS, &ink.muted)], "center", 0.5);
+    let board = check_line(ink, "board", "board", Some(path("covered")), vec![ink.text("board_name", path("name"), SM, &ink.foreground), ink.text("board_prefix", path("prefix"), XS, &ink.muted)], "baseline", 0.375);
+    let mut no_boards = ink.text("no_boards", json!(copy::NO_BOARDS), XS, &ink.muted);
+    no_boards["visible"] = path("noBoards");
+    // Only one of the list and its empty line shows: an empty list would
+    // still take the block's gap.
+    let boards = json!({"id": "boards", "component": "List", "visible": not(path("noBoards")), "props": {"gap": "none"}, "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+        "template": {"component": "board", "path": "boards", "key": "id"},
+        "children": [board]});
+    let boards = json!({"id": "boards_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "minWidth": 0, "marginLeft": ink.r(1.5), "gap": ink.r(0.25)}, "children": [boards, no_boards]});
+    let team = json!({"id": "team_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.375)}, "children": [header, boards]});
+    let mut no_teams = ink.text("no_teams", json!(copy::NO_TEAMS), SM, &ink.muted);
+    no_teams["visible"] = path("/pane/noTeams");
+    let teams = json!({"id": "teams", "component": "List", "visible": not(path("/pane/noTeams")), "props": {"gap": "none"}, "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.75)},
+        "template": {"component": "team_item", "path": "/pane/teams", "key": "id"},
+        "children": [team]});
+    let list = json!({"id": "tree_list", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": ink.r(0.75), "padding": ink.r(0.75)}, "children": [no_teams, teams]});
+    let scroll = json!({"id": "tree_scroll", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "flexShrink": 0, "maxHeight": TREE_SCROLL_CAP, "overflowY": "auto"}, "children": [list]});
+    let mut tree = ink.group("tree", vec![scroll]);
+    tree["visible"] = not(path("/pane/all"));
+    let mut note = ink.text("scoped_note", json!(SCOPED_KEY_NOTE), XS, &ink.muted);
+    note["visible"] = not(path("/pane/all"));
+    let mut error = ink.text("scope_error", path("/pane/error"), SM, danger);
+    error["visible"] = path("/pane/hasError");
+    let picker = column("picker", 0.75, vec![everything, tree, note, error]);
+    let access = column("access_block", 0.25, vec![label("access_label", "Access"), picker]);
+    let mut root = column("root", 1., vec![name, access]);
+    // `mt_2`: the root's own margin never lays out, its padding does.
+    root["style"]["paddingTop"] = json!(ink.r(0.5));
+    root
+}
+
+/// The team tree's scroll cap in the dialog (the picker's own is web
+/// `max-h-72`; the alert keeps it short).
+const TREE_SCROLL_CAP: f32 = 168.;
 
 /// The revoke / disconnect alert's body (EXP-771; #EXP-1629: an eUI
 /// document): the row it hits, its name (`text_sm` medium) and, for an API
@@ -794,16 +1006,18 @@ fn local_store(cx: &App) -> Option<(TokenStore, String)> {
 mod tests {
     use super::*;
 
-    /// #EXP-1629: the revoke body raises no issue a debug build's mount
+    /// #EXP-1629: the alert bodies raise no issue a debug build's mount
     /// check refuses (#EXP-1767's class).
     #[test]
-    fn the_revoke_document_raises_no_unexpected_issue() {
-        let tree = revoke_document(&super::super::readiness::tests::test_ink());
-        let bound = super::super::doc::bound_values(&tree);
-        let mut surface = eui_core::surface::Surface::new("api-key-revoke", Default::default());
-        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
-        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
-        assert!(issues.is_empty(), "{issues:?}");
+    fn the_alert_documents_raise_no_unexpected_issue() {
+        let ink = super::super::readiness::tests::test_ink();
+        for (id, tree) in [("api-key-revoke", revoke_document(&ink)), ("api-key-create", mint_document(&ink, "#f87171ff"))] {
+            let bound = super::super::doc::bound_values(&tree);
+            let mut surface = eui_core::surface::Surface::new(id, Default::default());
+            let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+            let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+            assert!(issues.is_empty(), "{id}: {issues:?}");
+        }
     }
 
     #[test]
