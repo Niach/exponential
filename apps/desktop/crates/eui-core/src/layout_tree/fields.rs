@@ -1175,10 +1175,23 @@ impl Builder<'_, '_> {
     /// before `trailing` (its frame's width + the bar's gap further from
     /// send). A leaf with children lays them out at its measured size
     /// (`engine.rs`).
+    ///
+    /// #EXP-1762: `above` = ONE child over the field, inside the card: an
+    /// `above` column FIRST (the content box's full width, at its top), the
+    /// bar last (`space-between` keeps it at the bottom). Unlike the row's
+    /// slots it SIZES the composer: the engine adds its height + the root's
+    /// gap to the measure (`View::above_extra`); a painter puts the field
+    /// below it.
     pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
         let Some(slots) = &node.slots else { return };
         let owner = self.nodes[index as usize].clone();
-        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!("flex-end"))]);
+        let above = slots.get("above");
+        let justify = if above.is_some() { "space-between" } else { "flex-end" };
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!(justify))]);
+        if let Some(slot) = above {
+            let wrap = self.part(&owner, "above", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "alignItems": "stretch", "alignSelf": "stretch", "flexShrink": 0, "minWidth": 0}), json!({}));
+            self.add(slot, Some(wrap), layer, scope, false);
+        }
         let bar = self.part(&owner, "bar", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.buttonIcon", "flexShrink": 0, "alignSelf": "stretch"}), json!({}));
         for (name, grow) in [("leading", false), ("trailing", true)] {
             if grow {

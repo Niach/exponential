@@ -10,6 +10,7 @@ import {
   checksQueuedText,
   checksWakeState,
   gatedChecksState,
+  requiredChecksState,
   checksWakeText,
   type PrChecksState,
   type PrChecksUnknown,
@@ -27,6 +28,11 @@ describe(`pr-checks fixture`, () => {
     expect(gatedChecksState([c(`gate`, `completed`, `success`, true), c(`ios-core`, `completed`, `failure`, false)])).toBe(`success`)
     expect(gatedChecksState([c(`lint`, `queued`, null, false)])).toBe(`pending`)
     expect(gatedChecksState([])).toBe(`none`)
+    // #FEED-221: the names decide, whatever the flags say.
+    expect(requiredChecksState([c(`gate`, `completed`, `success`, false), c(`ios-core`, `queued`, null, false)], [`gate`])).toBe(`success`)
+    expect(requiredChecksState([c(`ios-core`, `queued`, null, false)], [`gate`])).toBe(`pending`)
+    expect(requiredChecksState([c(`gate`, `completed`, `failure`, false)], [`gate`])).toBe(`failure`)
+    expect(requiredChecksState([c(`lint`, `queued`, null, false)], [])).toBe(`pending`)
   })
   it.each(fixture.wake)(`wake: $name`, ({ checks, required, expected }) => {
     expect(checksWakeState(checks, required)?.state ?? null).toBe(expected as never)

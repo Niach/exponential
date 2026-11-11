@@ -1060,6 +1060,27 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         trailing: { id: `flat_context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
       },
     },
+  }, {
+    // #EXP-1762: the IDE's attachment strip INSIDE the card, over the field
+    // (a wrapping row of chips); it sizes the composer.
+    label: `slots · above`,
+    node: {
+      id: `above`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        above: {
+          id: `above_strip`,
+          component: `Stack`,
+          props: { direction: `horizontal`, wrap: true, gap: `xs` },
+          children: [
+            { id: `above_file`, component: `Chip`, props: { label: `screenshot.png`, icon: `ui-attach`, removable: true } },
+            { id: `above_team`, component: `Chip`, props: { label: `Design`, removable: true } },
+          ],
+        },
+        leading: { id: `above_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } },
+      },
+    },
   }],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),
   // then the same rows of a query in compact euros.

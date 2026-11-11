@@ -853,7 +853,7 @@ class InteractionTest {
     fun composerSlotCasesSitInTheControlsRow() = runTest {
         val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
         val cases = f["cases"]?.array.orEmpty()
-        assertEquals(12, cases.size)
+        assertEquals(16, cases.size)
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val rtl = c["direction"]?.string == "rtl"
@@ -872,6 +872,18 @@ class InteractionTest {
                 continue
             }
             val send = m.frame(m.idx("c.sendSpace"))
+            // #EXP-1762: `above` sits inside the card at its content top, the
+            // content's full width (the same inset either side), over the row.
+            if (slots["above"] != null) {
+                val above = m.frame(m.idx("c.above"))
+                val strip = m.frame(m.idx("strip"))
+                val inset = above.left - cf.left
+                assertTrue("$name: above inside the card", inset > 0f)
+                assertEquals("$name: above spans the content width", inset, cf.right - above.right, 0.01f)
+                assertEquals("$name: above at the content top", inset, above.top - cf.top, 0.01f)
+                assertEquals("$name: the above child spans it", above.width, strip.width, 0.01f)
+                assertTrue("$name: above over the row", above.bottom <= send.top + 0.01f)
+            }
             val along = ArrayList<Pair<Float, String>>()
             for ((slot, id) in listOf("leading" to "plus", "trailing" to "ring")) {
                 val i = m.indexOf(id)

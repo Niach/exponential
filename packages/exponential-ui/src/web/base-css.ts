@@ -328,6 +328,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Composer"][data-r-layout="flat"].xui-el{flex-direction:row;align-items:flex-end}
 [data-r-layout="flat"]>.xui-Composer-field{flex:1 1 0;width:auto;align-self:stretch}
 [data-r-layout="flat"]>.xui-composer-bar{flex-shrink:0;min-height:var(--xui-control-buttonIcon)}
+.xui-composer-above{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;min-width:0}
+[data-xui-c="Composer"][data-r-layout="flat"][data-above].xui-el{flex-wrap:wrap}
+[data-r-layout="flat"]>.xui-composer-above{flex:0 0 100%}
 [data-xui-c="Ring"].xui-el,[data-xui-c="Spinner"].xui-el{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 [data-xui-c="Ring"].xui-el>svg,[data-xui-c="Spinner"].xui-el>svg{width:100%;height:100%;display:block}
 .xui-Ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}

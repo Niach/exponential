@@ -555,8 +555,12 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
   const placeholder = str(props.placeholder)
   const submitLabel = str(props.submitLabel) || ctx.t(`send`)
   const leading = slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null
+  // #EXP-1762: `above` = one child over the field, inside the card, the
+  // content's full width (a flat root wraps it onto its own line).
+  const above = slots.above ? <div className="xui-composer-above">{slots.above}</div> : null
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined}>
+    <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined} data-above={above ? `true` : undefined}>
+      {above}
       {flat && leading ? <div className="xui-composer-bar">{leading}</div> : null}
       <textarea
         ref={ref}

@@ -798,20 +798,38 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
         let (_, bare) = run(plain);
         let frame = |id: &str| *frames.get(id).unwrap_or_else(|| panic!("{name}: no frame for {id}"));
         let cf = frame("c");
-        assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
         let ci = s.index_of("c").unwrap();
         let v = s.visual(ci).cloned().unwrap();
         let pad = v.padding.unwrap_or([0.0; 4]);
         let b = v.border_width.unwrap_or(0.0);
         let (start, end) = if rtl { (cf.0 + cf.2 - pad[1] - b, cf.0 + pad[3] + b) } else { (cf.0 + pad[3] + b, cf.0 + cf.2 - pad[1] - b) };
+        let token = |t: &str| eui_core::theme::resolve_token(s.theme().unwrap(), &json!(t), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let xs = token("$spacing.xs");
+        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
+        if slots.contains_key("above") {
+            // #EXP-1762: `above` sits at the content top, the content box's
+            // full width, and SIZES the composer: + its height + the root's gap.
+            let above = frame("c.above");
+            let strip = frame("strip");
+            let gap = token(if c["props"]["layout"] == "flat" { "$spacing.xs" } else { "$spacing.sm" });
+            let cw = cf.2 - pad[1] - pad[3] - 2.0 * b;
+            near(above.1, cf.1 + pad[0] + b, "above at the content top");
+            near(above.0, cf.0 + pad[3] + b, "above starts at the content's left edge");
+            near(above.2, cw, "above spans the content width");
+            near(strip.2, cw, "the slot child spans the content width");
+            near(cf.3, bare["c"].3 + above.3 + gap, "above grows the composer by its height + the gap");
+            assert_eq!((cf.0, cf.1, cf.2), (bare["c"].0, bare["c"].1, bare["c"].2), "{name}: the width is unchanged");
+            let stack: Vec<&str> = c["stack"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).collect();
+            assert_eq!(stack.first(), Some(&"above"), "{name}: stack");
+        } else {
+            assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
+        }
         if slots.is_empty() {
             assert!(!frames.contains_key("c.bar"), "{name}: no row without slots");
             continue;
         }
         let send = frame("c.sendSpace");
-        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
         let edge = |f: (f32, f32, f32, f32), lead: bool| if rtl == lead { f.0 + f.2 } else { f.0 };
-        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
         near(edge(send, false), end, "send ends at the content end");
         near(send.1 + send.3, cf.1 + cf.3 - pad[2] - b, "the row sits at the content bottom");
         let centre = send.1 + send.3 / 2.0;

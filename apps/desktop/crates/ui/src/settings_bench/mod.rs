@@ -174,6 +174,7 @@ fn picture() -> Vec<u8> {
 // One file per pane (EXP-1629): a new pane's bench is a new file + its `mod` line.
 mod about;
 mod account;
+mod add_repository;
 mod agent_detail;
 mod all_boards;
 mod api_keys;
@@ -185,6 +186,7 @@ mod field_variants;
 mod focus;
 mod labels;
 mod local_repos;
+mod mcp_server_dialog;
 mod mcp_servers;
 mod members;
 mod menu_icon_color;
@@ -194,6 +196,7 @@ mod pending_pill;
 mod prompts;
 mod readiness;
 mod repositories;
+mod resend_invite;
 mod row_parity;
 mod select_multi;
 mod select_row_disabled;

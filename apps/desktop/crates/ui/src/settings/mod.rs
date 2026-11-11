@@ -47,7 +47,7 @@ pub(crate) mod account_row_shots;
 #[cfg(test)]
 pub(crate) mod branch_picker_shots;
 pub(crate) mod account;
-mod add_repository_dialog;
+pub(crate) mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
@@ -63,14 +63,14 @@ pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
-mod resend_invite_dialog;
+pub(crate) mod resend_invite_dialog;
 mod issues;
 pub(crate) mod labels;
 mod mcp;
 pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
-mod mcp_server_dialog;
+pub(crate) mod mcp_server_dialog;
 pub(crate) mod statuses;
 pub(crate) mod local_repos;
 pub(crate) mod members;

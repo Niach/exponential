@@ -99,11 +99,16 @@ struct ComposerLeaf: View {
         // the field recipe's paddingTop below the row's top, one line or
         // grown (composerSlots `field`; the text view has no inset of its own).
         let flat = cx.props.str("layout") == "flat"
-        let flatBox = Self.flatField(row: h, padTop: field.px("paddingTop") ?? 0)
+        // #EXP-1762: the core lays an `above` slot out at the content top
+        // (it paints over this leaf); the field (and a flat row) start one
+        // gap below it.
+        let top = cx.model.index(of: "\(cx.node.id).above").map { cx.model.frame($0).height + gap } ?? 0
+        let rh = max(h - top, 0)
+        let flatBox = Self.flatField(row: rh, padTop: field.px("paddingTop") ?? 0)
         let slotW = { (name: String) -> CGFloat in cx.model.index(of: "\(cx.node.id).\(name)").map { cx.model.frame($0).width + gap } ?? 0 }
         let lead = flat ? slotW("leading") : 0
         let fieldW = flat ? max(w - lead - slotW("trailing") - (attachments ? SurfaceMeasurer.composerAttachWidth + gap : 0) - sendSize - gap, 0) : w
-        let fieldH = flat ? flatBox.height : max(h - sendSize - gap, 0)
+        let fieldH = flat ? flatBox.height : max(rh - sendSize - gap, 0)
         ZStack(alignment: .topLeading) {
             OwnedTextField(
                 index: cx.index,
@@ -120,7 +125,7 @@ struct ComposerLeaf: View {
                 inputType: ""
             )
             .frame(width: fieldW, height: fieldH)
-            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: flat ? flatBox.y : 0)
+            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: top + (flat ? flatBox.y : 0))
             HStack(spacing: cx.model.spacing("xs")) {
                 Spacer(minLength: 0)
                 // `attachments: true` = the attach control (catalog: "Shows

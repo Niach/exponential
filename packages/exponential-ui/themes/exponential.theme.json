@@ -1333,6 +1333,7 @@
           },
           "style": {
             "height": 24,
+            "minHeight": 24,
             "paddingHorizontal": 7,
             "gap": 7,
             "fontSize": 10.5,
