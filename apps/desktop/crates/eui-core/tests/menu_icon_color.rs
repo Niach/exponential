@@ -77,25 +77,41 @@ fn bound_items_carry_the_hosts_resolved_colour() {
 }
 
 /// A row with an `identifier` leads with the glyph as its own `itemIcon`
-/// (the Issue › rows: status glyph · mono id · title): the tint is on it, a
-/// `$color.<name>` token and the host's resolved colour alike.
+/// (the Issue › rows: status glyph · mono id · title): the tint is on it.
 #[test]
 fn an_identifier_row_tints_its_own_glyph() {
     let (mut s, issues) = mount(menu(json!([
         {"label": "Fix it", "value": "a", "icon": "status-in-progress", "identifier": "EXP-1", "iconColor": "$color.warning"},
-        {"label": "Ship it", "value": "b", "icon": "status-in-progress", "identifier": "EXP-2", "iconColor": "#ef4444ff"},
+        {"label": "Ship it", "value": "b", "icon": "status-in-progress", "identifier": "EXP-2", "iconColor": "$color.success"},
         {"label": "Plain", "value": "c", "icon": "status-in-progress", "identifier": "EXP-3"},
     ])));
     assert!(issues.is_empty(), "{issues:?}");
     open(&mut s);
     let ink = |s: &Surface, i: usize| {
         let index = s.index_of(&format!("m.itemIcon.{i}")).unwrap_or_else(|| panic!("no glyph {i}"));
-        s.text_style(index).expect("its text style").color.clone()
+        s.visual(index).expect("its visual").color.clone()
     };
     let token = ink(&s, 0);
     let plain = ink(&s, 2);
     assert_ne!(token, plain, "the token tints the glyph");
     assert!(token.as_deref().is_some_and(|c| c.starts_with('#')), "the token resolves: {token:?}");
-    assert_eq!(ink(&s, 1).as_deref(), Some("#ef4444ff"));
+    assert_ne!(ink(&s, 1), token, "each row its own token");
     assert!(label(&mut s, 0).get("iconColor").is_none(), "the label carries no glyph here");
+}
+
+/// The host's resolved colour in bound data reaches an identifier row's
+/// glyph too (a team's status colours).
+#[test]
+fn a_bound_identifier_row_carries_the_hosts_colour() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [
+        {"id": "m", "component": "Menu", "props": {"items": {"@path": "/items"}}, "children": [{"id": "b", "component": "Button", "props": {"label": "Status"}}]},
+    ]}))
+    .expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    s.set_data("/items", Some(json!([{"label": "Fix it", "value": "a", "icon": "status-in-progress", "identifier": "EXP-1", "iconColor": "#ef4444ff"}]))).expect("data");
+    let _ = s.set_nested(tree);
+    s.set_viewport(760.0, 900.0, None);
+    open(&mut s);
+    let index = s.index_of("m.itemIcon.0").expect("the glyph");
+    assert_eq!(s.visual(index).expect("its visual").color.as_deref(), Some("#ef4444ff"));
 }
