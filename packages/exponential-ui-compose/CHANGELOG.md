@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `button` popup matches web's picker (#EXP-1629): the regenerated theme and layout values.
+- Select option `hint` (#EXP-1629): `SelectPopup` paints the `itemHint` run before the check. Fix: its option rows now honour `iconColor` (#EXP-1629's Select tint never reached this popup).
 - Select `button` trigger glyph (#EXP-1629): `SelectTriggerContent` paints the core's `valueIcon` in its `iconColor` before the value; the measurer adds it.
 - Select `button` trigger + Text `truncate: middle` (#EXP-1778): the button paints as the pill's parts (its own recipe); its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it, no cursor when the pointer opened it; a `middle` Text shows `middleTruncateWidth` of its text at its content width (`fixtures/text-truncate.json`).
 - Select `row` disabled (#EXP-1629): the regenerated themes dim the value + chevron.

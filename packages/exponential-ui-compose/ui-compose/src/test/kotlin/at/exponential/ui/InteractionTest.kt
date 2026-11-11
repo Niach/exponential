@@ -493,6 +493,14 @@ class InteractionTest {
      * `trailing` its own run (the core's `trailing` prop, the label alone
      * as the text), a plain one reads it on.
      */
+    /** #EXP-1629: the popup row's own fields: the glyph's tint and the end hint. */
+    @Test fun selectOptionsCarryIconColorAndHint() {
+        val owner = mapOf("options" to JsonValue.Arr(listOf(JsonValue.Obj(mapOf("label" to JsonValue.Str("T-shirt"), "value" to JsonValue.Str("t"), "icon" to JsonValue.Str("status-done"), "iconColor" to JsonValue.Str("\$color.success"), "hint" to JsonValue.Str("XS, S")))))) 
+        val o = at.exponential.ui.compose.selectOptions(owner, "").single()
+        assertEquals("\$color.success", o.iconColor)
+        assertEquals("XS, S", o.hint)
+    }
+
     @Test
     fun selectPill() {
         val options = """[{"label":"Option A","value":"a","disabled":true},{"label":"main","value":"main","mono":true,"trailing":"default"},{"label":"dev","value":"dev","trailing":"· old"}]"""

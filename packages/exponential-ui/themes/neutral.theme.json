@@ -3770,6 +3770,15 @@
           }
         }
       ],
+      "itemHint": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
       "itemDescription": [
         {
           "style": {
