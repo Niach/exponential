@@ -15,7 +15,7 @@ import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
-import { keyRecorderCode } from "@exponential_app/eui/web"
+import { keyRecorderCode, propColor } from "@exponential_app/eui/web"
 
 afterEach(() => cleanup())
 
@@ -911,7 +911,10 @@ interface MenuRowCase {
   name: string
   items: unknown[]
   submenu: number | null
-  rows: { key: string; parts: string[]; label: string; identifier?: string; detail?: string }[]
+  /** A searchable submenu: what the field holds, the row keys left. */
+  query?: string
+  shown?: string[]
+  rows: { key: string; parts: string[]; label: string; identifier?: string; detail?: string; iconColor?: string }[]
 }
 interface MenuPreviewStep {
   hover?: string | null
@@ -950,6 +953,9 @@ function menuRow(key: string): HTMLElement | null {
   const path = key.split(`.`).map(Number)
   const content = document.querySelector(path.length === 1 ? `[data-xui-overlay="Menu"]` : `[data-xui-overlay="Menu.sub"]`)
   if (!content) return null
+  // A searchable submenu's rows are its search list's options.
+  const search = content.querySelector(`.xui-menu-search`)
+  if (search) return search.querySelector<HTMLElement>(`[role="option"][id$="-${path[path.length - 1]}"]`)
   const rows = Array.from(content.children).filter((c) => /^menuitem/.test(c.getAttribute(`role`) ?? ``))
   return (rows[path[path.length - 1]!] as HTMLElement | undefined) ?? null
 }
@@ -959,6 +965,8 @@ describe(`fixtures/interactions-round1.json menuRows`, () => {
     it(`menuRows: ${c.name}`, () => {
       const { container } = render(<ExponentialSurface root={tree({ id: `m`, component: `Menu`, props: { label: `More`, items: c.items } } as unknown as NestedNode)} theme="neutral" id="mr" />)
       openMenu(container, c.submenu)
+      if (c.query !== undefined) act(() => void fireEvent.change(document.querySelector(`[data-xui-overlay="Menu.sub"] input`)!, { target: { value: c.query } }))
+      if (c.shown) expect(Array.from(document.querySelectorAll(`[data-xui-overlay="Menu.sub"] [role="option"]`)).map((o) => `${c.submenu}.${o.id.slice(o.id.lastIndexOf(`-`) + 1)}`)).toEqual(c.shown)
       for (const r of c.rows) {
         const row = menuRow(r.key)
         expect(row, r.key).not.toBeNull()
@@ -967,6 +975,7 @@ describe(`fixtures/interactions-round1.json menuRows`, () => {
         expect(row!.querySelector(`.xui-menu-label`)!.textContent).toBe(r.label)
         expect(row!.querySelector(`.xui-Menu-identifier`)?.textContent ?? null).toBe(r.identifier ?? null)
         expect(row!.querySelector(`.xui-Menu-detail`)?.textContent ?? null).toBe(r.detail ?? null)
+        if (r.iconColor) expect(row!.querySelector<SVGElement>(`svg`)!.style.color).toBe(propColor(r.iconColor))
       }
     })
   }

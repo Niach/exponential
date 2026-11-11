@@ -26,6 +26,10 @@ export interface SearchItem {
   value: string
   icon?: string
   identifier?: string
+  /** A Menu's searchable submenu rows only: the glyph's tint, the muted text
+   *  after the label. */
+  iconColor?: string
+  detail?: string
   disabled?: boolean
 }
 
