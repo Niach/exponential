@@ -2025,8 +2025,12 @@ impl SteerSessionView {
     /// `typeSlashInSessionComposer`). Called by this view's render and by a
     /// chat screen hosting it as THE root composer.
     pub(crate) fn dev_type_composer_text(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // #EDE-65 lane T: and once the chat document's Composer is mounted,
+        // so its field (the one drawn) takes the focus and shows the caret,
+        // never the hidden draft state behind it.
         if !self.row.as_ref().is_some_and(|row| row.team_id.is_some())
             || !crate::navigation::shapes_ready(cx)
+            || self.composer_doc.field_focus(cx).is_none()
         {
             return;
         }

@@ -117,7 +117,7 @@ fn eui_tree() -> Value {
         "id": "bench_footer",
         "component": "Box",
         "style": {"display": "flex", "flexDirection": "column", "alignItems": "stretch", "width": "100%", "gap": chat_node("chat_footer")["style"]["gap"].clone()},
-        "children": [chat_node("chat_replies"), composer],
+        "children": [chat_node("chat_slash_popover"), chat_node("chat_replies"), composer],
     })
 }
 
@@ -232,10 +232,10 @@ fn compare(state: State) {
 fn composer_bench_tree_is_the_chat_documents() {
     let tree = eui_tree();
     let _: NestedNode = serde_json::from_value(tree.clone()).expect("a genUI tree");
-    assert_eq!(tree["children"][1]["component"], "Composer");
-    assert_eq!(tree["children"][1]["props"]["layout"], "flat");
-    assert_eq!(tree["children"][0]["id"], "chat_replies");
-    let ring = &tree["children"][1]["slots"]["trailing"]["style"];
+    assert_eq!(tree["children"][2]["component"], "Composer");
+    assert_eq!(tree["children"][2]["props"]["layout"], "flat");
+    assert_eq!((tree["children"][0]["id"].as_str(), tree["children"][1]["id"].as_str()), (Some("chat_slash_popover"), Some("chat_replies")));
+    let ring = &tree["children"][2]["slots"]["trailing"]["style"];
     assert_eq!((ring["width"].as_f64(), ring["height"].as_f64()), (Some(RING as f64), Some(RING as f64)));
 }
 
@@ -249,4 +249,56 @@ fn composer_bench_card() {
 #[ignore]
 fn composer_bench_replies() {
     compare(State::Replies);
+}
+
+/// #EDE-65 lane T: the `/` menu opening (a Popover anchored on the composer,
+/// opened by data) leaves the composer's field focused: its caret stays.
+#[test]
+#[ignore]
+fn composer_bench_menu_keeps_the_field_focused() {
+    let mut cx = headless();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+    });
+    let mut eui = None;
+    let handle = cx
+        .open_window(size(px(WINDOW.0), px(WINDOW.1 + 240.)), |window: &mut Window, cx| {
+            let surface = eui_surface(State::Card, window, cx);
+            eui = Some(surface.clone());
+            let view: gpui::AnyView = cx.new(|_| EuiFrame { surface }).into();
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let surface = eui.expect("the surface");
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let focused = |cx: &mut gpui::HeadlessAppContext| {
+        cx.update_window(window, |_, window, cx| surface.read(cx).field_focus_handle("chat_composer", cx).is_some_and(|h| h.is_focused(window))).expect("the window")
+    };
+    cx.update_window(window, |_, window, cx| surface.update(cx, |view, cx| assert!(view.focus_field("chat_composer", window, cx), "the composer field"))).expect("focus");
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    assert!(focused(&mut cx), "focused before the menu");
+    let row = |key: &str| domain::chat_document::plain_row(json!({"key": key, "command": format!("/{key}"), "description": key, "hint": "", "icon": null, "insert": format!("/{key}"), "prompt": "", "selected": false}));
+    // The host's round trip after a typed `/`: the draft written back, the
+    // menu opened (`chat_tab_composer::ComposerDoc::element`).
+    cx.update(|cx| {
+        surface.update(cx, |view, cx| {
+            view.set_data("/chat", Some(json!({"draft": "/"})), cx).expect("the draft");
+            view.set_data("/chatMenu", Some(json!({"open": true, "rows": [row("compact"), row("new")]})), cx).expect("the menu");
+        })
+    });
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    assert!(focused(&mut cx), "the open / menu left the composer's field focused");
+    std::mem::forget(cx);
 }
