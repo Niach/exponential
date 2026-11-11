@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-11-one-chat-composer",
+    date: "2026-11-11",
+    title: "One chat composer for the desktop app and Exponential Desktop",
+    summary: "The desktop app and Exponential Desktop now share one chat composer and one transcript, so a chat looks and works the same on both.",
+    body: r##"- **One composer, one look**: the desktop app's chat and Exponential Desktop's chat are now the same composer and the same transcript, so they look and behave alike.
+- **The "+" menu**: attach files and pick an issue, prompt, team, model or account from the composer's "+" button.
+- **Quick menus while you type**: "/" opens the CLI's commands and the team's prompts, "#" issues, "@" people and ":" emoji, right where you type.
+- **Files in the card**: attached files and images sit inside the composer card, above the text.
+- **Exponential Desktop 0.2.16**: the shared composer plus the chat fixes since 0.2.15 (the text field keeps the cursor while a menu is open, cleaner send button)."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_249: ChangelogEntry = ChangelogEntry {
     id: "2026-11-11-waiting-in-the-header",
     date: "2026-11-11",
     title: "Waiting plans and questions are back in the header",
