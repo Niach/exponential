@@ -41,7 +41,8 @@ route to it and the Hetzner firewall stays unchanged. Ways in:
 - `https://glitchtip.exponential.at`: Cloudflare Tunnel `glitchtip-hetzner`
   (ingress `http://web:8000`) behind the Cloudflare Access app "GlitchTip (owner
   only)": the One-time PIN login, ONE allowed email, a 1 h session, HttpOnly +
-  SameSite=strict + binding cookies. Every path redirects to the Access login
+  SameSite=lax + binding cookies (never strict: the login's cross-site
+  redirect back drops a strict cookie and loops on the team domain). Every path redirects to the Access login
   (`/`, `/api/0/`, `/admin/`, and the ingest `/api/<id>/envelope/` too).
   GlitchTip's own login (registration and org creation off, one admin) is the
   second factor.
