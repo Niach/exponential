@@ -788,9 +788,11 @@ impl Collections {
         prepared(self, cx);
         if shape == "sessions" {
             // EXP-1459: a digest opened before its session's row arrived
-            // learns its root now.
+            // learns its root now. #PERF-1: its reads run off the main thread
+            // (they share the reader lock with the delta reads).
             if crate::sealed::Opener::global().take_unresolved() {
-                reopen_closed(&self.conversations, sqlite, cx);
+                let (conversations, sqlite) = (self.conversations.clone(), Arc::clone(sqlite));
+                cx.spawn(async move |cx| reopen_closed(&conversations, &sqlite, cx).await).detach();
             }
         }
     }
@@ -1158,26 +1160,55 @@ fn prepare_for<T: ShapeRow + Send + 'static>(
 }
 
 /// EXP-1459: re-reads and re-opens the rows whose sealed content stayed
-/// closed (keys arrived, or a digest's root became known).
-fn reopen_closed<T: ShapeRow, C: gpui::AppContext>(entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, cx: &mut C) {
-    let spec = T::spec();
+/// closed (keys arrived, or a digest's root became known). #PERF-1: the
+/// point reads and the decode run on the background executor: the reader
+/// connection sits behind one lock, and a delta's read (a refetch's
+/// `read_all` of `messages`) held it for seconds while the main thread
+/// waited here inside `sync.apply(sessions)`.
+async fn reopen_closed<T: ShapeRow + Send + 'static>(entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, cx: &mut AsyncApp) {
     let keys: Vec<RowKey> = entity.read_with(cx, |collection, _| {
         collection.rows.iter().filter(|(_, row)| row.seal_closed()).map(|(key, _)| key.clone()).collect()
     });
     if keys.is_empty() {
         return;
     }
+    let sqlite = Arc::clone(sqlite);
+    let rows = cx.background_executor().spawn(async move { read_reopened::<T>(&keys, &sqlite) }).await;
+    if rows.is_empty() {
+        return;
+    }
     entity.update(cx, |collection, cx| {
-        for key in &keys {
-            if let Ok(Some(map)) = sqlite.read_by_key(spec, key) {
-                if let Ok(mut row) = serde_json::from_value::<T>(Value::Object(map)) {
-                    row.open_sealed();
-                    collection.upsert(key.clone(), row);
-                }
-            }
+        if reopen_rows(collection, rows) {
+            cx.notify();
         }
-        cx.notify();
     });
+}
+
+/// The rows of `keys` read back and opened (background).
+fn read_reopened<T: ShapeRow>(keys: &[RowKey], sqlite: &ShapeStore) -> Vec<(RowKey, T)> {
+    let spec = T::spec();
+    let _span = tracing::debug_span!("sync.reopen", shape = spec.name, rows = keys.len()).entered();
+    keys.iter()
+        .filter_map(|key| {
+            let map = sqlite.read_by_key(spec, key).ok()??;
+            let mut row = serde_json::from_value::<T>(Value::Object(map)).ok()?;
+            row.open_sealed();
+            Some((key.clone(), row))
+        })
+        .collect()
+}
+
+/// Write re-opened rows over the ones still closed; a row a delta replaced
+/// or removed while they were read keeps the delta's version. True = wrote.
+fn reopen_rows<T: ShapeRow>(collection: &mut Collection<T>, rows: Vec<(RowKey, T)>) -> bool {
+    let mut wrote = false;
+    for (key, row) in rows {
+        if collection.rows.get(&key).is_some_and(|current| current.seal_closed()) {
+            collection.upsert(key, row);
+            wrote = true;
+        }
+    }
+    wrote
 }
 
 // ---------------------------------------------------------------------------
@@ -1390,9 +1421,14 @@ impl Store {
         let Some(sqlite) = self.manager.store(&account_id) else {
             return;
         };
-        reopen_closed(&self.collections.sessions, &sqlite, cx);
-        reopen_closed(&self.collections.messages, &sqlite, cx);
-        reopen_closed(&self.collections.conversations, &sqlite, cx);
+        // #PERF-1: read off the main thread (see `reopen_closed`).
+        let collections = self.collections.clone();
+        cx.spawn(async move |cx| {
+            reopen_closed(&collections.sessions, &sqlite, cx).await;
+            reopen_closed(&collections.messages, &sqlite, cx).await;
+            reopen_closed(&collections.conversations, &sqlite, cx).await;
+        })
+        .detach();
     }
 
     /// Restart the active account's shape pipeline (EXP-470): after a team
@@ -2002,6 +2038,35 @@ mod tests {
         collection.clear();
         assert!(ids(&collection, "s1").is_empty());
         assert!(collection.group_revision("s1") > s1);
+    }
+
+    /// #PERF-1: re-opened rows (read off the main thread) land only over
+    /// rows still closed; a delta's write meanwhile wins.
+    #[test]
+    fn reopened_rows_never_overwrite_a_newer_write() {
+        let message = |id: &str, seal: Option<domain::sealed::SealState>, body: &str| -> MessageRow {
+            let mut row: MessageRow = serde_json::from_value(serde_json::json!({"id": id, "session_id": "s1", "body": body})).unwrap();
+            row.seal = seal;
+            row
+        };
+        let closed = Some(domain::sealed::SealState::Locked);
+        let mut collection: Collection<MessageRow> = Collection::new();
+        collection.replace_all(vec![
+            (message("m1", closed, "").key(), message("m1", closed, "")),
+            (message("m2", closed, "").key(), message("m2", closed, "")),
+        ]);
+        // m2 was re-written open by a delta while the reopen read ran; m3 is gone.
+        collection.upsert(message("m2", None, "delta").key(), message("m2", None, "delta"));
+        let read = vec![
+            (message("m1", None, "").key(), message("m1", None, "opened")),
+            (message("m2", None, "").key(), message("m2", None, "stale")),
+            (message("m3", None, "").key(), message("m3", None, "gone")),
+        ];
+        assert!(reopen_rows(&mut collection, read));
+        assert_eq!(collection.get("m1").unwrap().body.as_deref(), Some("opened"));
+        assert_eq!(collection.get("m2").unwrap().body.as_deref(), Some("delta"));
+        assert!(collection.get("m3").is_none());
+        assert!(!reopen_rows(&mut collection, vec![(message("m1", None, "").key(), message("m1", None, "again"))]), "nothing closed is left");
     }
 
     /// #LOGS-11: a reader asks which rows moved since its revision; a
