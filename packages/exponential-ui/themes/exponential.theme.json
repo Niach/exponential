@@ -2011,6 +2011,7 @@
         {
           "style": {
             "backgroundColor": "$color.card",
+            "borderColor": "$color.borderStrong",
             "boxShadow": "$shadow.none"
           }
         }
