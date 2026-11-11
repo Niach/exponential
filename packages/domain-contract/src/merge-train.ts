@@ -85,6 +85,7 @@ export type MergeEvent =
   | { type: `merge_now` }
   | { type: `forge_hold`; reason: `no_checks` | `conflict` }
   | { type: `checks_appeared` }
+  | { type: `landed_earlier` }
 
 export interface MergeStepResult {
   pr: MergePr
@@ -174,6 +175,10 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
     case `forge_hold`:
       if (FROZEN.has(pr.state) || pr.state === `draft` || pr.mergeNow) return same
       return { pr: { ...pr, state: `held`, holdReason: event.reason, mergeNow: false }, post: `held` }
+    case `landed_earlier`:
+      // #FEED-222: an earlier unconfirmed run already put its head on the base.
+      if (pr.state === `merged`) return same
+      return { pr: { ...pr, state: `merged`, holdReason: null, mergeNow: false }, post: `merged` }
     case `checks_appeared`:
       if (pr.state !== `held` || (pr.holdReason !== `no_checks` && pr.holdReason !== `conflict`)) return same
       return { pr: { ...pr, state: `checks`, holdReason: null }, post: null }
