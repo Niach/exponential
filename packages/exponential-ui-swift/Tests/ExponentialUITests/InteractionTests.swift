@@ -249,4 +249,31 @@ final class InteractionTests: XCTestCase {
         XCTAssertNotNil(m.index(of: rowInWindow), "the new window's rows are laid out")
         XCTAssertGreaterThan(m.frame(m.index(of: rowInWindow)!).minY, firstBefore.minY)
     }
+
+    /// #EXP-1787 `fieldInk`: an Input/Textarea node's own `color` is its
+    /// field's ink (the core lands it on the `field` part as an authored
+    /// key), the colour `OwnedTextField` draws the TYPED text in (a `row` at
+    /// its 70%); the placeholder keeps its part's colour and the caret the
+    /// `field` recipe's (`TextFieldLeaf.caretInk`, Compose `fieldCaretInk`).
+    func testFieldInkColoursOnlyTheTypedText() throws {
+        let fx = try XCTUnwrap(Fixtures.json("interactions-round1.json")["fieldInk"])
+        XCTAssertEqual(fx["theme"]?.string, "neutral")
+        XCTAssertEqual(fx["mode"]?.string, "light")
+        let cases = try XCTUnwrap(fx["cases"]?.array)
+        XCTAssertGreaterThanOrEqual(cases.count, 5)
+        for c in cases {
+            let name = c["name"]!.string!
+            let m = try makeModel("field-ink", theme: "neutral", mode: .light, fixed: true)
+            let node = String(data: try JSONSerialization.data(withJSONObject: c["node"]!.any), encoding: .utf8)!
+            try m.setNested(json: #"{"id":"root","component":"Stack","children":[\#(node)]}"#)
+            m.pass()
+            let field = try XCTUnwrap(m.index(of: "f.field"), name)
+            let component = c["node"]!["component"]!.string!
+            let ink = m.ink(field)
+            let owner = m.ownerProps(field)
+            XCTAssertEqual(ink.hexRGBA(), c["value"]!.string!, "\(name): the typed text")
+            XCTAssertEqual(TextFieldLeaf.caretInk(m.part(component, "field", props: owner).color, ink: ink).hexRGBA(), c["caret"]!.string!, "\(name): caret")
+            XCTAssertEqual(m.part(component, "placeholder", props: owner).color?.hexRGBA(), c["placeholder"]!.string!, "\(name): placeholder")
+        }
+    }
 }

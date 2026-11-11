@@ -35,20 +35,21 @@ struct TextFieldLeaf: View {
                         .frame(width: labelW, height: labelStyle.lineHeight)
                         .accessibilityHidden(true)
                 }
-                field(owner, color: cx.ink.opacity(InputRow.valueOpacity), alignment: cx.rtl ? .left : .right)
+                field(owner, color: cx.ink.opacity(InputRow.valueOpacity), caret: InputRow.valueOpacity, alignment: cx.rtl ? .left : .right)
                     .padding(.leading, gap)
                     .frame(width: max(0, cx.inner.width - labelW), height: cx.inner.height)
             }
             .frame(width: cx.inner.width, height: cx.inner.height, alignment: .leading)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
         } else {
-            field(owner, color: cx.ink, alignment: .natural)
+            field(owner, color: cx.ink, caret: 1, alignment: .natural)
                 .frame(width: cx.inner.width, height: cx.inner.height)
                 .offset(x: cx.inner.minX, y: cx.inner.minY)
         }
     }
 
-    private func field(_ owner: Props, color: Color, alignment: NSTextAlignment) -> OwnedTextField {
+    /// `caret` = the caret's opacity (a `row` value's tone).
+    private func field(_ owner: Props, color: Color, caret: Double, alignment: NSTextAlignment) -> OwnedTextField {
         let placeholder = cx.part(cx.node.recipeComponent, "placeholder")
         let font = ExponentialUIFonts.font(family: cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: cx.textStyle.fontSize)
         return OwnedTextField(
@@ -64,9 +65,15 @@ struct TextFieldLeaf: View {
             submitsOnReturn: false,
             accessibilityLabel: owner.str("label").isEmpty ? owner.str("placeholder") : owner.str("label"),
             inputType: multiline ? "" : owner.str("type"),
-            textAlignment: alignment
+            textAlignment: alignment,
+            // #EXP-1787 `fieldInk`: the node's own `color` inks the typed
+            // text only; the caret keeps the `field` recipe's (Compose `fieldCaretInk`).
+            caretColor: platformColor(Self.caretInk(cx.part(cx.node.recipeComponent, "field").color, ink: cx.ink).opacity(caret))
         )
     }
+
+    /// The caret's ink: the `field` recipe's colour, else the field's ink.
+    static func caretInk(_ recipe: Color?, ink: Color) -> Color { recipe ?? ink }
 }
 
 /// The Composer: a growing text view over a send row (attachments, send).
