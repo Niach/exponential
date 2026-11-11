@@ -1232,7 +1232,7 @@
           },
           "style": {
             "padding": 4,
-            "gap": 2,
+            "gap": 0,
             "borderRadius": "$radius.md",
             "boxShadow": "$shadow.popover",
             "backgroundClip": "padding-box",
@@ -1406,11 +1406,11 @@
             "triggerVariant": "button"
           },
           "style": {
-            "height": 26,
-            "minHeight": 26,
-            "paddingVertical": 3,
+            "height": 36,
+            "minHeight": 36,
+            "paddingVertical": 4,
             "paddingHorizontal": 8,
-            "gap": 16,
+            "gap": 8,
             "borderRadius": "$radius.sm",
             "fontSize": 14,
             "lineHeight": 20
@@ -1475,8 +1475,8 @@
             "triggerVariant": "button"
           },
           "style": {
-            "width": 12,
-            "height": 12
+            "width": 14,
+            "height": 14
           }
         }
       ],

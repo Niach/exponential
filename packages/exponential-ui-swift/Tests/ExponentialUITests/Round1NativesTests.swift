@@ -622,7 +622,7 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertLessThanOrEqual(ec.maxX, 390 - 7 + 0.01, "selectRowPopupMargin from the view's edge")
     }
 
-    /// #EXP-1778: a `button` Select's menu: rows 26 high, `selectButtonItemGap`
+    /// #EXP-1778: a `button` Select's menu: rows 36 high (web's picker), `selectButtonItemGap`
     /// apart, the check on the CHOSEN row only (after the item `gap`, the
     /// `check` recipe's width); the other rows reserve no slot, and the
     /// other variants keep theirs.
@@ -633,15 +633,15 @@ final class Round1NativesTests: XCTestCase {
         let rows = (0..<3).map { m.index(of: "sel.item.\($0)")! }
         XCTAssertEqual(rows.map { m.node($0)!.props.str("checkSlot") }, ["chosen", "chosen", "chosen"])
         XCTAssertTrue(SelectTrigger.checkOnChosenOnly(m.node(rows[0])!.props))
-        XCTAssertEqual(m.frame(rows[0]).height, 26, accuracy: 0.01)
-        XCTAssertEqual(m.frame(rows[1]).minY - m.frame(rows[0]).maxY, 2, accuracy: 0.01)
-        XCTAssertEqual(m.frame(rows[2]).minY - m.frame(rows[1]).maxY, 2, accuracy: 0.01)
+        XCTAssertEqual(m.frame(rows[0]).height, 36, accuracy: 0.01)
+        XCTAssertEqual(m.frame(rows[1]).minY - m.frame(rows[0]).maxY, 0, accuracy: 0.01)
+        XCTAssertEqual(m.frame(rows[2]).minY - m.frame(rows[1]).maxY, 0, accuracy: 0.01)
         let gap = m.style(rows[0]).gap
-        XCTAssertEqual(gap, 16, accuracy: 0.01)
-        let chosen = SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen"), "check": .string("ui-check")], gap: gap, countWidth: 12)
-        XCTAssertEqual(chosen.1, 16 + 12, accuracy: 0.01, "the check after the item gap")
-        XCTAssertEqual(SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen")], gap: gap, countWidth: 12).1, 0, "no slot on an unchosen row")
-        XCTAssertEqual(SelectTrigger.glyphSize(m.part("Select", "check", props: ["triggerVariant": .string("button")])), 12)
+        XCTAssertEqual(gap, 8, accuracy: 0.01)
+        let chosen = SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen"), "check": .string("ui-check")], gap: gap, countWidth: 14)
+        XCTAssertEqual(chosen.1, 8 + 14, accuracy: 0.01, "the check after the item gap")
+        XCTAssertEqual(SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen")], gap: gap, countWidth: 14).1, 0, "no slot on an unchosen row")
+        XCTAssertEqual(SelectTrigger.glyphSize(m.part("Select", "check", props: ["triggerVariant": .string("button")])), 14)
 
         let p = try surface(pillSelect())
         p.setOpen("sel", true)
