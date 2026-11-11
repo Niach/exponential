@@ -4,8 +4,10 @@ import {
   type DiffStatus,
 } from "@exp/domain-contract/diff"
 
+import { watchMiddleTruncate } from "@exponential_app/eui/web"
+import { useLayoutEffect, useRef, useState } from "react"
+
 import { cn } from "./cn"
-import { middleTruncate } from "./truncate"
 
 // EXP-895 — the three atoms every diff surface is built from: the ±counts, the
 // one-letter status and the dimmed-directory path. All three take their colours
@@ -83,34 +85,53 @@ export function DiffStatusLetter({
   )
 }
 
-// EXP-698: on a phone a trailing ellipsis eats the only part of a path that
-// identifies the file. The DIRECTORY gives way instead — middle-truncated, so
-// both ends of it stay readable — and the filename is never cut. `isMobile` is
-// passed in rather than read here: a 200-file diff would otherwise register
-// 200 matchMedia listeners, one per path label.
-const MOBILE_DIR_CHARS = 22
+// EXP-698 + #EXP-1789: a trailing ellipsis eats the only part of a path that
+// identifies the file. The DIRECTORY gives way instead — middle-cut to the
+// width it gets (the genUI Text `truncate: "middle"` rule, `watchMiddleTruncate`,
+// so both ends of it stay readable) — and the filename is never cut unless it
+// alone outgrows the row. The full path is the hover title.
+//
+// The directory's box is sized by an invisible copy of the whole directory
+// (`::before`, so it never reaches `textContent`), shrinks as a flex item when
+// the row runs out of room, and the line shown over it is re-cut whenever that
+// box resizes.
 
 /** `apps/web/src/` dimmed, `file.tsx` at full weight — one mono run. */
 export function DiffPath({
   path,
-  isMobile = false,
   className,
 }: {
   path: string
-  isMobile?: boolean
   className?: string
 }) {
   const slash = path.lastIndexOf(`/`)
   const dir = slash >= 0 ? path.slice(0, slash + 1) : ``
   const base = path.slice(slash + 1)
+  const dirRef = useRef<HTMLSpanElement>(null)
+  const [shown, setShown] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    const el = dirRef.current
+    if (!dir || !el) return
+    return watchMiddleTruncate(el, dir, setShown)
+  }, [dir])
   return (
-    <span className={cn(`min-w-0 truncate font-mono`, className)}>
+    <span
+      className={cn(`flex min-w-0 overflow-hidden font-mono`, className)}
+      title={path}
+      data-slot="diff-path"
+    >
       {dir ? (
-        <span className="text-muted-foreground">
-          {isMobile ? middleTruncate(dir, MOBILE_DIR_CHARS) : dir}
+        <span
+          ref={dirRef}
+          data-full={dir}
+          className="relative min-w-0 overflow-hidden whitespace-pre before:invisible before:content-[attr(data-full)]"
+        >
+          <span className="absolute inset-0 text-muted-foreground">
+            {shown ?? dir}
+          </span>
         </span>
       ) : null}
-      {base}
+      <span className="max-w-full shrink-0 truncate">{base}</span>
     </span>
   )
 }

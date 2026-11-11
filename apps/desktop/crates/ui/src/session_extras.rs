@@ -472,7 +472,13 @@ fn edit_row_ready(
         "session-edit-body-{id}-{index}"
     )));
     let clicked = path.to_string();
-    let mut header_slot = div().id(row_id).w_full().min_w_0();
+    // #EXP-1789: the full path on hover — the row may show it cut.
+    let tip = SharedString::from(path.to_string());
+    let mut header_slot = div()
+        .id(row_id)
+        .w_full()
+        .min_w_0()
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx));
     // A collapsed LAST row is the card's bottom edge: its hover wash takes
     // the card's inner corners too.
     if last && !open {
@@ -536,7 +542,10 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     } else {
         theme.foreground
     };
+    let tip = SharedString::from(row.path.clone());
     let mut line = h_flex()
+        .id(SharedString::from(format!("session-edit-stub-{}", row.path)))
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
         .w_full()
         .min_w_0()
         .items_center()
@@ -551,16 +560,22 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
                 .flex_1()
                 .min_w_0()
                 .overflow_hidden()
+                // #EXP-1789: the same path run as the file header — the
+                // directory cut in the middle, the name kept.
                 .child(
                     div()
                         .min_w_0()
-                        .truncate()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis_middle()
                         .text_color(theme.muted_foreground)
                         .child(SharedString::from(dir)),
                 )
                 .child(
                     div()
                         .flex_shrink_0()
+                        .max_w_full()
+                        .truncate()
                         .text_color(tint)
                         .child(SharedString::from(name)),
                 ),

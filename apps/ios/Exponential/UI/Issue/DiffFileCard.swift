@@ -184,6 +184,9 @@ struct DiffCountsLabel: View {
                 .foregroundStyle(DesignTokens.Diff.delFg)
         }
         .font(font ?? Font.expMono(compact ? .caption2 : .caption))
+        // #EXP-1789: the counts are pinned whole — a long path (whose name
+        // outranks the rest of the row) never squeezes them to `+1…`.
+        .fixedSize()
         .accessibilityElement(children: .combine)
     }
 }
@@ -217,6 +220,8 @@ struct DiffPathLabel: View {
                 .layoutPriority(1)
         }
         .font(Font.expMono(compact ? .caption2 : .caption))
+        // #EXP-1789: the full path on hover (iPad pointer, Mac).
+        .help(path)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(path)
     }

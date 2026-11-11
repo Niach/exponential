@@ -142,7 +142,6 @@ export function FileDiffCard({
   defaultOpen = true,
   onOpenChange,
   density = `comfortable`,
-  isMobile = false,
   state = `ready`,
   flush = false,
   eager = false,
@@ -155,8 +154,6 @@ export function FileDiffCard({
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
   density?: DiffDensity
-  /** Passed in, never read here — see `DiffPath`. */
-  isMobile?: boolean
   /** EXP-916: everything but `ready` draws the header ALONE — no counts, no
    *  body; `failed` adds a rose tint plus a trailing `failed`, `done` is a
    *  plain settled row (no chevron either — nothing will ever open). */
@@ -342,7 +339,7 @@ export function FileDiffCard({
           )}
         >
           <DiffStatusLetter status={file.status} />
-          <DiffPath path={file.path} isMobile={isMobile} />
+          <DiffPath path={file.path} />
           {file.previousPath && (
             <span
               className="min-w-0 shrink truncate font-mono text-muted-foreground"

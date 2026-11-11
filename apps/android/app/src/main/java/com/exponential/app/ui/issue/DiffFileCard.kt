@@ -23,13 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.api.PullFile
@@ -104,42 +102,49 @@ fun diffLineCount(file: Diff.File): Int {
 fun diffOpensByDefault(file: Diff.File, defaultCollapsed: Boolean): Boolean =
     !defaultCollapsed && diffLineCount(file) <= COLLAPSE_THRESHOLD
 
-/**
- * Shorten [value] to at most [max] characters by replacing its MIDDLE with an
- * ellipsis — mirrors web `middleTruncate`. On a phone a trailing ellipsis eats
- * the only part of a path that identifies the file, so the DIRECTORY gives way
- * instead and both of its ends stay readable.
- */
-fun middleTruncatePath(value: String, max: Int): String {
-    if (max <= 0 || max < 3) return value
-    if (value.length <= max) return value
-    val keep = max - 1
-    val head = keep / 2
-    val tail = keep - head
-    return value.take(head) + "…" + value.takeLast(tail)
-}
-
-/** How much directory a phone card keeps (web `MOBILE_DIR_CHARS`). */
-private const val DIR_CHARS = 22
-
 private val PathFontSize = 12.sp
 private val CountFontSize = 11.sp
 
 /**
- * `apps/web/src/` dimmed, `file.kt` at full weight — ONE monospace run, so the
- * path never breaks into two competing labels.
+ * `apps/web/src/` dimmed, `file.kt` at full weight — ONE monospace run.
+ * EXP-698 + #EXP-1789: a trailing ellipsis eats the only part of a path that
+ * identifies the file, so the DIRECTORY gives way — cut in the middle to the
+ * width it gets (iOS `.truncationMode(.middle)`, web/desktop the genUI Text
+ * `truncate: "middle"` rule) — and the file name keeps its full width unless
+ * it alone outgrows the row. The Row measures the name first (unweighted),
+ * the directory takes what is left.
  */
 @Composable
-internal fun diffPathText(path: String, dirChars: Int = DIR_CHARS): AnnotatedString {
-    val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    return remember(path, dim, dirChars) {
-        val dir = diffPathDir(path)
-        buildAnnotatedString {
-            if (dir.isNotEmpty()) {
-                withStyle(SpanStyle(color = dim)) { append(middleTruncatePath(dir, dirChars)) }
-            }
-            append(diffPathBase(path))
+internal fun DiffPathLabel(path: String, failed: Boolean, modifier: Modifier = Modifier) {
+    val dir = remember(path) { diffPathDir(path) }
+    val base = remember(path) { diffPathBase(path) }
+    val dim = if (failed) {
+        DesignTokens.Semantic.Red.copy(alpha = TextEmphasis.Secondary)
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    }
+    Row(modifier.semantics(mergeDescendants = true) { contentDescription = path }) {
+        if (dir.isNotEmpty()) {
+            Text(
+                dir,
+                fontFamily = ExpMono,
+                fontSize = PathFontSize,
+                color = dim,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.MiddleEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
         }
+        Text(
+            base,
+            fontFamily = ExpMono,
+            fontSize = PathFontSize,
+            color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -239,15 +244,7 @@ fun DiffFileCard(
         ) {
             DiffStatusLetter(file.status, danger = failed)
             Spacer(Modifier.width(8.dp))
-            Text(
-                diffPathText(file.path),
-                fontFamily = ExpMono,
-                fontSize = PathFontSize,
-                color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            DiffPathLabel(file.path, failed = failed, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             when (state) {
                 // A patch landed: the counts, and a chevron that turns.

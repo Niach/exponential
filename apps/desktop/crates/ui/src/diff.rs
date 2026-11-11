@@ -1077,16 +1077,23 @@ fn file_header_row(
                 .flex_1()
                 .min_w_0()
                 .overflow_hidden()
+                // #EXP-1789: the DIRECTORY gives way, cut in the middle (the
+                // genUI Text `truncate: "middle"` rule); the file name keeps
+                // its full width unless it alone outgrows the row.
                 .child(
                     div()
                         .min_w_0()
-                        .truncate()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis_middle()
                         .text_color(muted)
                         .child(dir.clone()),
                 )
                 .child(
                     div()
                         .flex_shrink_0()
+                        .max_w_full()
+                        .truncate()
                         .text_color(theme.foreground)
                         .child(name.clone()),
                 ),

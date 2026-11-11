@@ -59,15 +59,13 @@ describe(`DiffPath`, () => {
     expect(screen.getByText(`example.ts`)).toBeTruthy()
   })
 
-  it(`middle-truncates the directory on a phone, never the filename`, () => {
-    const { container } = render(
-      <DiffPath
-        path="apps/web/src/components/deeply/nested/example.ts"
-        isMobile
-      />
-    )
-    expect(container.textContent).toContain(`…`)
-    expect(container.textContent?.endsWith(`example.ts`)).toBe(true)
+  it(`titles the full path and never cuts the filename (#EXP-1789)`, () => {
+    const path = `apps/web/src/components/deeply/nested/example.ts`
+    const { container } = render(<DiffPath path={path} />)
+    const root = container.querySelector(`[data-slot="diff-path"]`)
+    expect(root?.getAttribute(`title`)).toBe(path)
+    expect(container.textContent).toBe(path)
+    expect(screen.getByText(`example.ts`).className).toContain(`shrink-0`)
   })
 
   it(`a bare filename has no dimmed run at all`, () => {
