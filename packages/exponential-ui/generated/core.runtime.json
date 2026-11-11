@@ -378,7 +378,8 @@
     "selectTrigger": [
       "field",
       "row",
-      "pill"
+      "pill",
+      "button"
     ],
     "inputVariant": [
       "field",
@@ -1771,6 +1772,13 @@
         },
         "lines": {
           "type": "number"
+        },
+        "truncate": {
+          "type": "enum",
+          "values": [
+            "end",
+            "middle"
+          ]
         },
         "tone": {
           "type": "enum",

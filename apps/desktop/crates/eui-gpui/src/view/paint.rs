@@ -1278,7 +1278,10 @@ impl SurfaceView {
                 let cp = lcx.part_props("Select", "check", &[]);
                 let size = px_prop(&cp, "width").or_else(|| px_prop(&cp, "height")).unwrap_or(16.0) * lcx.scale;
                 let ink = lcx.part("Select", "check", &[]).color.unwrap_or(lcx.ink);
-                row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
+                // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+                if selected || lcx.str("checkSlot") != "chosen" {
+                    row = row.child(div().flex_none().size(px(size)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, size, ink))));
+                }
             }
             ("Table", Some("headerCell")) => {
                 let icon = lcx.str("sortIcon");

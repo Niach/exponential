@@ -180,6 +180,7 @@ mod agents;
 mod all_boards;
 mod api_keys;
 mod app_detail;
+mod app_mcp_twins;
 mod board_detail;
 mod box_fields;
 mod change_email;

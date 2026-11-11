@@ -267,7 +267,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-trigger[data-r-trigger-variant="pill"]{width:auto;max-width:100%;align-self:flex-start;justify-content:flex-start}
-.xui-Select-trigger[data-r-trigger-variant="pill"]>svg{opacity:1}
+.xui-Select-trigger[data-r-trigger-variant="pill"]>svg,.xui-Select-trigger[data-r-trigger-variant="button"]>svg{opacity:1}
 .xui-Select-item[data-mono]{font-family:var(--xui-font-mono)}
 .xui-Select-clear{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;margin:0;padding:0;border:0;background:transparent;cursor:pointer;color:var(--xui-color-mutedForeground)}
 .xui-Select-clear>svg{flex-shrink:0}
@@ -546,6 +546,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
 .xui-Select-content{gap:var(--xui-spacing-xs)}
 .xui-Select-listbox{max-height:256px}
+.xui-Select-content[data-r-trigger-variant="button"] :is(.xui-Select-listbox,[data-radix-select-viewport]){display:flex;flex-direction:column;gap:${LAYOUT_CONSTANTS.selectButtonItemGap}px}
 .xui-Select-empty{display:block}
 .xui-TimePicker-list{min-width:var(--radix-popover-trigger-width)}
 [data-xui-c="Toast"].xui-el{flex-direction:row;align-items:flex-start;width:min(360px,calc(100vw - 32px));pointer-events:auto}

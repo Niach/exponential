@@ -2,10 +2,10 @@
 // EXP-1324 `shimmer` → `data-xui-shimmer`), Markdown (`lines` truncation),
 // Icon.
 
-import { For, Show, type JSX } from "solid-js"
+import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { displayString } from "@exponential_app/eui"
-import { liveOf, propAttribute, textLinkSegments } from "@exponential_app/eui/web"
+import { liveOf, propAttribute, textLinkSegments, watchMiddleTruncate } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -19,7 +19,18 @@ const TEXT_LINK_STYLE = { color: `inherit`, "text-decoration": `underline` } as 
 export function TextNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const segments = () => (props.props.hostLinks === true ? textLinkSegments(ctx.host, displayString(props.props.text)) : null)
-  const lines = () => num(props.props.lines, 0)
+  // #EXP-1778 (React's): `truncate` keeps one line; `middle` shows start…end.
+  const truncate = () => (props.props.truncate === `middle` ? `middle` : props.props.truncate === `end` ? `end` : undefined)
+  const lines = () => (truncate() ? 1 : num(props.props.lines, 0))
+  const full = () => displayString(props.props.text)
+  const [el, setEl] = createSignal<HTMLSpanElement>()
+  const [middle, setMiddle] = createSignal<string | null>(null)
+  createEffect(() => {
+    const node = el()
+    const text = truncate() === `middle` && !segments() ? full() : null
+    if (text === null || !node) return setMiddle(null)
+    onCleanup(watchMiddleTruncate(node, text, setMiddle))
+  })
   const align = () => (props.props.align === `end` ? `end` : props.props.align === `center` ? `center` : props.props.align === `start` ? `start` : undefined)
   // `align` is a base-layer rule (`data-xui-align`), so a node style
   // `textAlign` (the node layer) wins over it.
@@ -28,6 +39,8 @@ export function TextNative(props: NativeProps): JSX.Element {
   return (
     <span
       {...props.rootProps}
+      ref={setEl}
+      data-truncate={truncate()}
       aria-live={live()}
       aria-atomic={live() && live() !== `off` ? true : undefined}
       data-xui-align={align()}
@@ -36,7 +49,7 @@ export function TextNative(props: NativeProps): JSX.Element {
       data-xui-shimmer={props.props.shimmer === true ? `` : undefined}
       style={mergeStyle(props.rootProps, lines() > 1 ? { WebkitLineClamp: lines() } : undefined)}
     >
-      <Show when={segments()} fallback={displayString(props.props.text)}>
+      <Show when={segments()} fallback={middle() ?? full()}>
         {(shown) => (
           <For each={shown()}>
             {(segment) =>

@@ -183,8 +183,9 @@ export function SelectNative(props: NativeProps): JSX.Element {
   )
 
   const row = () => str(props.props.triggerVariant) === `row`
-  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint.
-  const pill = () => str(props.props.triggerVariant) === `pill`
+  // #EXP-1765: a `pill` shows no label (it names the trigger) and no hint;
+  // #EXP-1778: nor does a `button` (the same parts, an outline button).
+  const pill = () => str(props.props.triggerVariant) === `pill` || str(props.props.triggerVariant) === `button`
   // A `description`: under a field trigger; in a row UNDER the label (the
   // `labels` column), the value and chevron in the trailing `control`.
   const description = () => str(props.props.description)

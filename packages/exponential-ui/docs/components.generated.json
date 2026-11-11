@@ -1057,6 +1057,14 @@
           "description": "Truncates to this many lines with an ellipsis."
         },
         {
+          "name": "truncate",
+          "type": "end | middle",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
+        {
           "name": "tone",
           "type": "neutral | primary | success | warning | danger | info",
           "required": false,
@@ -6463,12 +6471,12 @@
         },
         {
           "name": "triggerVariant",
-          "type": "field | row | pill",
+          "type": "field | row | pill | button",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
         },
         {
           "name": "triggerIcon",

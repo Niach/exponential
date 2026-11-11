@@ -436,6 +436,12 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
     match clamp {
         // One ellipsized line: 1 px of slack on the trailing side, so a line
         // the measurer fitted exactly (sub-pixel float noise) never ellipsizes.
+        // #EXP-1778: `truncate: middle` = gpui's own middle ellipsis over
+        // exactly the content box (the IDE's `text_ellipsis_middle`).
+        Some(1) if cx.str("truncate") == "middle" => {
+            let (x, y, w, h) = cx.inner();
+            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(SharedString::from(lines.join(" "))).into_any_element()
+        }
         Some(1) => {
             let (x, y, w, h) = cx.inner();
             let x = match a {

@@ -343,6 +343,9 @@
         "lines": {
           "description": "Truncates to this many lines with an ellipsis."
         },
+        "truncate": {
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
         "tone": {
           "description": "Colour tone instead of the default foreground."
         },
@@ -2292,7 +2295,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."
