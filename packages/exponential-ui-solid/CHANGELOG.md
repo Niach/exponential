@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `accessibility.selected` / `.expanded` (#EXP-1629), React's mapping; `a11y-states.test.tsx` replays the fixture.
 - Input / Textarea `style.color` colours the typed text (#EXP-1787), React's (the shared node sheet); `field-ink.test.tsx` replays `fieldInk`.
 - Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet, React's.
 - Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. Solid: the focus scope's mount and unmount auto-focus are prevented for it (`isFieldAnchorElement`).

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `accessibility.selected` / `.expanded` (#EXP-1629): `selected`, the expand / collapse actions (unchanged painter, the core now accepts the keys); `A11yStatesTest` replays the fixture.
 - Input / Textarea `style.color` (#EXP-1787): the typed text takes the field's ink (the core's authored colour); the caret stays the `field` recipe's (`fieldCaretInk`, a `row` at its 70%), the placeholder its part's (`InteractionTest.fieldInkColoursOnlyTheTypedText`).
 - Style key `fontVariantNumeric: tabular-nums`: the leaf's `ResolvedTextStyle` gets `fontFeatures = "tnum"` from `FfiTextStyle.fontVariantNumeric`, so the measurer and the leaves shape with it.
 - Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. Compose: its Popup is not `focusable` (`popupTakesFocus`), so the field keeps the window focus and the IME.
