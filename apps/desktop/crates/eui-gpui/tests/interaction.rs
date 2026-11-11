@@ -1669,11 +1669,34 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
         if !slots.is_empty() {
             composer["slots"] = c["slots"].clone();
         }
+        // #EXP-1762 `field`: an empty flat composer's height first (its row
+        // = the disc's), then the case's draft.
+        let empty_h = c.get("field").map(|_| {
+            let (view, _, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer.clone()]}), rtl);
+            view.update(vcx, |v, _| v.record_bounds(true));
+            draw(vcx);
+            view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
+        });
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
-        view.update(vcx, |v, _| v.record_bounds(true));
+        view.update(vcx, |v, cx| {
+            v.record_bounds(true);
+            for (path, value) in c.get("data").and_then(Value::as_object).into_iter().flatten() {
+                v.set_data(&format!("/{path}"), Some(value.clone()), cx).unwrap();
+            }
+        });
         draw(vcx);
         let bounds = |vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).map(|b| (f32::from(b.origin.x), f32::from(b.origin.y), f32::from(b.size.width), f32::from(b.size.height)));
         let cb = bounds(vcx, "c").unwrap_or_else(|| panic!("{name}: the composer painted"));
+        if let Some(empty_h) = empty_h {
+            // The row is the disc's while one line (paddingTop 8 + 20 < 36),
+            // taller once grown (8 + 3 × 20); the text's place in it is
+            // `flat_field_box` (view::paint's unit test).
+            if c["field"]["grown"] == true {
+                assert!(cb.3 > empty_h + 0.5, "{name}: the row grew ({} vs {empty_h})", cb.3);
+            } else {
+                assert!((cb.3 - empty_h).abs() < 0.5, "{name}: a one-line row is the disc's ({} vs {empty_h})", cb.3);
+            }
+        }
         let mut along: Vec<(f32, &str)> = Vec::new();
         for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
             let Some(b) = bounds(vcx, id) else {

@@ -65238,7 +65238,8 @@
               "lineHeight": 20,
               "fontFamily": "Geist",
               "color": "#0a0a0a",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 8
             }
           },
           "dark": {
@@ -65247,7 +65248,8 @@
               "lineHeight": 20,
               "fontFamily": "Geist",
               "color": "#fafafa",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 8
             }
           }
         },
@@ -65258,7 +65260,8 @@
               "lineHeight": 20,
               "fontFamily": "Inter",
               "color": "#0a0a0a",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 4.25
             }
           },
           "dark": {
@@ -65267,7 +65270,8 @@
               "lineHeight": 20,
               "fontFamily": "Inter",
               "color": "#fafafa",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 4.25
             }
           }
         },
@@ -65278,7 +65282,8 @@
               "lineHeight": 20,
               "fontFamily": "Nunito",
               "color": "#1f1235",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 8
             }
           },
           "dark": {
@@ -65287,7 +65292,8 @@
               "lineHeight": 20,
               "fontFamily": "Nunito",
               "color": "#f5f3ff",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 8
             }
           }
         },
@@ -65298,7 +65304,8 @@
               "lineHeight": 20,
               "fontFamily": "Inter",
               "color": "#0a0a0a",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 4.25
             }
           },
           "dark": {
@@ -65307,7 +65314,8 @@
               "lineHeight": 20,
               "fontFamily": "Inter",
               "color": "#fafafa",
-              "minHeight": 0
+              "minHeight": 0,
+              "paddingTop": 4.25
             }
           }
         }

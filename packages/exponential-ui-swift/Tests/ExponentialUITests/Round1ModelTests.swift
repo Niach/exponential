@@ -892,7 +892,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 10)
+        XCTAssertEqual(cases.count, 12)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"
@@ -929,6 +929,26 @@ final class Round1ModelTests: XCTestCase {
             for step in c["steps"]?.array ?? [] { m.press(id: step["press"]?.string ?? "") }
             let want = c["events"]?.array ?? []
             XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): events")
+        }
+    }
+
+    /// #EXP-1762 composerSlots `field`: a flat Composer's text starts the
+    /// field recipe's paddingTop below the row's top, one line (the disc's
+    /// row) or grown, the text view reaching the row's bottom (neutral:
+    /// paddingTop `$spacing.sm` 8, line 20, disc 36; the core replays the
+    /// recipe values).
+    func testAFlatComposerSetsItsTextAtTheFieldTopPadding() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
+        let cases = (f["cases"]?.array ?? []).filter { $0["field"] != nil }
+        XCTAssertEqual(cases.count, 2)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let rows = try CGFloat(XCTUnwrap(c["field"]?["rows"]?.number))
+            let row: CGFloat = max(36, 8 + rows * 20)
+            XCTAssertEqual(row > 36.5, c["field"]?["grown"]?.bool == true, "\(name): grown")
+            let box = ComposerLeaf.flatField(row: row, padTop: 8)
+            XCTAssertEqual(box.y, 8, accuracy: 0.001, "\(name): the text at the field's paddingTop")
+            XCTAssertEqual(box.y + box.height, row, accuracy: 0.001, "\(name): the field reaches the row's bottom")
         }
     }
 

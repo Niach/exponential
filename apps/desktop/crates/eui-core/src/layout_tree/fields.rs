@@ -464,15 +464,19 @@ impl Builder<'_, '_> {
             return;
         }
         let needle = query.to_lowercase();
-        let mut shown_any = false;
-        for (i, option) in options.iter().enumerate() {
+        // The SHOWN options (the search keeps those whose label holds it).
+        let shown: Vec<(usize, &Value)> = options.iter().enumerate().filter(|(_, o)| needle.is_empty() || o.get("label").map(js).unwrap_or_default().to_lowercase().contains(&needle)).collect();
+        let picked: Vec<bool> = shown.iter().map(|(_, o)| chosen.contains(&o.get("value").map(js).unwrap_or_default())).collect();
+        let shown_any = !shown.is_empty();
+        for (position, &(i, option)) in shown.iter().enumerate() {
             let label = option.get("label").map(js).unwrap_or_default();
-            if !needle.is_empty() && !label.to_lowercase().contains(&needle) {
-                continue;
-            }
-            shown_any = true;
             let v = option.get("value").map(js).unwrap_or_default();
-            let selected = chosen.contains(&v);
+            let selected = picked[position];
+            // A `multiple` run of adjacent picked SHOWN rows is ONE block
+            // (web's Picker, the IDE's `multi_row_edges`): a picked row
+            // `joinTop` under a picked row, `joinBottom` over one.
+            let join_top = multiple && selected && position > 0 && picked[position - 1];
+            let join_bottom = multiple && selected && picked.get(position + 1).copied().unwrap_or(false);
             let disabled = option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
             // #EXP-1629: an option's `trailing` reads on after its label in
             // the item's own style (the IDE branch picker's `main · default`);
@@ -532,6 +536,12 @@ impl Builder<'_, '_> {
                 self.part_in(list, &owner, "item", "Text", NodeKind::Leaf, style, props, &suffix)
             };
             self.nodes[item as usize].pressable = !disabled;
+            if join_top {
+                self.query_prop(item, "joinTop", Value::Bool(true));
+            }
+            if join_bottom {
+                self.query_prop(item, "joinBottom", Value::Bool(true));
+            }
             if selected {
                 self.add_state(item, "selected");
             }

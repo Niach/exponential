@@ -1015,6 +1015,16 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   ColorPicker: [
     { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 180 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
   ],
+  // #EXP-1629: a status picker's rows: each glyph in its own tint
+  // (`iconColor`), the chosen one checked.
+  Menu: [
+    { label: `items · icon + iconColor`, node: { id: `status_menu`, component: `Menu`, props: { align: `end`, items: [
+      { label: `Backlog`, value: `backlog`, kind: `checkbox`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+      { label: `In Progress`, value: `in_progress`, kind: `checkbox`, icon: `status-in-progress`, iconColor: `$color.warning`, checked: true },
+      { label: `Done`, value: `done`, kind: `checkbox`, icon: `status-done`, iconColor: `$color.success` },
+      { label: `Cancelled`, value: `cancelled`, kind: `checkbox`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+    ] }, children: [{ id: `status_trigger`, component: `Button`, props: { label: `In Progress`, icon: `status-in-progress`, variant: `outline` } }] } },
+  ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.
@@ -1143,6 +1153,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       component: `Group`,
       children: [
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: the IDE's skills multi picker: two adjacent picks of three,
+    // one bordered block in the open popup (`joinTop` / `joinBottom`).
+    label: `multiple · searchable · row + option icon, description`,
+    node: {
+      id: `agent_skills`,
+      component: `Group`,
+      children: [
+        { id: `skills`, component: `Select`, props: { label: `Skills`, name: `skills`, triggerVariant: `row`, multiple: true, searchable: true, value: `deploy,review`, options: [{ label: `deploy`, value: `deploy`, icon: `ui-docs`, description: `Ship a build to staging` }, { label: `review`, value: `review`, icon: `ui-docs`, description: `Review the open pull request` }, { label: `triage`, value: `triage`, icon: `ui-docs`, description: `Sort the inbox by priority` }] } },
       ],
     },
   }],

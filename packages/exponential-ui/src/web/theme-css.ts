@@ -45,6 +45,15 @@ export function tokenVar(ref: string): string | null {
   return name ? `var(${name})` : null
 }
 
+/** #EXP-1629: a colour-typed prop (a menu item's `iconColor`) as CSS: a
+ *  `$color.<name>` token → its variable, the host's resolved `#hex` (bound
+ *  data) as is, anything else `undefined`. */
+export function propColor(value: unknown): string | undefined {
+  if (typeof value !== `string`) return undefined
+  if (value.startsWith(`$`)) return tokenVar(value) ?? undefined
+  return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : undefined
+}
+
 /** One style value → its CSS text; `null` = nothing to emit. */
 export function cssValue(key: string, value: unknown, fonts: Record<string, FontSpec> = {}): string | null {
   if (value === undefined || value === null || typeof value === `boolean`) return null
