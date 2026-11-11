@@ -149,3 +149,53 @@ export function crossSessionInput(text: string): CrossSessionInput | null {
     body: match[5]!,
   }
 }
+
+// #EXP-1772: only real messages are bubbles. A system input (a schedule or
+// event firing, a PR or session status line) is THE inline marker, drawn
+// only above the agent's reply to it.
+
+export type FeedMarkerKey = keyof typeof fixture.copy.markers
+
+export type FeedInput =
+  | { kind: `marker`; key: FeedMarkerKey; label: string }
+  | { kind: `relay`; name: string; sessionId: string; body: string; report: boolean }
+
+const MARKERS = fixture.copy.markers as Record<string, string>
+const TAG_PATTERN = /^\[([a-z_]+)\] /
+const SCHEDULE_PATTERN = /^Schedule `[^`\n]+`[^\n]* fired/
+const EVENT_PATTERN = /^Event `[^`\n]+` \(from /
+
+function marker(key: FeedMarkerKey): FeedInput {
+  return { kind: `marker`, key, label: MARKERS[key]! }
+}
+
+/** A feed input: the device's tagged system line = a marker, another
+ *  session's input = a relay, else null (a person's prompt). */
+export function feedInput(text: string): FeedInput | null {
+  const tag = TAG_PATTERN.exec(text)
+  if (tag && Object.hasOwn(MARKERS, tag[1]!)) return marker(tag[1] as FeedMarkerKey)
+  if (SCHEDULE_PATTERN.test(text)) return marker(`schedule`)
+  if (EVENT_PATTERN.test(text)) return marker(`event`)
+  const cross = crossSessionInput(text)
+  if (!cross) return null
+  return { kind: `relay`, name: cross.name, sessionId: cross.sessionId, body: cross.body, report: cross.kind === `report` }
+}
+
+export type FeedRowKind = `marker` | `input` | `reply` | `other`
+
+/** Per row: is it drawn? A marker only when a reply follows it before the
+ *  next input or marker; every other row always. */
+export function markersShown(kinds: readonly FeedRowKind[]): boolean[] {
+  const shown = kinds.map(() => true)
+  let pending: number | null = null
+  kinds.forEach((kind, index) => {
+    if (kind === `marker` || kind === `input`) {
+      if (pending !== null) shown[pending] = false
+      pending = kind === `marker` ? index : null
+    } else if (kind === `reply`) {
+      pending = null
+    }
+  })
+  if (pending !== null) shown[pending] = false
+  return shown
+}

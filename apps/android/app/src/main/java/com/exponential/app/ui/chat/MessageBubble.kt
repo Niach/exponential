@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -151,6 +153,100 @@ fun MessageBubble(
  *  cross-session sender's ends with ` ›`. */
 fun TranscriptGrouping.RowLayout?.authorLine(): String? =
     this?.takeIf { it.name }?.sender?.label
+
+/** #EXP-1772: a relay = a row whose sender is another session (it links). */
+fun TranscriptGrouping.RowLayout?.isRelay(): Boolean =
+    this?.side == TranscriptGrouping.Side.Other && this.sender?.link != null
+
+/**
+ * #EXP-1772 (transcript-grouping.json RELAYS): another session's bubble.
+ * Its name line ([author], `<name> ›`; the group's first relay bubble only)
+ * sits ABOVE the bubble, outside it, in the in-bubble name line's style;
+ * ONLY that line is the press ([onOpen]: the session on the back stack).
+ * The bubble itself is never a link and never folds.
+ */
+@Composable
+fun RelayBubble(
+    author: String?,
+    time: String?,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    queued: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (!author.isNullOrEmpty()) {
+            Text(
+                author,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = TranscriptGrouping.Layout.NAME_SIZE.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(bottom = 2.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .then(if (onOpen != null) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier)
+                    .padding(horizontal = 2.dp)
+                    .testTag("message-relay-author"),
+            )
+        }
+        MessageBubble(own = false, time = time, queued = queued, content = content)
+    }
+}
+
+/**
+ * THE inline marker ×4 (the feed's `Context compacted` row): a centred
+ * muted label, full width, never grouped. #EXP-1772: a system input (a
+ * schedule or event firing, a PR or session status line), an `event` row
+ * and a system message draw as it; [onClick] = a line about another session
+ * (#EXP-1464: the trailing chevron, it opens that session).
+ */
+@Composable
+fun FeedMarkerRow(
+    label: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    onClick: (() -> Unit)? = null,
+    testTag: String = "feed-marker",
+) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            )
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        // #EXP-1772: THE marker ×4, a centred label between two hairlines.
+        val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        Box(Modifier.weight(1f).height(1.dp).background(hairline))
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(12.dp), tint = muted)
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = DesignTokens.Transcript.ToolSize.sp,
+                lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
+            ),
+            color = muted,
+            // One line like web: the hairlines take the rest of the row.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(Modifier.weight(1f).height(1.dp).background(hairline))
+    }
+}
 
 /**
  * THE Avatar of a sender at its default size (`layout.avatar`): a member's

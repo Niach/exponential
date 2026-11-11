@@ -21,9 +21,9 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
-import { CloseOnSubmitContext } from "../form"
+import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
@@ -390,6 +390,12 @@ export function PopoverNative(props: NativeProps): JSX.Element {
       loop: true,
       onMountAutoFocus: (e) => {
         if (untrack(hoverMode)) e.preventDefault()
+        // #EXP-1760: a picker opens with the focus on its panel (Tab walks
+        // the grid), not a focus ring on its first cell.
+        else if (isPickerPopover(props.node.recipe)) {
+          e.preventDefault()
+          contentEl?.focus()
+        }
       },
       onUnmountAutoFocus: (e) => {
         if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode)) anchor()?.focus()
@@ -421,14 +427,22 @@ export function PopoverNative(props: NativeProps): JSX.Element {
               {/* The nearest overlay decides: a Form in a Popover closes nothing,
                   not even a Dialog around the Popover. */}
               <CloseOnSubmitContext.Provider value={null}>
-                <LayerContext.Provider value={layer.layer}>{props.children}</LayerContext.Provider>
+                {/* #EXP-1760: a pick in an IconPicker / ColorPicker grid closes it. */}
+                <ClosePickerContext.Provider value={isPickerPopover(props.node.recipe) ? () => setOpen(false) : null}>
+                  <LayerContext.Provider value={layer.layer}>{props.children}</LayerContext.Provider>
+                </ClosePickerContext.Provider>
               </CloseOnSubmitContext.Provider>
             </div>
           ) as HTMLDivElement
           contentEl = el
           presence.ref(el)
           popper.setContent(el)
-          bindStyle(el, () => popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned()))
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, the popper's anchor-width variable (re-measured on a resize).
+          bindStyle(el, () => {
+            const width = popoverPanelWidth(props.props, `--radix-popover-trigger-width`)
+            return popperContentStyle(`popover`, `trigger`, layer.pointerEvents(registered()), popper.isPositioned(), width ? { width } : {})
+          })
           onMount(() => {
             layer.attach(el)
             setRegistered(true)
@@ -675,6 +689,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -729,9 +745,9 @@ function MenuLabel(props: EntryProps): JSX.Element {
   return <div {...props.root.part(`label`)}>{str(props.item.label)}</div>
 }
 
-function ItemIcon(props: { name?: string }): JSX.Element {
+function ItemIcon(props: { name?: string; color?: string }): JSX.Element {
   const ctx = useSurfaceContext()
-  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} />}</Show>
+  return <Show when={props.name}>{(name) => <IconGlyph icons={ctx.host.icons} name={name()} style={propColor(props.color) ? { color: propColor(props.color) } : undefined} />}</Show>
 }
 function Shortcut(props: { text?: string; part: PartFn }): JSX.Element {
   return <Show when={props.text}>{(t) => <span {...props.part(`shortcut`)}>{t()}</span>}</Show>
@@ -756,7 +772,7 @@ function MenuPlainItem(props: EntryProps): JSX.Element {
       onFocus={row.handlers.onFocus}
       onBlur={row.handlers.onBlur}
     >
-      <ItemIcon name={props.item.icon} />
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
       <Shortcut text={props.item.shortcut} part={props.root.part} />
     </div>
@@ -798,6 +814,7 @@ function MenuCheckbox(props: EntryProps): JSX.Element {
           </span>
         </Show>
       </span>
+      <ItemIcon name={props.item.icon} color={props.item.iconColor} />
       <span class="xui-menu-label">{str(props.item.label)}</span>
       <Shortcut text={props.item.shortcut} part={props.root.part} />
     </div>
@@ -895,7 +912,7 @@ function MenuSub(props: EntryProps): JSX.Element {
         onFocus={row.handlers.onFocus}
         onBlur={row.handlers.onBlur}
       >
-        <ItemIcon name={props.item.icon} />
+        <ItemIcon name={props.item.icon} color={props.item.iconColor} />
         <span class="xui-menu-label">{str(props.item.label)}</span>
         <span {...props.root.part(`submenuIndicator`)}>
           <BuiltinIcon slot="Menu.submenuIndicator" />

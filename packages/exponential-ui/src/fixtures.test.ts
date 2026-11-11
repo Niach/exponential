@@ -79,8 +79,9 @@ describe(`catalog-macros.json`, () => {
       expect(new Set(ids).size, c.name).toBe(ids.length)
       expect(expanded.id).toBe(c.input.id)
       expect(expanded.recipe?.macro, c.name).toBe(c.input.component)
-      // #VAPP-284: a foldable Row (children) takes its `group` alternative root.
-      expect(expanded.recipe?.part).toBe(c.name.startsWith(`Row/fold:`) ? `group` : `root`)
+      // #VAPP-284: a foldable Row (children) takes its `group` alternative root;
+      // an inline ColorPicker its `grid`.
+      expect(expanded.recipe?.part).toBe(c.name.startsWith(`Row/fold:`) ? `group` : c.name === `ColorPicker/inline=true` ? `grid` : `root`)
     }
   })
 
@@ -166,7 +167,10 @@ describe(`kitchen-sink.json`, () => {
     // #EXP-1629: KeyRecorder (Kbd caps in Boxes, natives the sink has) joins
     // with that rewrite too; catalog-macros.json + template-items.json lock it.
     // #EDE-65: Embed paints a nested surface; embed.json locks it.
-    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`]
+    // #EXP-1760: IconPicker and ColorPicker (a Popover over Button, Box and
+    // Icon, natives the sink has) join with that rewrite; catalog-macros.json
+    // locks them.
+    const later = [`Calendar`, `Timeline`, `KeyRecorder`, `Embed`, `IconPicker`, `ColorPicker`]
     // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
     // `host`) paints only once filled; its catalog specimen shows it (the
     // styleguide entries) and it expands into natives the sink already has.

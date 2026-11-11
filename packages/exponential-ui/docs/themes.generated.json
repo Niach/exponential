@@ -969,6 +969,28 @@
             "dark": "#ffffff0e"
           }
         }
+      },
+      {
+        "name": "strokeActive",
+        "ref": "$color.strokeActive",
+        "values": {
+          "neutral": {
+            "light": "#a1a1a1",
+            "dark": "#737373"
+          },
+          "exponential": {
+            "light": "#a1a1a1",
+            "dark": "#ffffff29"
+          },
+          "playful": {
+            "light": "#a78bfa",
+            "dark": "#a78bfa"
+          },
+          "orange": {
+            "light": "#a1a1a1",
+            "dark": "#ffffff29"
+          }
+        }
       }
     ],
     "spacing": [
@@ -2205,6 +2227,176 @@
             ]
           }
         }
+      },
+      {
+        "name": "popoverRing",
+        "ref": "$shadow.popoverRing",
+        "values": {
+          "neutral": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "exponential": {
+            "light": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ]
+          },
+          "playful": {
+            "light": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "orange": {
+            "light": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
+            ]
+          }
+        }
       }
     ],
     "opacity": [
@@ -2599,7 +2791,10 @@
     "backgroundClip",
     "paddingTop",
     "paddingBottom",
-    "textAlign"
+    "textAlign",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius"
   ],
   "components": [
     {
@@ -3815,13 +4010,20 @@
         "labels",
         "control",
         "button",
-        "searchIcon"
+        "valueIcon",
+        "searchIcon",
+        "itemIcon",
+        "itemText",
+        "itemLabel",
+        "itemDescription"
       ],
       "props": [
         "multiple",
         "searchable",
         "disabled",
-        "triggerVariant"
+        "triggerVariant",
+        "joinTop",
+        "joinBottom"
       ]
     },
     {
@@ -3878,6 +4080,45 @@
       ],
       "props": [
         "recording"
+      ]
+    },
+    {
+      "name": "IconPicker",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "none",
+        "noneLabel",
+        "scroll",
+        "grid",
+        "cell",
+        "glyph",
+        "trigger",
+        "pick",
+        "placeholder",
+        "content"
+      ],
+      "props": [
+        "allowNone",
+        "selected",
+        "empty"
+      ]
+    },
+    {
+      "name": "ColorPicker",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "grid",
+        "swatch",
+        "fill",
+        "trigger",
+        "dot",
+        "customTrigger",
+        "content"
+      ],
+      "props": [
+        "selected"
       ]
     },
     {
@@ -3980,7 +4221,8 @@
       ],
       "props": [
         "attachments",
-        "busy"
+        "busy",
+        "layout"
       ]
     },
     {

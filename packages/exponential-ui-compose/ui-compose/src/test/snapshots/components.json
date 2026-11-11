@@ -9880,6 +9880,439 @@
       }
     ]
   },
+  "ColorPicker\/child" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "color_picker.customTrigger",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          -8,
+          2,
+          40,
+          20
+        ],
+        "id" : "color_picker_child"
+      }
+    ]
+  },
+  "ColorPicker\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/inline=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/inline=true" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          232,
+          28
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.0",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ef4444",
+        "component" : "Box",
+        "frame" : [
+          4,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.0.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          34,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.1",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#22c55e",
+        "component" : "Box",
+        "frame" : [
+          38,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.1.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          68,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.2",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          72,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.2.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          102,
+          0,
+          28,
+          28
+        ],
+        "id" : "color_picker.swatch.3",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a855f7",
+        "component" : "Box",
+        "frame" : [
+          106,
+          4,
+          20,
+          20
+        ],
+        "id" : "color_picker.swatch.3.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/open=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      }
+    ]
+  },
+  "ColorPicker\/open=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "color_picker"
+      },
+      {
+        "bg" : "#ffffff12",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "color_picker.trigger",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "color_picker.trigger.dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#252525",
+        "component" : "Box",
+        "frame" : [
+          8,
+          36,
+          294,
+          56
+        ],
+        "id" : "color_picker.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          50,
+          266,
+          28
+        ],
+        "id" : "color_picker.grid"
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          22,
+          50,
+          28,
+          28
+        ],
+        "id" : "color_picker.grid.swatch.0",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ef4444",
+        "component" : "Box",
+        "frame" : [
+          26,
+          54,
+          20,
+          20
+        ],
+        "id" : "color_picker.grid.swatch.0.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          56,
+          50,
+          28,
+          28
+        ],
+        "id" : "color_picker.grid.swatch.1",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#22c55e",
+        "component" : "Box",
+        "frame" : [
+          60,
+          54,
+          20,
+          20
+        ],
+        "id" : "color_picker.grid.swatch.1.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          90,
+          50,
+          28,
+          28
+        ],
+        "id" : "color_picker.grid.swatch.2",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          94,
+          54,
+          20,
+          20
+        ],
+        "id" : "color_picker.grid.swatch.2.fill",
+        "radius" : 9999
+      },
+      {
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          124,
+          50,
+          28,
+          28
+        ],
+        "id" : "color_picker.grid.swatch.3",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a855f7",
+        "component" : "Box",
+        "frame" : [
+          128,
+          54,
+          20,
+          20
+        ],
+        "id" : "color_picker.grid.swatch.3.fill",
+        "radius" : 9999
+      }
+    ]
+  },
   "Composer\/attachments=false" : {
     "height" : 72,
     "nodes" : [
@@ -9953,6 +10386,42 @@
     ]
   },
   "Composer\/example" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/layout=flat" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/layout=stacked" : {
     "height" : 72,
     "nodes" : [
       {
@@ -14071,6 +14540,323 @@
           20
         ],
         "id" : "icon"
+      }
+    ]
+  },
+  "IconPicker\/allowNone=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/allowNone=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/open=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      }
+    ]
+  },
+  "IconPicker\/open=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "icon_picker"
+      },
+      {
+        "bg" : "#ffffff08",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "icon_picker.trigger",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          9,
+          14,
+          14
+        ],
+        "id" : "icon_picker.trigger.pick"
+      },
+      {
+        "bg" : "#252525",
+        "component" : "Box",
+        "frame" : [
+          8,
+          36,
+          281,
+          42
+        ],
+        "id" : "icon_picker.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          267,
+          28
+        ],
+        "id" : "icon_picker.scroll"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          267,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          15,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.0",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22.88,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.0.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          48.25,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.1",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          56.13,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.1.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          81.5,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.2",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          89.38,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.2.glyph"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          114.75,
+          43,
+          28,
+          28
+        ],
+        "id" : "icon_picker.scroll.grid.cell.3",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          122.63,
+          50.88,
+          12.25,
+          12.25
+        ],
+        "id" : "icon_picker.scroll.grid.cell.3.glyph"
       }
     ]
   },
@@ -19193,6 +19979,36 @@
     ]
   },
   "Popover\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/matchAnchorWidth=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/matchAnchorWidth=true" : {
     "height" : 0,
     "nodes" : [
       {
@@ -25792,7 +26608,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          78.5,
+          78,
           12,
           12
         ],
@@ -25805,7 +26621,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          80.5,
+          80,
           56,
           8
         ],
@@ -25818,7 +26634,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          80.5,
+          80,
           120,
           8
         ],
@@ -25842,7 +26658,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          110.5,
+          110,
           12,
           12
         ],
@@ -25855,7 +26671,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          112.5,
+          112,
           56,
           8
         ],
@@ -25868,7 +26684,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          112.5,
+          112,
           192,
           8
         ],
@@ -30744,6 +31560,86 @@
     ]
   },
   "Select\/searchable=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerIcon=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/triggerIcon=true" : {
     "height" : 60,
     "nodes" : [
       {

@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
     Render, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
@@ -47,11 +47,6 @@ use crate::sidebar::{rail_shared_for_window, ListPanel, RailShared};
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
-
-/// Per-tab hover group (EXP-65): reveals the undock button. Reused per tab —
-/// gpui resolves `group_hover` against the innermost enclosing group (the
-/// same idiom as the issue list's `ROW_GROUP`).
-pub(crate) const TAB_GROUP: &str = "center-tab";
 
 /// EXP-277: per-window handle to the center [`ScreensPanel`] so the titlebar
 /// ([`crate::app_title_bar::AppTitleBar`]) can host the tab strip. Mirrors
@@ -129,12 +124,6 @@ pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
-/// EXP-1294 — the strip's "+": Home, the composer every new chat starts
-/// from (the New session tab and its duplicate-tab hand-off are gone).
-pub(crate) fn open_home(window: &mut Window, cx: &mut App) {
-    crate::navigation::navigate_to_chat(window, cx, crate::navigation::ChatSeed::default());
-}
-
 /// EXP-1316 (1b): the CHAT root a session opens inside (its tree's root
 /// when that root is a chat); `None` = its own session screen (an agent
 /// channel's session, or a row not synced yet).
@@ -206,7 +195,7 @@ pub(crate) fn build_screen_content(
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiSpecimen { .. }
-        | Screen::StyleguideEntry { .. } => {
+        | Screen::Specimen { .. } => {
             cx.new(|_| NeverUndocked).into()
         }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -357,32 +346,6 @@ fn opens_no_tab(
         }
 }
 
-/// EXP-1294 — the strip's "+": a ghost icon button after the last chip (and
-/// after "+N") that opens Home ([`open_home`]).
-pub(crate) fn home_button(id: impl Into<gpui::ElementId>) -> Button {
-    Button::new(id)
-        .ghost()
-        .cursor_pointer()
-        .web_icon_xs()
-        .icon(registry::UI_ADD)
-        .tooltip("New session")
-        .on_click(|_: &ClickEvent, window, cx| {
-            cx.stop_propagation();
-            open_home(window, cx);
-        })
-}
-
-/// EXP-1255 — a chip's ×, shown on HOVER only, on every chip including the
-/// active one (Cmd+W and the middle-click still close). `invisible` keeps
-/// its slot, so the measured width never jumps. `close` is the bare button
-/// with its click wired; the chip must be in the [`TAB_GROUP`] group.
-pub(crate) fn hover_close(close: Button) -> gpui::Div {
-    div()
-        .invisible()
-        .group_hover(TAB_GROUP, |style| style.visible())
-        .child(close.ghost().web_icon_xs().icon(registry::UI_CLOSE))
-}
-
 /// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
 /// leaving team's non-terminal tabs are PARKED under its id, the arriving
 /// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
@@ -520,8 +483,8 @@ enum ChipLead {
 }
 
 impl ChipLead {
-    /// The GLYPH lead, when the chip has one. A [`ChipLead::Dot`] is painted
-    /// by `surface::rich_tab` itself and has no icon.
+    /// The GLYPH lead, when the chip has one. A [`ChipLead::Dot`] has no
+    /// icon.
     fn icon(&self, cx: &App) -> Option<gpui_component::Icon> {
         match self {
             ChipLead::None | ChipLead::Dot(_) => None,
@@ -1421,7 +1384,7 @@ impl ScreensPanel {
             | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
-            | Screen::StyleguideEntry { .. }
+            | Screen::Specimen { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -2710,10 +2673,10 @@ impl Render for ScreensPanel {
                 }
                 self.exponential_ui_specimen.clone().expect("built above").into_any_element()
             }
-            // EXP-1259: one IDE styleguide entry, full-window (dev-only).
-            Some(Screen::StyleguideEntry { id }) => match crate::styleguide::entries::find(id) {
+            // EXP-1259: one specimen, full-window (dev-only).
+            Some(Screen::Specimen { id }) => match crate::specimens::entries::find(id) {
                 Some(entry) => div()
-                    .id("styleguide-entry")
+                    .id("specimen")
                     .size_full()
                     .overflow_y_scroll()
                     .p_6()
@@ -3139,6 +3102,7 @@ mod tests {
     /// those stretch-sized parents (the band, the machine and action rows)
     /// resolve fine and stay covered.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     async fn actions_shaped_center_spans_the_panel_at_every_width(
         cx: &mut gpui::TestAppContext,
     ) {

@@ -11,13 +11,13 @@ genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `e
 
 ## Rules
 
-- Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (no value removes it). Keep data in the model; bind to it.
-- A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item's naming field.
-- Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args} (live). visible: false (or a binding) hides it.
-- An action (on: {event: action}) = {event: {name, context?}} (sent to you; context may hold bindings, read after the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below or a namespaced host function like app.toast).
-- Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything past a screen); a control row = Toolbar, fields side by side = FieldGroup, the Cancel/submit row = FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.
-- Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.
-- Prefer catalog components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark apply). Built-in copy (Cancel, Search…) is localized: leave it unset.
+- Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (no value = remove). Keep data in the model; bind to it.
+- A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.
+- Include every required prop. A ~ prop takes a binding {path: "/json/pointer"} or a live call {call, args}. visible: false (or bound) hides.
+- An action (on: {event: action}) = {event: {name, context?}} (sent to you; context bindings read after the component's own write) and/or {functionCall: {call, args}} (client-side: a function below or a namespaced host one like app.toast).
+- Lay out with Page, Stack, Grid, Card, SplitView, Sidebar, List (past a screen); control row = Toolbar, side-by-side fields = FieldGroup, Cancel/submit row = FormActions; Box + style for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.
+- Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-/max-height, in px or $breakpoint.*; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.
+- Prefer components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token (light and dark apply), never #hex. Built-in copy (Cancel, Search…) is localized: leave it unset.
 - One default Button per screen (FormActions submit or main action); others outline, secondary or ghost.
 
 ## Components
@@ -33,7 +33,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave
 - data: Table, Chart, Sparkline, StatTile, Calendar, Timeline, RecordForm, RecordTable
 - action: Button, Link, Toggle
-- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
+- input: Form, FieldGroup, FormActions, SettingsRow, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, KeyRecorder, IconPicker, ColorPicker, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
 
 ## References (read on demand)
 

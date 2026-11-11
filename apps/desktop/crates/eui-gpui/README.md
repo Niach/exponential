@@ -260,6 +260,8 @@ request, with first baselines (`alignItems: baseline` aligns text):
   `unicode-linebreak`, tailored like the browsers: no break inside
   `domain.tld/path`). Min-content is the widest unbreakable segment (one
   ideograph in CJK), max-content the widest hard line, trailing spaces hang.
+  A word FITS by gpui's `LineWrapper` rule: the spaces after it count, with
+  no slack (#EXP-1773), so a genUI Text wraps where the IDE's own text does.
 - The painter draws the very lines the measurer counted (hard breaks,
   `white-space: nowrap`), so the reserved height IS the painted height.
   `lines: 1` truncates with an ellipsis, `lines: n` clamps with an ellipsis

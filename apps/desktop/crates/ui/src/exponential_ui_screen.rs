@@ -535,6 +535,7 @@ pub(crate) fn is_specimen_id(id: &str) -> bool {
 
 /// VAPP-162: the node `node_id` inside specimen `specimen_id`'s tree (one
 /// case of a specimen, e.g. the Segmented rail), cloned.
+#[cfg(test)]
 pub(crate) fn specimen_node(specimen_id: &str, node_id: &str) -> Option<Value> {
     fn find(v: &Value, id: &str) -> Option<Value> {
         if v.get("id").and_then(Value::as_str) == Some(id) {
@@ -546,46 +547,15 @@ pub(crate) fn specimen_node(specimen_id: &str, node_id: &str) -> Option<Value> {
     find(node, node_id)
 }
 
-/// VAPP-162: a styleguide twin's eUI surface: `tree` (a specimen or a case
-/// of one, from `fixtures/specimens.json`, so the twin cannot drift from
-/// the catalog) painted by THE gpui painter under the exponential theme in
-/// the app's mode, kept across frames under `key`.
-pub(crate) fn styleguide_surface(key: &'static str, tree: Value, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
-    styleguide_surface_in(key, tree, None, None, window, cx)
-}
-
-/// EXP-1604: [`styleguide_surface`] in a fixed `mode` (`None` = the app's)
-/// with initial `data` (an object: top-level keys → `/key`).
-pub(crate) fn styleguide_surface_in(key: &'static str, tree: Value, mode: Option<Mode>, data: Option<Value>, window: &mut Window, cx: &mut App) -> Entity<SurfaceView> {
-    let dark = gpui_component::ActiveTheme::theme(cx).is_dark();
-    window.use_keyed_state(key, cx, move |window, cx| {
-        let options = SurfaceViewOptions {
-            surface_id: key.to_string(),
-            theme: eui_core::themes::builtin_theme("exponential"),
-            mode: mode.unwrap_or(if dark { Mode::Dark } else { Mode::Light }),
-            host: Rc::new(SpecimenHost),
-            ..SurfaceViewOptions::default()
-        };
-        let mut view = SurfaceView::new(options, window, cx);
-        for (k, v) in data.as_ref().and_then(Value::as_object).into_iter().flatten() {
-            let _ = view.set_data(&format!("/{k}"), Some(v.clone()), cx);
-        }
-        match serde_json::from_value::<NestedNode>(tree) {
-            Ok(tree) => {
-                let outcome = view.set_nested(tree, cx);
-                for issue in &outcome.issues {
-                    log::warn!("[exponential-ui styleguide] {key}: {}: {}", issue.id, issue.message);
-                }
-            }
-            Err(err) => log::warn!("[exponential-ui styleguide] {key} does not parse: {err}"),
-        }
-        view
-    })
-}
-
 /// The specimen's host: icons by concept like the kitchen sink, actions only
 /// logged (a specimen is a still photograph).
 struct SpecimenHost;
+
+/// #EXP-1760: the specimen host for the picker bench (`picker_bench.rs`).
+#[cfg(test)]
+pub(crate) fn bench_specimen_host() -> impl HostPlugin {
+    SpecimenHost
+}
 
 impl HostPlugin for SpecimenHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
@@ -739,8 +709,8 @@ mod tests {
         // DockCard; then VAPP-126's layout macros; NEW-77's VoiceWave;
         // VAPP-162's MessageBubble, CallSurface, Plan, QrCode, QrScanner;
         // round 6's Outline and Mosaic; EXP-1586's ZoomableImage; EXP-1604's
-        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed.
-        assert_eq!(specimens().len(), 103);
+        // Motion; VAPP-232's Calendar and Timeline; VAPP-217's RecordForm and RecordTable; VAPP-280's SettingsRow; #VAPP-285's Tree; round 8's Canvas; VAPP-290's Window; #EXP-1629's KeyRecorder and KbdGroup) + the home demo. #EDE-65: + Embed. #EXP-1760: + IconPicker, ColorPicker.
+        assert_eq!(specimens().len(), 105);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());

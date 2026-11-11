@@ -325,34 +325,27 @@ pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
 
 /// EXP-1236 / NEW-59: the Computer use band's tail while the switch is on:
 /// the Computer use model row, then the Work screen row (`fixtures/
-/// work-screen.json`: the same picker row, directly under it). Shared with
-/// the styleguide twin.
-pub(crate) fn computer_use_rows(
-    model: &ChoiceSelect,
-    work_screen: &ChoiceSelect,
-    cx: &App,
-) -> Vec<gpui::AnyElement> {
-    let work_screen_row = surface::glass_picker_row(
-        SharedString::from(domain::work_screen::WORK_SCREEN.copy.row.clone()),
-        None,
-        surface::glass_picker_select(Select::new(work_screen), cx).into_any_element(),
-        cx,
-    );
+/// work-screen.json`: the same picker row, directly under it), as the
+/// readiness block's host rows (`settings::readiness::TAIL_SLOTS`). Shared
+/// with the styleguide twin.
+pub(crate) fn computer_use_rows(model: &ChoiceSelect, work_screen: &ChoiceSelect) -> Vec<device_readiness::TailRow> {
+    let (model, work_screen) = (model.clone(), work_screen.clone());
     vec![
-        surface::glass_picker_row(
-            "Computer use model",
-            None,
-            surface::glass_picker_select(Select::new(model), cx).into_any_element(),
-            cx,
-        )
-        .into_any_element(),
-        gpui::InteractiveElement::id(
-            gpui::div(),
-            SharedString::from(domain::work_screen::WORK_SCREEN.test_ids.row.clone()),
-        )
-        .w_full()
-        .child(work_screen_row)
-        .into_any_element(),
+        Rc::new(move |_window: &mut Window, cx: &mut App| {
+            surface::glass_picker_row("Computer use model", None, surface::glass_picker_select(Select::new(&model), cx).into_any_element(), cx).into_any_element()
+        }),
+        Rc::new(move |_window: &mut Window, cx: &mut App| {
+            let row = surface::glass_picker_row(
+                SharedString::from(domain::work_screen::WORK_SCREEN.copy.row.clone()),
+                None,
+                surface::glass_picker_select(Select::new(&work_screen), cx).into_any_element(),
+                cx,
+            );
+            gpui::InteractiveElement::id(gpui::div(), SharedString::from(domain::work_screen::WORK_SCREEN.test_ids.row.clone()))
+                .w_full()
+                .child(row)
+                .into_any_element()
+        }),
     ]
 }
 
@@ -454,6 +447,8 @@ pub struct DeviceSettingsView {
     update_busy: bool,
     /// A `devices.remove` in flight.
     remove_busy: bool,
+    /// #EXP-1770: this machine's readiness block (the shared document).
+    readiness: Entity<crate::settings::readiness::ReadinessBlock>,
     /// EXP-909: the remove landed — the row this dialog configures is gone,
     /// so the dialog closes on the next frame.
     removed: bool,
@@ -635,6 +630,7 @@ impl DeviceSettingsView {
             latest_requested: false,
             update_busy: false,
             remove_busy: false,
+            readiness: cx.new(|cx| crate::settings::readiness::ReadinessBlock::new("device-readiness", window, cx)),
             removed: false,
             settings_scroll: ScrollHandle::new(),
             max_height: px(CONTENT_H),
@@ -875,11 +871,11 @@ impl DeviceSettingsView {
     /// NEW-59 the Work screen picker row under it, drawn only while the
     /// switch is on. The selects' observers save a pick through the launch
     /// defaults, like the switch.
-    fn computer_use_rows(&self, cx: &App) -> Vec<gpui::AnyElement> {
+    fn computer_use_rows(&self) -> Vec<device_readiness::TailRow> {
         if !self.computer_use {
             return Vec::new();
         }
-        computer_use_rows(&self.computer_use_model_select, &self.work_screen_select, cx)
+        computer_use_rows(&self.computer_use_model_select, &self.work_screen_select)
     }
 
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>, cx: &mut App) {
@@ -1496,15 +1492,6 @@ impl DeviceSettingsView {
 
     // -- render pieces ---------------------------------------------------------
 
-    /// A finished command's success message, muted, under its row.
-    fn note_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
-        self.section_notes.get(key).map(|message| {
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(message.clone())
-        })
-    }
 
     /// EXP-694: one switch row of a grouped stack — the label leading, the
     /// `Switch` trailing, on the shared 16/12 row rhythm.
@@ -1809,12 +1796,14 @@ impl DeviceSettingsView {
 
     /// EXP-1196: the readiness block for this dialog's machine — `None`
     /// when there is none to draw (another machine on an older build, or
-    /// this one before its first doctor run lands).
+    /// this one before its first doctor run lands). #EXP-1770: the shared
+    /// readiness document.
     fn render_readiness(
         &mut self,
         row: Option<&domain::rows::DeviceRow>,
         cx: &mut gpui::Context<Self>,
-    ) -> Option<Div> {
+    ) -> Option<gpui::AnyElement> {
+        use crate::settings::readiness::Shape;
         let local = self.own;
         let doctor = if local {
             CodingHub::global(cx).read(cx).doctor.device.clone()?
@@ -1826,7 +1815,6 @@ impl DeviceSettingsView {
                 None => {
                     let view = cx.entity().downgrade();
                     let props = device_readiness::BlockProps {
-                        id: "device-readiness".into(),
                         on_toggle: Some(Rc::new(move |on, _window, cx| {
                             let _ = view.update(cx, |this, cx| {
                                 this.computer_use = on;
@@ -1834,18 +1822,19 @@ impl DeviceSettingsView {
                                 cx.notify();
                             });
                         })),
-                        computer_use_tail: self.computer_use_rows(cx),
+                        computer_use_tail: self.computer_use_rows(),
                         ..device_readiness::BlockProps::default()
                     };
                     let row = device_readiness::bare_switch_row(self.computer_use);
-                    return Some(device_readiness::render_single(&row, props, cx));
+                    self.readiness.update(cx, |block, cx| block.show(Shape::Single(&row), props, cx));
+                    return Some(self.readiness.clone().into_any_element());
                 }
             }
         };
         let view = cx.entity().downgrade();
         let toggle_view = view.clone();
         let mut props = if local {
-            device_readiness::local_props("device-readiness", cx)
+            device_readiness::local_props(cx)
         } else {
             let device_id = self.device_id.clone();
             let label: SharedString = row
@@ -1854,7 +1843,6 @@ impl DeviceSettingsView {
                 .unwrap_or_else(|| self.device_id.clone())
                 .into();
             device_readiness::BlockProps {
-                id: "device-readiness".into(),
                 on_action: Some(Rc::new(move |key, action, window, cx| match action {
                     // Tracked here so the outcome lands under the row.
                     DoctorAction::Update => {
@@ -1888,21 +1876,15 @@ impl DeviceSettingsView {
                 cx.notify();
             });
         }));
-        props.computer_use_tail = self.computer_use_rows(cx);
+        props.computer_use_tail = self.computer_use_rows();
         for agent in CodingAgent::ALL {
-            let key = format!("update {}", agent.id());
-            if let Some(line) = self.note_line(&key, cx) {
-                props.extras.insert(
-                    agent.id().to_string(),
-                    device_readiness::RowExtras {
-                        trailing: None,
-                        below: Some(line.into_any_element()),
-                    },
-                );
+            if let Some(message) = self.section_notes.get(&format!("update {}", agent.id())) {
+                props.notes.insert(agent.id().to_string(), message.to_string());
             }
         }
         let sections = device_readiness::sections(&doctor, local, Some(self.computer_use));
-        Some(device_readiness::render_sections(&sections, props, cx))
+        self.readiness.update(cx, |block, cx| block.show(Shape::Sections(&sections), props, cx));
+        Some(self.readiness.clone().into_any_element())
     }
 
     /// EXP-909: the Remove section — the row's old "Remove…" entry, confirm
@@ -2188,7 +2170,7 @@ mod tests {
         let seeded = super::remote_baseline(Some(&serde_json::json!({ "computerUseDisplayId": "uuid-c" })));
         assert_eq!(seeded.computer_use_display_id.as_deref(), Some("uuid-c"));
         assert_eq!(super::remote_baseline(Some(&serde_json::json!({}))).computer_use_display_id, None);
-        let displays = crate::styleguide::entries::work_screen::demo_displays();
+        let displays = crate::coding_selects::demo_displays();
         let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref());
         let values: Vec<&str> = items.iter().map(|item| item.value.as_ref()).collect();
         assert_eq!(values, ["auto", "id:uuid-a", "id:uuid-b", "id:uuid-c"]);

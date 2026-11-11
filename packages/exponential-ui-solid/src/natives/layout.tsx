@@ -3,10 +3,11 @@
 // (keyed by `template.key`), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { For, Show, createEffect, createMemo, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, onCleanup, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, isKeyRecorderField, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
+import { getPointer, isKeyRecorderField, isPickerPick, keyRecorderKeyPayload, keyRecorderMousePayload, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
+import { ClosePickerContext } from "../form"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, TemplateItemView, latest, mergeStyle, templateItems, type NativeProps } from "../node-view"
 import { css } from "../style"
@@ -25,6 +26,7 @@ export function BoxNative(props: NativeProps): JSX.Element {
   // live, the resolved `data-m-recording`) is on, takes every key and mouse
   // buttons 3-5 as `record`; a press only starts it; leaving it = `blur`.
   const recorder = () => isKeyRecorderField(props.node.recipe)
+  const closePicker = useContext(ClosePickerContext)
   const recording = () => recorder() && (props.rootProps as Record<string, unknown>)[`data-m-recording`] === `true`
   let field: HTMLDivElement | undefined
   createEffect(() => {
@@ -37,6 +39,7 @@ export function BoxNative(props: NativeProps): JSX.Element {
     if (recording()) return
     if (href()) ctx.openUrl(href())
     void props.emit(`press`)
+    if (isPickerPick(props.node.recipe)) closePicker?.()
   }
   const record = (e: KeyboardEvent) => {
     e.preventDefault()

@@ -33,6 +33,7 @@
         "link": "#2b59c8",
         "borderStrong": "#d4d4d4",
         "ghostHover": "#f5f5f5",
+        "strokeActive": "#a1a1a1",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -94,6 +95,29 @@
             "spread": -4,
             "color": "#0000001a"
           }
+        ],
+        "popoverRing": [
+          {
+            "x": 0,
+            "y": 0,
+            "blur": 0,
+            "spread": 1,
+            "color": "#0a0a0a1a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -1,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "blur": 4,
+            "spread": -2,
+            "color": "#0000001a"
+          }
         ]
       }
     },
@@ -125,6 +149,7 @@
         "link": "#5f8bea",
         "borderStrong": "#ffffff1f",
         "ghostHover": "#ffffff0e",
+        "strokeActive": "#ffffff29",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -184,6 +209,29 @@
             "y": 4,
             "blur": 6,
             "spread": -4,
+            "color": "#0000001a"
+          }
+        ],
+        "popoverRing": [
+          {
+            "x": 0,
+            "y": 0,
+            "blur": 0,
+            "spread": 1,
+            "color": "#fafafa1a"
+          },
+          {
+            "x": 0,
+            "y": 4,
+            "blur": 6,
+            "spread": -1,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "blur": 4,
+            "spread": -2,
             "color": "#0000001a"
           }
         ]
@@ -799,6 +847,15 @@
           "style": {
             "height": 32
           }
+        },
+        {
+          "when": {
+            "variant": "box",
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.strokeActive"
+          }
         }
       ],
       "label": [
@@ -1024,6 +1081,17 @@
           }
         }
       ],
+      "valueIcon": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 14,
+            "height": 14
+          }
+        }
+      ],
       "description": [
         {
           "when": {
@@ -1093,6 +1161,28 @@
           }
         }
       ],
+      "itemIcon": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "width": 14,
+            "height": 14
+          }
+        }
+      ],
+      "itemDescription": [
+        {
+          "when": {
+            "triggerVariant": "row"
+          },
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 16.99
+          }
+        }
+      ],
       "search": [
         {
           "style": {
@@ -1131,7 +1221,7 @@
       "item": [
         {
           "style": {
-            "height": "$control.row",
+            "minHeight": "$control.row",
             "borderRadius": "$radius.md"
           }
         },
@@ -1141,9 +1231,10 @@
           },
           "style": {
             "paddingHorizontal": 8,
+            "paddingVertical": 4.5,
             "gap": 7,
             "fontSize": 12.25,
-            "lineHeight": 17
+            "lineHeight": 19.82
           }
         },
         {
@@ -1183,7 +1274,8 @@
           "style": {
             "borderWidth": 1,
             "borderColor": "#00000000",
-            "paddingHorizontal": 7
+            "paddingHorizontal": 7,
+            "paddingVertical": 3.5
           }
         },
         {
@@ -1199,10 +1291,31 @@
         },
         {
           "when": {
+            "joinTop": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderTopWidth": 0,
+            "paddingTop": 5
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderBottomWidth": 0,
+            "paddingBottom": 5
+          }
+        },
+        {
+          "when": {
             "triggerVariant": "pill"
           },
           "style": {
             "height": 24,
+            "minHeight": 24,
             "paddingHorizontal": 7,
             "gap": 7,
             "fontSize": 10.5,
@@ -1290,6 +1403,104 @@
         }
       ]
     },
+    "IconPicker": {
+      "trigger": [
+        {
+          "style": {
+            "backgroundColor": "#ffffff08"
+          }
+        }
+      ],
+      "content": [
+        {
+          "style": {
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.popoverRing",
+            "borderWidth": 0,
+            "padding": 7,
+            "gap": 3.5
+          }
+        }
+      ],
+      "grid": [
+        {
+          "style": {
+            "gap": 5.25,
+            "width": 267,
+            "maxWidth": 267
+          }
+        }
+      ],
+      "glyph": [
+        {
+          "style": {
+            "width": 12.25,
+            "height": 12.25
+          }
+        }
+      ],
+      "pick": [
+        {
+          "style": {
+            "width": 14,
+            "height": 14
+          }
+        }
+      ],
+      "none": [
+        {
+          "style": {
+            "height": 17.5,
+            "paddingHorizontal": 3.5
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.ghostHover"
+          }
+        }
+      ],
+      "noneLabel": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 14,
+            "fontWeight": "$type.weight.regular"
+          }
+        }
+      ]
+    },
+    "ColorPicker": {
+      "trigger": [
+        {
+          "style": {
+            "backgroundColor": "#ffffff08"
+          }
+        },
+        {
+          "when": {
+            "state": "open"
+          },
+          "style": {
+            "backgroundColor": "#ffffff12"
+          }
+        }
+      ],
+      "content": [
+        {
+          "style": {
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.popoverRing",
+            "borderWidth": 0,
+            "padding": 14,
+            "gap": 3.5
+          }
+        }
+      ]
+    },
     "Avatar": {
       "image": [
         {
@@ -1317,6 +1528,16 @@
             "backgroundColor": "$color.card",
             "borderColor": "$color.border",
             "boxShadow": "$shadow.none"
+          }
+        }
+      ],
+      "field": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "paddingTop": 4.25
           }
         }
       ]

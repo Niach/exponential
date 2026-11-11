@@ -3534,13 +3534,14 @@
       "item": [
         {
           "style": {
-            "height": "$control.buttonSm",
             "paddingHorizontal": "$spacing.sm",
             "borderRadius": "$radius.sm",
             "fontSize": "$type.size.sm",
             "lineHeight": "$type.lineHeight.sm",
             "color": "$color.popoverForeground",
-            "gap": "$spacing.sm"
+            "gap": "$spacing.sm",
+            "minHeight": "$control.buttonSm",
+            "paddingVertical": "$spacing.xs"
           }
         },
         {
@@ -3559,6 +3560,24 @@
           "style": {
             "backgroundColor": "$color.accent",
             "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "joinTop": true
+          },
+          "style": {
+            "borderTopLeftRadius": 0,
+            "borderTopRightRadius": 0
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true
+          },
+          "style": {
+            "borderBottomLeftRadius": 0,
+            "borderBottomRightRadius": 0
           }
         },
         {
@@ -3651,6 +3670,14 @@
           }
         }
       ],
+      "valueIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
       "description": [
         {
           "style": {
@@ -3699,6 +3726,23 @@
           },
           "style": {
             "gap": "$spacing.md"
+          }
+        }
+      ],
+      "itemIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
+          }
+        }
+      ],
+      "itemDescription": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
           }
         }
       ]
@@ -3997,6 +4041,14 @@
           "style": {
             "borderColor": "$color.ring"
           }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "gap": "$spacing.xs"
+          }
         }
       ],
       "field": [
@@ -4007,6 +4059,15 @@
             "fontFamily": "$type.family.sans",
             "color": "$color.foreground",
             "minHeight": "$control.buttonMd"
+          }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "minHeight": 0,
+            "paddingTop": "$spacing.sm"
           }
         }
       ],
@@ -6836,6 +6897,89 @@
             "fontSize": "$type.size.sm",
             "lineHeight": "$type.lineHeight.sm",
             "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "IconPicker": {
+      "trigger": [
+        {
+          "when": {
+            "empty": true
+          },
+          "style": {
+            "borderStyle": "dashed"
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "cell": [
+        {
+          "style": {
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "borderColor": "$color.primary"
+          }
+        }
+      ],
+      "glyph": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "color": "$color.primary"
+          }
+        }
+      ],
+      "none": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "noneLabel": [
+        {
+          "style": {
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "ColorPicker": {
+      "swatch": [
+        {
+          "style": {
+            "borderColor": "#00000000"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "borderColor": "$color.foreground"
           }
         }
       ]

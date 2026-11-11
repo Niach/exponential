@@ -61,6 +61,7 @@ export function MessageBubble({
   time,
   caption,
   action,
+  relay = null,
   variant = `chat`,
   className,
 }: {
@@ -77,8 +78,14 @@ export function MessageBubble({
   files?: readonly { name: string; url: string }[]
   /** `in` only: the sender's name line (the group's first bubble). */
   author?: string | null
-  /** `in` only: a cross-session sender: the whole bubble opens it. */
+  /** `in` only: a cross-session sender: the whole bubble opens it.
+   *  @deprecated #EXP-1772: a relay names its session ABOVE the bubble
+   *  (`relay`), the bubble itself is never a link. */
   onPress?: () => void
+  /** #EXP-1772 `in` only: a RELAY (another session's message, a child's
+   *  report): its session's name + ` ›` ABOVE the bubble, the one press
+   *  that opens it (`onPress` absent = a plain label). */
+  relay?: { name: string; onPress?: () => void } | null
   /** The bubble's `HH:mm`, bottom-right inside. */
   time?: string | null
   /** Under the bubble (`queued`). */
@@ -91,7 +98,7 @@ export function MessageBubble({
 }) {
   void variant
   const out = side === `out`
-  const name = !out && author ? author : null
+  const name = !out && author && !relay ? author : null
   const inner = (
     <>
       {name ? (
@@ -136,7 +143,8 @@ export function MessageBubble({
       data-side={side}
       className={cn(`flex w-full flex-col gap-1`, out ? `items-end` : `items-start`, className)}
     >
-      {!out && onPress ? (
+      {!out && relay ? <RelayName name={relay.name} onPress={relay.onPress} /> : null}
+      {!out && onPress && !relay ? (
         <div
           role="button"
           tabIndex={0}
@@ -172,6 +180,30 @@ export function MessageBubble({
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** #EXP-1772: a relay's session name over its bubble, ` ›` right of it;
+ *  the name line's size and colour, the only press. */
+function RelayName({ name, onPress }: { name: string; onPress?: () => void }) {
+  const label = `${name} ${TRANSCRIPT_COPY.linkChevron}`
+  const className = `max-w-full truncate px-1 text-xs font-medium text-muted-foreground`
+  if (!onPress) {
+    return (
+      <div data-slot="message-bubble-relay" className={className}>
+        {label}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-slot="message-bubble-relay"
+      onClick={onPress}
+      className={cn(className, `rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50`)}
+    >
+      {label}
+    </button>
   )
 }
 

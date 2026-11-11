@@ -146,3 +146,62 @@ describe(`hosted popups (VAPP-281)`, () => {
     expect(container.querySelector(`[data-xui-layer="overlay"]`)!.contains(content(`Popover`))).toBe(true)
   })
 })
+
+describe(`menu item iconColor (#EXP-1629)`, () => {
+  it(`tints the item's glyph: a token as its variable, the host's bound colour as is; checkbox rows keep their glyph`, async () => {
+    const tree = {
+      id: `root`,
+      component: `Box`,
+      children: [{ id: `m`, component: `Menu`, props: { label: `Status`, items: [
+        { label: `In Progress`, value: `p`, kind: `checkbox`, checked: true, icon: `status-in-progress`, iconColor: `$color.warning` },
+        { label: `Blocked`, value: `b`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } },
+        { label: `Plain`, value: `q`, icon: `status-backlog` },
+      ] } }],
+    } as unknown as NestedNode
+    const r = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
+    expect(r.issues).toEqual([])
+    const { container } = render(() => <ExponentialSurface root={r.root} theme="neutral" id="menu" data={{ blocked: `#ef4444` }} />)
+    fireEvent.pointerDown(byId(container, `m.trigger`)!, { button: 0, ctrlKey: false, pointerType: `mouse` })
+    fireEvent.click(byId(container, `m.trigger`)!)
+    await tick()
+    const glyphs = [...content(`Menu`)!.querySelectorAll<SVGElement>(`svg[data-icon^="status-"]`)]
+    expect(glyphs.map((g) => g.style.color)).toEqual([`var(--xui-color-warning)`, `rgb(239, 68, 68)`, ``])
+  })
+})
+
+// `matchAnchorWidth`: the panel takes the popper's anchor width (the anchor
+// node by id, else the trigger); unset, the content keeps its own width.
+describe(`Popover matchAnchorWidth`, () => {
+  const tree = (matchAnchorWidth?: boolean, byIdAnchor = true): NestedNode =>
+    ({
+      id: `root`,
+      component: `Box`,
+      children: byIdAnchor
+        ? [
+            { id: `card`, component: `Box`, children: [{ id: `draft`, component: `Text`, props: { text: `/rev` } }] },
+            { id: `commands`, component: `Popover`, props: { anchor: `card`, side: `top`, align: `start`, open: true, ...(matchAnchorWidth === undefined ? {} : { matchAnchorWidth }) }, children: [{ id: `review`, component: `Text`, props: { text: `/review` } }] },
+          ]
+        : [{ id: `commands`, component: `Popover`, props: { open: true, matchAnchorWidth }, slots: { trigger: { id: `t`, component: `Button`, props: { label: `Open` } } }, children: [{ id: `review`, component: `Text`, props: { text: `/review` } }] }],
+    }) as unknown as NestedNode
+  const open = (node: NestedNode) => {
+    const r = reduceNested(node, { catalogId: CORE_CATALOG_ID })
+    expect(r.issues).toEqual([])
+    return render(() => <ExponentialSurface root={r.root} theme="neutral" id="typeahead" />)
+  }
+  it(`true: the content is the anchor's width (by id and a trigger)`, async () => {
+    for (const byIdAnchor of [true, false]) {
+      open(tree(true, byIdAnchor))
+      await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+      expect(content(`Popover`)!.style.width, `byId ${byIdAnchor}`).toBe(`var(--radix-popover-trigger-width)`)
+      cleanup()
+    }
+  })
+  it(`false or unset: the content's own width`, async () => {
+    for (const m of [false, undefined]) {
+      open(tree(m))
+      await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+      expect(content(`Popover`)!.style.width).toBe(``)
+      cleanup()
+    }
+  })
+})

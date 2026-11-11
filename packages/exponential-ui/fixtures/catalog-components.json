@@ -6019,6 +6019,46 @@
       }
     },
     {
+      "name": "Popover/matchAnchorWidth=true",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "matchAnchorWidth": true
+        },
+        "children": [
+          {
+            "id": "popover_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Popover/matchAnchorWidth=false",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "matchAnchorWidth": false
+        },
+        "children": [
+          {
+            "id": "popover_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Tooltip/example",
       "node": {
         "id": "tooltip",
@@ -11285,6 +11325,52 @@
       }
     },
     {
+      "name": "Select/triggerIcon=true",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": true
+        }
+      }
+    },
+    {
+      "name": "Select/triggerIcon=false",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerIcon": false
+        }
+      }
+    },
+    {
       "name": "Select/align=start",
       "node": {
         "id": "select",
@@ -11680,6 +11766,204 @@
       }
     },
     {
+      "name": "IconPicker/example",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ]
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=true",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": true
+        }
+      }
+    },
+    {
+      "name": "IconPicker/allowNone=false",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "allowNone": false
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=true",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "IconPicker/open=false",
+      "node": {
+        "id": "icon_picker",
+        "component": "IconPicker",
+        "props": {
+          "value": "rocket",
+          "color": "#3b82f6",
+          "icons": [
+            "code",
+            "rocket",
+            "star",
+            "zap"
+          ],
+          "open": false
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/example",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=true",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/open=false",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "open": false
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/inline=true",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "inline": true
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/inline=false",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ],
+          "inline": false
+        }
+      }
+    },
+    {
+      "name": "ColorPicker/child",
+      "node": {
+        "id": "color_picker",
+        "component": "ColorPicker",
+        "props": {
+          "value": "#3b82f6",
+          "colors": [
+            "#ef4444",
+            "#22c55e",
+            "#3b82f6",
+            "#a855f7"
+          ]
+        },
+        "children": [
+          {
+            "id": "color_picker_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "DatePicker/example",
       "node": {
         "id": "date_picker",
@@ -11918,6 +12202,28 @@
         "props": {
           "placeholder": "Ask anything",
           "busy": false
+        }
+      }
+    },
+    {
+      "name": "Composer/layout=stacked",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "layout": "stacked"
+        }
+      }
+    },
+    {
+      "name": "Composer/layout=flat",
+      "node": {
+        "id": "composer",
+        "component": "Composer",
+        "props": {
+          "placeholder": "Ask anything",
+          "layout": "flat"
         }
       }
     },

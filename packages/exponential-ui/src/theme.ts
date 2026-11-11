@@ -102,6 +102,10 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   paddingBottom: [`spacing`],
   // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
   textAlign: [],
+  // #EXP-1629: a joined Select multi row squares the corners it shares.
+  borderTopRightRadius: [`radius`, `spacing`],
+  borderBottomRightRadius: [`radius`, `spacing`],
+  borderBottomLeftRadius: [`radius`, `spacing`],
 }
 /** #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`). */
 const PERCENT_KEYS = new Set([`maxWidth`])
@@ -517,13 +521,18 @@ export function tryLoadTheme(source: unknown, options: ThemeOptions = {}): { the
 /** #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
  *  after themes shipped takes a sibling's value when the chain sets none, so
  *  every older theme stays complete: `link` = `primary`, #EDE-65
- *  `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`. */
+ *  `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`,
+ *  `strokeActive` = `ring`. */
 function deriveColors(theme: ResolvedTheme): void {
   for (const mode of MODES) {
     const color = theme.modes[mode].color as Record<string, string>
     if (color.link === undefined && color.primary !== undefined) color.link = color.primary
     if (color.borderStrong === undefined && color.border !== undefined) color.borderStrong = color.border
     if (color.ghostHover === undefined && color.accent !== undefined) color.ghostHover = color.accent
+    if (color.strokeActive === undefined && color.ring !== undefined) color.strokeActive = color.ring
+    // #EXP-1760: `shadow.popoverRing` = `popover` when the chain sets none.
+    const shadow = theme.modes[mode].shadow as Record<string, unknown> | undefined
+    if (shadow && shadow.popoverRing === undefined && shadow.popover !== undefined) shadow.popoverRing = shadow.popover
   }
 }
 

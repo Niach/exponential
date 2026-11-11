@@ -45,7 +45,8 @@
             "chart8": "#0891b2",
             "link": "#171717",
             "borderStrong": "#e5e5e5",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -121,6 +122,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -161,7 +178,8 @@
             "chart8": "#22d3ee",
             "link": "#e5e5e5",
             "borderStrong": "#ffffff1a",
-            "ghostHover": "#262626"
+            "ghostHover": "#262626",
+            "strokeActive": "#737373"
           },
           "shadow": {
             "none": [],
@@ -223,6 +241,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -3547,13 +3581,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -3572,6 +3607,24 @@
               "style": {
                 "backgroundColor": "$color.accent",
                 "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
               }
             },
             {
@@ -3664,6 +3717,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -3712,6 +3773,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -4010,6 +4088,14 @@
               "style": {
                 "borderColor": "$color.ring"
               }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
             }
           ],
           "field": [
@@ -4020,6 +4106,15 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -6853,6 +6948,89 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -8079,7 +8257,8 @@
             "chart8": "#0891b2",
             "link": "#2b59c8",
             "borderStrong": "#d4d4d4",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -8132,6 +8311,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -8174,7 +8376,8 @@
             "chart8": "#22d3ee",
             "link": "#5f8bea",
             "borderStrong": "#ffffff1f",
-            "ghostHover": "#ffffff0e"
+            "ghostHover": "#ffffff0e",
+            "strokeActive": "#ffffff29"
           },
           "shadow": {
             "none": [],
@@ -8227,6 +8430,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -11284,6 +11510,15 @@
               "style": {
                 "height": 32
               }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.strokeActive"
+              }
             }
           ],
           "label": [
@@ -12293,13 +12528,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -12322,6 +12558,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -12330,7 +12584,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -12340,9 +12594,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -12382,7 +12637,8 @@
               "style": {
                 "borderWidth": 1,
                 "borderColor": "#00000000",
-                "paddingHorizontal": 7
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5
               }
             },
             {
@@ -12398,10 +12654,31 @@
             },
             {
               "when": {
+                "joinTop": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderTopWidth": 0,
+                "paddingTop": 5
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderBottomWidth": 0,
+                "paddingBottom": 5
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "pill"
               },
               "style": {
                 "height": 24,
+                "minHeight": 24,
                 "paddingHorizontal": 7,
                 "gap": 7,
                 "fontSize": 10.5,
@@ -12634,6 +12911,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -12729,6 +13023,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -13047,6 +13376,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -13062,6 +13399,23 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],
@@ -16076,6 +16430,175 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "width": 12.25,
+                "height": 12.25
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.5,
+                "paddingHorizontal": 3.5
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14,
+                "fontWeight": "$type.weight.regular"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 7,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ],
+          "trigger": [
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 14,
+                "gap": 3.5
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -17335,7 +17858,8 @@
             "chart8": "#22c55e",
             "link": "#7c3aed",
             "borderStrong": "#e9d5ff",
-            "ghostHover": "#ffe4e6"
+            "ghostHover": "#ffe4e6",
+            "strokeActive": "#a78bfa"
           },
           "shadow": {
             "none": [],
@@ -17390,6 +17914,22 @@
                 "spread": -2,
                 "color": "#0000001a"
               }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#0000001a"
+              }
             ]
           }
         },
@@ -17430,7 +17970,8 @@
             "chart8": "#86efac",
             "link": "#c4b5fd",
             "borderStrong": "#4c3a7a",
-            "ghostHover": "#4c1d95"
+            "ghostHover": "#4c1d95",
+            "strokeActive": "#a78bfa"
           },
           "shadow": {
             "none": [],
@@ -17471,6 +18012,22 @@
               }
             ],
             "popover": [
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#00000066"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
+                "color": "#00000066"
+              }
+            ],
+            "popoverRing": [
               {
                 "x": 0,
                 "y": 4,
@@ -21197,13 +21754,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -21222,6 +21780,24 @@
               "style": {
                 "backgroundColor": "$color.accent",
                 "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
               }
             },
             {
@@ -21319,6 +21895,14 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -21367,6 +21951,23 @@
               },
               "style": {
                 "gap": "$spacing.md"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -21679,6 +22280,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.xl2",
                 "borderWidth": "$border.thick",
@@ -21694,6 +22303,15 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
               }
             }
           ],
@@ -24807,6 +25425,89 @@
             }
           ]
         },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ]
+        },
         "Label": {
           "text": [
             {
@@ -26063,7 +26764,8 @@
             "chart8": "#65a30d",
             "link": "#2b59c8",
             "borderStrong": "#d4d4d4",
-            "ghostHover": "#f5f5f5"
+            "ghostHover": "#f5f5f5",
+            "strokeActive": "#a1a1a1"
           },
           "shadow": {
             "none": [],
@@ -26116,6 +26818,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#0a0a0a1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -26158,7 +26883,8 @@
             "chart8": "#a3e635",
             "link": "#5f8bea",
             "borderStrong": "#ffffff1f",
-            "ghostHover": "#ffffff0e"
+            "ghostHover": "#ffffff0e",
+            "strokeActive": "#ffffff29"
           },
           "shadow": {
             "none": [],
@@ -26211,6 +26937,29 @@
                 "y": 4,
                 "blur": 6,
                 "spread": -4,
+                "color": "#0000001a"
+              }
+            ],
+            "popoverRing": [
+              {
+                "x": 0,
+                "y": 0,
+                "blur": 0,
+                "spread": 1,
+                "color": "#fafafa1a"
+              },
+              {
+                "x": 0,
+                "y": 4,
+                "blur": 6,
+                "spread": -1,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 2,
+                "blur": 4,
+                "spread": -2,
                 "color": "#0000001a"
               }
             ]
@@ -29268,6 +30017,15 @@
               "style": {
                 "height": 32
               }
+            },
+            {
+              "when": {
+                "variant": "box",
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.strokeActive"
+              }
             }
           ],
           "label": [
@@ -30277,13 +31035,14 @@
           "item": [
             {
               "style": {
-                "height": "$control.buttonSm",
                 "paddingHorizontal": "$spacing.sm",
                 "borderRadius": "$radius.sm",
                 "fontSize": "$type.size.sm",
                 "lineHeight": "$type.lineHeight.sm",
                 "color": "$color.popoverForeground",
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "minHeight": "$control.buttonSm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -30306,6 +31065,24 @@
             },
             {
               "when": {
+                "joinTop": true
+              },
+              "style": {
+                "borderTopLeftRadius": 0,
+                "borderTopRightRadius": 0
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true
+              },
+              "style": {
+                "borderBottomLeftRadius": 0,
+                "borderBottomRightRadius": 0
+              }
+            },
+            {
+              "when": {
                 "state": "disabled"
               },
               "style": {
@@ -30314,7 +31091,7 @@
             },
             {
               "style": {
-                "height": "$control.row",
+                "minHeight": "$control.row",
                 "borderRadius": "$radius.md"
               }
             },
@@ -30324,9 +31101,10 @@
               },
               "style": {
                 "paddingHorizontal": 8,
+                "paddingVertical": 4.5,
                 "gap": 7,
                 "fontSize": 12.25,
-                "lineHeight": 17
+                "lineHeight": 19.82
               }
             },
             {
@@ -30366,7 +31144,8 @@
               "style": {
                 "borderWidth": 1,
                 "borderColor": "#00000000",
-                "paddingHorizontal": 7
+                "paddingHorizontal": 7,
+                "paddingVertical": 3.5
               }
             },
             {
@@ -30382,10 +31161,31 @@
             },
             {
               "when": {
+                "joinTop": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderTopWidth": 0,
+                "paddingTop": 5
+              }
+            },
+            {
+              "when": {
+                "joinBottom": true,
+                "triggerVariant": "row"
+              },
+              "style": {
+                "borderBottomWidth": 0,
+                "paddingBottom": 5
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "pill"
               },
               "style": {
                 "height": 24,
+                "minHeight": 24,
                 "paddingHorizontal": 7,
                 "gap": 7,
                 "fontSize": 10.5,
@@ -30618,6 +31418,23 @@
               }
             }
           ],
+          "valueIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
           "description": [
             {
               "style": {
@@ -30713,6 +31530,41 @@
               },
               "style": {
                 "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "itemIcon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ],
+          "itemDescription": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "row"
+              },
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 16.99
               }
             }
           ],
@@ -31031,6 +31883,14 @@
               }
             },
             {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "gap": "$spacing.xs"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.border",
@@ -31046,6 +31906,23 @@
                 "fontFamily": "$type.family.sans",
                 "color": "$color.foreground",
                 "minHeight": "$control.buttonMd"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "minHeight": 0,
+                "paddingTop": "$spacing.sm"
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "paddingTop": 4.25
               }
             }
           ],
@@ -34056,6 +34933,175 @@
               "style": {
                 "fontSize": 12.25,
                 "lineHeight": 19.82
+              }
+            }
+          ]
+        },
+        "IconPicker": {
+          "trigger": [
+            {
+              "when": {
+                "empty": true
+              },
+              "style": {
+                "borderStyle": "dashed"
+              }
+            },
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            }
+          ],
+          "placeholder": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.primary"
+              }
+            }
+          ],
+          "glyph": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "width": 12.25,
+                "height": 12.25
+              }
+            }
+          ],
+          "none": [
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            },
+            {
+              "style": {
+                "height": 17.5,
+                "paddingHorizontal": 3.5
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.ghostHover"
+              }
+            }
+          ],
+          "noneLabel": [
+            {
+              "style": {
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 10.5,
+                "lineHeight": 14,
+                "fontWeight": "$type.weight.regular"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 7,
+                "gap": 3.5
+              }
+            }
+          ],
+          "grid": [
+            {
+              "style": {
+                "gap": 5.25,
+                "width": 267,
+                "maxWidth": 267
+              }
+            }
+          ],
+          "pick": [
+            {
+              "style": {
+                "width": 14,
+                "height": 14
+              }
+            }
+          ]
+        },
+        "ColorPicker": {
+          "swatch": [
+            {
+              "style": {
+                "borderColor": "#00000000"
+              }
+            },
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "borderColor": "$color.foreground"
+              }
+            }
+          ],
+          "trigger": [
+            {
+              "style": {
+                "backgroundColor": "#ffffff08"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "#ffffff12"
+              }
+            }
+          ],
+          "content": [
+            {
+              "style": {
+                "borderRadius": "$radius.md",
+                "boxShadow": "$shadow.popoverRing",
+                "borderWidth": 0,
+                "padding": 14,
+                "gap": 3.5
               }
             }
           ]

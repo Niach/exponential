@@ -669,6 +669,40 @@ fn key_recorder_cases_start_record_and_stop_like_the_reference() {
     }
 }
 
+/// #EXP-1760 pickerPick at the core: a press on the trigger opens the
+/// IconPicker / ColorPicker popover; a pick (a cell, a swatch, the No icon
+/// row) writes `value`, fires the author's `change` {value} and closes it.
+/// gpui, SwiftUI and Compose send the same `press` through the core.
+#[test]
+fn picker_pick_cases_write_fire_and_close_like_the_reference() {
+    let f = fixture();
+    let k = &f["pickerPick"];
+    for c in k["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let tree = k["surfaces"][c["surface"].as_str().unwrap()].clone();
+        let owner = tree["id"].as_str().unwrap().to_string();
+        let mut s = surface(tree);
+        for (path, value) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{path}"), Some(value.clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut fired = vec![];
+        for step in c["steps"].as_array().unwrap() {
+            let id = step["press"].as_str().unwrap_or_else(|| panic!("{name}: step {step}"));
+            let at = s.nodes().iter().position(|n| n.id == id).unwrap_or_else(|| panic!("{name}: no {id}")) as u32;
+            let out = s.event(at, "press", None);
+            fired.extend(out.into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
+            s.layout(&mut m);
+        }
+        let _ = s.take_events();
+        assert_eq!(json!(fired), c["events"], "{name}: events");
+        assert_eq!(s.get_data("/value").cloned().unwrap_or(Value::Null), c["value"], "{name}: /value");
+        let open = s.layout(&mut m).layers.iter().any(|l| l.owner == owner);
+        assert_eq!(open, c["open"].as_bool().unwrap(), "{name}: open");
+    }
+}
+
 /// #EDE-65 composerKeys at the core: what a painter sends for each step
 /// (`change` for the field's edit; with menuKeys on, a menu key without a
 /// modifier or an IME composition = `key` {key}; else the field's own Enter
@@ -764,20 +798,38 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
         let (_, bare) = run(plain);
         let frame = |id: &str| *frames.get(id).unwrap_or_else(|| panic!("{name}: no frame for {id}"));
         let cf = frame("c");
-        assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
         let ci = s.index_of("c").unwrap();
         let v = s.visual(ci).cloned().unwrap();
         let pad = v.padding.unwrap_or([0.0; 4]);
         let b = v.border_width.unwrap_or(0.0);
         let (start, end) = if rtl { (cf.0 + cf.2 - pad[1] - b, cf.0 + pad[3] + b) } else { (cf.0 + pad[3] + b, cf.0 + cf.2 - pad[1] - b) };
+        let token = |t: &str| eui_core::theme::resolve_token(s.theme().unwrap(), &json!(t), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let xs = token("$spacing.xs");
+        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
+        if slots.contains_key("above") {
+            // #EXP-1762: `above` sits at the content top, the content box's
+            // full width, and SIZES the composer: + its height + the root's gap.
+            let above = frame("c.above");
+            let strip = frame("strip");
+            let gap = token(if c["props"]["layout"] == "flat" { "$spacing.xs" } else { "$spacing.sm" });
+            let cw = cf.2 - pad[1] - pad[3] - 2.0 * b;
+            near(above.1, cf.1 + pad[0] + b, "above at the content top");
+            near(above.0, cf.0 + pad[3] + b, "above starts at the content's left edge");
+            near(above.2, cw, "above spans the content width");
+            near(strip.2, cw, "the slot child spans the content width");
+            near(cf.3, bare["c"].3 + above.3 + gap, "above grows the composer by its height + the gap");
+            assert_eq!((cf.0, cf.1, cf.2), (bare["c"].0, bare["c"].1, bare["c"].2), "{name}: the width is unchanged");
+            let stack: Vec<&str> = c["stack"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).collect();
+            assert_eq!(stack.first(), Some(&"above"), "{name}: stack");
+        } else {
+            assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
+        }
         if slots.is_empty() {
             assert!(!frames.contains_key("c.bar"), "{name}: no row without slots");
             continue;
         }
         let send = frame("c.sendSpace");
-        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
         let edge = |f: (f32, f32, f32, f32), lead: bool| if rtl == lead { f.0 + f.2 } else { f.0 };
-        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
         near(edge(send, false), end, "send ends at the content end");
         near(send.1 + send.3, cf.1 + cf.3 - pad[2] - b, "the row sits at the content bottom");
         let centre = send.1 + send.3 / 2.0;
@@ -806,6 +858,89 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
             fired.extend(s.event(i, "press", None).into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
         }
         assert_eq!(json!(fired), c["events"], "{name}: events");
+    }
+}
+
+/// #EXP-1762 composerSlots `layout: "flat"` at the core: the field shares
+/// the row with the slots, so the Composer's measure gets the width they
+/// leave (each slot wrapper + one row gap off its width; the
+/// measure keeps the disc's own share); a stacked one gets the full width.
+#[test]
+fn a_flat_composer_measures_its_field_at_the_width_the_slots_leave() {
+    use eui_core::measure::DirectMeasure;
+    let f = fixture();
+    let k = &f["composerSlots"];
+    let both = k["cases"][0]["slots"].clone();
+    for layout in ["flat", "stacked"] {
+        let mut composer = k["surface"].clone();
+        composer["props"]["layout"] = json!(layout);
+        composer["slots"] = both.clone();
+        let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [composer]}));
+        s.set_viewport(400.0, 0.0, None);
+        let wraps = std::cell::RefCell::new(Vec::new());
+        let mut m = DirectMeasure(
+            |leaf: &eui_core::measure::LeafRequest, wrap: Option<f32>| match leaf.component {
+                "Composer" => {
+                    if let Some(w) = wrap.filter(|w| *w > 0.0) {
+                        wraps.borrow_mut().push(w);
+                    }
+                    // Like a painter's: max-content wide, 120 at min-content.
+                    (match wrap { None => 10_000.0, Some(w) if w <= 0.0 => 120.0, Some(w) => w }, 36.0)
+                }
+                "Ring" => (16.0, 16.0),
+                _ => (36.0, 36.0),
+            },
+            7,
+        );
+        let out = s.layout(&mut m);
+        let nodes = s.nodes();
+        let frame = |id: &str| out.frames.iter().find(|f| nodes[f.index as usize].id == id).map(|f| (f.x, f.w)).unwrap_or_else(|| panic!("{layout}: no frame for {id}"));
+        // A leaf's measure gets its border-box width (each painter takes its
+        // own padding + border off), less the slots on a flat one.
+        let (_, cw) = frame("c");
+        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let want = if layout == "flat" { cw - (frame("c.leading").1 + xs) - (frame("c.trailing").1 + xs) } else { cw };
+        let last = *wraps.borrow().last().unwrap_or_else(|| panic!("{layout}: measured at a width"));
+        assert!((last - want).abs() < 0.01, "{layout}: the field measures at {last}, want {want}");
+        assert!((frame("c").1 - 400.0).abs() < 0.01, "{layout}: the composer keeps its full width");
+    }
+}
+
+/// #EXP-1762 composerSlots `field` at the core: every built-in theme gives a
+/// flat Composer's field a `paddingTop` (where its text starts below the
+/// row's top), and the fixture's row grows past the send disc exactly when
+/// paddingTop + its lines (+ paddingBottom) are taller (neutral: 8 + n × 20
+/// against 36). The painters place the text (gpui, SwiftUI, Compose, web).
+#[test]
+fn a_flat_composer_field_starts_its_text_at_the_recipe_top_padding() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    let f = fixture();
+    let k = &f["composerSlots"];
+    let flat = |part: &str| RecipeQuery { component: "Composer".into(), part: part.into(), props: serde_json::from_value(json!({"layout": "flat", "attachments": false, "busy": false})).unwrap(), states: vec![] };
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        let px = |part: &str, key: &str| recipe_style(&theme, &flat(part)).get(key).and_then(|v| if v.is_number() { Some(v.clone()) } else { resolve_token(&theme, v, Mode::Light) }).and_then(|v| v.as_f64()).map(|v| v as f32);
+        let pad = px("field", "paddingTop").unwrap_or_else(|| panic!("{id}: a flat field has a paddingTop"));
+        assert!(pad > 0.0, "{id}: paddingTop {pad}");
+        if id == "exponential" {
+            assert!((pad - 4.25).abs() < 1e-4, "exponential: the IDE's 4.25, got {pad}");
+        }
+        if id != "neutral" {
+            continue;
+        }
+        assert!((pad - 8.0).abs() < 1e-4, "neutral: $spacing.sm, got {pad}");
+        let line = px("field", "lineHeight").unwrap();
+        let disc = px("send", "height").unwrap();
+        let mut seen = 0;
+        for c in k["cases"].as_array().unwrap().iter().filter(|c| c.get("field").is_some()) {
+            let rows = c["field"]["rows"].as_f64().unwrap() as f32;
+            let lines = c["data"]["draft"].as_str().unwrap().split('\n').count() as f32;
+            assert_eq!(rows, lines, "{}: rows = the draft's lines", c["name"]);
+            let bottom = px("field", "paddingBottom").unwrap_or(0.0);
+            assert_eq!(pad + rows * line + bottom > disc + 0.5, c["field"]["grown"] == true, "{}: grown", c["name"]);
+            seen += 1;
+        }
+        assert_eq!(seen, 2, "a one-line and a grown case");
     }
 }
 

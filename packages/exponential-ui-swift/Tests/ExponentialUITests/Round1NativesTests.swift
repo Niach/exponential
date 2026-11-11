@@ -571,7 +571,12 @@ final class Round1NativesTests: XCTestCase {
         let et = e.frame(try XCTUnwrap(e.index(of: "sel.trigger")))
         let ec = e.frame(try XCTUnwrap(e.index(of: "sel.content")))
         XCTAssertEqual(ec.width, 200, accuracy: 0.01)
-        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.01)
+        // #EXP-1765: inset, clamp, then the content's offset from the pill
+        // rounded to whole points (half away from zero): a content-sized pill
+        // leaves the box within half a point of flush.
+        let at = et.maxX + 1 - 200
+        XCTAssertEqual(ec.minX, et.minX + (at + 1 - et.minX).rounded() - 1, accuracy: 0.01)
+        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.5)
         XCTAssertLessThanOrEqual(ec.maxX, 390 - 7 + 0.01, "selectRowPopupMargin from the view's edge")
     }
 
@@ -838,6 +843,8 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(slots.count, names.count)
         XCTAssertFalse(slots.isEmpty)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(slots, names)), BuiltinIcons.slots)
+        // #EXP-1764: the own-colour marks.
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(array("iconFillNames"), array("iconFillColors"))), BuiltinIcons.fills)
         let locale = JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/locale.json"), encoding: .utf8))
         XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), RTLGlyphs.mirrored)
     }
@@ -930,6 +937,30 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(trigger.component, "Button")
         p.press(trigger.index)
         XCTAssertTrue(p.layers.contains { $0.owner == "pm" })
+    }
+
+    /// #EXP-1629: a Menu item's `iconColor` rides on its `itemLabel` leaf
+    /// next to `icon`; `propColor` reads a theme token or a hex.
+    func testMenuItemIconColor() throws {
+        let items: JSONValue = .array([
+            .object(["label": .string("In Progress"), "value": .string("in_progress"), "icon": .string("status-in-progress"), "iconColor": .string("$color.warning")]),
+            .object(["label": .string("Copy"), "value": .string("copy")]),
+        ])
+        let m = try surface(node("sm", "Menu", ["items": items, "label": .string("Status")]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.nodes.first { !$0.removed && $0.owner == "sm" && $0.part == "trigger" })
+        m.press(trigger.index)
+        paint(m)
+        let labels = m.liveParts("sm", "itemLabel")
+        XCTAssertEqual(labels.map { $0.props.str("text") }, ["In Progress", "Copy"])
+        XCTAssertEqual(labels[0].props.str("icon"), "status-in-progress")
+        XCTAssertEqual(labels[0].props.str("iconColor"), "$color.warning")
+        XCTAssertNil(labels[1].props["iconColor"])
+        let cx = LeafContext(model: m, node: labels[0], size: m.frame(labels[0].index).size, style: m.style(labels[0].index), ink: m.ink(labels[0].index), textStyle: m.textStyle(labels[0].index))
+        XCTAssertNotNil(m.color("warning"))
+        XCTAssertEqual(cx.propColor("$color.warning"), m.color("warning"))
+        XCTAssertEqual(cx.propColor("#ef4444"), Color(hex: "#ef4444"))
+        XCTAssertNil(cx.propColor("$color.noSuchToken"))
     }
 
     /// The round-3 guide geometry: 14 px columns, the line's LEFT edge at

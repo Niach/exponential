@@ -479,6 +479,10 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "shortcut": {
           "type": "string"
         },
@@ -1250,7 +1254,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",
@@ -2740,6 +2744,10 @@
           "type": "enum",
           "enum": "openOn",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -4130,11 +4138,18 @@
           "enum": "selectTrigger",
           "default": "field"
         },
+        "triggerIcon": {
+          "type": "boolean",
+          "default": false
+        },
         "align": {
           "type": "enum",
           "enum": "overlayAlign"
         },
         "popupWidth": {
+          "type": "number"
+        },
+        "popupMinWidth": {
           "type": "number"
         },
         "loading": {
@@ -4302,6 +4317,69 @@
         "start",
         "stop",
         "key"
+      ]
+    },
+    "IconPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "icons": {
+          "type": "array",
+          "items": {
+            "type": "icon"
+          }
+        },
+        "color": {
+          "type": "string"
+        },
+        "allowNone": {
+          "type": "boolean",
+          "default": false
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        }
+      },
+      "events": [
+        "change"
+      ]
+    },
+    "ColorPicker": {
+      "kind": "macro",
+      "group": "input",
+      "lite": false,
+      "children": "one",
+      "props": {
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "open": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "events": [
+        "change"
       ]
     },
     "DatePicker": {
@@ -4513,7 +4591,8 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "props": {
         "placeholder": {
@@ -4534,6 +4613,14 @@
         "busy": {
           "type": "boolean",
           "default": false
+        },
+        "layout": {
+          "type": "enum",
+          "values": [
+            "stacked",
+            "flat"
+          ],
+          "default": "stacked"
         },
         "menuKeys": {
           "type": "boolean",

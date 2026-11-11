@@ -32,6 +32,12 @@ net = ["dep:reqwest", "dep:rustls", "dep:tokio", "dep:tokio-tungstenite", "dep:f
 # PATCHES.md); the workspace's crates turn this on, an outside consumer on
 # upstream gpui-component leaves it off (no anchors to report to there).
 overlay-anchor = []
+# #EXP-1629: a loading gpui-component `Button` draws genUI's Spinner arc
+# (`gpui_component::spinner::set_spinner_glyph`, registered in `view::init`).
+# That hook exists only in the vendored gpui-component (PATCHES.md); the
+# workspace's crates turn this on, an outside consumer on crates.io
+# gpui-component leaves it off (its Spinner keeps its own glyph).
+vendored-spinner = []
 
 [dependencies]
 # #LOGS-2: lag spans (no subscriber = no cost).

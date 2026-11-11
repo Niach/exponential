@@ -81,6 +81,10 @@ pub struct LNode {
     pub own_query: Option<RecipeQuery>,
     /// The macro or native PART recipe (Badge/label, Tabs/tab).
     pub part_query: Option<RecipeQuery>,
+    /// #EXP-1760: a native part of a MACRO ROOT (an IconPicker's Popover
+    /// content) also answers to `<Macro>/<part>`, layered over the native's
+    /// part recipe.
+    pub macro_query: Option<RecipeQuery>,
     /// VAPP-163: the `base_style` keys the author wrote ON the macro node
     /// (`recipe.authored`): they win over the part recipe.
     pub authored_keys: Vec<String>,
@@ -224,6 +228,10 @@ pub struct LayerSpec {
     pub dismissible: bool,
     /// The popup is at least as wide as its anchor (Select, pickers).
     pub match_anchor_width: bool,
+    /// The popup is EXACTLY as wide as its anchor (Popover
+    /// `matchAnchorWidth`: the IDE's typeahead at the composer card's width),
+    /// re-measured every pass against the anchor's frame.
+    pub exact_anchor_width: bool,
     /// The layer's body that scrolls when the content is taller than the
     /// viewport (Dialog/Drawer `body`, a popup list).
     pub scroll_body: Option<u32>,
@@ -772,6 +780,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             default_keys: Vec::new(),
             own_query: None,
             part_query: None,
+            macro_query: None,
             authored_keys: Vec::new(),
             hidden,
             lines: None,
@@ -801,6 +810,9 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.props = obj(props);
         let query_props = self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled));
         n.part_query = Some(RecipeQuery::new(owner.component.clone(), part, query_props, Vec::new()));
+        // #EXP-1760: the owner is a macro's root (its own part query names
+        // the macro): the macro styles this native part too.
+        n.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), Vec::new()));
         if let Some(l) = n.props.get("lines").and_then(Value::as_u64) {
             n.lines = Some(l as u32);
         }
@@ -833,7 +845,8 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// Add a state to a node's part query (`selected`, `open`, `checked`…).
     pub(crate) fn add_state(&mut self, index: u32, state: &str) {
-        if let Some(q) = &mut self.nodes[index as usize].part_query {
+        let n = &mut self.nodes[index as usize];
+        for q in [&mut n.part_query, &mut n.macro_query].into_iter().flatten() {
             if !q.states.iter().any(|s| s == state) {
                 q.states.push(state.to_string());
             }
@@ -1344,6 +1357,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         root.form = owner.form.clone();
         root.base_style = obj(style);
         root.part_query = Some(RecipeQuery::new(owner.component.clone(), part, self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled)), vec!["open".into()]));
+        root.macro_query = owner.part_query.as_ref().filter(|q| q.part == "root" && q.component != owner.component).map(|q| RecipeQuery::new(q.component.clone(), part, q.props.clone(), vec!["open".into()]));
         let index = self.push(root);
         (layer, index)
     }
@@ -1377,7 +1391,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
-        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, inset: None, mirror: false });
+        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, exact_anchor_width: false, scroll_body, offset: None, margin: None, inset: None, mirror: false });
     }
 }
 
@@ -1396,6 +1410,13 @@ pub fn row_scope_root(scope: &str) -> Option<&str> {
 pub fn builtin_icon(slot: &str) -> Option<&'static str> {
     let g = crate::generated::catalog::BUILTIN_ICON_SLOTS.iter().position(|s| *s == slot)?;
     crate::generated::catalog::BUILTIN_ICON_NAMES.get(g).copied()
+}
+
+/// #EXP-1764: an icon's OWN colour (`#RRGGBB`, icons.json `imported[].fill`:
+/// `brand-claude` = Anthropic's orange), painted instead of the ink.
+pub fn icon_fill(name: &str) -> Option<&'static str> {
+    let i = crate::generated::catalog::ICON_FILL_NAMES.iter().position(|n| *n == name)?;
+    crate::generated::catalog::ICON_FILL_COLORS.get(i).copied()
 }
 
 /// Build the layout tree for a normalized root. `Unknown` nodes become

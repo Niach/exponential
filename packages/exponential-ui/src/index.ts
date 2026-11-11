@@ -148,7 +148,7 @@ export type { SurfaceNode, TemplateChildren, DefineOptions, DefinedSurface, Fact
 export * from "./theme-types"
 export { parseColor, toHex, toThemeHex, isThemeHex, luminance, contrast } from "./color"
 export type { Rgba } from "./color"
-export { RECIPE_STATES, RECIPE_KEYS, markdownInlineRecipes, recipeParts, macroParts, nativeRecipeProps } from "./recipes"
+export { RECIPE_STATES, RECIPE_KEYS, markdownInlineRecipes, recipeParts, macroParts, nativeRecipeProps, rootPartMacro } from "./recipes"
 export type { PartSpec } from "./recipes"
 export {
   MODES,
@@ -179,7 +179,7 @@ export type { ThemeImport } from "./builder"
 export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"
 export type { ControlGeometry, GeometryKey, MeasuredBox, PainterOverride, GeometryIssue } from "./geometry"
 // VAPP-87: the overlay placement contract (renderers + the Rust core).
-export { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeOverlay } from "./overlay"
+export { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeInsetOverlay, placeOverlay, snapInset } from "./overlay"
 export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"
 // VAPP-91: the host API (transport, functions, bindings, negotiation, policy, packages).
 export * from "./host"

@@ -33,7 +33,7 @@ eengine = { path = "../eengine", features = ["sqlite"] }
 eengine-desktop = { path = "../eengine-desktop" }
 eui-core = { path = "../eui-core" }
 # No `net`: the runner never reaches the network for its UI (file:/data: media only).
-eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor"] }
+eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor", "vendored-spinner"] }
 gpui.workspace = true
 gpui_platform = { workspace = true, optional = true }
 gpui-component.workspace = true

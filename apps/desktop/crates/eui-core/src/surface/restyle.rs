@@ -48,6 +48,18 @@ impl Surface {
             for (k, v) in resolve_recipe(theme, &q, self.mode) {
                 out.insert(k, v);
             }
+            // #EXP-1760: a macro root's native part, then its macro's recipe.
+            if let Some(m) = &n.macro_query {
+                let mut m = m.clone();
+                for s in &q.states {
+                    if !m.states.contains(s) {
+                        m.states.push(s.clone());
+                    }
+                }
+                for (k, v) in resolve_recipe(theme, &m, self.mode) {
+                    out.insert(k, v);
+                }
+            }
             // VAPP-163: the style written ON the macro node wins over the
             // macro's part recipe.
             if !n.authored_keys.is_empty() {
@@ -286,6 +298,7 @@ impl Surface {
             [0, 1, 2, 3].map(|k| pad[k] + border[k])
         });
         self.engine.set_inset(slot, inset);
+        self.engine.set_reserve(slot, overlay && n.props.get("layout").and_then(serde_json::Value::as_str) == Some("flat"));
         if n.component == "Chart" {
             visual = self.chart_colors(n, visual);
         }
@@ -436,7 +449,7 @@ fn themed_key(n: &LNode, states: &[String]) -> u64 {
     hash_props(&n.base_style, &mut h);
     n.default_keys.hash(&mut h);
     n.authored_keys.hash(&mut h);
-    for q in [&n.own_query, &n.part_query] {
+    for q in [&n.own_query, &n.part_query, &n.macro_query] {
         match q {
             Some(q) => {
                 1u8.hash(&mut h);
@@ -460,7 +473,7 @@ fn same_style_inputs(a: &LNode, b: &LNode) -> bool {
         (Some(x), Some(y)) => x.component == y.component && x.part == y.part && x.states == y.states && same_props(&x.props, &y.props),
         _ => false,
     };
-    a.part == b.part && a.owner_component == b.owner_component && a.default_keys == b.default_keys && a.authored_keys == b.authored_keys && same_props(&a.base_style, &b.base_style) && same_query(&a.own_query, &b.own_query) && same_query(&a.part_query, &b.part_query)
+    a.part == b.part && a.owner_component == b.owner_component && a.default_keys == b.default_keys && a.authored_keys == b.authored_keys && same_props(&a.base_style, &b.base_style) && same_query(&a.own_query, &b.own_query) && same_query(&a.part_query, &b.part_query) && same_query(&a.macro_query, &b.macro_query)
 }
 
 /// Source order counts (serde_json's map equality ignores it).

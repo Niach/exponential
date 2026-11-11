@@ -130,6 +130,15 @@ impl LeafCx<'_> {
         theme_color(self.theme, self.mode, name)
     }
 
+    /// A colour-typed prop: a `$color.<name>` token of the theme, else the
+    /// host's resolved colour (`#rrggbb[aa]`, bound data).
+    pub fn prop_color(&self, value: &str) -> Option<Hsla> {
+        match value.strip_prefix("$color.") {
+            Some(name) => self.theme_color(name),
+            None => crate::paint::color::parse_hex(value),
+        }
+    }
+
     /// The physical text alignment: the style's, else the `align` prop
     /// (start/end by the direction), else the direction's start.
     pub fn align(&self) -> &'static str {
@@ -597,11 +606,13 @@ pub fn icon(cx: &LeafCx, app: &gpui::App) -> AnyElement {
     // 100%}`): the FileUpload dropzone icon is `$control.iconLg`.
     let fills = matches!((cx.node.owner_component.as_deref(), cx.node.part.as_deref()), (Some("FileUpload"), Some("icon")));
     let size = if fills { w.min(h).max(1.0) } else { (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0) };
-    if let Some(own) = cx.host.icon_element(name, size, cx.ink, app) {
+    // #EXP-1764: a mark with its own colour (`brand-claude`) never takes the ink.
+    let ink = eui_core::layout_tree::icon_fill(name).and_then(|hex| color_of(Some(hex))).unwrap_or(cx.ink);
+    if let Some(own) = cx.host.icon_element(name, size, ink, app) {
         return cx.content().flex().items_center().justify_center().child(own).into_any_element();
     }
     let rotate = cx.style.transform.rotate;
-    let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
+    let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
 }
 

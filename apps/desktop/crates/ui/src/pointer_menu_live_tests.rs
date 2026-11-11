@@ -95,6 +95,7 @@ impl Harness<'_> {
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn an_open_menu_shows_devices_that_arrive_after_it_opened(cx: &mut gpui::TestAppContext) {
     let mut h = harness(true, cx);
     h.open();
@@ -106,6 +107,7 @@ fn an_open_menu_shows_devices_that_arrive_after_it_opened(cx: &mut gpui::TestApp
 }
 
 #[gpui::test]
+#[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
 fn without_a_live_key_the_open_menu_keeps_its_rows(cx: &mut gpui::TestAppContext) {
     // The pre-fix behaviour, kept for menus with static rows: proves the
     // case above exercises the rebuild, not a reopen.

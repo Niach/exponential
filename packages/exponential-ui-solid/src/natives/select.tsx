@@ -22,9 +22,11 @@
 // trigger (no label part, `aria-label`, `Select.dropdown`) and its popup, no
 // cursor when the pointer opened it, `loading`'s Skeleton rows, `mono`
 // options' trailing run, `searchPlaceholder`, the `searchIcon` part.
+// #EXP-1764: a `triggerIcon` row's `valueIcon` (the chosen option's `icon`)
+// before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
@@ -44,6 +46,8 @@ export interface SelectOption {
   trailing?: string
   /** #EXP-1765: the label in the mono type, the `trailing` its own muted run. */
   mono?: boolean
+  /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
+  description?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -60,6 +64,8 @@ const asList = (raw: unknown): string[] => (Array.isArray(raw) ? raw.map(String)
 // ---------------------------------------------------------------------------
 
 interface SelectState {
+  /** #EXP-1764: the chosen option's icon before the row's value (`triggerIcon`). */
+  ValueIcon: () => JSX.Element
   part: PartFn
   id: string
   listId: string
@@ -208,6 +214,13 @@ export function SelectNative(props: NativeProps): JSX.Element {
     </Show>
   )
   const describedBy = () => joinIds(!pill() && description() && `${id}-d`, f.describedBy)
+  // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
+  const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
+  const ValueIcon = () => (
+    <Show when={chosenIcon()} keyed>
+      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} />}
+    </Show>
+  )
   const [valueEl, setValueEl] = createSignal<HTMLElement>()
   const chevronSlot = () => (row() ? `Select.chevron` : pill() ? `Select.dropdown` : `Select.trigger`)
   const geometry = (triggerWidthVar: string) => selectPopupGeometry(props.props, triggerWidthVar)
@@ -217,7 +230,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   const loading = () => bool(props.props.loading)
   const skeleton = createMemo(() => selectLoadingNode(props.node.id))
   const searchPlaceholder = () => str(props.props.searchPlaceholder) || ctx.t(`search`)
-  const state: SelectState = { part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry, ariaLabel, byPointer, bare, loading, skeleton, searchPlaceholder, props: () => props.props }
+  const state: SelectState = { ValueIcon, part, id, listId, multiple, searchable, placeholder, options, value, commit, open, setOpen, query, setQuery, disabled, setTrigger, trigger, source, localFilter: () => !optionsBound() && !source(), field: f, rowLabel, spacer, End, describedBy, setValueEl, valueEl, chevronSlot, inButton, geometry, ariaLabel, byPointer, bare, loading, skeleton, searchPlaceholder, props: () => props.props }
   return (
     <div {...props.rootProps} data-source={source() || undefined}>
       <Show when={!row() && !pill()}>
@@ -311,6 +324,7 @@ function PlainSelect(props: { s: SelectState; name: string; emptyText: string })
         {s.rowLabel()}
         {s.spacer()}
         <s.End>
+          <s.ValueIcon />
           <span ref={s.setValueEl}>
             {chosen() ? <span {...part.with(`value`, { disabled: s.disabled() }, s.inButton())} style={css({ pointerEvents: `none` })}>{str(chosen()!.label)}</span> : <span {...part.with(`placeholder`, { disabled: s.disabled() }, s.inButton())}>{s.placeholder()}</span>}
           </span>
@@ -409,6 +423,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     onPlaced: () => {
@@ -507,8 +522,13 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                     if (e.key === ` `) e.preventDefault()
                   }}
                 >
-                  {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  {trailingText(o) ? (
+                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {str(o.description) ? (
+                    <span {...part(`itemText`)}>
+                      <span {...part(`itemLabel`)}><span id={textId}>{str(o.label)}</span>{trailingText(o)}</span>
+                      <span {...part(`itemDescription`)}>{str(o.description)}</span>
+                    </span>
+                  ) : trailingText(o) ? (
                     <span>
                       <span id={textId}>{str(o.label)}</span>
                       {trailingText(o)}
@@ -621,6 +641,7 @@ function Combobox(props: { s: SelectState; emptyText: string }): JSX.Element {
         {s.rowLabel()}
         {s.spacer()}
         <s.End>
+          <s.ValueIcon />
           <span ref={s.setValueEl}>{chosen().length ? <span {...part.with(`value`, { disabled: s.disabled() }, s.inButton())}>{chosen().map((o) => str(o.label)).join(`, `)}</span> : <span {...part.with(`placeholder`, { disabled: s.disabled() }, s.inButton())}>{s.placeholder()}</span>}</span>
           <BuiltinIcon slot={s.chevronSlot()} part={part(`chevron`, s.inButton())} />
         </s.End>
@@ -670,6 +691,7 @@ function ComboboxContent(props: {
     anchor: () => (geometry.anchorValue ? (s.valueEl() ?? s.trigger()) : s.trigger()),
     sideOffset: geometry.sideOffset,
     alignOffset: geometry.alignOffset,
+    inset: geometry.inset,
     align: geometry.align,
     collisionPadding: geometry.collisionPadding,
     dir: () => undefined,
@@ -765,14 +787,21 @@ function ComboboxContent(props: {
                   aria-selected={isSel()}
                   aria-disabled={bool(o.disabled) || undefined}
                   data-active={isActive() ? `` : undefined}
-                  {...part(`item`, isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
+                  {...part.with(`item`, selectItemJoins(s.multiple(), props.shown().length, (j) => props.selected().includes(props.shown()[j]!.value), i()), isSel() && `selected`, bool(o.disabled) && `disabled`, isActive() && `hover`)}
                   data-mono={bool(o.mono) ? `` : undefined}
                   onPointerMove={() => props.nav.setActive(i())}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => props.pick(i())}
                 >
-                  {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} /> : null}
-                  <span>{str(o.label)}{trailingText(o)}</span>
+                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {str(o.description) ? (
+                    <span {...part(`itemText`)}>
+                      <span {...part(`itemLabel`)}>{str(o.label)}{trailingText(o)}</span>
+                      <span {...part(`itemDescription`)}>{str(o.description)}</span>
+                    </span>
+                  ) : (
+                    <span>{str(o.label)}{trailingText(o)}</span>
+                  )}
                   <TrailingRun o={o} />
                   {isSel() ? (
                     <span {...part(`check`)} class={`${part(`check`).class as string} xui-Select-check`}>

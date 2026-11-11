@@ -99,7 +99,7 @@ const IGNORED: RegExp[] = [
   // the embedded fonts and runs `theme::init`, so a change there can move every
   // pixel, and it keeps widening the lane.
   /^apps\/desktop\/crates\/ui\/src\/(lib|window_hooks)\.rs$/,
-  // The CLI is gpui-free by construction; the styleguide site READS the store.
+  // The CLI is gpui-free by construction; the site READS the store.
   /^apps\/desktop\/crates\/cli\//,
   // Spikes (`spikes/talk`, NEW-52) are scratch crates outside the cargo
   // workspace: measurement harnesses the app never links, so one must never
@@ -127,7 +127,7 @@ const IGNORED: RegExp[] = [
   // emulator by exact version), so a deliberate UI-affecting bump always edits
   // the manifest too — and that still widens. A lockfile-only churn does not.
   /^apps\/desktop\/Cargo\.lock$/,
-  /^apps\/(site|push-relay|steer-relay|styleguide)\//,
+  /^apps\/(site|push-relay|steer-relay)\//,
   // Generated drizzle output: migration DDL and its meta snapshots (EXP-664).
   // The schema change it comes from arrives separately via
   // `packages/db-schema/src/schema.ts`, which stays a shared-package widen.

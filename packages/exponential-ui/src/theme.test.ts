@@ -65,7 +65,7 @@ describe(`recipe contract`, () => {
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
-    expect(Object.keys(parts).length).toBe(104) // #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
+    expect(Object.keys(parts).length).toBe(106) // #EXP-1760: + IconPicker, ColorPicker; #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
     expect(parts.CodeBlock.props).toContain(`kind`)
@@ -277,6 +277,25 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     for (const id of [`neutral`, `playful`])
       for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.ghostHover).toBe(builtinTheme(id).modes[mode].color.accent)
     expect(builtinTheme(`orange`).modes.dark.color.ghostHover).toBe(`#ffffff0e`)
+  })
+
+  test(`#EXP-1760 popoverRing: gpui-component's popover surface in exponential, popover elsewhere`, () => {
+    const ring = builtinTheme(`exponential`).modes.dark.shadow.popoverRing!
+    expect(ring[0]).toEqual({ x: 0, y: 0, blur: 0, spread: 1, color: `#fafafa1a` })
+    expect(ring).toHaveLength(3)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
+  })
+
+  test(`strokeActive: the glass active stroke in exponential, ring elsewhere; a focused box Input takes it`, () => {
+    const exp = builtinTheme(`exponential`)
+    expect(exp.modes.dark.color.strokeActive).toBe(`#ffffff29`)
+    expect(exp.modes.light.color.strokeActive).toBe(exp.modes.light.color.ring)
+    for (const id of [`neutral`, `playful`])
+      for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].color.strokeActive).toBe(builtinTheme(id).modes[mode].color.ring)
+    const field = (states: string[]) => resolveRecipe(exp, { component: `Input`, part: `field`, props: { variant: `box` }, states }, `dark`)
+    expect(field([]).borderColor).toBe(`#ffffff1a`)
+    expect(field([`focus`]).borderColor).toBe(`#ffffff29`)
   })
 
   test(`the exponential MessageBubble is the IDE's message_bubble`, () => {

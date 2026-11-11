@@ -194,13 +194,18 @@ impl Ink {
     /// and the row's tail bar (8 px, radius 4), every block a pulsing
     /// `Skeleton` in `fill` (`feedback::skeleton_fill`: muted at 18%).
     pub(super) fn skeleton_rows(&self, id: &str, fill: &str, visible: Value) -> Value {
+        self.skeleton_rows_at(id, fill, super::SETTINGS_ROW_H, visible)
+    }
+
+    /// [`Ink::skeleton_rows`] at another row height (a dense list's own).
+    pub(super) fn skeleton_rows_at(&self, id: &str, fill: &str, row_h: f32, visible: Value) -> Value {
         const TAILS: [f32; 3] = [200., 150., 240.];
         let block = |id: String, width: f32, height: f32, radius: f32| json!({"id": id, "component": "Skeleton", "props": {"width": width.to_string(), "height": height.to_string()},
             "style": {"width": width, "height": height, "flexShrink": 0, "borderRadius": radius, "backgroundColor": fill}});
         let rows: Vec<Value> = (0..crate::feedback::SKELETON_ROWS)
             .map(|ix| {
                 let row = format!("{id}_{ix}");
-                json!({"id": row, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "height": super::SETTINGS_ROW_H, "flexShrink": 0, "gap": self.r(0.5), "paddingHorizontal": self.r(0.75)},
+                json!({"id": row, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "height": row_h, "flexShrink": 0, "gap": self.r(0.5), "paddingHorizontal": self.r(0.75)},
                     "children": [block(format!("{row}_dot"), 12., 12., 6.), block(format!("{row}_lead"), 72., 8., 4.), block(format!("{row}_tail"), TAILS[ix % TAILS.len()], 8., 4.)]})
             })
             .collect();
@@ -398,10 +403,10 @@ impl Ink {
 
 /// The issues a settings document must not raise: the documents write the
 /// IDE's chrome as literal colours ([`Ink`]: the core reports each one, a
-/// node style wants `$color.<name>`, and paints it), and a style value bound
-/// to the pane's data (a meter's `width`) resolves at bind time like a
-/// macro's (#EXP-1767: the author-side check refuses it). Anything else is a
-/// real mistake.
+/// node style wants `$color.<name>`, and paints it), and a style value or a
+/// prop bound to the pane's data (a meter's `width`, a reader's field
+/// `disabled`) resolves at bind time like a macro's (#EXP-1767: the
+/// author-side check refuses it). Anything else is a real mistake.
 #[cfg(any(test, debug_assertions))]
 pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, String)>, issues: &[eui_core::ReduceIssue]) -> Vec<eui_core::ReduceIssue> {
     issues
@@ -412,16 +417,25 @@ pub(super) fn unexpected_issues(bound: &std::collections::HashSet<(String, Strin
         .collect()
 }
 
-/// The `(node id, "/components/<id>/style/<key>")` of every style value in `tree` that is a
-/// binding (`{"@path"}` / `{"@call"}`), for the mount's debug check.
+/// The `(node id, "/components/<id>/[style/]<key>")` of every style value
+/// and prop in `tree` that is a binding (`{"@path"}` / `{"@call"}`), for the
+/// mount's debug check.
 #[cfg(any(test, debug_assertions))]
-pub(super) fn bound_styles(tree: &Value) -> std::collections::HashSet<(String, String)> {
+pub(super) fn bound_values(tree: &Value) -> std::collections::HashSet<(String, String)> {
     fn walk(node: &Value, out: &mut std::collections::HashSet<(String, String)>) {
         let Some(map) = node.as_object() else { return };
-        if let (Some(id), Some(style)) = (map.get("id").and_then(Value::as_str), map.get("style").and_then(Value::as_object)) {
-            for (key, value) in style {
-                if value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call")) {
+        let bound = |value: &Value| value.as_object().is_some_and(|v| v.contains_key("@path") || v.contains_key("@call"));
+        if let Some(id) = map.get("id").and_then(Value::as_str) {
+            for (key, value) in map.get("style").and_then(Value::as_object).into_iter().flatten() {
+                if bound(value) {
                     out.insert((id.to_string(), format!("/components/{id}/style/{key}")));
+                }
+            }
+            // A prop bound to the pane's state (a field's `disabled` for a
+            // reader) resolves at bind time like a style value.
+            for (key, value) in map.get("props").and_then(Value::as_object).into_iter().flatten() {
+                if bound(value) {
+                    out.insert((id.to_string(), format!("/components/{id}/{key}")));
                 }
             }
         }
@@ -465,7 +479,7 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
         ..Default::default()
     };
     #[cfg(debug_assertions)]
-    let bound = bound_styles(&tree);
+    let bound = bound_values(&tree);
     let tree: eui_core::NestedNode = serde_json::from_value(tree).expect("a settings document parses");
     let view = cx.new(|cx| {
         let mut view = eui_gpui::view::SurfaceView::new(options, window, cx);
@@ -482,4 +496,32 @@ pub(super) fn mount_with<S: 'static>(surface_id: &str, tree: Value, binding: &gp
     });
     binding.update(cx, |binding, cx| binding.attach(&view, cx));
     view
+}
+
+/// Frames a [`focus_input`] waits for its field to appear.
+const FOCUS_FRAMES: u8 = 6;
+
+/// Focus the text field of the `Input` / `Textarea` with id `input_id`
+/// once the document has made it: the field is that node's `<id>.field`
+/// part, and it exists only after the paint that first shows it, so the
+/// focus is retried on the next few frames (never forever).
+pub(crate) fn focus_input(view: gpui::Entity<eui_gpui::view::SurfaceView>, input_id: &str, window: &mut gpui::Window, cx: &mut App) {
+    focus_retry(view, format!("{input_id}.field"), FOCUS_FRAMES, window, cx);
+}
+
+fn focus_retry(view: gpui::Entity<eui_gpui::view::SurfaceView>, field: String, frames: u8, window: &mut gpui::Window, _cx: &mut App) {
+    window.on_next_frame(move |window, cx| {
+        if view.update(cx, |view, cx| view.focus_field(&field, window, cx)) {
+            return;
+        }
+        if frames > 1 {
+            focus_retry(view, field, frames - 1, window, cx);
+            window.refresh();
+        } else {
+            // A wrong id (the Input's own, not its `.field` part) never
+            // draws: loud in debug builds, a log line in release.
+            debug_assert!(false, "no field `{field}` to focus");
+            log::warn!("[ui] no field `{field}` to focus");
+        }
+    });
 }

@@ -116,7 +116,7 @@ interface IconRegistry {
   devicePickable: string[]
   semantic: Record<string, string>
   custom?: Record<string, unknown>
-  imported?: Record<string, unknown>
+  imported?: Record<string, { fill?: string }>
 }
 
 /** Every name the Icon prop accepts: the concept ids plus every registry
@@ -131,6 +131,16 @@ export function iconNames(): string[] {
   for (const name of Object.keys(registry.custom ?? {})) names.add(name)
   for (const name of Object.keys(registry.imported ?? {})) names.add(name)
   return [...names].sort()
+}
+
+/** #EXP-1764: the icons with their OWN colour (icons.json `imported[].fill`,
+ *  `brand-claude` = Anthropic's orange): every renderer paints them in it,
+ *  never in the text colour. Sorted by name. */
+export function iconFills(): [string, string][] {
+  const registry = JSON.parse(readFileSync(join(repoRoot, `packages/icons/icons.json`), `utf8`)) as IconRegistry
+  return Object.entries(registry.imported ?? {})
+    .flatMap(([name, entry]) => (entry.fill ? [[name, entry.fill] as [string, string]] : []))
+    .sort(([a], [b]) => a.localeCompare(b))
 }
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
@@ -283,6 +293,9 @@ export const STYLE_STATE_NAMES = ${JSON.stringify(STYLE_STATES)} as const
 /** The Icon prop's vocabulary: packages/icons/icons.json at generate time. */
 export const ICON_NAMES = ${JSON.stringify(icons)} as const
 
+/** #EXP-1764: the icons painted in their OWN colour (\`#RRGGBB\`), never the text colour. */
+export const ICON_FILLS: Record<string, string> = ${JSON.stringify(Object.fromEntries(iconFills()))}
+
 export const FUNCTION_NAMES = ${JSON.stringify(coreCatalog.functions.names)} as const
 
 /** VAPP-108: the typed authoring surface (src/define.ts). A ~ prop also
@@ -341,6 +354,8 @@ const rows = {
   codeLanguageNames: [...CODE_LANGUAGE_NAMES],
   builtinIconSlots: Object.keys(builtinIcons()),
   builtinIconNames: Object.values(builtinIcons()),
+  iconFillNames: iconFills().map(([name]) => name),
+  iconFillColors: iconFills().map(([, fill]) => fill),
   weekStartRegions: Object.values(localeJson.weekStart.regions).flat(),
   weekStartDays: Object.entries(localeJson.weekStart.regions).flatMap(([day, regions]) => regions.map(() => day)),
   likelyRegionLanguages: Object.keys(localeJson.likelyRegion),
@@ -551,10 +566,15 @@ function childFor(name: string): NestedNode {
   return { id: `${snake(name)}_child`, component: `Text`, props: { text: `Child` } }
 }
 
+/** Macros whose child switches the look (a ColorPicker's child = its own
+ *  trigger): the sweep keeps them childless and ONE `<name>/child` case
+ *  shows the child. */
+const CHILD_SWITCHES = new Set([`ColorPicker`])
+
 function makeCase(name: string, def: ComponentDef, suffix: string, props: Record<string, unknown>): ComponentCase {
   const node: NestedNode = { id: snake(name), component: name, props }
   // #VAPP-284: children make a Row a foldable parent; the sweep keeps the plain row (foldCases cover the parent).
-  if (def.children !== `none` && name !== `Row`) node.children = [childFor(name)]
+  if (def.children !== `none` && name !== `Row` && !CHILD_SWITCHES.has(name)) node.children = [childFor(name)]
   return { name: `${name}/${suffix}`, node }
 }
 
@@ -722,6 +742,7 @@ function componentCases(): ComponentCase[] {
       }
     }
     for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: snake(name), component: name, props: { ...base, ...props } } })
+    if (CHILD_SWITCHES.has(name)) cases.push({ name: `${name}/child`, node: { id: snake(name), component: name, props: base, children: [childFor(name)] } })
   }
   return cases
 }
@@ -878,6 +899,21 @@ function treeCases(): ComponentCase[] {
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-1760: the identity pickers of boards, agents and labels: a pick
+  // (tinted), none (the dashed placeholder) and the open grid of the board
+  // set (with No icon) / the label palette, in a box tall enough for it.
+  IconPicker: [
+    { label: `value · color`, node: { id: `icon`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6` } } },
+    { label: `empty`, node: { id: `icon-none`, component: `IconPicker`, props: {} } },
+  ],
+  ColorPicker: [
+    { label: `value`, node: { id: `color`, component: `ColorPicker`, props: { value: `#3b82f6` } } },
+    { label: `empty`, node: { id: `color-none`, component: `ColorPicker`, props: {} } },
+    // The IDE's Statuses / Labels: a status glyph as the trigger (a ghost
+    // button around the child) and the create form's inline grid.
+    { label: `child · a status glyph`, node: { id: `color-glyph`, component: `ColorPicker`, props: { value: `#22c55e` }, children: [{ id: `color-glyph-icon`, component: `Icon`, props: { name: `circle-dashed`, size: `sm` } }] } },
+    { label: `inline`, node: { id: `color-inline`, component: `ColorPicker`, props: { value: `#22c55e`, inline: true } } },
+  ],
   // #VAPP-285: a repository: folders open and closed, a selected file, an
   // empty folder; then a lazy folder opened (its loading row).
   Tree: [
@@ -971,6 +1007,24 @@ const AVATAR_PICTURE = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACA
  *  centred under their icons), a label-less search field (the placeholder
  *  centred in the box). */
 const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
+  // #EXP-1760: the open grids, in a box tall enough for them (an extra:
+  // the wrapper keeps its own child).
+  IconPicker: [
+    { label: `open · the board set, allowNone`, node: { id: `icon-open-box`, component: `Box`, style: { height: 400 }, children: [{ id: `icon-open`, component: `IconPicker`, props: { value: `rocket`, color: `#3b82f6`, allowNone: true, open: true } }] } },
+  ],
+  ColorPicker: [
+    { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 180 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
+  ],
+  // #EXP-1629: a status picker's rows: each glyph in its own tint
+  // (`iconColor`), the chosen one checked.
+  Menu: [
+    { label: `items · icon + iconColor`, node: { id: `status_menu`, component: `Menu`, props: { align: `end`, items: [
+      { label: `Backlog`, value: `backlog`, kind: `checkbox`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+      { label: `In Progress`, value: `in_progress`, kind: `checkbox`, icon: `status-in-progress`, iconColor: `$color.warning`, checked: true },
+      { label: `Done`, value: `done`, kind: `checkbox`, icon: `status-done`, iconColor: `$color.success` },
+      { label: `Cancelled`, value: `cancelled`, kind: `checkbox`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+    ] }, children: [{ id: `status_trigger`, component: `Button`, props: { label: `In Progress`, icon: `status-in-progress`, variant: `outline` } }] } },
+  ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.
@@ -991,6 +1045,40 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       slots: {
         leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
         trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }, {
+    // #EXP-1762: THE session composer, flat: "+" left, the field growing
+    // upward, the context Ring + send right, all on one bottom-aligned row.
+    label: `layout · flat`,
+    node: {
+      id: `flat`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        leading: { id: `flat_options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `flat_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `flat_context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }, {
+    // #EXP-1762: the IDE's attachment strip INSIDE the card, over the field
+    // (a wrapping row of chips); it sizes the composer.
+    label: `slots · above`,
+    node: {
+      id: `above`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        above: {
+          id: `above_strip`,
+          component: `Stack`,
+          props: { direction: `horizontal`, wrap: true, gap: `xs` },
+          children: [
+            { id: `above_file`, component: `Chip`, props: { label: `screenshot.png`, icon: `ui-attach`, removable: true } },
+            { id: `above_team`, component: `Chip`, props: { label: `Design`, removable: true } },
+          ],
+        },
+        leading: { id: `above_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } },
       },
     },
   }],
@@ -1051,6 +1139,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       ],
     },
   }, {
+    // #EXP-1764: the IDE's Account row: the chosen login's agent mark
+    // (`brand-claude` in its own orange) before the email (`triggerIcon`).
+    label: `triggerVariant · row + triggerIcon`,
+    node: {
+      id: `agent_prefs`,
+      component: `Group`,
+      children: [
+        { id: `account`, component: `Select`, props: { label: `Account`, name: `account`, triggerVariant: `row`, triggerIcon: true, value: `claude`, options: [{ label: `ada@example.com`, value: `claude`, icon: `brand-claude` }, { label: `ada@example.org`, value: `codex`, icon: `brand-codex` }] } },
+      ],
+    },
+  }, {
     // #EXP-1765: the IDE's per-repository branch picker: a `pill` holding
     // the branch in mono; the popup searches ("Search branches..."), lists
     // the branches in mono with the repo default's muted `default`, and
@@ -1064,6 +1163,28 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `repo_branch`, component: `Select`, props: { label: `Default branch`, name: `repoBranch`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `main`, options: [{ label: `main`, value: `main`, mono: true, trailing: `default` }, { label: `develop`, value: `develop`, mono: true }] }, on: { open: { event: { name: `loadBranches` } } } },
         { id: `repo_branch_loading`, component: `Select`, props: { label: `Default branch (loading)`, name: `repoBranchLoading`, triggerVariant: `pill`, searchable: true, searchPlaceholder: `Search branches...`, value: `develop`, loading: true, options: [{ label: `develop`, value: `develop`, mono: true }] } },
         { id: `repo_branch_busy`, component: `Select`, props: { label: `Default branch (busy)`, name: `repoBranchBusy`, triggerVariant: `pill`, value: `release/2026-11`, disabled: true, options: [{ label: `release/2026-11`, value: `release/2026-11`, mono: true }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: the IDE's device picker: each option's glyph, an offline
+    // one's muted `description`; the popup fits its options, at least 170.
+    label: `triggerVariant · row + option icon, description`,
+    node: {
+      id: `agent_prefs`,
+      component: `Group`,
+      children: [
+        { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: the IDE's skills multi picker: two adjacent picks of three,
+    // one bordered block in the open popup (`joinTop` / `joinBottom`).
+    label: `multiple · searchable · row + option icon, description`,
+    node: {
+      id: `agent_skills`,
+      component: `Group`,
+      children: [
+        { id: `skills`, component: `Select`, props: { label: `Skills`, name: `skills`, triggerVariant: `row`, multiple: true, searchable: true, value: `deploy,review`, options: [{ label: `deploy`, value: `deploy`, icon: `ui-docs`, description: `Ship a build to staging` }, { label: `review`, value: `review`, icon: `ui-docs`, description: `Review the open pull request` }, { label: `triage`, value: `triage`, icon: `ui-docs`, description: `Sort the inbox by priority` }] } },
       ],
     },
   }],
@@ -1147,6 +1268,24 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         },
         { id: `start_menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
         { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
+      ],
+    },
+  }, {
+    // `matchAnchorWidth`: the IDE's `/` typeahead floats above the composer
+    // card at the card's full width (anchor = the card, top-start).
+    label: `matchAnchorWidth`,
+    node: {
+      id: `chat`,
+      component: `Box`,
+      style: { position: `relative`, width: `100%`, height: 260, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      children: [
+        {
+          id: `composer_card`,
+          component: `Box`,
+          style: { position: `absolute`, left: 16, right: 16, bottom: 16, height: 72, padding: `$spacing.md`, borderRadius: `$radius.lg`, borderWidth: `$border.hairline`, borderColor: `$color.border`, backgroundColor: `$color.card` },
+          children: [text(`draft`, `/rev`)],
+        },
+        { id: `commands`, component: `Popover`, props: { anchor: `composer_card`, side: `top`, align: `start`, matchAnchorWidth: true, open: true }, children: [text(`review`, `/review`), text(`revert`, `/revert`)] },
       ],
     },
   }],
