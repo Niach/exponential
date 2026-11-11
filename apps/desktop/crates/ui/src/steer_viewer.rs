@@ -2792,6 +2792,15 @@ impl SteerSessionView {
     /// Conversation card, or an engine ask's feed card by its row): its
     /// list row scrolled to the centre and the card ringed.
     pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
+        if !self.try_reveal_card(message_id, cx) {
+            crate::waiting_cards::highlight(message_id, cx);
+        }
+    }
+
+    /// [`Self::reveal_card`] only when the card's row is in the list yet
+    /// (#EXP-1785: a session just opened in place replays its feed first);
+    /// `false` = not there, nothing done.
+    pub(crate) fn try_reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) -> bool {
         let items = self.feed.items();
         let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
             self.rows
@@ -2812,15 +2821,12 @@ impl SteerSessionView {
                 })
             }
         };
-        match ix {
-            Some(ix) => {
-                // #EDE-65 lane O: the document centres the row.
-                self.chat.reveal(ix, "center");
-                cx.notify();
-                crate::waiting_cards::highlight(message_id, cx);
-            }
-            None => crate::waiting_cards::highlight(message_id, cx),
-        }
+        let Some(ix) = ix else { return false };
+        // #EDE-65 lane O: the document centres the row.
+        self.chat.reveal(ix, "center");
+        cx.notify();
+        crate::waiting_cards::highlight(message_id, cx);
+        true
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -5415,7 +5421,32 @@ impl SteerSessionView {
                         .into_any_element(),
                 ])
             };
-            return div().flex_1().min_h_0().child(body).into_any_element();
+            // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no
+            // transcript to hold the cards; the session's WAITING ones draw
+            // under it, so a header chip or a Needs-you row reaches a card.
+            let waiting: Vec<usize> = self
+                .conv_cards
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| {
+                    matches!(
+                        row,
+                        domain::session_tree::SessionChatRow::Plan { decision: None, .. }
+                            | domain::session_tree::SessionChatRow::Question { answered: false, .. }
+                    )
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if waiting.is_empty() {
+                return div().flex_1().min_h_0().child(body).into_any_element();
+            }
+            let cards = self.render_conversation_cards(&waiting, window, cx);
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(div().flex_1().min_h_0().child(body))
+                .child(div().w_full().flex_shrink_0().px_4().pb_2().child(cards))
+                .into_any_element();
         }
 
         crate::dev_ready::note_feed_painted();

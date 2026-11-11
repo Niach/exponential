@@ -1541,29 +1541,29 @@
         "file": "shots/chat-screen/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 77950,
-        "sha256": "bf70332a4d3ec818b1f9fae136caf2c36fc4544340fea5f2faba32b8d3cd8027"
+        "bytes": 88402,
+        "sha256": "a9afd7d43010da104f0606391a0a8af2c60ec7705a93125c9c1050a959ca89e4"
       },
       "ios": {
         "file": "shots/chat-screen/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 73652,
-        "sha256": "d0eefd59fc9392d294f9f3731638ab14b1cec5b0af897369767c249b12fcc0f3"
+        "bytes": 72982,
+        "sha256": "01860580279dcd4596ac34c7be4b8b8d8909284d1058cce38855112602a8e248"
       },
       "web": {
         "file": "shots/chat-screen/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 77070,
-        "sha256": "8811af3c6ece4f32c7811b7f14915d104c338105721a0427fcf7def4a8c8dd6f"
+        "bytes": 60744,
+        "sha256": "eaed66d7f896bcfad688b741442dc841d505b2ff112d4975769e17b981acb1ef"
       },
       "web-mobile": {
         "file": "shots/chat-screen/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 72846,
-        "sha256": "30a1a183727a4707de5151032bc9384dd957418effc56e1cb6aac685af2350bc"
+        "bytes": 46518,
+        "sha256": "77aa2ee33f27ae0f71dc307ed94efb7b4b951c076767a93bef4f3fe129ce4421"
       }
     },
     "chat-selection": {

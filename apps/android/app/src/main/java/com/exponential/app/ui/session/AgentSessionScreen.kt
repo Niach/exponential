@@ -1065,6 +1065,29 @@ private fun RunFaceContent(
         }
     }
     val bodyPlaceholder = feedPlaceholder
+    val renderSessionCard: @Composable (SessionTree.SessionChatRow) -> Unit = { row ->
+        when (row) {
+            is SessionTree.SessionChatRow.Surface -> SurfaceCard(
+                row = row,
+                animate = false,
+                onReply = { text -> viewModel.sendCommand(text) },
+            )
+            else -> androidx.compose.runtime.CompositionLocalProvider(
+                LocalCardDismiss provides dismissToolCard,
+            ) {
+                ChatAskCard(row, answerToolCard, decideToolPlan)
+            }
+        }
+    }
+    // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
+    // to hold the cards; the session's WAITING ones draw under it, so a header
+    // chip or a Needs-you row always reaches an answerable card.
+    val waitingCardRows = remember(sessionCards) {
+        sessionCards.map { it.second }.filter { row ->
+            (row is SessionTree.SessionChatRow.Plan && row.decision == null) ||
+                (row is SessionTree.SessionChatRow.Question && !row.answered)
+        }
+    }
     Box(
         modifier = Modifier
             .padding(
@@ -1142,6 +1165,11 @@ private fun RunFaceContent(
                         .weight(1f),
                 ) {
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
+                    if (waitingCardRows.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                            for (card in waitingCardRows) SessionCardRow(card, renderSessionCard)
+                        }
+                    }
                     // #EXP-1732: the host's rows under the empty-feed placeholder.
                     LocalFeedFooter.current?.invoke()
                 }
@@ -1210,20 +1238,7 @@ private fun RunFaceContent(
                         }
                     },
                     sessionCards = cardSlots,
-                    renderCard = { row ->
-                        when (row) {
-                            is SessionTree.SessionChatRow.Surface -> SurfaceCard(
-                                row = row,
-                                animate = false,
-                                onReply = { text -> viewModel.sendCommand(text) },
-                            )
-                            else -> androidx.compose.runtime.CompositionLocalProvider(
-                                LocalCardDismiss provides dismissToolCard,
-                            ) {
-                                ChatAskCard(row, answerToolCard, decideToolPlan)
-                            }
-                        }
-                    },
+                    renderCard = renderSessionCard,
                 )
             }
         }

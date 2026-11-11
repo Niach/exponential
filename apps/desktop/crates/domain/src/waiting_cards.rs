@@ -93,11 +93,15 @@ pub fn card_state(card: &Value, answered_at: Option<&str>) -> Option<CardState> 
 /// One waiting card (a chat's `chat_pending_asks`, the session view's
 /// waiting `session_cards`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WaitingCardInput {
     pub id: String,
     pub kind: AskDockKind,
     /// The plan, or the question's text (markdown).
     pub text: String,
+    /// The asking session (#EXP-1785: `waiting_target`'s input).
+    #[serde(default)]
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,6 +169,37 @@ pub fn waiting_chips(cards: &[WaitingCardInput], phone: bool) -> WaitingChips {
     WaitingChips { layout, count: chips.len(), chips }
 }
 
+/// What a waiting chip's pick opens (#EXP-1785 `waitingTarget`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitingOpen {
+    /// THE plan page as the screen's opened item (any session's plan).
+    Plan,
+    /// The root's question: the Chat tab scrolled to its card + the ring.
+    Card,
+    /// A question under the root: that session opened in place, at its card.
+    Session,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingTarget {
+    pub open: WaitingOpen,
+    pub session_id: String,
+}
+
+/// A waiting chip's pick (`waitingTarget(card, rootId)`): a plan opens the
+/// plan page; the root's question scrolls the Chat tab to its card; a
+/// question under the root opens that session at its card.
+pub fn waiting_target(kind: AskDockKind, session_id: &str, root_id: &str) -> WaitingTarget {
+    let open = match kind {
+        AskDockKind::Plan => WaitingOpen::Plan,
+        AskDockKind::Question if session_id == root_id => WaitingOpen::Card,
+        AskDockKind::Question => WaitingOpen::Session,
+    };
+    WaitingTarget { open, session_id: session_id.to_string() }
+}
+
 /// The phone button's accessible name.
 pub fn waiting_count_label(count: usize) -> String {
     WAITING_CARDS.copy.waiting_count.replace("{count}", &count.to_string())
@@ -199,6 +234,16 @@ mod tests {
         for case in cases("chipCases") {
             let cards: Vec<WaitingCardInput> = serde_json::from_value(case["cards"].clone()).unwrap();
             let got = waiting_chips(&cards, case["phone"].as_bool().unwrap());
+            assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn target_cases() {
+        for case in cases("targetCases") {
+            let card = &case["card"];
+            let kind: AskDockKind = serde_json::from_value(card["kind"].clone()).unwrap();
+            let got = waiting_target(kind, card["sessionId"].as_str().unwrap(), case["rootId"].as_str().unwrap());
             assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
         }
     }

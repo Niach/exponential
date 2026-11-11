@@ -105,6 +105,10 @@ fun ChatHeader(
     /** #EXP-1732: right after the title on its line (an app's version
      *  pill, web/iOS/desktop alike); the title truncates first. */
     titleTrailing: (@Composable () -> Unit)? = null,
+    /** #EXP-1785 (waiting-cards.json `button`): the tree's waiting button,
+     *  at the START of the trailing slot (before the Merge pill, the gear
+     *  and `…`); null = nothing waits. */
+    waiting: (@Composable () -> Unit)? = null,
 ) {
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("chat-header")) {
@@ -156,6 +160,10 @@ fun ChatHeader(
                             modifier = Modifier.testTag("chat-subtitle"),
                         )
                     }
+                }
+                if (waiting != null) {
+                    Spacer(Modifier.width(gap))
+                    waiting()
                 }
                 // Draws its own leading gap (nothing while there is no action).
                 action?.invoke()
