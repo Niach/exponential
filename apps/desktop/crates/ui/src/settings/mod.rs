@@ -57,7 +57,7 @@ pub(crate) mod app_detail;
 pub(crate) mod app_mcp;
 pub(crate) mod new_agent;
 pub(crate) mod agents;
-mod agents_index;
+pub(crate) mod agents_index;
 pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
@@ -783,7 +783,7 @@ impl SettingsView {
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), window, cx));
-        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
+        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
         let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));

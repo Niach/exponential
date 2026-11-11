@@ -892,7 +892,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 16)
+        XCTAssertEqual(cases.count, 18)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"
@@ -913,7 +913,24 @@ final class Round1ModelTests: XCTestCase {
             let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
             // #EXP-1762: `above` sits inside the card at its content top, the
             // content's full width (the same inset either side), over the row.
-            if slots["above"] != nil {
+            let hidden = c["hiddenAbove"]
+            if let hidden {
+                // #EDE-65: a hidden child = the slot absent (the core lays
+                // nothing out for it); shown it grows the composer, hidden
+                // again it is back.
+                XCTAssertNil(frame("c.above"), "\(name): a hidden above lays nothing out")
+                XCTAssertNil(frame("strip"), "\(name): a hidden above lays nothing out")
+                let path = "/\(hidden["path"]?.string ?? "")"
+                m.setData(path: path, value: hidden["value"] ?? .bool(true))
+                let grown = try XCTUnwrap(frame("c"), "\(name): composer")
+                let above = try XCTUnwrap(frame("c.above"), "\(name): shown above laid out")
+                XCTAssertGreaterThan(above.height, 0, "\(name): the shown above has a height")
+                XCTAssertGreaterThan(grown.height, cf.height + above.height, "\(name): grows by its height + the gap")
+                m.setData(path: path, value: .bool(false))
+                let back = try XCTUnwrap(frame("c"), "\(name): composer")
+                XCTAssertEqual(back.height, cf.height, accuracy: 0.01, "\(name): hidden again")
+                XCTAssertNil(frame("c.above"), "\(name): hidden again")
+            } else if slots["above"] != nil {
                 let above = try XCTUnwrap(frame("c.above"), "\(name): above laid out")
                 let strip = try XCTUnwrap(frame("strip"), "\(name): the above child")
                 let inset = above.minX - cf.minX

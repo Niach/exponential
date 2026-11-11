@@ -782,6 +782,7 @@ interface ComposerSlotsCase {
   order: string[]
   data?: Record<string, unknown>
   field?: { rows: number; grown: boolean }
+  hiddenAbove?: { path: string; value: unknown; stack: string[] }
   steps: { press: string }[]
   events: { name: string; context: Record<string, unknown> }[]
 }
@@ -805,8 +806,11 @@ function composerRowOrder(root: ParentNode): string[] {
   })
 }
 
-function NestedSurface({ tree, host, data }: { tree: NestedNode; host: Record<string, unknown>; data?: Record<string, unknown> }) {
+function NestedSurface({ tree, host, data, onState }: { tree: NestedNode; host: Record<string, unknown>; data?: Record<string, unknown>; onState?: (s: SurfaceState) => void }) {
   const surface = useSurface({ surfaceId: `cs`, data: data ?? {}, initial: tree })
+  useEffect(() => {
+    onState?.(surface)
+  })
   return <ExponentialSurface surface={surface} theme="neutral" id="cs" host={host} />
 }
 
@@ -844,7 +848,8 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       const actions: SurfaceActionEvent[] = []
       const composer = { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
       const root = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
-      const { container } = render(<NestedSurface tree={root} data={c.data} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
+      let state!: SurfaceState
+      const { container } = render(<NestedSurface tree={root} data={c.data} onState={(s) => (state = s)} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
       expect(composerRowOrder(container)).toEqual(c.order)
       if (c.field) {
         // The field stretches across the row (grown by its min-height, never
@@ -859,6 +864,54 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       if (c.stack) expect(composerStack(container)).toEqual(c.stack)
       for (const s of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${s.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      // #EDE-65: a hidden `above` is the slot absent (no wrapper, so no gap);
+      // shown it is the slot, hidden again it is gone.
+      if (c.hiddenAbove) {
+        const host = container.querySelector(`[data-xui-id="c"]`)!
+        const { path, value, stack } = c.hiddenAbove
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+        expect(host.querySelector(`.xui-composer-above`)).toBeNull()
+        act(() => state.setData(`/${path}`, value))
+        expect(composerStack(container)).toEqual(stack)
+        expect(host.getAttribute(`data-above`)).toBe(`true`)
+        expect(container.querySelector(`[data-xui-id="strip"]`)).not.toBeNull()
+        act(() => state.setData(`/${path}`, false))
+        expect(composerStack(container)).toEqual(c.stack)
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+      }
+    })
+  }
+})
+
+// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+describe(`Composer sendIcon`, () => {
+  for (const [theme, layout, size] of [[`neutral`, `flat`, `16px`], [`neutral`, `stacked`, `16px`], [`exponential`, `flat`, `24px`], [`exponential`, `stacked`, `16px`]] as const) {
+    it(`${theme} ${layout}: the glyph is ${size}`, () => {
+      function Host() {
+        const surface = useSurface({ surfaceId: `si`, data: { draft: `hi` }, initial: { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, layout } } as NestedNode })
+        return <ExponentialSurface surface={surface} theme={theme} id="si" />
+      }
+      const { container } = render(<Host />)
+      const glyph = container.querySelector(`[data-xui-part="Composer/send"] svg`)!
+      expect(glyph.getAttribute(`data-xui-part`)).toBe(`Composer/sendIcon`)
+      expect(cascaded(glyph, `width`)).toBe(size)
+      expect(cascaded(glyph, `height`)).toBe(size)
+    })
+  }
+})
+
+// #EDE-65: a disabled send's dim is the `send` part's `state: disabled` opacity.
+describe(`Composer disabled send`, () => {
+  for (const [theme, layout, opacity] of [[`neutral`, `flat`, 0.5], [`neutral`, `stacked`, 0.5], [`exponential`, `flat`, 0.4], [`exponential`, `stacked`, 0.4]] as const) {
+    it(`${theme} ${layout}: an empty draft dims send to ${opacity}`, () => {
+      function Host() {
+        const surface = useSurface({ surfaceId: `sd`, data: { draft: `` }, initial: { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, layout } } as NestedNode })
+        return <ExponentialSurface surface={surface} theme={theme} id="sd" />
+      }
+      const { container } = render(<Host />)
+      const send = container.querySelector(`[data-xui-part="Composer/send"]`) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      expect(Number(cascaded(send, `opacity`))).toBe(opacity)
     })
   }
 })

@@ -916,7 +916,7 @@ class InteractionTest {
     fun composerSlotCasesSitInTheControlsRow() = runTest {
         val f = Fixtures.json("interactions-round1.json")["composerSlots"]!!
         val cases = f["cases"]?.array.orEmpty()
-        assertEquals(16, cases.size)
+        assertEquals(18, cases.size)
         for (c in cases) {
             val name = c["name"]?.string ?: "?"
             val rtl = c["direction"]?.string == "rtl"
@@ -937,7 +937,23 @@ class InteractionTest {
             val send = m.frame(m.idx("c.sendSpace"))
             // #EXP-1762: `above` sits inside the card at its content top, the
             // content's full width (the same inset either side), over the row.
-            if (slots["above"] != null) {
+            val hidden = c["hiddenAbove"]
+            if (hidden != null) {
+                // #EDE-65: a hidden child = the slot absent (the core lays
+                // nothing out for it); shown it grows the composer, hidden
+                // again it is back.
+                assertNull("$name: a hidden above lays nothing out", m.indexOf("c.above"))
+                assertNull("$name: a hidden above lays nothing out", m.indexOf("strip"))
+                val path = "/${hidden["path"]!!.string}"
+                m.setData(path, hidden["value"]!!)
+                val grown = m.frame(m.idx("c"))
+                val above = m.frame(m.idx("c.above"))
+                assertTrue("$name: the shown above has a height", above.height > 0f)
+                assertTrue("$name: grows by its height + the gap", grown.height > cf.height + above.height)
+                m.setData(path, JsonValue.Bool(false))
+                assertEquals("$name: hidden again", cf.height, m.frame(m.idx("c")).height, 0.01f)
+                assertNull("$name: hidden again", m.indexOf("c.above"))
+            } else if (slots["above"] != null) {
                 val above = m.frame(m.idx("c.above"))
                 val strip = m.frame(m.idx("strip"))
                 val inset = above.left - cf.left

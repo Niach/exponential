@@ -4186,6 +4186,22 @@
           "style": {
             "opacity": "$opacity.disabled"
           }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": 0.5
+          }
+        }
+      ],
+      "sendIcon": [
+        {
+          "style": {
+            "width": 16,
+            "height": 16
+          }
         }
       ]
     },
