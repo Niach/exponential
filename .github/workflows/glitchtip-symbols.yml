@@ -1,0 +1,138 @@
+name: glitchtip-symbols
+
+# #LOGS-1: backfill a release's debug files in GlitchTip when its upload
+# failed. Rebuilds the TAG the way its release did (same runner kind, same
+# checkout path, same profile env), checks every rebuilt binary's GNU
+# build-id against the PUBLISHED asset's and uploads only when all match: a
+# mismatch means symbols no crash would ever use, so the job fails instead.
+# Publishes nothing. The Linux desktop leg needs the runner that built the
+# release (the checkout path is in the debug info): `runner` = its labels.
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: What to backfill
+        type: choice
+        options:
+          - desktop-linux
+          - ede
+      tag:
+        description: The release tag (desktop-v0.14.149, ede-v0.2.18)
+        type: string
+        required: true
+      runner:
+        description: desktop-linux only, the runs-on labels (JSON) of the runner that built the release
+        type: string
+        default: '["self-hosted","exp-linux"]'
+
+jobs:
+  desktop-linux:
+    if: inputs.product == 'desktop-linux'
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep the upload script (the tag may predate it)
+        run: cp .github/scripts/glitchtip-debug-files.sh "$RUNNER_TEMP/"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (as desktop-build.yml)
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
+            librsvg2-bin file wget
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cargo-fetch
+      - name: Build (production, as desktop-build.yml)
+        env:
+          TAG: ${{ inputs.tag }}
+          EXP_UPDATE_PUBKEY: ${{ vars.UPDATE_SIGNING_PUBKEY }}
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+        run: |
+          set -euo pipefail
+          export EXP_DESKTOP_VERSION="${TAG#desktop-v}"
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p app
+      - name: Match the published AppImage's build-id
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern Exponential-production-x86_64.AppImage --clobber
+          chmod +x Exponential-production-x86_64.AppImage
+          rm -rf squashfs-root && ./Exponential-production-x86_64.AppImage --appimage-extract usr/bin/exp-desktop >/dev/null
+          bid() { readelf -n "$1" | sed -n 's/.*Build ID: //p'; }
+          shipped=$(bid squashfs-root/usr/bin/exp-desktop)
+          rebuilt=$(bid "$GITHUB_WORKSPACE/apps/desktop/target/release/exp-desktop")
+          echo "shipped $shipped, rebuilt $rebuilt"
+          [ -n "$shipped" ] && [ "$shipped" = "$rebuilt" ] \
+            || { echo "::error::the rebuild does not match $TAG's AppImage (another runner or toolchain?): nothing uploaded"; exit 1; }
+      - name: Upload to GlitchTip
+        env:
+          GLITCHTIP_STRICT: 1
+          SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: '"$RUNNER_TEMP/glitchtip-debug-files.sh" desktop apps/desktop/target/release/exp-desktop'
+
+  ede:
+    if: inputs.product == 'ede'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep the upload script (the tag may predate it)
+        run: cp .github/scripts/glitchtip-debug-files.sh "$RUNNER_TEMP/"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps (as build-ede.yml)
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
+            libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+      - name: Stage (as build-ede.yml)
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_STRIP: none
+        run: apps/ede/packaging/stage.sh "$RUNNER_TEMP/stage"
+      - name: Split the debug info
+        run: apps/ede/packaging/split-debug.sh "$RUNNER_TEMP/stage" "$RUNNER_TEMP/debug"
+      - name: Match the published .deb's build-ids
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          version="${TAG#ede-v}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "exponential-desktop_${version}-1_amd64.deb" --clobber
+          rm -rf shipped && dpkg-deb -x "exponential-desktop_${version}-1_amd64.deb" shipped
+          bid() { readelf -n "$1" | sed -n 's/.*Build ID: //p'; }
+          bad=0
+          for f in stage/usr/bin/* stage/usr/libexec/xdg-desktop-portal-exponential; do
+            file -b "$f" | grep -q '^ELF' || continue
+            rel="${f#stage/}"
+            a=$(bid "$f"); b=$(bid "shipped/$rel" 2>/dev/null || true)
+            echo "$rel: shipped ${b:-missing}, rebuilt $a"
+            [ -n "$a" ] && [ "$a" = "$b" ] || bad=1
+          done
+          [ "$bad" = 0 ] || { echo "::error::the rebuild does not match $TAG's .deb: nothing uploaded"; exit 1; }
+      - name: Upload to GlitchTip
+        env:
+          GLITCHTIP_STRICT: 1
+          SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: '"$RUNNER_TEMP/glitchtip-debug-files.sh" ede "$RUNNER_TEMP/debug"'
