@@ -5421,7 +5421,32 @@ impl SteerSessionView {
                         .into_any_element(),
                 ])
             };
-            return div().flex_1().min_h_0().child(body).into_any_element();
+            // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no
+            // transcript to hold the cards; the session's WAITING ones draw
+            // under it, so a header chip or a Needs-you row reaches a card.
+            let waiting: Vec<usize> = self
+                .conv_cards
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| {
+                    matches!(
+                        row,
+                        domain::session_tree::SessionChatRow::Plan { decision: None, .. }
+                            | domain::session_tree::SessionChatRow::Question { answered: false, .. }
+                    )
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if waiting.is_empty() {
+                return div().flex_1().min_h_0().child(body).into_any_element();
+            }
+            let cards = self.render_conversation_cards(&waiting, window, cx);
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(div().flex_1().min_h_0().child(body))
+                .child(div().w_full().flex_shrink_0().px_4().pb_2().child(cards))
+                .into_any_element();
         }
 
         crate::dev_ready::note_feed_painted();
