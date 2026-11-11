@@ -392,7 +392,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         session,
         hostDeviceRow,
     ) { row, device ->
-        val agent = row?.cli?.takeIf { it.isNotBlank() } ?: return@combine null
+        val agent = SlashCommands.runAgent((row ?: return@combine null).cli)
         AgentUsagePresentation.parseAccounts(device?.agentAccounts)?.get(agent)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -419,10 +419,10 @@ class AgentSessionViewModel @AssistedInject constructor(
         SessionAccountSwitchState(
             options = SessionAccountSwitch.options(
                 AgentUsagePresentation.parseAccounts(device?.agentAccounts),
-                row.cli,
+                SlashCommands.runAgent(row.cli),
                 row.account,
             ),
-            agent = row.cli,
+            agent = SlashCommands.runAgent(row.cli),
             // A teammate's run is never steerable (EXP-312) and its account is
             // not this user's to change; the machine must be one we may drive.
             mine = userId != null && row.userId == userId,
@@ -501,7 +501,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         accountSwitch,
     ) { row, device, switch ->
         if (row == null || row.isEnded) return@combine null
-        val agent = row.cli?.takeIf { it.isNotBlank() } ?: return@combine null
+        val agent = SlashCommands.runAgent(row.cli)
         val ambient = AgentUsagePresentation.parseUsageMap(device?.agentUsage)?.get(agent)
         val current = switch.options.firstOrNull { it.current } ?: return@combine ambient
         current.usage ?: ambient.takeIf { current.active }
@@ -521,7 +521,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     fun refreshRunUsage() {
         val row = session.value ?: return
-        val agent = row.cli?.takeIf { it.isNotBlank() } ?: return
+        val agent = SlashCommands.runAgent(row.cli)
         val deviceId = row.deviceId.takeIf { it.isNotBlank() } ?: return
         val switch = accountSwitch.value
         if (!switch.mine || !switch.deviceOnline) return
@@ -972,11 +972,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     val slashMatches: StateFlow<List<SlashCommand>> = combine(
         draft,
         session,
-        sessionConfig,
-    ) { text, row, config ->
+    ) { text, row ->
         SlashCommands.matches(
             text,
-            SlashCommands.agentId(row?.cli, config != null),
+            SlashCommands.runAgent(row?.cli),
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -1009,10 +1008,9 @@ class AgentSessionViewModel @AssistedInject constructor(
     val slashCandidates: StateFlow<List<com.exponential.app.domain.SlashCandidate>> = combine(
         draft,
         session,
-        sessionConfig,
         teamPrompts,
-    ) { text, row, config, prompts ->
-        SlashCommands.candidates(text, SlashCommands.agentId(row?.cli, config != null), prompts)
+    ) { text, row, prompts ->
+        SlashCommands.candidates(text, SlashCommands.runAgent(row?.cli), prompts)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
@@ -1050,13 +1048,11 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /** The catalog command the draft would RUN if sent, if any (EXP-724) — the
-     *  screen confirms before sending the ones that discard context. EXP-746:
-     *  keyed on the run's catalog agent, so an EXTERNAL run (agent-less, but
-     *  publishing a `config_state`) never confirms a `/clear` its agent would
-     *  only read as prose. */
+     *  screen confirms before sending the ones that discard context; keyed on
+     *  the run's agent (#EXP-1792: a cli-less run is claude). */
     fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
         draft.value,
-        SlashCommands.agentId(session.value?.cli, sessionConfig.value != null),
+        SlashCommands.runAgent(session.value?.cli),
     )
 
     // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────

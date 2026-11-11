@@ -311,8 +311,8 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertEqual(usage(row, now: now)?.usage.windows?.count, 3)
         // Ended run: the host's limits stopped being the viewer's business.
         XCTAssertNil(usage(row, status: "ended", now: now))
-        // No agent recorded on the run (a pre-EXP-484 row).
-        XCTAssertNil(usage(row, agent: nil, now: now))
+        // #EXP-1791: no agent recorded on the run (every chat root) = claude.
+        XCTAssertEqual(usage(row, agent: nil, now: now)?.agent, "claude")
         // The run's agent is not the one the machine reported for.
         XCTAssertNil(usage(row, agent: "codex", now: now))
         // No devices row for the stamped id, and no stamped id at all.

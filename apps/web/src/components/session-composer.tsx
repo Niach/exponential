@@ -66,7 +66,7 @@ import {
 } from "@/lib/steer-session-store"
 import {
   parseSteerCommand,
-  steerAgentId,
+  runAgentId,
   steerCommandConfirmCopy,
   steerCommandsFor,
   matchSlashDraft,
@@ -360,7 +360,7 @@ export function SessionComposer({
   const ended = row === null || row.status === `ended`
   // The `/` menu (NEW-2): the contract builtins for this agent, then the
   // team's prompts; the CLI's own injected commands are never offered.
-  const catalogAgent = steerAgentId(row?.cli, config !== null)
+  const catalogAgent = runAgentId(row?.cli)
   const commands = useMemo(() => steerCommandsFor(catalogAgent), [catalogAgent])
   const { prompts } = usePrompts(browseTeamId ?? teamId)
   // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's

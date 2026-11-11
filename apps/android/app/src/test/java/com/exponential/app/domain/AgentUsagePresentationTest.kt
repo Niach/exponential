@@ -299,12 +299,14 @@ class AgentUsagePresentationTest {
         assertNotNull(usage)
         assertEquals(3, usage!!.windows.size)
         assertNotNull(AgentUsagePresentation.sessionUsage(session(status = "idle"), devices, nowMs))
+        // #EXP-1791: a run that never recorded an agent (every chat root) is
+        // claude, and reads claude's numbers.
+        assertNotNull(AgentUsagePresentation.sessionUsage(session(agent = null), devices, nowMs))
 
-        // Hidden: the run is over, it never recorded an agent, it has no
-        // device stamp, no row matches, the machine reports another agent, the
-        // numbers went stale, or the snapshot has no windows.
+        // Hidden: the run is over, it has no device stamp, no row matches, the
+        // machine reports another agent, the numbers went stale, or the
+        // snapshot has no windows.
         assertNull(AgentUsagePresentation.sessionUsage(session(status = "ended"), devices, nowMs))
-        assertNull(AgentUsagePresentation.sessionUsage(session(agent = null), devices, nowMs))
         assertNull(AgentUsagePresentation.sessionUsage(session(deviceId = null), devices, nowMs))
         assertNull(AgentUsagePresentation.sessionUsage(session(), emptyList(), nowMs))
         assertNull(AgentUsagePresentation.sessionUsage(session(agent = "codex"), devices, nowMs))

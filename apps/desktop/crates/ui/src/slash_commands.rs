@@ -28,27 +28,32 @@ use steer::activity::SessionAgent;
 use steer::commands::SteerCommand;
 
 
-/// Which agent a synced session row runs. A row that names none predates the
-/// column — contract order puts claude first, so claude it is.
-///
-/// EXP-746: unless the run published a `config_state` (`acp`). Only the ACP
-/// engine publishes one, and an ACP run for claude/codex always stamps its
-/// id, so an agent-less ACP row can only be a LEGACY synced row from an
-/// external agent. External agents were retired in EXP-862; the `External`
-/// arm survives solely so those old rows keep an empty curated catalog
-/// instead of claude's. Mirrored ×4 (`steerAgentId` on web,
-/// `SlashCommands.agentId` on iOS and Android).
-pub(crate) fn agent_of(row: &domain::rows::SessionRow, acp: bool) -> SessionAgent {
-    agent_from_id(row.cli.as_deref(), acp)
+/// #EXP-1791/#EXP-1792 — which agent a synced session row runs: its
+/// `sessions.cli`, a NULL or unknown one being claude (contract order). ONE
+/// rule for the `/` catalog and everything about the run's machine. Chat
+/// roots carry no `cli` and every run publishes an ACP `config_state`, so the
+/// retired EXP-746 arm (no cli + config = an external agent, empty catalog)
+/// emptied the `/` menu of every chat and hid its accounts; external agents
+/// are gone (EXP-862). Mirrored ×4 (web `runAgentId`, iOS/Android
+/// `SlashCommands.runAgent`).
+pub(crate) fn agent_of(row: &domain::rows::SessionRow) -> SessionAgent {
+    agent_from_id(row.cli.as_deref())
+}
+
+/// [`agent_of`] as the coding agent: what the usage sheet's account and
+/// windows, Account › and the usage wall key off.
+pub(crate) fn run_agent(cli: Option<&str>) -> coding::CodingAgent {
+    match agent_from_id(cli) {
+        SessionAgent::Codex => coding::CodingAgent::Codex,
+        _ => coding::CodingAgent::Claude,
+    }
 }
 
 /// The pure half of [`agent_of`] — `sessions.cli` is a raw wire
 /// string, and an unknown one is claude like an absent one.
-fn agent_from_id(agent: Option<&str>, acp: bool) -> SessionAgent {
+fn agent_from_id(agent: Option<&str>) -> SessionAgent {
     match agent.map(str::trim) {
         Some(id) if id.eq_ignore_ascii_case("codex") => SessionAgent::Codex,
-        Some(id) if !id.is_empty() => SessionAgent::Claude,
-        _ if acp => SessionAgent::External,
         _ => SessionAgent::Claude,
     }
 }
@@ -340,23 +345,24 @@ mod tests {
 
     #[test]
     fn a_row_without_a_known_agent_steers_a_claude_session() {
-        assert_eq!(agent_from_id(None, false), SessionAgent::Claude);
-        assert_eq!(agent_from_id(Some("codex"), false), SessionAgent::Codex);
+        assert_eq!(agent_from_id(None), SessionAgent::Claude);
+        assert_eq!(agent_from_id(Some("codex")), SessionAgent::Codex);
         // EXP-849: a retired agent id reads like any other unknown one.
-        assert_eq!(agent_from_id(Some(" pi "), false), SessionAgent::Claude);
-        assert_eq!(agent_from_id(Some("claude"), false), SessionAgent::Claude);
-        assert_eq!(agent_from_id(Some("something-else"), false), SessionAgent::Claude);
+        assert_eq!(agent_from_id(Some(" pi ")), SessionAgent::Claude);
+        assert_eq!(agent_from_id(Some("claude")), SessionAgent::Claude);
+        assert_eq!(agent_from_id(Some("something-else")), SessionAgent::Claude);
     }
 
-    /// EXP-746, mirrored ×4: an agent-less row that published a
-    /// `config_state` is the external agent it must be.
+    /// #EXP-1791/#EXP-1792, mirrored ×4: a run with no agent name (every chat
+    /// root) is claude, whatever its ACP config says — its `/` menu included.
     #[test]
-    fn an_agent_less_acp_run_is_an_external_agent() {
-        assert_eq!(agent_from_id(None, true), SessionAgent::External);
-        assert_eq!(agent_from_id(Some("  "), true), SessionAgent::External);
-        // A named agent keeps its own catalog on the ACP path.
-        assert_eq!(agent_from_id(Some("codex"), true), SessionAgent::Codex);
-        assert!(names("/", agent_from_id(None, true)).is_empty());
+    fn a_cli_less_run_is_claude() {
+        assert_eq!(agent_from_id(Some("  ")), SessionAgent::Claude);
+        assert!(!names("/", agent_from_id(None)).is_empty());
+        assert_eq!(run_agent(None), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some("  ")), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some("claude")), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some(" Codex ")), coding::CodingAgent::Codex);
     }
 
     #[test]

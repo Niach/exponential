@@ -99,24 +99,16 @@ class SlashCommandsTest {
     }
 
     /**
-     * EXP-746, mirrored ×4 under this name: "no agent" alone does not mean
-     * claude. An EXTERNAL ACP agent syncs no agent either, so its catalog is
-     * empty — and with agent commands never merged (NEW-2) its menu is shut.
+     * #EXP-1791/#EXP-1792, mirrored ×4 under this name: a run with no agent
+     * name (every chat root) is claude, whatever its ACP config says — its
+     * `/` menu included.
      */
     @Test
-    fun `an agent-less acp run is an external agent`() {
-        assertFalse(SlashCommands.EXTERNAL_AGENT in DomainContract.codingAgentValues)
-        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId(null, acp = true))
-        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId("  ", acp = true))
-        // A named agent keeps its own catalog on the ACP path.
-        assertEquals("codex", SlashCommands.agentId("codex", acp = true))
-        assertEquals("claude", SlashCommands.agentId(null, acp = false))
-        assertEquals("claude", SlashCommands.agentId("", acp = false))
-
-        val external = SlashCommands.agentId(null, acp = true)
-        assertTrue(SlashCommands.catalogFor(external).isEmpty())
-        assertTrue(SlashCommands.matches("/", external).isEmpty())
-        assertNull(SlashCommands.commandFor("/compact", external))
+    fun `a cli-less run is claude`() {
+        assertEquals("claude", SlashCommands.runAgent(null))
+        assertEquals("claude", SlashCommands.runAgent("  "))
+        assertEquals("codex", SlashCommands.runAgent(" codex "))
+        assertTrue(SlashCommands.catalogFor(SlashCommands.runAgent(null)).isNotEmpty())
     }
 
     @Test

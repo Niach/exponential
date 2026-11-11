@@ -406,7 +406,7 @@ final class AgentSessionModel {
     /// agent-less run that publishes a `config_state`, the external one that
     /// cannot name itself on the wire.
     var catalogAgent: String {
-        SlashCommands.agentId(session?.cli, acp: sessionConfig != nil)
+        SlashCommands.runAgent(session?.cli)
     }
 
     /// The composer's model pill: the live steer model, else the synced
@@ -1750,7 +1750,9 @@ final class AgentSessionModel {
         )
         if nextUsage != agentUsage { agentUsage = nextUsage }
         let hostAccounts = AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts)
-        let nextAccount = session.cli.flatMap { hostAccounts?[$0] }
+        // #EXP-1791: a cli-less run (every chat root) is claude.
+        let runAgent = SlashCommands.runAgent(session.cli)
+        let nextAccount = hostAccounts?[runAgent]
         if nextAccount != agentAccount { agentAccount = nextAccount }
         if hostMoved {
             hostSteerRow = hostRow
@@ -1761,15 +1763,13 @@ final class AgentSessionModel {
         // EXP-909: which of the host's logins this session spends, and that
         // login's numbers — off the same ×4 rows the Devices page draws.
         let logins = hostSteerDevice.map(AgentAccountsRows.deviceLoginRows)?
-            .filter { $0.agent == session.cli } ?? []
-        let reportedEmail = session.cli.flatMap { hostAccounts?[$0]?.email }
+            .filter { $0.agent == runAgent } ?? []
+        let reportedEmail = hostAccounts?[runAgent]?.email
         let nextRunAccount = logins.first { $0.profileId == session.account }
             ?? reportedEmail.flatMap { email in logins.first { $0.email == email } }
             ?? logins.first { $0.active }
         if nextRunAccount != runAccount { runAccount = nextRunAccount }
-        let reportedUsage = session.cli.flatMap {
-            AgentUsagePresentation.parseMap(hostRow?.agentUsage)?[$0]
-        }
+        let reportedUsage = AgentUsagePresentation.parseMap(hostRow?.agentUsage)?[runAgent]
         // The machine only ever puts its ACTIVE login's numbers in the
         // top-level map, so that fallback is legitimate for the active profile
         // and for an unknown account — and a lie for any other profile.
@@ -1799,7 +1799,8 @@ final class AgentSessionModel {
     /// command still queued from a previous open is a CONFLICT, and the next
     /// open simply looks again.
     func requestUsageRefresh() {
-        guard let devicesApi, let device = hostSteerDevice, let agent = session?.cli else { return }
+        guard let devicesApi, let device = hostSteerDevice, let session else { return }
+        let agent = SlashCommands.runAgent(session.cli)
         guard device.isMine, device.isOnline,
               AgentAccountsRows.refreshAllowedAt(runUsage, now: Date()) == nil
         else { return }

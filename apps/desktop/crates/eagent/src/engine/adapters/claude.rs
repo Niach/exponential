@@ -480,6 +480,18 @@ impl ContextWindow {
         self.infer(model);
     }
 
+    /// #EXP-1791: a GUESSED window the run has already outgrown was the
+    /// wrong guess: the only larger Claude window is the million-token one.
+    /// A reported window is never second-guessed (a real overrun right
+    /// before an auto-compact is a fact, and the sheet pins it at 100%).
+    fn outgrown(&mut self, used: u64) {
+        if let ContextWindow::Inferred(window) = *self {
+            if used > window {
+                *self = ContextWindow::Inferred(wire::CONTEXT_WINDOW_1M.max(window));
+            }
+        }
+    }
+
     /// An authoritative report; the first exact one is final.
     fn report(&mut self, report: wire::ContextWindowReport) {
         if matches!(self, ContextWindow::Reported { exact: true, .. }) {
@@ -2039,7 +2051,11 @@ impl ClaudeSession {
     }
 
     fn publish_usage(&self, cx: &ConnectionTo<Client>, used: u64, cost: Option<f64>) {
-        let size = self.lock().context_window.size();
+        let size = {
+            let mut state = self.lock();
+            state.context_window.outgrown(used);
+            state.context_window.size()
+        };
         if size == 0 {
             return;
         }
@@ -6523,10 +6539,10 @@ mod tests {
         use wire::ContextWindowReport;
         let mut window = ContextWindow::default();
         assert_eq!(window.size(), 0, "nothing published before a model is known");
-        window.infer("claude-opus-5");
+        window.infer("claude-opus-4-6");
         assert_eq!(window.size(), 200_000);
         // A second inference (message_start) never re-guesses.
-        window.infer("claude-opus-5[1m]");
+        window.infer("claude-opus-4-6[1m]");
         assert_eq!(window.size(), 200_000);
         // The turn's result: exact for the session model — final.
         window.report(ContextWindowReport { window: 1_000_000, exact: true });
@@ -6549,11 +6565,37 @@ mod tests {
         // and the new id is re-derived, so 1M ↔ 200k publishes the size of
         // the model actually running.
         let mut window = ContextWindow::Reported { window: 1_000_000, exact: true };
-        window.switch_model("claude-opus-5");
+        window.switch_model("claude-opus-4-6");
         assert_eq!(window.size(), 200_000, "kept the old model's window");
         window.report(ContextWindowReport { window: 200_000, exact: true });
-        window.switch_model("claude-opus-5[1m]");
+        window.switch_model("claude-opus-4-6[1m]");
         assert_eq!(window.size(), 1_000_000);
+    }
+
+    /// #EXP-1791: a guess the run outgrows before the first `result` (a
+    /// long first turn) moves to the 1M window instead of publishing
+    /// `320k / 200k`; a REPORTED window is a fact and is never moved.
+    #[test]
+    fn an_outgrown_guess_becomes_the_million_token_window() {
+        use wire::ContextWindowReport;
+        let mut window = ContextWindow::default();
+        window.infer("claude-opus-5-5");
+        assert_eq!(window.size(), 1_000_000, "Claude 5 guesses 1M up front");
+
+        let mut window = ContextWindow::Inferred(200_000);
+        window.outgrown(150_000);
+        assert_eq!(window.size(), 200_000, "inside the guess: kept");
+        window.outgrown(320_000);
+        assert_eq!(window.size(), 1_000_000);
+
+        let mut window = ContextWindow::Unknown;
+        window.outgrown(320_000);
+        assert_eq!(window.size(), 0, "nothing guessed, nothing published");
+
+        let mut window = ContextWindow::Inferred(200_000);
+        window.report(ContextWindowReport { window: 200_000, exact: true });
+        window.outgrown(210_000);
+        assert_eq!(window.size(), 200_000, "a reported window is a fact");
     }
 
     #[test]
