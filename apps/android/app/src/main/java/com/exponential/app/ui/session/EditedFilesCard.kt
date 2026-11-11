@@ -111,6 +111,7 @@ fun EditedFilesCard(
                 card.title,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
+                letterSpacing = 0.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
             )

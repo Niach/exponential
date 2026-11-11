@@ -331,8 +331,10 @@ fun DiffFileCard(
             // #EXP-1789: a flush row is web's / iOS's FLAT band — the section
             // fill edge to edge (no rounded tile), the parent's hairlines
             // between rows, `px-3 py-1.5` around 16-high 12 type (web
-            // `text-xs`), so the edited-files card reads the same ×4.
-            CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(lineHeight = FlushLineHeight)) {
+            // `text-xs`), so the edited-files card reads the same ×4. No
+            // tracking: the theme's bodyLarge 0.5 sp would widen every mono
+            // advance (and the path measurer reads this style too).
+            CompositionLocalProvider(LocalTextStyle provides LocalTextStyle.current.copy(lineHeight = FlushLineHeight, letterSpacing = 0.sp)) {
                 Row(
                     modifier = Modifier
                         .testTag("changes-file-row")
