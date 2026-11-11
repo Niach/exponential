@@ -156,6 +156,23 @@ fn limits_preview(limits: &coding::AccountLimits) -> Value {
     json!({"root": {"id": "limits", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 3.5, "width": "100%"}, "children": rows}, "data": {}})
 }
 
+/// #EDE-65 lane T: the draft state behind the drawn Composer takes `text`
+/// with its cursor at the end. gpui-base's `set_cursor_position` FOCUSES the
+/// state, which is drawn nowhere since the swap, so a `keep` field that held
+/// the focus gets it back: the user's caret stays in the drawn field through
+/// every draft round trip (a keystroke, a `/` insertion, a prompt's body).
+pub(crate) fn mirror_draft(input: &Entity<gpui_component::input::TextareaState>, text: String, keep: Option<gpui::FocusHandle>, window: &mut Window, cx: &mut App) {
+    let keep = keep.filter(|field| field.is_focused(window));
+    let position = crate::markdown::byte_offset_to_position(&text, text.len());
+    input.update(cx, |state, cx| {
+        state.set_value(text, window, cx);
+        state.set_cursor_position(position, window, cx);
+    });
+    if let Some(field) = keep {
+        field.focus(window, cx);
+    }
+}
+
 /// What the document's composer asked for (`ede_chat` {action, …}: a
 /// function call's args or an event's context).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -882,11 +899,8 @@ impl SteerSessionView {
     /// reports text, not a caret), and the menus follow it.
     fn set_draft(&mut self, text: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.input.read(cx).value() != text.as_str() {
-            let position = crate::markdown::byte_offset_to_position(&text, text.len());
-            self.input.update(cx, |state, cx| {
-                state.set_value(text, window, cx);
-                state.set_cursor_position(position, window, cx);
-            });
+            let keep = self.composer_doc.field_focus(cx);
+            mirror_draft(&self.input, text, keep, window, cx);
         }
         self.refresh_slash(cx);
         cx.notify();

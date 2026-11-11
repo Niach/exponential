@@ -302,3 +302,71 @@ fn composer_bench_menu_keeps_the_field_focused() {
     assert!(focused(&mut cx), "the open / menu left the composer's field focused");
     std::mem::forget(cx);
 }
+
+/// #EDE-65 lane T: a draft's round trip into the hidden draft state
+/// (`chat_tab_composer::mirror_draft`) leaves the drawn field focused, where
+/// gpui-base's `set_cursor_position` alone moves the focus to that state.
+#[test]
+#[ignore]
+fn composer_bench_a_draft_round_trip_keeps_the_field_focused() {
+    let mut cx = headless();
+    cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+    });
+    let mut eui = None;
+    let mut hidden = None;
+    let handle = cx
+        .open_window(size(px(WINDOW.0), px(WINDOW.1 + 240.)), |window: &mut Window, cx| {
+            let surface = eui_surface(State::Card, window, cx);
+            eui = Some(surface.clone());
+            let (input, _) = crate::composer::session_composer_field(PLACEHOLDER, window, cx);
+            hidden = Some(input);
+            let view: gpui::AnyView = cx.new(|_| EuiFrame { surface }).into();
+            cx.new(|cx| gpui_component::Root::new(view, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    let (surface, hidden) = (eui.expect("the surface"), hidden.expect("the draft state"));
+    for _ in 0..4 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let field = cx.update(|cx| surface.read(cx).field_focus_handle("chat_composer", cx)).expect("the field");
+    let focused = |cx: &mut gpui::HeadlessAppContext| cx.update_window(window, |_, window, _| field.is_focused(window)).expect("the window");
+    // The keystroke path: the field focused, `/` typed into it, flushed.
+    cx.update_window(window, |_, window, cx| {
+        surface.update(cx, |view, cx| {
+            assert!(view.focus_field("chat_composer", window, cx));
+            assert!(view.type_into("chat_composer", "/", window, cx));
+            view.flush_field("chat_composer", None, window, cx);
+        })
+    })
+    .expect("typed");
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    assert!(focused(&mut cx), "focused after the keystroke");
+    // The host's round trip: the draft mirrored into its state, then the
+    // menu opened and the draft written back.
+    let keep = Some(field.clone());
+    cx.update_window(window, |_, window, cx| crate::steer_viewer::chat_tab_composer::mirror_draft(&hidden, "/".into(), keep, window, cx)).expect("mirrored");
+    let row = |key: &str| domain::chat_document::plain_row(json!({"key": key, "command": format!("/{key}"), "description": key, "hint": "", "icon": null, "insert": format!("/{key}"), "prompt": "", "selected": false}));
+    cx.update(|cx| {
+        surface.update(cx, |view, cx| {
+            view.set_data("/chat", Some(json!({"draft": "/"})), cx).expect("the draft");
+            view.set_data("/chatMenu", Some(json!({"open": true, "rows": [row("compact"), row("new")]})), cx).expect("the menu");
+        })
+    });
+    for _ in 0..6 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    assert!(focused(&mut cx), "the field keeps the focus through the host's round trip");
+    // Without the restore, gpui-base's cursor move takes it (the bug).
+    cx.update_window(window, |_, window, cx| crate::steer_viewer::chat_tab_composer::mirror_draft(&hidden, "/c".into(), None, window, cx)).expect("mirrored");
+    assert!(!focused(&mut cx), "set_cursor_position alone moves the focus");
+    std::mem::forget(cx);
+}

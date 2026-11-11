@@ -3785,13 +3785,9 @@ impl SteerSessionView {
                     if slash_commands::slash_query(&this.input.read(cx).value()).is_none() {
                         return;
                     }
-                    let body = full.body;
-                    let position = crate::markdown::byte_offset_to_position(&body, body.len());
                     this.slash = None;
-                    this.input.update(cx, |state, cx| {
-                        state.set_value(body, window, cx);
-                        state.set_cursor_position(position, window, cx);
-                    });
+                    let keep = this.composer_doc.field_focus(cx);
+                    chat_tab_composer::mirror_draft(&this.input, full.body, keep, window, cx);
                     cx.notify();
                 }
                 Err(err) => crate::action_error::failed_action_err("load", &prompt.name, &err, cx),
