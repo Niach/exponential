@@ -894,6 +894,13 @@ fn premultiplied(color: gpui::Hsla) -> String {
     format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.r * c.a), byte(c.g * c.a), byte(c.b * c.a), byte(c.a))
 }
 
+/// The real height of a client or call row (#EXP-1788: the skeleton is the
+/// row's own height): the `text_sm` name over the `text_xs` caption in
+/// gpui's line height, `py_2` (web's 52 at its 16 px rem).
+fn two_line_row_h(ink: &Ink) -> f32 {
+    ink.r(SM) * super::doc::LINE + ink.r(XS) * super::doc::LINE + 2. * ink.r(0.5)
+}
+
 /// A flat row's frame (`surface::flat_row`, `px_3` / `py_2`, `gap_3`).
 fn row_style(ink: &Ink) -> Value {
     json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md})
@@ -1005,7 +1012,7 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     let clients = section_box(ink, "clients", json!(true), vec![
         ink.band("clients_band", SETTINGS_MCP.labels.clients, None),
         scopes,
-        ink.skeleton_rows("clients_skeleton", &chrome.skeleton, path("/pane/clients/loading")),
+        ink.skeleton_rows_at("clients_skeleton", &chrome.skeleton, two_line_row_h(ink), path("/pane/clients/loading")),
         empty_state(ink, "clients_empty", "settings-mcp", crate::empty_state_copy::MCP_CLIENTS, path("/pane/clients/empty")),
         list("clients_rows", path("/pane/clients/hasRows"), "/pane/clients/rows", client_row),
     ]);
@@ -1239,7 +1246,7 @@ fn activity_document(ink: &Ink, chrome: &Chrome) -> Value {
     section_box(ink, "root", json!(true), vec![
         ink.band("band", SETTINGS_MCP.activity, None),
         empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam")),
-        ink.skeleton_rows("skeleton", &chrome.skeleton, path("/pane/loading")),
+        ink.skeleton_rows_at("skeleton", &chrome.skeleton, two_line_row_h(ink), path("/pane/loading")),
         empty_state(ink, "empty", "ui-history", crate::empty_state_copy::MCP_ACTIVITY, path("/pane/empty")),
         list("rows", path("/pane/hasRows"), "/pane/rows", row),
     ])
