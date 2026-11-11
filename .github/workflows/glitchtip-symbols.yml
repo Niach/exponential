@@ -85,12 +85,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Keep the upload script (the tag may predate it)
-        run: cp .github/scripts/glitchtip-debug-files.sh "$RUNNER_TEMP/"
+      - name: Keep the upload + Xwayland deps scripts (the tag may predate them)
+        run: |
+          cp .github/scripts/glitchtip-debug-files.sh "$RUNNER_TEMP/"
+          cp apps/ede/packaging/xwayland/build.sh "$RUNNER_TEMP/xwayland-build.sh"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
       - uses: ./.github/actions/apt-mirror
+      # As build-ede.yml: the Xwayland build deps are in before cargo runs
+      # (they change what cargo links, so the build-ids).
+      - name: Xwayland build deps (as build-ede.yml)
+        run: bash "$RUNNER_TEMP/xwayland-build.sh" --deps-only
       - name: Linux system deps (as build-ede.yml)
         run: |
           sudo apt-get install -y \

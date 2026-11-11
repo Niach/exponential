@@ -4,7 +4,11 @@
 # Ubuntu 24.04's system libs, staged as <out>/usr/lib/exponential-desktop/bin/Xwayland plus
 # <out>/DEPENDS (the .deb's Depends for it, from dpkg-shlibdeps).
 #   apps/ede/packaging/xwayland/build.sh [--install-deps] [--docker] <out>
+#   apps/ede/packaging/xwayland/build.sh --deps-only
 #   --install-deps  apt-get the build deps (root or sudo; CI)
+#   --deps-only     only apt-get the build deps (build-ede.yml installs them
+#                   before cargo even on an Xwayland cache hit, so the eDE
+#                   binaries never depend on the cache; #LOGS-1)
 #   --docker        build inside ubuntu:24.04 (a host without meson/headers)
 # The tarballs are cached in ${XWAYLAND_CACHE:-~/.cache/ede-xwayland}; an <out>
 # built by this exact script is reused as is (<out>/STAMP).
@@ -28,6 +32,16 @@ BUILD_DEPS=(
 
 install_deps=0
 docker=0
+install_build_deps() {
+  local sudo=""
+  [ "$(id -u)" = 0 ] || sudo=sudo
+  $sudo apt-get update -q
+  DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -q --no-install-recommends "${BUILD_DEPS[@]}"
+}
+if [ "${1:-}" = --deps-only ]; then
+  install_build_deps
+  exit 0
+fi
 while [ $# -gt 1 ]; do
   case "$1" in
     --install-deps) install_deps=1 ;;
@@ -65,11 +79,7 @@ if [ "$docker" = 1 ]; then
     ubuntu:24.04 bash -c "/src/build.sh --install-deps /out && chown -R $(id -u):$(id -g) /out"
 fi
 
-if [ "$install_deps" = 1 ]; then
-  sudo=""; [ "$(id -u)" = 0 ] || sudo=sudo
-  $sudo apt-get update -q
-  DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -q --no-install-recommends "${BUILD_DEPS[@]}"
-fi
+if [ "$install_deps" = 1 ]; then install_build_deps; fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
