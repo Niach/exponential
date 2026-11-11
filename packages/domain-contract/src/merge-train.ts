@@ -177,7 +177,6 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
       return { pr: { ...pr, state: `held`, holdReason: event.reason, mergeNow: false }, post: `held` }
     case `landed_earlier`:
       // #FEED-222: an earlier unconfirmed run already put its head on the base.
-      if (pr.state === `merged`) return same
       return { pr: { ...pr, state: `merged`, holdReason: null, mergeNow: false }, post: `merged` }
     case `checks_appeared`:
       if (pr.state !== `held` || (pr.holdReason !== `no_checks` && pr.holdReason !== `conflict`)) return same
