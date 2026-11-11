@@ -176,6 +176,7 @@ mod about;
 mod account;
 mod add_repository;
 mod agent_detail;
+mod agents;
 mod all_boards;
 mod api_keys;
 mod app_detail;

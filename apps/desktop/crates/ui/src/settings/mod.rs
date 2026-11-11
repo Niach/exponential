@@ -56,7 +56,7 @@ mod agent_doc;
 pub(crate) mod app_detail;
 pub(crate) mod app_mcp;
 pub(crate) mod new_agent;
-mod agents;
+pub(crate) mod agents;
 mod agents_index;
 pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
