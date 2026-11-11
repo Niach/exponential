@@ -67,10 +67,18 @@ final class MenuPreviewTests: XCTestCase {
                         }
                         parts.append("label")
                         XCTAssertEqual(n.props.text("text"), r["label"]?.string, "\(name): \(key) label")
-                    case "itemIcon": parts.append("icon")
+                    case "itemIcon":
+                        parts.append("icon")
+                        // An identifier row's own glyph carries the tint (the
+                        // core resolved it into the node's ink).
+                        if r["iconColor"]?.string != nil {
+                            let label = try XCTUnwrap(row.children.compactMap { m.node($0) }.first { $0.part == "itemLabel" }, "\(name): \(key) label")
+                            XCTAssertNotEqual(m.ink(n.index), m.ink(label.index), "\(name): \(key) tint")
+                        }
                     case "check": parts.append("check")
                     case "identifier":
                         parts.append("identifier")
+                        XCTAssertEqual(m.textStyle(n.index).fontFamily, m.theme?.fontFamily("mono"), "\(name): \(key) mono")
                         XCTAssertEqual(n.props.text("text"), r["identifier"]?.string, "\(name): \(key) identifier")
                     case "detail":
                         parts.append("detail")
