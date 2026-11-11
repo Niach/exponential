@@ -500,6 +500,8 @@ internal fun ComposerLeaf(cx: LeafContext) {
     val index = cx.index
     val field = cx.part("Composer", "field")
     val send = cx.part("Composer", "send")
+    // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+    val sendIcon = cx.part("Composer", "sendIcon").width ?: 16f
     val placeholder = cx.part("Composer", "placeholder")
     val chip = cx.part("Composer", "attachment")
     val sendSize = send.height ?: cx.control("buttonIcon", 36f)
@@ -518,15 +520,22 @@ internal fun ComposerLeaf(cx: LeafContext) {
     val w = cx.inner.width
     val h = cx.inner.height
     // #EXP-1762: `flat` = one row: the field between the leading slot and the
-    // controls, centred on the send disc while one line, the row's full
-    // height once it grows (upward: the controls stay at the bottom).
+    // controls, spanning the row (the disc's height while one line, growing
+    // upward: the controls stay at the bottom); its text starts the field
+    // recipe's paddingTop below the row's top, one line or grown
+    // (composerSlots `field`; the text field has no inset of its own).
     val flat = cx.props.str("layout") == "flat"
+    // #EXP-1762: the core lays an `above` slot out at the content top; the
+    // field (and a flat row) start one gap below it.
+    val top = model.indexOf("${cx.node.id}.above")?.let { model.frame(it).height + gap } ?: 0f
+    val rh = maxOf(h - top, 0f)
+    val flatBox = flatComposerField(rh, field.px("paddingTop") ?: 0f)
     val slotW = { slot: String -> model.indexOf("${cx.node.id}.$slot")?.let { model.frame(it).width + gap } ?: 0f }
     val lead = if (flat) slotW("leading") else 0f
     val fieldW = if (flat) maxOf(w - lead - slotW("trailing") - (if (cx.props.flag("attachments")) COMPOSER_ATTACH_W + gap else 0f) - sendSize - gap, 0f) else w
-    val fieldH = if (!flat) maxOf(h - sendSize - gap, 0f) else if (h > sendSize + 0.5f) h else minOf(fieldTs.lineHeight, h)
+    val fieldH = if (!flat) maxOf(rh - sendSize - gap, 0f) else flatBox.second
     val fieldX = if (!flat) 0f else if (cx.rtl) w - lead - fieldW else lead
-    val fieldY = if (flat) (h - fieldH) / 2f else 0f
+    val fieldY = top + if (flat) flatBox.first else 0f
     InnerBox(cx) {
             OwnedTextField(
                 index = index,
@@ -580,10 +589,11 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     val xs = cx.spacing("xs")
                     Spacer(Modifier.width(maxOf(0f, model.frame(t).width + 2 * xs - 16f).dp))
                 }
-                // Web: an empty draft disables send (half opacity); `busy`
-                // dims the stop through the recipe's own opacity.
+                // Web: an empty draft disables send (the `send` part's `state:
+                // disabled` opacity, 0.5 without one); `busy` dims the stop
+                // through the recipe's own opacity.
                 val empty = !busy && (model.field(index)?.text ?: "").isBlank()
-                val sendAlpha = (send.style.opacity ?: 1f) * (if (empty) 0.5f else 1f)
+                val sendAlpha = if (empty) cx.part("Composer", "send", listOf("disabled")).style.opacity ?: 0.5f else send.style.opacity ?: 1f
                 Box(
                     Modifier
                         .graphicsLayer { alpha = sendAlpha }
@@ -594,11 +604,19 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     contentAlignment = Alignment.Center,
                 ) {
                     val sendInk = send.color ?: cx.themeColor("primaryForeground") ?: Color.White
-                    if (busy) IconOrGlyph("ui-stop", Glyph.Stop, 16f, cx, sendInk) else IconOrGlyph("ui-send", Glyph.Send, 16f, cx, sendInk)
+                    if (busy) IconOrGlyph(builtinIcon("Composer.stop", "ui-stop"), Glyph.Stop, sendIcon, cx, sendInk) else IconOrGlyph(builtinIcon("Composer.send", "ui-submit"), Glyph.Submit, sendIcon, cx, sendInk)
                 }
             }
     }
 }
+
+/**
+ * #EXP-1762 (interactions-round1.json composerSlots `field`): a flat
+ * Composer's text field `(top, height)` in a row `row` tall: its text starts
+ * `padTop` (the field recipe's `paddingTop`) below the row's top, one line or
+ * grown, and it reaches the row's bottom.
+ */
+internal fun flatComposerField(row: Float, padTop: Float): Pair<Float, Float> = padTop to maxOf(row - padTop, 0f)
 
 /** #EXP-1762: the attach control's width (its 16 dp glyph + 8 dp either side), what a flat Composer's field leaves for it. */
 internal const val COMPOSER_ATTACH_W = 32f

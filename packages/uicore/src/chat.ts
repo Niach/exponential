@@ -76,6 +76,91 @@ export interface ChatInput {
   /** The host's composer has the `/` menu (the IDE); eDE until it does not. */
   slashCommands: boolean
   rows: ChatRowInput[]
+  /** #EDE-65 lane O: the "+" menu's rows the host serves (composer-menu.json, resolved), in order. */
+  plus?: ChatPlusRow[]
+  /** The quick replies over the composer (the newest message's). */
+  replies?: ChatRepliesInput | null
+  /** The host paints the context ring beside Send (an Embed it claims). */
+  ring?: boolean
+}
+
+/** One "+" row: `separator` = a separator; `items` = a submenu's entries (absent = an action row). */
+export interface ChatPlusRow {
+  id: string
+  label?: string
+  icon?: string
+  items?: ChatPlusItem[] | null
+  /** The submenu filters its entries in a search field. */
+  searchable?: boolean
+  /** #EDE-65 lane T: a submenu parent's current value (`Model › Opus`). */
+  detail?: string
+}
+
+/** A submenu entry: `checked` = a check entry, absent = an action. */
+export interface ChatPlusItem {
+  label: string
+  value: string
+  icon?: string | null
+  checked?: boolean | null
+  disabled?: boolean
+  /** #EDE-65 lane T: the muted text after the label (an Account's health). */
+  detail?: string | null
+  /** The mono id before the label (`EXP-12`, an Issue row). */
+  identifier?: string | null
+  /** The glyph's own tint (an Issue row's status colour). */
+  iconColor?: string | null
+  /** The nested surface beside the row (an Account's usage card). */
+  preview?: unknown
+}
+
+export interface ChatRepliesInput {
+  messageId: string
+  items: { id: string; text: string }[]
+}
+
+/** One quick reply as the document's chip draws it (its message rides along). */
+export interface ChatReply {
+  key: string
+  label: string
+  messageId: string
+}
+
+/** A genUI menuItem. */
+export type ChatMenuItem = Record<string, unknown>
+
+/** The "+" rows as genUI menuItems: a separator; an action row = its id as the value; a submenu row = its entries, each `<row id>:<value>` (a check entry a checkbox), `searchable` when it filters. */
+export function plusMenu(rows: ChatPlusRow[]): ChatMenuItem[] {
+  return rows.map((row) => {
+    if (row.id === `separator`) return { kind: `separator` }
+    const item: ChatMenuItem = { label: row.label ?? ``, value: row.id }
+    if (row.icon) item.icon = row.icon
+    if (row.detail) item.detail = row.detail
+    if (row.items) {
+      item.kind = `submenu`
+      if (row.searchable) item.searchable = true
+      item.items = row.items.map((entry) => {
+        const e: ChatMenuItem = { label: entry.label, value: `${row.id}:${entry.value}` }
+        if (entry.icon) e.icon = entry.icon
+        if (entry.checked !== undefined && entry.checked !== null) {
+          e.kind = `checkbox`
+          e.checked = entry.checked
+        }
+        if (entry.disabled) e.disabled = true
+        if (entry.detail) e.detail = entry.detail
+        if (entry.identifier) e.identifier = entry.identifier
+        if (entry.iconColor) e.iconColor = entry.iconColor
+        if (entry.preview !== undefined && entry.preview !== null) e.preview = entry.preview
+        return e
+      })
+    }
+    return item
+  })
+}
+
+/** A "+" pick (`select` {value}): the row's id and, for a submenu entry, its own value (the first `:` splits them). */
+export function plusPick(value: string): [string, string | null] {
+  const at = value.indexOf(`:`)
+  return at < 0 ? [value, null] : [value.slice(0, at), value.slice(at + 1)]
 }
 
 export type ChatRowKind = `user` | `agent` | `line` | `marker` | `pill` | `card` | `question` | `picture` | `host`
@@ -118,7 +203,20 @@ export interface ChatView {
   agentRow: { label: string; agents: { id: string; name: string; icon: string; selected: boolean }[] }
   rows: ChatRow[]
   empty: boolean
-  composer: { placeholder: string; canSend: boolean; busy: boolean }
+  composer: {
+    placeholder: string
+    canSend: boolean
+    busy: boolean
+    /** #EDE-65 lane T: a send in flight (the IDE's `sending`): the "+" is inert until it lands. */
+    sending: boolean
+    /** #EDE-65 lane O: the "+" Menu's items (the host sets them as the Menu's literal prop), `plus` = any. */
+    plus: boolean
+    menu: ChatMenuItem[]
+    /** The quick replies' chips and their message (`` = none). */
+    replies: ChatReply[]
+    repliesMessageId: string
+    ring: boolean
+  }
 }
 
 const COPY = fixture.copy
@@ -225,6 +323,12 @@ export function chatView(input: ChatInput): ChatView {
       placeholder: home ? COPY.homePlaceholder : input.slashCommands ? COPY.placeholder : COPY.messagePlaceholder.replace(`{name}`, input.title),
       canSend: input.draft.trim() !== `` && !input.sending && (!home || picked !== null),
       busy: input.busy,
+      sending: input.sending,
+      plus: (input.plus ?? []).length > 0,
+      menu: plusMenu(input.plus ?? []),
+      replies: (input.replies?.items ?? []).map((item) => ({ key: item.id, label: item.text, messageId: input.replies!.messageId })),
+      repliesMessageId: input.replies && input.replies.items.length > 0 ? input.replies.messageId : ``,
+      ring: (input.ring ?? false) && !home,
     },
   }
 }

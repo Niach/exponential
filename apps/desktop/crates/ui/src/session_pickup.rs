@@ -60,9 +60,22 @@ struct PickupHost {
     boot_swept: bool,
     /// #EXP-1492: a re-claim retry pass is armed ([`retry_reclaim`]).
     reclaim_retry: bool,
+    /// #LOGS-11: the hosted sessions' newest message-group revision the
+    /// last messages delta planned at ([`hosted_messages_moved`]).
+    hosted_messages_at: u64,
+    /// #LOGS-11: the move records' fingerprint the last events delta saw
+    /// ([`move_events_moved`]).
+    move_events_at: u64,
 }
 
 impl Global for PickupHost {}
+
+#[cfg(test)]
+thread_local! {
+    /// #LOGS-11: the rail bench plans a Local desktop's sessions as an
+    /// account's, to time the pass.
+    pub(crate) static PASS_ON_LOCAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 /// Stand the host up (once, from [`crate::steer_wiring::install`], after the
 /// `Store` exists): the launch inbox plus the collection watches that
@@ -82,6 +95,8 @@ pub(crate) fn install(cx: &mut App) {
         scheduled: false,
         boot_swept: false,
         reclaim_retry: false,
+        hosted_messages_at: 0,
+        move_events_at: 0,
     });
     cx.spawn(async move |cx| {
         while let Ok((prepared, reply)) = inbox.recv_async().await {
@@ -96,9 +111,23 @@ pub(crate) fn install(cx: &mut App) {
         return;
     };
     cx.observe(&collections.sessions, |_, cx| schedule(cx)).detach();
-    cx.observe(&collections.messages, |_, cx| schedule(cx)).detach();
+    // #LOGS-11: a message only this host's sessions read plans again (a busy
+    // team's every other message re-cloned every hosted chat).
+    cx.observe(&collections.messages, |_, cx| {
+        if hosted_messages_moved(cx) {
+            schedule(cx);
+        }
+    })
+    .detach();
     // EXP-1542: a move's record (and its hand-off) re-plans.
-    cx.observe(&collections.events, |_, cx| schedule(cx)).detach();
+    // #LOGS-11: only a move's own events (the stream's every other line
+    // planned a whole pass).
+    cx.observe(&collections.events, |_, cx| {
+        if move_events_moved(cx) {
+            schedule(cx);
+        }
+    })
+    .detach();
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
@@ -172,6 +201,61 @@ fn install_answer_tap(live: &Arc<pickup::LiveRegistry>, cx: &mut App) {
 }
 
 /// Run one pass on the next effect cycle (coalesced).
+/// #LOGS-11: whether a message of a session this host runs (its device's
+/// rows, its live engines) changed since the last messages delta asked.
+fn hosted_messages_moved(cx: &mut App) -> bool {
+    let Some(live) = cx.try_global::<PickupHost>().map(|host| host.live.session_ids().into_iter().collect::<HashSet<String>>()) else {
+        return true;
+    };
+    let device_id = queries::own_device_id(cx);
+    let Some(store) = Store::try_global(cx) else {
+        return true;
+    };
+    let at = {
+        let collections = store.collections();
+        let messages = collections.messages.read(cx);
+        collections
+            .sessions
+            .read(cx)
+            .iter()
+            .filter(|row| row.device_id.as_deref() == Some(device_id.as_str()) || live.contains(&row.id))
+            .map(|row| row.id.as_str())
+            .chain(live.iter().map(String::as_str))
+            .map(|id| messages.group_revision(id))
+            .max()
+            .unwrap_or(0)
+    };
+    let host = cx.global_mut::<PickupHost>();
+    let moved = at != host.hosted_messages_at;
+    host.hosted_messages_at = at;
+    moved
+}
+
+/// #LOGS-11: whether the synced move / hand-off events
+/// ([`pickup::move_records`]' input) changed since the last events delta.
+fn move_events_moved(cx: &mut App) -> bool {
+    use std::hash::{Hash as _, Hasher as _};
+    let (Some(store), true) = (Store::try_global(cx), cx.has_global::<PickupHost>()) else {
+        return true;
+    };
+    let at = {
+        let events = store.collections().events.read(cx);
+        let mut ids: Vec<&str> = events
+            .iter()
+            .filter(|event| matches!(event.name.as_deref(), Some(pickup::SESSION_MOVED_EVENT | pickup::SESSION_HANDED_OFF_EVENT)))
+            .map(|event| event.id.as_str())
+            .collect();
+        ids.sort_unstable();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ids.hash(&mut hasher);
+        hasher.finish()
+    };
+    let host = cx.global_mut::<PickupHost>();
+    let moved = at != host.move_events_at;
+    host.move_events_at = at;
+    moved
+}
+
 fn schedule(cx: &mut App) {
     let Some(host) = cx.try_global::<PickupHost>() else {
         return;
@@ -194,7 +278,11 @@ fn action_session_id(action: &PickupAction) -> &str {
 /// One pass: snapshot, plan, execute (the daemon's `pickup_pass`).
 fn run_pass(cx: &mut App) {
     // #EXP-1727: a Local desktop's sessions are `elocal::runs`'s to claim.
-    if queries::active_account(cx).is_none_or(|a| a.is_local()) {
+    #[cfg(test)]
+    let local_runs = !PASS_ON_LOCAL.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    let local_runs = true;
+    if queries::active_account(cx).is_none_or(|a| a.is_local() && local_runs) {
         return;
     }
     let Some(store) = Store::try_global(cx) else {
@@ -222,8 +310,19 @@ fn run_pass(cx: &mut App) {
         collections.users.read(cx).iter().filter_map(|user| Some((user.id.clone(), user.email.clone()?))),
     );
     // #EXP-1730: keyed by their own `session_id`.
-    let mut messages: Vec<MessageRow> =
-        crate::session_data::keyed_messages(cx, |owner, _| hosted.contains(owner));
+    // #LOGS-11: only the rows a pass can act on (was every hosted message,
+    // a long chat's thousands cloned per pass): an unconsumed input, a card,
+    // a system line (a move's), a row an engine here holds, a row the direct
+    // inbox holds (its dedupe). A consumed plain message is history.
+    let held = live.held_message_ids();
+    let direct: HashSet<String> = coding::direct_inbox::pending().into_iter().map(|row| row.id).collect();
+    let mut messages: Vec<MessageRow> = crate::session_data::keyed_messages(cx, hosted.iter().copied(), |_, message| {
+        message.consumed_at.as_deref().is_none_or(str::is_empty)
+            || message.card.as_ref().is_some_and(|card| !card.is_null())
+            || message.author_kind.as_deref() == Some("system")
+            || held.contains(&message.id)
+            || direct.contains(&message.id)
+    });
     // EXP-1458: agent-to-agent messages that came over eNet ahead of their
     // synced copy (deduped by id against it).
     coding::direct_inbox::merge(&mut messages);
@@ -232,9 +331,15 @@ fn run_pass(cx: &mut App) {
     }
     live.settle_handed(&messages);
     live.settle_options(&sessions);
+    // #LOGS-11: the messages grouped once (was a scan of every hosted
+    // message per hosted session).
+    let mut by_session: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
+    for message in &messages {
+        by_session.entry(message.session_id.as_str()).or_default().push(message);
+    }
     let fingerprints: HashMap<&str, String> = sessions
         .iter()
-        .map(|row| (row.id.as_str(), fingerprint(row, &messages)))
+        .map(|row| (row.id.as_str(), fingerprint(row, by_session.get(row.id.as_str()).into_iter().flatten().copied())))
         .collect();
     // A stall lasts only while nothing about the session moved.
     cx.global_mut::<PickupHost>()
@@ -255,7 +360,16 @@ fn run_pass(cx: &mut App) {
     let views = live.live_views();
     let revive_held = live.revive_held();
     // EXP-1542: the server's move records (a moved session's hand-off).
-    let moves = pickup::move_records(&collections.events.read(cx).iter().cloned().collect::<Vec<_>>());
+    // #LOGS-11: only the move lines are cloned (was every synced event).
+    let moves = pickup::move_records(
+        &collections
+            .events
+            .read(cx)
+            .iter()
+            .filter(|event| matches!(event.name.as_deref(), Some(pickup::SESSION_MOVED_EVENT | pickup::SESSION_HANDED_OFF_EVENT)))
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
     let mut actions: Vec<PickupAction> = pickup::plan(PickupInput {
         device_id: &device_id,
         sessions: &sessions,
@@ -589,7 +703,7 @@ pub(crate) fn switch_locally(
     let Some(deps) = pickup_deps(&device_id, std::slice::from_ref(&row), cx) else {
         return false;
     };
-    let at = fingerprint(&row, &[]);
+    let at = fingerprint(&row, None::<&MessageRow>);
     let id = session_id.to_string();
     spawn_step(id.clone(), at, cx, move || {
         switched(&id, &target, pickup::switch_session(&row, &target, Some(&prompt), &[], &deps))
@@ -669,7 +783,7 @@ const STEP_RETRY: Duration = Duration::from_secs(30);
 /// of its pending inputs (a person's queued messages AND another session's,
 /// EXP-1329: both plan a Resume) — any change re-opens the session to the
 /// plan.
-fn fingerprint(row: &SessionRow, messages: &[MessageRow]) -> String {
+fn fingerprint<'a>(row: &SessionRow, messages: impl IntoIterator<Item = &'a MessageRow>) -> String {
     let mut at = format!(
         "{}|{}",
         row.updated_at.as_deref().unwrap_or_default(),
@@ -804,7 +918,7 @@ mod tests {
             "id": "s-1", "status": "queued", "updated_at": "t1",
         }))
         .unwrap();
-        let before = fingerprint(&row, &[]);
+        let before = fingerprint(&row, None::<&MessageRow>);
         let message = MessageRow {
             session_id: "s-1".into(),
             ..serde_json::from_value(serde_json::json!({
@@ -815,7 +929,7 @@ mod tests {
         assert_ne!(before, fingerprint(&row, &[message]));
         let mut later = row.clone();
         later.updated_at = Some("t2".into());
-        assert_ne!(before, fingerprint(&later, &[]));
+        assert_ne!(before, fingerprint(&later, None::<&MessageRow>));
     }
 
     /// EXP-1329: another session's message plans a Resume too, so it moves
@@ -826,7 +940,7 @@ mod tests {
             "id": "s-1", "status": "idle", "updated_at": "t1",
         }))
         .unwrap();
-        let before = fingerprint(&row, &[]);
+        let before = fingerprint(&row, None::<&MessageRow>);
         let from_agent = MessageRow {
             session_id: "s-1".into(),
             ..serde_json::from_value(serde_json::json!({

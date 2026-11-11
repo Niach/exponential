@@ -308,7 +308,10 @@ impl Surface {
         if kind == BoxKind::Leaf {
             let dir = if direction == Direction::Rtl { crate::direction::TextDirection::Rtl } else { crate::direction::TextDirection::Ltr };
             visual.direction = Some(dir.as_str().to_string());
-            visual.text_align = Some(crate::direction::text_align_of(&flat, &n.props, dir).as_str().to_string());
+            // A Select's `align` places its popup, not its text.
+            let no_props = Map::new();
+            let align_props = if n.component == "Select" { &no_props } else { &n.props };
+            visual.text_align = Some(crate::direction::text_align_of(&flat, align_props, dir).as_str().to_string());
         }
         let scale = self.settings.font_scale;
         // Type INHERITS like CSS (round 2 parity): an unset size, weight,
@@ -338,6 +341,7 @@ impl Surface {
             font_style: visual.font_style.clone().or_else(|| pt.and_then(|t| t.font_style.clone())).filter(|s| s != "normal"),
             text_transform: visual.text_transform.clone().or_else(|| pt.and_then(|t| t.text_transform.clone())).filter(|t| t != "none"),
             letter_spacing: visual.letter_spacing.or(pt.and_then(|t| t.letter_spacing)).filter(|l| *l != 0.0),
+            font_variant_numeric: visual.font_variant_numeric.clone().or_else(|| pt.and_then(|t| t.font_variant_numeric.clone())),
         };
         let pads = visual.padding.unwrap_or([0.0; 4]);
         let control = ControlBox {

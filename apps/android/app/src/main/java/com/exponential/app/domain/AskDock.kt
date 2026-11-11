@@ -43,6 +43,8 @@ object AskDock {
         val createdAt: Long,
         /** A plan's question count (a question: null). */
         val questions: Int? = null,
+        /** #EXP-1785: the asking session (a chat row's; null in the session view). */
+        val sessionId: String? = null,
     )
 
     data class PlanOption(
@@ -120,9 +122,9 @@ object AskDock {
     ): List<Pending> = rows.mapIndexedNotNull { index, row ->
         when {
             row is SessionTree.SessionChatRow.Plan && row.decision == null ->
-                Pending(row.id, Kind.Plan, row.plan, sessionName(row.sessionId), index.toLong(), row.questions.size)
+                Pending(row.id, Kind.Plan, row.plan, sessionName(row.sessionId), index.toLong(), row.questions.size, row.sessionId)
             row is SessionTree.SessionChatRow.Question && !row.answered ->
-                Pending(row.id, Kind.Question, row.question, sessionName(row.sessionId), index.toLong())
+                Pending(row.id, Kind.Question, row.question, sessionName(row.sessionId), index.toLong(), sessionId = row.sessionId)
             else -> null
         }
     }

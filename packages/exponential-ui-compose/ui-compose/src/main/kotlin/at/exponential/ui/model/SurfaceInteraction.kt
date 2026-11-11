@@ -654,6 +654,40 @@ fun SurfaceModel.setOpen(owner: String, open: Boolean) {
 fun SurfaceModel.isSubmenuLayer(layer: LayerInfo): Boolean =
     layer.kind == "Menu" && node(layer.root)?.id != "${layer.owner}.content"
 
+/**
+ * #EXP-1629: is `layer` a Menu item's `preview` (the core's `preview` part
+ * beside its row while hovered or highlighted)? It never takes the focus or
+ * Escape; the menu under it keeps them (gpui `passive_layer`).
+ */
+fun SurfaceModel.isMenuPreviewLayer(layer: LayerInfo): Boolean =
+    layer.kind == "Menu" && node(layer.root)?.let { it.ownerComponent == "Menu" && it.part == "preview" } == true
+
+/**
+ * #EDE-65 (interactions-round1.json typeaheadFocus): is `layer` a TYPEAHEAD,
+ * a Popover whose `anchor` (the node it linked as its trigger) is a text
+ * field (a Composer, an Input, a Textarea: the node itself or its `field`
+ * part)? Opening it never moves the focus (the field keeps it, its caret and
+ * the IME) and closing it returns the focus nowhere; it keeps Escape (gpui
+ * `Surface::is_typeahead`).
+ */
+fun SurfaceModel.isTypeaheadLayer(layer: LayerInfo): Boolean {
+    if (layer.kind != "Popover") return false
+    val owner = indexOf(layer.owner)?.let { node(it) } ?: return false
+    if (owner.component != "Popover" || owner.props.str("anchor").isEmpty()) return false
+    val anchor = nodes.firstOrNull { !it.removed && it.triggerFor == layer.owner } ?: return false
+    return isFieldAnchor(if (anchor.part == null) anchor.component else anchor.ownerComponent ?: anchor.component, anchor.part)
+}
+
+/** `is_field_anchor` (Rust) / `isFieldAnchor` (TS). */
+fun isFieldAnchor(component: String, part: String?): Boolean =
+    component in setOf("Composer", "Input", "Textarea") && (part == null || part == "root" || part == "field")
+
+/**
+ * Does the popup of `layer` take the window focus when it opens? Never a Menu
+ * item's preview, never a typeahead ([isTypeaheadLayer]).
+ */
+fun SurfaceModel.popupTakesFocus(layer: LayerInfo): Boolean = !isMenuPreviewLayer(layer) && !isTypeaheadLayer(layer)
+
 /** Close the open submenu of the Menu `owner` (its row toggles it), the menu stays open. */
 fun SurfaceModel.closeSubmenu(owner: String) {
     val row = nodes.firstOrNull { it.owner == owner && it.ownerComponent == "Menu" && it.part == "item" && it.open && it.props.str("kind") == "submenu" } ?: return
@@ -692,7 +726,7 @@ fun SurfaceModel.escape(): Boolean {
         popup = null
         return true
     }
-    val top = layers.lastOrNull { !it.isToast && it.kind != "Tooltip" }
+    val top = layers.lastOrNull { !it.isToast && it.kind != "Tooltip" && !isMenuPreviewLayer(it) }
     if (top != null) {
         if (top.dismissible) {
             justDismissed = null

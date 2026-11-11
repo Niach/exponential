@@ -418,6 +418,10 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("paddingBottom", &["spacing"]),
     // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
     ("textAlign", &[]),
+    // #EXP-1629: a joined Select multi row squares the corners it shares.
+    ("borderTopRightRadius", &["radius", "spacing"]),
+    ("borderBottomRightRadius", &["radius", "spacing"]),
+    ("borderBottomLeftRadius", &["radius", "spacing"]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -1089,14 +1093,28 @@ pub fn try_load_theme(source: &Value, options: &ThemeOptions) -> Result<Resolved
     Ok(theme)
 }
 
+/// `#rrggbb[aa]` with its alpha scaled by `factor` (rounded to a byte).
+fn with_alpha(hex: &str, factor: f64) -> String {
+    let alpha = hex.get(7..9).and_then(|a| u8::from_str_radix(a, 16).ok()).unwrap_or(255);
+    format!("{}{:02x}", &hex[..7.min(hex.len())], (f64::from(alpha) * factor).round() as u8)
+}
+
 /// #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
 /// after themes shipped takes a sibling's value when the chain sets none, so
 /// every older theme stays complete: `link` = `primary`, #EDE-65
 /// `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`,
-/// `strokeActive` = `ring`.
+/// `strokeActive` = `ring`, `destructiveHover` = `destructive` at 10 %
+/// alpha in light and 20 % in dark (web's destructive menu item highlight,
+/// `bg-destructive/10` / `dark:bg-destructive/20`).
 fn derive_colors(theme: &mut ResolvedTheme) {
     for mode in Mode::ALL {
         let m = theme.modes.get_mut(mode);
+        if !m.color.contains_key("destructiveHover") {
+            if let Some(value) = m.color.get("destructive").cloned() {
+                let factor = if mode == Mode::Dark { 0.2 } else { 0.1 };
+                m.color.insert("destructiveHover".to_string(), with_alpha(&value, factor));
+            }
+        }
         for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {
@@ -1512,6 +1530,10 @@ mod tests {
         has(&r(json!({"variant": "outline", "size": "sm"}), &[]), json!({"height": 32, "borderWidth": 1, "borderColor": "#e5e5e5", "backgroundColor": "#ffffff"}));
         has(&r(json!({"variant": "outline", "size": "sm"}), &["hover"]), json!({"backgroundColor": "#f5f5f5"}));
         has(&r(json!({"variant": "ghost", "size": "icon"}), &[]), json!({"width": 36, "height": 36, "backgroundColor": "#00000000", "boxShadow": []}));
+        // #EXP-1629: icon-xs = a 24 round square; a muted tone keeps its colour under the ghost hover fill.
+        has(&r(json!({"variant": "ghost", "size": "icon-xs"}), &[]), json!({"width": 24, "height": 24, "borderRadius": 9999, "paddingHorizontal": 0}));
+        has(&r(json!({"variant": "ghost", "size": "icon-xs", "tone": "muted"}), &[]), json!({"color": "#737373", "backgroundColor": "#00000000"}));
+        has(&r(json!({"variant": "ghost", "size": "icon-xs", "tone": "muted"}), &["hover"]), json!({"color": "#737373", "backgroundColor": "#f5f5f5"}));
         has(&r(json!({"variant": "default", "size": "default"}), &["disabled"]), json!({"opacity": 0.5}));
         has(&r(json!({"variant": "default", "size": "default"}), &["hover"]), json!({"opacity": 0.9}));
     }
@@ -1641,6 +1663,16 @@ mod tests {
             let t = builtin_theme(id).unwrap();
             assert_eq!(t.modes.light.color["ghostHover"], t.modes.light.color["accent"]);
             assert_eq!(t.modes.dark.color["ghostHover"], t.modes.dark.color["accent"]);
+        }
+    }
+
+    #[test]
+    fn a_destructive_menu_item_is_webs_destructive_dropdown_item() {
+        // #EXP-1629 (catalog/tokens.json `color.destructiveHover`, recipes.json Menu `destructive`).
+        for id in ["neutral", "exponential", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.color["destructiveHover"], format!("{}1a", &t.modes.light.color["destructive"][..7]));
+            assert_eq!(t.modes.dark.color["destructiveHover"], format!("{}33", &t.modes.dark.color["destructive"][..7]));
         }
     }
 

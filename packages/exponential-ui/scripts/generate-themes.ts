@@ -252,6 +252,10 @@ export function themeSchema(): Record<string, unknown> {
     marginBottom: numOrToken([`spacing`]),
     // #EDE-65: MessageBubble/bubble's leading corner and width cap.
     borderTopLeftRadius: numOrToken([`radius`, `spacing`]),
+    // #EXP-1629: a joined Select multi row squares the corners it shares.
+    borderTopRightRadius: numOrToken([`radius`, `spacing`]),
+    borderBottomRightRadius: numOrToken([`radius`, `spacing`]),
+    borderBottomLeftRadius: numOrToken([`radius`, `spacing`]),
     maxWidth: { anyOf: [...numOrToken([`control`, `spacing`]).anyOf, { type: `string`, pattern: `^[0-9]+(\\.[0-9]+)?%$` }] },
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),
@@ -497,9 +501,16 @@ function walk(node: UiNode, visit: (n: UiNode) => void): void {
   node.children.forEach((c) => walk(c, visit))
 }
 
+const COMBO_TUPLES: [string, Record<string, unknown>][] = [[`Button`, { variant: `ghost`, size: `icon-xs`, tone: `muted` }]]
+
+/** Part-level boolean discriminators a painter supplies (catalog/recipes.json
+ *  lists them among the component's when-props): [component, part, prop]. */
+const PAINTER_BOOLEANS: [string, string, string][] = [[`Menu`, `item`, `destructive`]]
+
 /** Every (component, part, props) a theme can be asked about: each native
  *  part × its props varied one at a time over the defaults, each macro part
- *  as the component cases + the kitchen sink produce it. */
+ *  as the component cases + the kitchen sink produce it, + COMBO_TUPLES
+ *  + PAINTER_BOOLEANS. */
 export function recipeTuples(componentCases: { node: NestedNode }[], kitchen: NestedNode): RecipeTuple[] {
   const parts = recipeParts()
   const seen = new Map<string, RecipeTuple>()
@@ -519,6 +530,19 @@ export function recipeTuples(componentCases: { node: NestedNode }[], kitchen: Ne
       for (const value of values) combos.push({ ...defaults, [prop]: value })
     }
     for (const part of spec.parts) for (const props of combos) add({ component: name, part, props })
+  }
+  // Prop COMBINATIONS whose look no single-prop variation shows. #EXP-1629:
+  // the IDE's composer tool, a muted ghost icon-xs (its hover fills, the
+  // glyph stays muted).
+  for (const [name, props] of COMBO_TUPLES) {
+    const defaults = nativeRecipeProps(name, coreCatalog.components[name].example ?? {})
+    for (const part of parts[name].parts) add({ component: name, part, props: { ...defaults, ...props } })
+  }
+  // Painter-supplied discriminators (no catalog prop to enumerate): #EXP-1629
+  // a Menu entry's `destructive` on its `item` row.
+  for (const [name, part, prop] of PAINTER_BOOLEANS) {
+    const defaults = nativeRecipeProps(name, coreCatalog.components[name]?.example ?? {})
+    for (const value of [true, false]) add({ component: name, part, props: { ...defaults, [prop]: value } })
   }
   const trees = [...componentCases.map((c) => reduceNested(c.node, { catalogId: CORE_CATALOG_ID }).root), reduceNested(kitchen, { catalogId: CORE_CATALOG_ID }).root]
   for (const tree of trees) walk(tree, (n) => { if (n.recipe) add({ component: n.recipe.macro, part: n.recipe.part, props: n.recipe.props }) })

@@ -110,6 +110,12 @@ impl PendingImages {
         self.pending.len()
     }
 
+    /// #EDE-65 lane O: the staged items in strip order (the chat document's
+    /// `/chatFiles` chips).
+    pub(crate) fn items(&self) -> &[PendingImage] {
+        &self.pending
+    }
+
     fn image_count(&self) -> usize {
         self.pending.iter().filter(|item| !item.is_file).count()
     }
@@ -493,7 +499,7 @@ pub(crate) fn pick_attachment_files<V: 'static>(
 /// (`read_any_file`: images 10 MB, files 50 MB, checked before the read).
 /// A directory, an unreadable, empty or oversized file comes back as its
 /// name and type with NO bytes, which `stage` rejects with its notice.
-fn read_pick(path: &std::path::Path) -> Option<StagedFile> {
+pub(crate) fn read_pick(path: &std::path::Path) -> Option<StagedFile> {
     if !path.is_file() {
         return None;
     }

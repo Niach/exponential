@@ -17,7 +17,7 @@ enum BuiltinIcons {
     static let slots: [String: String] = [
         "Accordion.trigger": "ui-chevron-down", "Carousel.previous": "ui-chevron-left", "Carousel.next": "ui-chevron-right",
         "Checkbox.check": "ui-check", "Checkbox.check.indeterminate": "ui-minus", "ChipInput.remove": "ui-close", "CodeBlock.copy": "ui-copy", "CodeBlock.copied": "ui-check",
-        "Composer.attachment": "ui-attach", "Composer.send": "ui-send", "Composer.stop": "ui-stop",
+        "Composer.attachment": "ui-attach", "Composer.send": "ui-submit", "Composer.stop": "ui-stop",
         "DatePicker.trigger": "calendar", "DatePicker.previousMonth": "ui-chevron-left", "DatePicker.nextMonth": "ui-chevron-right",
         "DateRangePicker.trigger": "calendar", "Dialog.close": "ui-close",
         "Menu.check": "ui-check", "Menu.submenuIndicator": "ui-chevron-right",
@@ -61,6 +61,7 @@ enum BuiltinIcons {
         case "calendar", "ui-calendar": "calendar"
         case "ui-clock", "clock": "clock"
         case "ui-send", "send": "send"
+        case "ui-submit", "circle-arrow-up": "circle-arrow-up"
         case "ui-attach", "paperclip": "paperclip"
         case "ui-stop", "circle-stop": "circle-stop"
         case "ui-copy", "copy": "copy"

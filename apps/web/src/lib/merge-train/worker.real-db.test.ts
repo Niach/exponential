@@ -47,6 +47,8 @@ const { sendSession } = await import(`@/lib/sessions/send`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const worker = await import(`@/lib/merge-train/worker`)
 const { setForgeForTests } = await import(`@/lib/ecode/forge`)
+const { confirmRetry } = await import(`@/lib/merge-train/confirm`)
+confirmRetry.delaysMs = [0, 0, 0]
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -64,6 +66,8 @@ interface FakePr {
   title: string
   state: `open` | `closed`
   draft: boolean
+  mergeable?: boolean | null
+  updatedAt?: Date | null
 }
 
 class FakeForge {
@@ -73,11 +77,19 @@ class FakeForge {
   closed: Array<{ number: number; sha: string }> = []
   squashed: number[] = []
   missingPipeline = false
+  required = [`gate`]
+  /** The pipeline reports nothing yet: a run stays live across passes. */
+  hold = false
   refuseFastForward = false
   /** Every commit a branch ever pointed at (#FEED-212: `branchContains`). */
   history = new Set<string>([`base0`])
-  /** Decides each run: which PR numbers conflict, and whether CI is red. */
-  judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string } = () => ({})
+  /** #FEED-222: reads after a fast-forward that still see the old base
+   *  (GitHub's compare lagging its ref write); each landing check eats one. */
+  staleReads = 0
+  private beforeFastForward = new Map<string, string>()
+  /** Decides each run: which PR numbers conflict, whether CI is red, and
+   *  whether it composed nothing (`empty`: its head is the base itself). */
+  judge: (prs: number[]) => { conflicts?: number[]; siblings?: number[]; red?: boolean; error?: string; empty?: boolean } = () => ({})
   private outcomes = new Map<string, TrainPipelineOutcome>()
   private checks = new Map<string, TrainCheck[]>()
 
@@ -99,10 +111,13 @@ class FakeForge {
           mergedAt: null,
           mergedBy: null,
           author: `dev <dev@example.com>`,
+          mergeable: pr.mergeable ?? null,
+          updatedAt: pr.updatedAt ?? null,
         }
       },
-      readBranch: async (_repo, branch) => this.branch.get(branch) ?? null,
-      requiredChecks: async () => [`gate`],
+      readBranch: async (_repo, branch) =>
+        (this.staleReads > 0 ? this.beforeFastForward.get(branch) : undefined) ?? this.branch.get(branch) ?? null,
+      requiredChecks: async () => this.required,
       dispatchPipeline: async (_repo, inputs) => {
         if (this.missingPipeline) return { ok: false, missing: true, message: `no train.yml` }
         const units = JSON.parse(inputs.units) as TrainPipelineUnit[]
@@ -111,7 +126,7 @@ class FakeForge {
         const verdict = this.judge(numbers)
         const conflicts = new Set([...(verdict.conflicts ?? []), ...(verdict.siblings ?? [])])
         const siblings = new Set(verdict.siblings ?? [])
-        const head = `train-${inputs.train_id.slice(0, 8)}`
+        const head = verdict.empty ? inputs.base_sha : `train-${inputs.train_id.slice(0, 8)}`
         if (verdict.error) {
           this.outcomes.set(inputs.train_id, { train: inputs.train_id, base_sha: inputs.base_sha, head: null, checks: `none`, units: [], error: verdict.error })
           return { ok: true, runRef: null }
@@ -133,18 +148,25 @@ class FakeForge {
         return { ok: true, runRef: null }
       },
       readPipeline: async (_repo, trainId) => {
-        const outcome = this.outcomes.get(trainId) ?? null
+        const outcome = this.hold ? null : (this.outcomes.get(trainId) ?? null)
         return { outcome, finished: !!outcome }
       },
       checksAt: async (_repo, sha) => this.checks.get(sha) ?? [],
       fastForward: async (_repo, { branch, from, to }) => {
         if (this.refuseFastForward) return { ok: false, reason: `refused`, message: `ruleset` }
         if (this.branch.get(branch) !== from) return { ok: false, reason: `moved`, current: this.branch.get(branch) ?? null }
+        this.beforeFastForward.set(branch, from)
         this.branch.set(branch, to)
         this.history.add(to)
         return { ok: true }
       },
-      branchContains: async (_repo, branch, sha) => this.branch.get(branch) === sha || this.history.has(sha),
+      branchContains: async (_repo, branch, sha) => {
+        if (this.staleReads > 0) {
+          this.staleReads--
+          return false
+        }
+        return this.branch.get(branch) === sha || this.history.has(sha)
+      },
       closeAsLanded: async (_repo, { number, sha }) => {
         this.closed.push({ number, sha })
         const pr = this.prs.get(number)
@@ -190,7 +212,7 @@ async function world() {
   const fullName = `o/mt-${id8()}`
   const [repo] = await db.insert(repositories).values({ teamId, fullName, defaultBranch: `main` }).returning({ id: repositories.id })
   const children: Record<number, string> = {}
-  async function pr(number: number, opts: { base?: string } = {}) {
+  async function pr(number: number, opts: { base?: string; checks?: boolean } = {}) {
     const child = (await sendSession({ userId: owner, input: { parentId: chat, text: `part ${number}` } })).sessionId
     children[number] = child
     const { pullRequest } = await recordPullRequestOpened({
@@ -208,6 +230,10 @@ async function world() {
       actorUserId: owner,
     })
     fake.prs.set(number, { headSha: `head-${number}`, title: `Part ${number}`, state: `open`, draft: false })
+    // The fake forge requires `gate`: a PR has its green run unless a case says not.
+    if (opts.checks !== false) {
+      await db.insert(pullRequestChecks).values({ teamId, pullRequestId: pullRequest.id, headSha: `head-${number}`, name: `gate`, status: `completed`, conclusion: `success`, required: true })
+    }
     return pullRequest.id
   }
   // Every session idle: the opener's subtree does not hold the PR back.
@@ -215,6 +241,8 @@ async function world() {
   return { owner, teamId, deviceId, chat, repoId: repo!.id, fullName, pr, idle, children }
 }
 
+const gateRunning = (id: string) =>
+  db.update(pullRequestChecks).set({ status: `in_progress`, conclusion: null }).where(and(eq(pullRequestChecks.pullRequestId, id), eq(pullRequestChecks.name, `gate`)))
 const prRow = async (id: string) => (await db.select().from(pullRequests).where(eq(pullRequests.id, id)))[0]!
 const lines = (sessionId: string) =>
   db
@@ -258,7 +286,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
 
   it(`an informational leg never holds a PR: only the required checks do (#EXP-1711)`, async () => {
     const w = await world()
-    const a = await w.pr(221)
+    const a = await w.pr(221, { checks: false })
     await w.idle()
     const check = (name: string, status: `queued` | `completed` | `in_progress`, conclusion: `success` | null, required: boolean) => ({
       teamId: w.teamId,
@@ -434,7 +462,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const ready = await w.pr(512, { base: `exp/511` })
     const waiting = await w.pr(513, { base: `exp/511` })
     await db.update(pullRequests).set({ basePullRequestId: bottom }).where(inArray(pullRequests.id, [ready, waiting]))
-    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, waiting))
+    await gateRunning(waiting)
     await w.idle()
     await pass(w.repoId)
     expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[511, 512]])
@@ -508,7 +536,7 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await pass(w.repoId)
     expect((await prRow(a)).mergeState).toBe(`testing`)
     // The push brings CI running on the new head.
-    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, a))
+    await gateRunning(a)
     await worker.onPullRequestPush(a)
     await worker.drainMergeTrainEdges()
     expect((await prRow(a)).mergeState).toBe(`checks`)
@@ -542,6 +570,240 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(b)).mergeState).toBe(`merged`)
     const root = (await db.select({ rootId: sessions.rootId }).from(sessions).where(eq(sessions.id, conversation!.id)))[0]!.rootId
     expect((await lines(root)).map((l) => l.body)).toEqual([`Merged #801, #802 into main.`])
+  })
+
+  it(`#FEED-221: a required name decides even when no row carries the flag`, async () => {
+    const w = await world()
+    const a = await w.pr(801, { checks: false })
+    await w.idle()
+    const row = (name: string, status: `completed` | `queued`, conclusion: `success` | null) => ({ teamId: w.teamId, pullRequestId: a, headSha: `head-801`, name, status, conclusion, required: false })
+    await db.insert(pullRequestChecks).values([row(`gate`, `completed`, `success`), row(`ios-core / ios-core`, `queued`, null)])
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `testing`, mergeWait: null })
+  })
+
+  it(`#FEED-221: a head that conflicts with no CI is held at once and takes no slot; a push revives it`, async () => {
+    const w = await world()
+    const stuck = await w.pr(811, { checks: false })
+    const green = await w.pr(812)
+    fake.prs.get(811)!.mergeable = false
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(stuck)).toMatchObject({ mergeState: `held`, mergeHold: `conflict`, mergePosition: null, mergeWait: null })
+    expect((await lines(w.children[811]!)).map((l) => l.body)).toEqual([
+      `Auto-merge of #811 is held: it conflicts with its base, so no CI ran. Rebase, resolve and push: it re-queues by itself.`,
+    ])
+    expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[812]]])
+    expect((await prRow(green)).mergeState).toBe(`testing`)
+    // The agent rebased: the new head composes, its CI is on the way.
+    fake.prs.get(811)!.mergeable = true
+    await worker.onPullRequestPush(stuck)
+    await worker.drainMergeTrainEdges()
+    expect(await prRow(stuck)).toMatchObject({ mergeHold: null })
+    expect((await prRow(stuck)).mergeState).not.toBe(`held`)
+  })
+
+  it(`#FEED-221: no CI waits out the grace as checks, then is held; check rows release it`, async () => {
+    const w = await world()
+    const a = await w.pr(821, { checks: false })
+    fake.prs.get(821)!.mergeable = true
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks`, mergeHold: null })
+    expect(fake.dispatches).toHaveLength(0)
+    fake.prs.get(821)!.updatedAt = new Date(Date.now() - 6 * 60_000)
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `held`, mergeHold: `no_checks` })
+    expect(fake.dispatches).toHaveLength(0)
+    await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: a, headSha: `head-821`, name: `gate`, status: `completed`, conclusion: `success`, required: true })
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `testing`, mergeHold: null })
+  })
+
+  it(`#FEED-221: a repo whose base requires nothing still lands a PR with no CI`, async () => {
+    const w = await world()
+    const a = await w.pr(831, { checks: false })
+    fake.required = []
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+  })
+
+  it(`#FEED-221: a queued PR keeps its place through its opener's wake`, async () => {
+    process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV] = `1`
+    try {
+      const w = await world()
+      const first = await w.pr(841)
+      const second = await w.pr(842)
+      await w.idle()
+      await pass(w.repoId)
+      const before = await prRow(second)
+      expect(before).toMatchObject({ mergeState: `queued`, mergePosition: 2 })
+      expect((await prRow(first)).mergeState).toBe(`testing`)
+      await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.children[842]!))
+      fake.hold = true
+      await pass(w.repoId)
+      const after = await prRow(second)
+      expect(after).toMatchObject({ mergeState: `queued`, mergeWait: null, mergePosition: 2 })
+      expect(after.mergeReadyAt).toEqual(before.mergeReadyAt)
+    } finally {
+      delete process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV]
+    }
+  })
+
+  it(`#FEED-221: a re-queued batch pushes nobody back; several green PRs ride one batch`, async () => {
+    process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV] = `2`
+    try {
+      const w = await world()
+      const a = await w.pr(851)
+      const b = await w.pr(852)
+      const c = await w.pr(853)
+      await w.idle()
+      fake.judge = () => ({ error: `boom` })
+      await pass(w.repoId)
+      expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[851], [852]])
+      expect((await prRow(a)).mergeState).toBe(`testing`)
+      expect((await prRow(b)).mergeState).toBe(`testing`)
+      expect((await prRow(c)).mergePosition).toBe(3)
+      // The pipeline errors: the batch re-queues ahead of the PR behind it,
+      // and that PR's place does not move.
+      await pass(w.repoId)
+      expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergePosition: 1 })
+      expect(await prRow(b)).toMatchObject({ mergeState: `queued`, mergePosition: 2 })
+      expect((await prRow(c)).mergePosition).toBe(3)
+    } finally {
+      delete process.env[worker.MERGE_TRAIN_BATCH_MAX_ENV]
+    }
+  })
+
+  it(`#FEED-221: a closed PR keeps no queue place`, async () => {
+    const w = await world()
+    const a = await w.pr(861)
+    await db.update(pullRequests).set({ state: `closed`, mergePosition: 4 }).where(eq(pullRequests.id, a))
+    await pass(w.repoId)
+    expect((await prRow(a)).mergePosition).toBeNull()
+  })
+
+  it(`#FEED-222: a landing check that reads the old base first re-reads, and lands`, async () => {
+    const w = await world()
+    const a = await w.pr(871)
+    await w.idle()
+    fake.staleReads = 2
+    await pass(w.repoId, 2)
+    const head = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(await prRow(a)).toMatchObject({ state: `merged`, mergeState: `merged`, mergeAttempts: 0 })
+    expect(fake.closed).toEqual([{ number: 871, sha: head }])
+    expect((await lines(w.children[871]!)).map((l) => l.body)).toEqual([`Merged #871 into main.`])
+  })
+
+  // Every landing check after the push: confirmLanding's reads.
+  const confirmReads = () => 1 + confirmRetry.delaysMs.length
+
+  it(`#FEED-222: a landing no read confirmed is Merged in the same pass once the base shows it; never stuck`, async () => {
+    const w = await world()
+    const [agent] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Assistant`, instructions: ``, deviceId: w.deviceId, ownerId: w.owner, role: `assistant`, sortOrder: 0 })
+      .returning({ id: agents.id })
+    const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: `hi` } })).sessionId
+    const a = await w.pr(881)
+    const b = await w.pr(882)
+    await w.idle()
+    await pass(w.repoId)
+    // The run lands #881 + #882, but every confirmation read is stale.
+    fake.staleReads = confirmReads()
+    await pass(w.repoId)
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(fake.branch.get(`main`)).toBe(landed)
+    expect(fake.dispatches).toHaveLength(1)
+    for (const id of [a, b]) {
+      expect(await prRow(id)).toMatchObject({ state: `merged`, mergeState: `merged`, mergeHold: null, mergeTrainId: null, mergeAttempts: 1 })
+    }
+    expect(fake.closed).toEqual([
+      { number: 881, sha: landed },
+      { number: 882, sha: landed },
+    ])
+    const outcomes = async (n: number) => (await lines(w.children[n]!)).map((l) => (l.card as { mergeOutcome?: string }).mergeOutcome)
+    expect(await outcomes(881)).toEqual([`merged`])
+    expect(await outcomes(882)).toEqual([`merged`])
+    const root = (await db.select({ rootId: sessions.rootId }).from(sessions).where(eq(sessions.id, conversation)))[0]!.rootId
+    expect((await lines(root)).map((l) => l.body)).toEqual([`Merged #881, #882 into main.`])
+    await pass(w.repoId, 2)
+    expect(fake.dispatches).toHaveLength(1)
+  })
+
+  it(`#FEED-222: a PR bounced as a conflict after an unconfirmed landing (re-squashed onto the moved base) is Merged`, async () => {
+    const w = await world()
+    const a = await w.pr(883)
+    await w.idle()
+    await pass(w.repoId)
+    // Stale through the confirmation and the next two looks; the re-run conflicts.
+    fake.staleReads = confirmReads() + 2
+    fake.judge = () => ({ conflicts: [883] })
+    await pass(w.repoId, 2)
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(fake.dispatches).toHaveLength(2)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `conflict`, mergeAttempts: 2 })
+    // The base reads true now: the next pass merges it from `conflict`.
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `merged`, mergeState: `merged` })
+    expect(fake.closed).toEqual([{ number: 883, sha: landed }])
+    expect((await lines(w.children[883]!)).map((l) => (l.card as { mergeOutcome?: string }).mergeOutcome)).toEqual([`conflict`, `merged`])
+    expect(fake.dispatches).toHaveLength(2)
+  })
+
+  it(`#FEED-222: a run that composes nothing lands what an earlier unconfirmed run landed`, async () => {
+    const w = await world()
+    const a = await w.pr(884)
+    await w.idle()
+    await pass(w.repoId)
+    fake.staleReads = confirmReads() + 1
+    fake.judge = () => ({ empty: true })
+    await pass(w.repoId)
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    expect(fake.dispatches[1]!.inputs.base_sha).toBe(landed)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `merged`, mergeState: `merged` })
+    expect(fake.closed).toEqual([{ number: 884, sha: landed }])
+    const runs = await db.select({ state: mergeTrains.state }).from(mergeTrains).where(eq(mergeTrains.repositoryId, w.repoId)).orderBy(asc(mergeTrains.createdAt))
+    expect(runs.map((r) => r.state)).toEqual([`error`, `landed`])
+  })
+
+  it(`#FEED-222: a head pushed since the unconfirmed landing never lands from it`, async () => {
+    const w = await world()
+    const a = await w.pr(885)
+    await w.idle()
+    await pass(w.repoId)
+    fake.staleReads = confirmReads() + 1
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeState: `testing`, mergeAttempts: 1 })
+    fake.prs.get(885)!.headSha = `head-885-2`
+    await worker.onPullRequestPush(a)
+    await worker.drainMergeTrainEdges()
+    await pass(w.repoId)
+    // It lands only through a run that tested the new head.
+    const landed = `train-${fake.dispatches[0]!.inputs.train_id.slice(0, 8)}`
+    const last = fake.dispatches.at(-1)!
+    expect(last.units[0]!.prs[0]!.head_sha).toBe(`head-885-2`)
+    expect(fake.closed).not.toContainEqual({ number: 885, sha: landed })
+    expect(fake.closed.every((c) => c.sha === `train-${last.inputs.train_id.slice(0, 8)}`)).toBe(true)
+  })
+
+  it(`#FEED-222: an empty compose after a landing that never reached the base still bounces`, async () => {
+    const w = await world()
+    const a = await w.pr(891)
+    await w.idle()
+    await pass(w.repoId)
+    fake.staleReads = confirmReads() + 1
+    fake.judge = () => ({ empty: true })
+    await pass(w.repoId)
+    // The base was put back: the earlier train commit is not on it.
+    fake.branch.set(`main`, `base0`)
+    fake.history = new Set([`base0`])
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ state: `open`, mergeAttempts: 2 })
+    expect(fake.closed).toEqual([])
   })
 
   it(`hold, resume and the queue report`, async () => {

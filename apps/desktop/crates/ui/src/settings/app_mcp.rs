@@ -11,9 +11,7 @@
 //!
 //! #EXP-1629: the groups are parts of the Settings tab's document
 //! (`app_detail`): each a builder of its rows' template and a projection of
-//! its rows. The share rows' ⋯ are genUI Menus ([`share_menu_items`]);
-//! the Accounts rows' Selects and the webhook rows' middle-truncated runs
-//! stay the IDE's own (`host_leaf` Embeds).
+//! its rows; the share rows' ⋯ are genUI Menus ([`share_menu_items`]).
 
 use std::collections::HashMap;
 
@@ -25,7 +23,7 @@ use serde_json::{json, Value};
 use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
 use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, AppDetailPane, Paint, Tints};
-use super::doc::{path, Ink, LINE, SM, XS};
+use super::doc::{path, Ink, SM, XS};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;
 
@@ -78,8 +76,14 @@ pub(crate) fn upstream_select(
     on_pick: impl Fn(String, &mut App) + 'static,
     cx: &App,
 ) -> impl IntoElement {
+    let on_pick: std::rc::Rc<dyn Fn(String, &mut App)> = std::rc::Rc::new(on_pick);
+    upstream_trigger(id, name, &picker, disabled, cx).pointer_menu(move |menu, _window, _cx| upstream_menu(menu, &picker, on_pick.clone()))
+}
+
+/// [`upstream_select`]'s trigger: the outline sm Button holding the shown
+/// option's label and the chevron (the bench draws it open, #EXP-1778).
+pub(crate) fn upstream_trigger(id: SharedString, name: SharedString, picker: &domain::apps::UpstreamPicker, disabled: bool, cx: &App) -> Button {
     let label = picker.options.iter().find(|(value, _)| *value == picker.value).map(|(_, label)| label.clone()).unwrap_or_default();
-    let on_pick = std::rc::Rc::new(on_pick);
     Button::new(id)
         .accessibility_label(name)
         .outline()
@@ -89,18 +93,25 @@ pub(crate) fn upstream_select(
         .disabled(disabled)
         .child(div().flex_1().min_w_0().truncate().child(label))
         .child(Icon::new(registry::UI_CHEVRON_DOWN).size(px(14.)).text_color(cx.theme().muted_foreground))
-        .pointer_menu(move |mut menu, _window, _cx| {
-            menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
-            for (value, label) in &picker.options {
-                let (on_pick, picked) = (on_pick.clone(), value.clone());
-                menu = menu.item(
-                    crate::controls::pointer_label_item(label.clone(), false)
-                        .checked(*value == picker.value)
-                        .on_click(move |_, _, cx| on_pick(picked.clone(), cx)),
-                );
-            }
-            menu
-        })
+}
+
+/// [`upstream_select`]'s menu: the options, the shown one checked (the
+/// bench draws it in place, #EXP-1778).
+pub(crate) fn upstream_menu(
+    mut menu: gpui_component::menu::PopupMenu,
+    picker: &domain::apps::UpstreamPicker,
+    on_pick: std::rc::Rc<dyn Fn(String, &mut App)>,
+) -> gpui_component::menu::PopupMenu {
+    menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
+    for (value, label) in &picker.options {
+        let (on_pick, picked) = (on_pick.clone(), value.clone());
+        menu = menu.item(
+            crate::controls::pointer_label_item(label.clone(), false)
+                .checked(*value == picker.value)
+                .on_click(move |_, _, cx| on_pick(picked.clone(), cx)),
+        );
+    }
+    menu
 }
 
 /// What an Accounts row shows on its right.
@@ -154,44 +165,10 @@ pub(super) fn share_menu_items() -> Vec<Value> {
     items
 }
 
-/// What an Accounts row's server Select needs ([`upstream_select`]).
-pub(super) struct AccountSelect {
-    pub name: String,
-    pub picker: domain::apps::UpstreamPicker,
-    pub disabled: bool,
-}
-
-/// #VAPP-254: an owner's server Select on an Accounts row.
-// drop with EXP-1778: the outline trigger and its scrollable
-// single-select menu stay the IDE's own (a `host_leaf` Embed): no genUI
-// Select trigger draws the 32 px outline Button.
-pub(super) fn account_select(select: &AccountSelect, view: gpui::WeakEntity<AppDetailPane>, cx: &App) -> gpui::AnyElement {
-    let account_row = &domain::apps::APPS.test_ids.account_row;
-    let name = select.name.clone();
-    upstream_select(
-        SharedString::from(format!("{account_row}-{}-picker", select.name)),
-        SharedString::from(select.name.clone()),
-        select.picker.clone(),
-        select.disabled,
-        move |value, cx| {
-            let name = name.clone();
-            let _ = view.update(cx, |this, cx| this.pick_upstream_server(name, value, cx));
-        },
-        cx,
-    )
-    .into_any_element()
-}
-
-/// The `Embed` surface of a host-drawn leaf: its `data` changes whenever
-/// the leaf must draw again.
-fn leaf_surface(data: Value) -> Value {
-    json!({"root": {"id": "leaf", "component": "Box"}, "data": data})
-}
-
 /// The Accounts rows (`app-settings-accounts`) as the document binds them;
 /// `busy` = the server whose Connect waits, `picking` = the upstream whose
-/// Select writes. Fills `selects` with the rows' Selects.
-pub(super) fn accounts_rows(data: &AppToolsOut, busy: Option<&str>, picking: Option<&str>, selects: &mut HashMap<String, AccountSelect>) -> Value {
+/// Select writes.
+pub(super) fn accounts_rows(data: &AppToolsOut, busy: Option<&str>, picking: Option<&str>) -> Value {
     let servers = server_options(&data.servers);
     let rows: Vec<Value> = data
         .upstreams
@@ -202,9 +179,9 @@ pub(super) fn accounts_rows(data: &AppToolsOut, busy: Option<&str>, picking: Opt
             let caption = domain::apps::account_caption(&upstream.name, upstream.server_name.as_deref(), APP_MCP_COPY.uses_server);
             let picker = domain::apps::upstream_picker(&upstream.name, upstream.server_id.as_deref(), &servers, APP_MCP_COPY.no_server);
             let select = picker.is_some();
-            if let Some(picker) = picker {
-                selects.insert(upstream.name.clone(), AccountSelect { name: upstream.name.clone(), picker, disabled: picking.is_some() });
-            }
+            let (server, choices) = picker.map_or((String::new(), Vec::new()), |picker| (picker.value, picker.options));
+            let server_label = choices.iter().find(|(value, _)| *value == server).map(|(_, label)| label.clone()).unwrap_or_default();
+            let choices: Vec<Value> = choices.into_iter().map(|(value, label)| json!({"label": label, "value": value})).collect();
             let add = trailing == AccountTrailing::NotSetUp && data.can_toggle;
             let text = match trailing {
                 AccountTrailing::NotSetUp if !data.can_toggle => Some(APP_MCP_COPY.no_server),
@@ -218,8 +195,11 @@ pub(super) fn accounts_rows(data: &AppToolsOut, busy: Option<&str>, picking: Opt
                 "name": upstream.name,
                 "hasCaption": caption.is_some(),
                 "caption": caption.unwrap_or_default(),
-                "select": select,
-                "selectSurface": leaf_surface(json!({"disabled": picking.is_some(), "value": upstream.server_id, "servers": servers.len()})),
+                "select": select && picking.is_none(),
+                "selectBusy": select && picking.is_some(),
+                "server": server,
+                "serverOptions": choices,
+                "serverLabel": server_label,
                 "add": add,
                 "hasText": text.is_some(),
                 "text": text.unwrap_or_default(),
@@ -287,36 +267,11 @@ pub(super) fn automations_rows(data: &AppToolsOut) -> Value {
     json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// What a middle-truncated run needs (the IDE's own text, `mid_text`).
-pub(super) struct MidText {
-    pub text: String,
-    /// `text_sm` (else `text_xs`).
-    pub sm: bool,
-    pub muted: bool,
-}
-
-/// A run of mono text cut in its MIDDLE (`text_ellipsis_middle`: a URL or
-/// secret keeps its both ends).
-// drop with EXP-1778: the text stays the IDE's own (a `host_leaf`
-// Embed) until genUI's Text truncates in the middle.
-pub(super) fn mid_text(text: &MidText, cx: &App) -> gpui::AnyElement {
-    let theme = cx.theme();
-    let run = div()
-        .font_family(theme.mono_font_family.clone())
-        .text_color(if text.muted { theme.muted_foreground } else { theme.foreground })
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_ellipsis_middle()
-        .child(text.text.clone());
-    let run = if text.sm { run.text_sm() } else { run.text_xs() };
-    div().w_full().line_height(gpui::phi()).child(run).into_any_element()
-}
-
 /// #VAPP-238: the Webhooks rows (`app-settings-webhooks`): the name over
 /// its URL and the status Pill, under them Copy URL and an owner's Create /
 /// Rotate secret; a secret this pane minted shows ONCE in a row right under
-/// its hook. Fills `texts` with the middle-truncated runs.
-pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, busy: Option<&str>, texts: &mut HashMap<String, MidText>) -> Value {
+/// its hook.
+pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, busy: Option<&str>) -> Value {
     let rows: Vec<Value> = data
         .hooks
         .iter()
@@ -324,16 +279,11 @@ pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, 
         .map(|(ix, hook)| {
             let view = domain::apps::webhook_row(hook.has_secret, data.can_toggle);
             let secret = secrets.get(&hook.name);
-            texts.insert(format!("{HOOK_URL}.{}", hook.name), MidText { text: hook.url.clone(), sm: false, muted: true });
-            if let Some(secret) = secret {
-                texts.insert(format!("{HOOK_SECRET}.{}", hook.name), MidText { text: secret.clone(), sm: true, muted: false });
-            }
             json!({
                 "key": hook.name,
                 "divided": ix > 0,
                 "name": hook.name,
                 "url": hook.url,
-                "urlSurface": leaf_surface(json!({"text": hook.url})),
                 "status": view.label,
                 "hasAction": view.action.is_some(),
                 "action": view.action.map(|a| a.as_str()).unwrap_or_default(),
@@ -341,7 +291,6 @@ pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, 
                 "actionDisabled": busy.is_some(),
                 "hasSecret": secret.is_some(),
                 "secret": secret.cloned().unwrap_or_default(),
-                "secretSurface": leaf_surface(json!({"text": secret})),
             })
         })
         .collect();
@@ -380,14 +329,17 @@ pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>) -> Value {
     json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// The Accounts row's Select and the webhook rows' middle-truncated runs
-/// (`<node>.<row key>` once painted).
-pub(super) const ACCOUNT_SELECT: &str = "account_select";
-pub(super) const HOOK_URL: &str = "hook_url";
-pub(super) const HOOK_SECRET: &str = "hook_secret";
 
-/// The width of an Accounts row's Select leaf.
-pub(super) const ACCOUNT_SELECT_W: f32 = UPSTREAM_SELECT_WIDTH;
+/// A webhook row's run of mono text cut in its MIDDLE: a URL or secret keeps
+/// both ends.
+fn mid_text(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
+    let mut run = ink.text(id, text, rems, color);
+    run["props"]["truncate"] = json!("middle");
+    run["style"]["fontFamily"] = json!("$type.family.mono");
+    run["style"]["width"] = json!("100%");
+    run["style"]["minWidth"] = json!(0);
+    run
+}
 
 /// The Public links group.
 pub(super) fn shares_group(ink: &Ink, tints: &Tints) -> Value {
@@ -404,7 +356,19 @@ pub(super) fn shares_group(ink: &Ink, tints: &Tints) -> Value {
 pub(super) fn accounts_group(ink: &Ink, tints: &Tints) -> Value {
     let mut caption = text_line(ink, "account_caption", path("caption"), XS, &ink.muted, false);
     caption["visible"] = path("hasCaption");
-    let select = json!({"id": ACCOUNT_SELECT, "component": "Embed", "visible": path("select"), "props": {"surface": path("selectSurface")}, "style": {"width": ACCOUNT_SELECT_W, "height": CTL_MD_H, "flexShrink": 0}});
+    let select = json!({"id": "account_select", "component": "Select", "visible": path("select"),
+        "props": {"label": path("name"), "name": "upstream", "triggerVariant": "button", "value": path("server"), "options": path("serverOptions")},
+        "style": {"width": UPSTREAM_SELECT_WIDTH, "flexShrink": 0},
+        "on": {"change": {"event": {"name": "upstream", "context": {"key": path("key")}}}}});
+    // While a pick writes: the IDE's disabled outline Button (the label's
+    // half-muted ink over a full-muted chevron), which the `button` Select's
+    // disabled recipe (the whole trigger at half) does not draw.
+    let select_busy = json!({"id": "account_select_busy", "component": "Box", "visible": path("selectBusy"),
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "gap": 4, "width": UPSTREAM_SELECT_WIDTH, "height": 32, "paddingHorizontal": 12, "borderRadius": tints.radius, "borderWidth": 1, "borderColor": tints.outline_stroke_dim, "backgroundColor": tints.outline_fill_dim},
+        "children": [
+            {"id": "account_select_busy_text", "component": "Text", "props": {"text": path("serverLabel"), "lines": 1}, "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0, "fontSize": ink.r(SM), "lineHeight": 17.5, "color": ink.muted, "opacity": 0.5}},
+            {"id": "account_select_busy_icon", "component": "Icon", "props": {"name": "ui-chevron-down"}, "style": {"width": 14, "height": 14, "color": ink.muted, "flexShrink": 0}},
+        ]});
     let add = button(ink, tints, "account_add", Paint::Outline, None, json!(APP_MCP_COPY.add_server), json!(false), json!({"name": "addServer", "context": {"key": path("key")}}));
     let add = visible(add, path("add"));
     let mut text = text_line(ink, "account_text", path("text"), SM, &ink.muted, false);
@@ -412,7 +376,7 @@ pub(super) fn accounts_group(ink: &Ink, tints: &Tints) -> Value {
     text["style"]["flexShrink"] = json!(0);
     let connect = button(ink, tints, "account_connect", Paint::Outline, None, path("connectLabel"), path("connectDisabled"), json!({"name": "connect", "context": {"key": path("key")}}));
     let connect = visible(connect, path("connect"));
-    let row = row_shell(ink, "account", vec![two_lines(ink, "account", text_line(ink, "account_name", path("name"), SM, &ink.foreground, false), caption, None), select, add, text, connect]);
+    let row = row_shell(ink, "account", vec![two_lines(ink, "account", text_line(ink, "account_name", path("name"), SM, &ink.foreground, false), caption, None), select, select_busy, add, text, connect]);
     titled(ink, "app-settings-accounts", APP_MCP_COPY.accounts, "/pane/accounts", row, tints)
 }
 
@@ -444,9 +408,7 @@ pub(super) fn automations_group(ink: &Ink, tints: &Tints) -> Value {
 pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let apps = &*domain::apps::APPS;
     let copy = &apps.copy.webhooks;
-    let xs_line = ink.r(XS) * LINE;
-    let sm_line = ink.r(SM) * LINE;
-    let url = json!({"id": HOOK_URL, "component": "Embed", "props": {"surface": path("urlSurface")}, "style": {"width": "100%", "height": xs_line}});
+    let url = mid_text(ink, "hook_url", path("url"), XS, &ink.muted);
     let top = json!({"id": "hook_top", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.75)},
         "children": [
             two_lines(ink, "hook", text_line(ink, "hook_name", path("name"), SM, &ink.foreground, true), url, None),
@@ -460,7 +422,7 @@ pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let hook = ink.shell("hook_row", false, json!(true), vec![column]);
     let mut label = text_line(ink, "secret_label", json!(copy.secret), XS, &ink.muted, false);
     label["style"]["flexShrink"] = json!(0);
-    let value = json!({"id": HOOK_SECRET, "component": "Embed", "props": {"surface": path("secretSurface")}, "style": {"width": "100%", "height": sm_line}});
+    let value = mid_text(ink, "hook_secret", path("secret"), SM, &ink.foreground);
     let copy_secret = button(ink, tints, "hook_copy_secret", Paint::Outline, None, json!(copy.copy_secret), json!(false), json!({"name": "copy", "context": {"text": path("secret")}}));
     let secret = ink.shell("secret_row", false, path("hasSecret"), vec![two_lines(ink, "secret", label, value, None), copy_secret]);
     let item = json!({"id": "hook_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},

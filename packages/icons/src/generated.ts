@@ -473,6 +473,7 @@ export const SEMANTIC_ICONS = {
   "action-suggestion": `lightbulb`,
   "app-editor-chat": `message-square`,
   "auth-passkey": `fingerprint`,
+  "automation-off": `ban`,
   "call-end": `phone-off`,
   "call-incoming": `phone-incoming`,
   "call-mute": `mic`,

@@ -226,11 +226,12 @@ describe(`node sheet: conditions → CSS`, () => {
       [`border-top-width`, `2px`],
       [`border-style`, `solid`],
     ])
-    expect(declarations({ overflowX: `hidden`, letterSpacing: 1, textTransform: `uppercase`, fontStyle: `italic`, cursor: `pointer`, pointerEvents: `none`, visibility: `hidden`, insetBlockStart: 4, borderTopLeftRadius: 6 })).toEqual([
+    expect(declarations({ overflowX: `hidden`, letterSpacing: 1, textTransform: `uppercase`, fontStyle: `italic`, fontVariantNumeric: `tabular-nums`, cursor: `pointer`, pointerEvents: `none`, visibility: `hidden`, insetBlockStart: 4, borderTopLeftRadius: 6 })).toEqual([
       [`overflow-x`, `clip`],
       [`letter-spacing`, `1px`],
       [`text-transform`, `uppercase`],
       [`font-style`, `italic`],
+      [`font-variant-numeric`, `tabular-nums`],
       [`cursor`, `pointer`],
       [`pointer-events`, `none`],
       [`visibility`, `hidden`],

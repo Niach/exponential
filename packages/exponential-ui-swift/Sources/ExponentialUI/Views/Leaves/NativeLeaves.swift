@@ -141,7 +141,9 @@ struct PickerTriggerLeaf: View {
     var body: some View {
         let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
         let select = cx.node.recipeComponent == "Select"
-        let pill = select && SelectTrigger.isPill(cx.props, owner: cx.ownerProps)
+        // #EXP-1778: a `button` trigger paints as a pill does (its own recipe);
+        // #EXP-1629: so does an `inline` one (no chrome).
+        let pill = select && SelectTrigger.isPillLike(cx.props, owner: cx.ownerProps)
         let states = pill && cx.model.isDisabled(cx.index) ? ["disabled"] : []
         let ph = cx.part(cx.node.recipeComponent, "placeholder", states: states)
         let value = select ? cx.part("Select", "value", states: states) : .empty
@@ -154,10 +156,21 @@ struct PickerTriggerLeaf: View {
         let ink = isPlaceholder ? (ph.color ?? cx.muted) : (value.color ?? cx.ink)
         let inkOpacity = isPlaceholder ? (pill ? ph.style.opacity ?? 1 : 1) : (value.style.opacity ?? 1)
         HStack(spacing: pill ? SelectTrigger.pillGap(cx.style.gap, sm: cx.spacing("sm")) : cx.spacing("sm")) {
+            // #EXP-1629: a `button` leads with the picked option's glyph, in its tint.
+            if select, let picked = cx.props["valueIcon"]?.string, !picked.isEmpty {
+                let size = SelectTrigger.glyphSize(cx.part("Select", "valueIcon"))
+                ConceptIcon(name: picked, size: size, color: cx.props["iconColor"]?.string.flatMap(cx.propColor) ?? ink, model: cx.model)
+                    .frame(width: size, height: size)
+            }
+            // #EXP-1629: the `value` part's `marginTop` lifts the text off
+            // the centre (the measurer shortened the box by as much: half
+            // of it is the centring, half this offset).
+            let lift = value.px("marginTop") ?? 0
             TextLabel(text(isPlaceholder), cx.textStyle, color: ink, align: cx.style.textAlign, lines: 1)
                 .opacity(inkOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
+                .offset(y: lift / 2)
             glyphView
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
@@ -180,7 +193,8 @@ struct PickerTriggerLeaf: View {
 }
 
 /// A Select option (`item`): [icon] label [check], the check slot always
-/// reserved (gpui `text_chrome`). #EXP-1765: a `mono` option (the core
+/// reserved (gpui `text_chrome`; #EXP-1778: a `button`'s rows on the chosen
+/// row only). #EXP-1765: a `mono` option (the core
 /// sets its type) carries its `trailing` as its own muted run in the
 /// theme's sans type, right after the label (`SelectTrigger.trailingGap`
 /// apart); the label keeps its line and truncates first.
@@ -205,10 +219,13 @@ struct SelectItemLeaf: View {
             } else {
                 labelAndTrailing(trailing)
             }
-            ZStack {
-                if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
+            // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+            if selected || !SelectTrigger.checkOnChosenOnly(cx.props) {
+                ZStack {
+                    if selected { ConceptIcon(name: check, size: size, color: look.color ?? cx.ink, model: cx.model).opacity(look.style.opacity ?? 1) }
+                }
+                .frame(width: size, height: size)
             }
-            .frame(width: size, height: size)
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
@@ -246,7 +263,8 @@ struct MenuItemLabelLeaf: View {
     var body: some View {
         HStack(spacing: max(cx.style.gap, 4)) {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
-                ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
+                // #EXP-1629: the item's `iconColor` tints its glyph.
+                ConceptIcon(name: icon, size: 16, color: cx.props["iconColor"]?.string.flatMap(cx.propColor) ?? cx.ink, model: cx.model)
             }
             TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
                 .frame(maxWidth: .infinity, alignment: .leading)

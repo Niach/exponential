@@ -38,8 +38,9 @@ final class Round1ModelTests: XCTestCase {
         try model(JSONValue(any: tree), host: host, settings: settings, width: width)
     }
 
-    private func model(_ tree: JSONValue, host: HostPlugin? = nil, settings: SurfaceSettings? = nil, width: CGFloat = 400) throws -> SurfaceModel {
+    private func model(_ tree: JSONValue, host: HostPlugin? = nil, settings: SurfaceSettings? = nil, width: CGFloat = 400, theme: String? = nil) throws -> SurfaceModel {
         var options = SurfaceOptions()
+        if let theme { options.theme = ThemeHandle.builtin(theme) }
         options.mode = .light
         options.settings = settings
         let m = try SurfaceModel(id: "r1", options: options, host: host)
@@ -892,7 +893,7 @@ final class Round1ModelTests: XCTestCase {
     func testComposerSlotCasesSitInTheControlsRowThroughTheModel() throws {
         let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
         let cases = f["cases"]?.array ?? []
-        XCTAssertEqual(cases.count, 10)
+        XCTAssertEqual(cases.count, 18)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let rtl = c["direction"]?.string == "rtl"
@@ -903,7 +904,9 @@ final class Round1ModelTests: XCTestCase {
             if !slots.isEmpty { composer["slots"] = .object(slots) }
             let tree: JSONValue = .object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "direction": .string(rtl ? "rtl" : "ltr")]), "children": .array([.object(composer)])])
             let host = Round1Host()
-            let m = try model(tree, host: host)
+            // #EDE-65: neutral pads the card evenly; the exponential flat
+            // recipe pads the top deeper than the sides (the IDE's card).
+            let m = try model(tree, host: host, theme: "neutral")
             let frame = { (id: String) in m.index(of: id).map { m.frame($0) } }
             let cf = try XCTUnwrap(frame("c"), "\(name): composer")
             guard !slots.isEmpty else {
@@ -911,6 +914,35 @@ final class Round1ModelTests: XCTestCase {
                 continue
             }
             let send = try XCTUnwrap(frame("c.sendSpace"), "\(name): the disc's square")
+            // #EXP-1762: `above` sits inside the card at its content top, the
+            // content's full width (the same inset either side), over the row.
+            let hidden = c["hiddenAbove"]
+            if let hidden {
+                // #EDE-65: a hidden child = the slot absent (the core lays
+                // nothing out for it); shown it grows the composer, hidden
+                // again it is back.
+                XCTAssertNil(frame("c.above"), "\(name): a hidden above lays nothing out")
+                XCTAssertNil(frame("strip"), "\(name): a hidden above lays nothing out")
+                let path = "/\(hidden["path"]?.string ?? "")"
+                m.setData(path: path, value: hidden["value"] ?? .bool(true))
+                let grown = try XCTUnwrap(frame("c"), "\(name): composer")
+                let above = try XCTUnwrap(frame("c.above"), "\(name): shown above laid out")
+                XCTAssertGreaterThan(above.height, 0, "\(name): the shown above has a height")
+                XCTAssertGreaterThan(grown.height, cf.height + above.height, "\(name): grows by its height + the gap")
+                m.setData(path: path, value: .bool(false))
+                let back = try XCTUnwrap(frame("c"), "\(name): composer")
+                XCTAssertEqual(back.height, cf.height, accuracy: 0.01, "\(name): hidden again")
+                XCTAssertNil(frame("c.above"), "\(name): hidden again")
+            } else if slots["above"] != nil {
+                let above = try XCTUnwrap(frame("c.above"), "\(name): above laid out")
+                let strip = try XCTUnwrap(frame("strip"), "\(name): the above child")
+                let inset = above.minX - cf.minX
+                XCTAssertGreaterThan(inset, 0, "\(name): above inside the card")
+                XCTAssertEqual(cf.maxX - above.maxX, inset, accuracy: 0.01, "\(name): above spans the content width")
+                XCTAssertEqual(above.minY - cf.minY, inset, accuracy: 0.01, "\(name): above at the content top")
+                XCTAssertEqual(strip.width, above.width, accuracy: 0.01, "\(name): the above child spans it")
+                XCTAssertLessThanOrEqual(above.maxY, send.minY, "\(name): above over the row")
+            }
             var along: [(CGFloat, String)] = []
             for (slot, id) in [("leading", "plus"), ("trailing", "ring")] {
                 guard let b = frame(id) else {
@@ -929,6 +961,26 @@ final class Round1ModelTests: XCTestCase {
             for step in c["steps"]?.array ?? [] { m.press(id: step["press"]?.string ?? "") }
             let want = c["events"]?.array ?? []
             XCTAssertEqual(host.actions.map(\.name), want.compactMap { $0["name"]?.string }, "\(name): events")
+        }
+    }
+
+    /// #EXP-1762 composerSlots `field`: a flat Composer's text starts the
+    /// field recipe's paddingTop below the row's top, one line (the disc's
+    /// row) or grown, the text view reaching the row's bottom (neutral:
+    /// paddingTop `$spacing.sm` 8, line 20, disc 36; the core replays the
+    /// recipe values).
+    func testAFlatComposerSetsItsTextAtTheFieldTopPadding() throws {
+        let f = try XCTUnwrap(Fixtures.json("interactions-round1.json")["composerSlots"])
+        let cases = (f["cases"]?.array ?? []).filter { $0["field"] != nil }
+        XCTAssertEqual(cases.count, 2)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let rows = try CGFloat(XCTUnwrap(c["field"]?["rows"]?.number))
+            let row: CGFloat = max(36, 8 + rows * 20)
+            XCTAssertEqual(row > 36.5, c["field"]?["grown"]?.bool == true, "\(name): grown")
+            let box = ComposerLeaf.flatField(row: row, padTop: 8)
+            XCTAssertEqual(box.y, 8, accuracy: 0.001, "\(name): the text at the field's paddingTop")
+            XCTAssertEqual(box.y + box.height, row, accuracy: 0.001, "\(name): the field reaches the row's bottom")
         }
     }
 

@@ -101,7 +101,7 @@ measurer and a throwing host formatter.
 | `FfiVisual` | `direction`, `backdropBlur`, `animationJson` (sample with `animationFrameJson(name, timingJson, elapsedMs, reducedMotion)`), `sticky` |
 | `FfiLayout.sticky`, `FfiList.horizontal` | sticky paint offsets `{index, dx, dy}`; lists windowed on x |
 | Resizable | `event(handle, "drag", {phase, delta})`, `event(handle, "key", {key})`; `resizableJson({op, …})` for previews (`drag`/`extents` take `handleExtent` = `$control.hairline`) |
-| `FfiTextStyle` (VAPP-100) | `letterSpacing` (px, font scale applied), `textTransform` (`uppercase\|lowercase\|capitalize`), `fontStyle` (`italic`); null = none. Measure and paint with them |
+| `FfiTextStyle` (VAPP-100) | `letterSpacing` (px, font scale applied), `textTransform` (`uppercase\|lowercase\|capitalize`), `fontStyle` (`italic`), `fontVariantNumeric` (`tabular-nums` = the `tnum` feature); null = none. Measure and paint with them |
 | `FfiLeaf` (VAPP-100) | `ownerComponent` = the native or macro owning a part leaf (`Tabs`, `Stepper`); `text` shows a number or boolean as its display string (`412`) |
 | `Surface.effectiveTheme()` (VAPP-100) | the `Theme` the core resolves against (extends + density + contrast); resolve sub-parts and read tokens from it, again after a settings change |
 | `setHovered(ids)`, `setHover(id, on)`, `FfiNode.hovered` + `interactionStates` (VAPP-100) | the pointer's hover like `setPressed`: recipes' `hover` and `:hover` styles resolve through it; the node records carry the host-set states |

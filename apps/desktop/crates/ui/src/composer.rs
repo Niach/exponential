@@ -410,16 +410,6 @@ impl SessionComposerBox {
         self
     }
 
-    pub(crate) fn above_card(mut self, element: Option<AnyElement>) -> Self {
-        self.above_card = element;
-        self
-    }
-
-    pub(crate) fn field_hook(mut self, hook: impl FnOnce(Div) -> Div + 'static) -> Self {
-        self.field_hook = Some(Box::new(hook));
-        self
-    }
-
     pub(crate) fn strip(mut self, strip: Option<AnyElement>) -> Self {
         self.strip = strip;
         self
@@ -436,10 +426,6 @@ impl SessionComposerBox {
         self
     }
 
-    pub(crate) fn card_hook(mut self, hook: impl FnOnce(Div) -> Div + 'static) -> Self {
-        self.card_hook = Some(Box::new(hook));
-        self
-    }
 }
 
 /// EXP-1294 — the field THE session composer box types into: a 1–10
@@ -908,6 +894,26 @@ fn reply_write(
 /// dismissReplies`). It rides THE composer box's `replies` slot, so it goes
 /// whenever the ask dock takes the composer's slot. `live` =
 /// false paints the specimen (no writes).
+/// A quick reply `item_id` of message `message_id` goes out (once: a
+/// pending write ignores the press).
+pub(crate) fn send_quick_reply(message_id: &str, item_id: &str, cx: &mut App) {
+    let (message, item_id) = (message_id.to_string(), item_id.to_string());
+    if reply_pending(&format!("{message}:*"), cx) {
+        return;
+    }
+    reply_write(format!("{message}:{item_id}"), "send", "the reply", cx, move |trpc| {
+        api::sessions::send_reply(trpc, &message, &item_id)
+    });
+}
+
+/// The quick replies of message `message_id` are dismissed.
+pub(crate) fn dismiss_quick_replies(message_id: &str, cx: &mut App) {
+    let message = message_id.to_string();
+    reply_write(format!("{message}:*"), "dismiss", "the replies", cx, move |trpc| {
+        api::sessions::dismiss_replies(trpc, &message)
+    });
+}
+
 pub(crate) fn composer_replies_row(
     replies: &domain::session_tree::ComposerReplies,
     live: bool,
@@ -935,10 +941,7 @@ pub(crate) fn composer_replies_row(
             if !live {
                 return;
             }
-            let (message, item_id) = (message.clone(), item_id.clone());
-            reply_write(format!("{message}:{item_id}"), "send", "the reply", cx, move |trpc| {
-                api::sessions::send_reply(trpc, &message, &item_id)
-            });
+            send_quick_reply(&message, &item_id, cx);
         })
         .into_any_element()
     });
@@ -954,10 +957,7 @@ pub(crate) fn composer_replies_row(
             if !live {
                 return;
             }
-            let message = message.clone();
-            reply_write(format!("{message}:*"), "dismiss", "the replies", cx, move |trpc| {
-                api::sessions::dismiss_replies(trpc, &message)
-            });
+            dismiss_quick_replies(&message, cx);
         });
     h_flex()
         .id(SharedString::from(format!("{test_id}-{message_id}")))
@@ -982,6 +982,7 @@ mod tests {
     /// the N-14 row host (the row host had dropped the field: the IDE's
     /// session composer showed its tools with no text field).
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_card_draws_its_field_above_the_tool_row(cx: &mut gpui::TestAppContext) {
         struct Probe {
             hosted: bool,
@@ -1018,6 +1019,7 @@ mod tests {
     /// submit RIGHT, both bottom-aligned on the field's row (the field grows
     /// upward, they stay put).
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_flat_card_is_one_bottom_aligned_row(cx: &mut gpui::TestAppContext) {
         struct Probe;
         impl gpui::Render for Probe {

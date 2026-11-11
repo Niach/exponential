@@ -1,6 +1,6 @@
 //! N-12: THE Dock ×desktop (`fixtures/dock.json` ×4; web
-//! `packages/ui/src/dock.tsx`, model [`domain::dock`]): the floating band
-//! over the transcript's bottom edge in the composer column: the DockCards
+//! `packages/ui/src/dock.tsx`, model [`domain::dock`]): the band under the
+//! transcript's bottom edge in the composer column: the DockCards
 //! (a waiting plan or question, THE Queue, the queued messages, a status
 //! banner) piled like the toasts (THE primitive `eui_gpui::controls::dock_card`
 //! + `dock_pile_geometry`, the web `DockCard`/`DockPile`'s twin, with the
@@ -10,8 +10,10 @@
 //! its sheet ([`sheet`]: a scrim over the window, the sheet in the composer
 //! column at most `sheet.maxHeightFraction` of the window, a pinned header,
 //! ONE scrolling body, a pinned footer; Escape or the scrim closes it). The
-//! band measures itself ([`DockState::band_height`]): the host pads the
-//! transcript by it and lifts the jump button over it. gpui has no
+//! band is a flow child under the transcript (#EXP-1782: the transcript ends
+//! at the band's top edge and clips there; no edge fade, no shadow) and
+//! measures itself ([`DockState::band_height`]): the host lifts the jump
+//! button over it. gpui has no
 //! reduce-motion signal (`theme::motion`), so the motion always runs.
 
 use std::cell::{Cell, RefCell};
@@ -21,7 +23,7 @@ use std::time::Instant;
 
 use domain::dock::{dock, dock_auto_open, DockMode, DockRow, DockTint, DOCK};
 use gpui::{
-    anchored, canvas, deferred, div, linear_color_stop, linear_gradient, point, prelude::FluentBuilder as _, px,
+    anchored, canvas, deferred, div, point, prelude::FluentBuilder as _, px,
     AnyElement, App, Bounds, Div, ElementId, Entity, FocusHandle, Hsla, InteractiveElement as _,
     IntoElement, ParentElement as _, Pixels, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
     Window,
@@ -40,9 +42,6 @@ pub(crate) const DOCK_GAP: f32 = 16.;
 
 /// The band's own padding under the composer (web `md:pb-4`).
 const BAND_BOTTOM: f32 = 16.;
-
-/// How far the fade reaches above the band (web `-top-10`).
-const FADE_ABOVE: f32 = 40.;
 
 /// How long after the host first reads as loaded the cards still count as
 /// already waiting (a replayed history lands over a few frames).
@@ -154,7 +153,7 @@ impl DockState {
             .collect()
     }
 
-    /// The band's measured height (px): the transcript's bottom padding.
+    /// The band's measured height (px): the jump button sits over it.
     pub(crate) fn band_height(&self) -> f32 {
         self.band_height.get()
     }
@@ -264,9 +263,9 @@ pub(crate) struct Band {
     pub composer: Option<AnyElement>,
 }
 
-/// THE floating band, absolutely placed over the bottom of its host's
-/// transcript region (the host's box must be `relative()`): the edge fade
-/// behind it, the pile, then the composer, in the composer column.
+/// THE band, a flow child under its host's transcript (#EXP-1782: the
+/// transcript's scroll region ends at its top edge; nothing paints behind
+/// it, no fade): the pile, then the composer, in the composer column.
 pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
     let Band { id, rows, mut actions, composer } = band;
     let (expanded, open) = {
@@ -308,11 +307,9 @@ pub(crate) fn band(state: &Entity<DockState>, band: Band, window: &mut Window, c
     Some(
         div()
             .id(SharedString::from(format!("{id}-{}", DOCK.test_ids.dock)))
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .child(crate::surface::dock_edge_fade(FADE_ABOVE))
+            .relative()
+            .flex_none()
+            .w_full()
             .child(
                 div().w_full().flex().flex_col().items_center().pb(px(BAND_BOTTOM)).child(
                     v_flex()
@@ -749,12 +746,6 @@ pub(crate) fn sheet(state: &Entity<DockState>, row: &DockRow, content: SheetCont
         ),
     )
     .into_any_element()
-}
-
-/// The edge fade's gradient: the ground at the bottom, nothing at the top
-/// (web `linear-gradient(to top, var(--background) 72%, transparent)`).
-pub(crate) fn fade_gradient(ground: Hsla) -> gpui::Background {
-    linear_gradient(180., linear_color_stop(ground.opacity(0.), 0.), linear_color_stop(ground, 0.28))
 }
 
 #[cfg(test)]

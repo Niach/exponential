@@ -423,6 +423,10 @@ impl<S: 'static> HostPlugin for BindingHost<S> {
         self.inner.pick_files(request, cx)
     }
 
+    fn composer_submits_empty(&self, component_id: &str, cx: &App) -> bool {
+        self.inner.composer_submits_empty(component_id, cx)
+    }
+
     fn on_upload(&self, event: &UploadEvent, cx: &mut App) {
         self.inner.on_upload(event, cx)
     }

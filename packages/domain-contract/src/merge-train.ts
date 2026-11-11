@@ -14,7 +14,7 @@ export type PrMergeState = `draft` | `checks` | `queued` | `testing` | `merged` 
 export type TeamMergeMode = `auto` | `approval`
 export const PR_MERGE_STATES: readonly string[] = contract.prMergeState.values
 export const TEAM_MERGE_MODES: readonly string[] = contract.teamMergeMode.values
-export type HoldReason = `person` | `bounces` | `timeout`
+export type HoldReason = `person` | `bounces` | `timeout` | `no_checks` | `conflict`
 export type MergeOutcome = `merged` | `conflict` | `failing` | `held`
 
 export const MERGE_TRAIN_LIMITS = fixture.limits
@@ -83,6 +83,9 @@ export type MergeEvent =
   | { type: `hold` }
   | { type: `resume` }
   | { type: `merge_now` }
+  | { type: `forge_hold`; reason: `no_checks` | `conflict` }
+  | { type: `checks_appeared` }
+  | { type: `landed_earlier` }
 
 export interface MergeStepResult {
   pr: MergePr
@@ -91,6 +94,8 @@ export interface MergeStepResult {
 }
 
 const FROZEN: ReadonlySet<PrMergeState> = new Set([`testing`, `merged`, `held`])
+/** The holds a new head answers (its agent is back; CI can run again). */
+const PUSH_REVIVES: ReadonlySet<HoldReason | null> = new Set<HoldReason | null>([`bounces`, `no_checks`, `conflict`])
 
 function bounce(pr: MergePr, outcome: `conflict` | `failing`): MergeStepResult {
   const attempts = pr.attempts + 1
@@ -108,6 +113,9 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
   switch (event.type) {
     case `readiness`: {
       if (FROZEN.has(pr.state)) return same
+      // #FEED-221: the opener's work gates the entry only: a queued PR keeps
+      // its place through a wake (a push still pulls it out).
+      if (pr.state === `queued` && event.wait === `session`) return same
       // A Merge now waits for nothing but a non-draft head.
       if (pr.mergeNow && event.wait !== `draft`) return { pr: { ...pr, state: `queued` }, post: null }
       const state = preTrainState(event.wait)
@@ -118,7 +126,7 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
       // #EXP-1711 (Danny 2026-11-08): a new head resets the bounces; it
       // revives a bounces hold (the agent is back), never a person's or the
       // 24 h one, and the clock keeps running from the first queue.
-      if (pr.state === `held` && pr.holdReason !== `bounces`) return same
+      if (pr.state === `held` && !PUSH_REVIVES.has(pr.holdReason)) return same
       return { pr: { ...pr, state: `checks`, attempts: 0, holdReason: null }, post: null }
     case `train_start`:
       return pr.state === `queued` ? { pr: { ...pr, state: `testing` }, post: null } : same
@@ -164,7 +172,35 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
         pr: { ...pr, state: pr.state === `testing` ? `testing` : `queued`, holdReason: null, mergeNow: true },
         post: null,
       }
+    case `forge_hold`:
+      if (FROZEN.has(pr.state) || pr.state === `draft` || pr.mergeNow) return same
+      return { pr: { ...pr, state: `held`, holdReason: event.reason, mergeNow: false }, post: `held` }
+    case `landed_earlier`:
+      // #FEED-222: an earlier unconfirmed run already put its head on the base.
+      return { pr: { ...pr, state: `merged`, holdReason: null, mergeNow: false }, post: `merged` }
+    case `checks_appeared`:
+      if (pr.state !== `held` || (pr.holdReason !== `no_checks` && pr.holdReason !== `conflict`)) return same
+      return { pr: { ...pr, state: `checks`, holdReason: null }, post: null }
   }
+}
+
+/** #FEED-221 (merge-train.json `noChecks`): how long a head may show no
+ *  check runs before it is held (a push's runs appear within seconds). */
+export const NO_CHECKS_GRACE_MS = 5 * 60_000
+
+/** A live PR with NO check rows at its head, where the base names required
+ *  checks (`expected`): null = not this rule's (a repo without CI lands
+ *  untested); `wait` = its runs may still appear; else the hold reason. */
+export function noChecksVerdict(input: {
+  expected: boolean
+  /** The forge's mergeability (false = conflicts), null = not computed. */
+  mergeable: boolean | null
+  /** Since the forge last updated the PR. */
+  ageMs: number
+}): `wait` | `no_checks` | `conflict` | null {
+  if (!input.expected) return null
+  if (input.mergeable === false) return `conflict`
+  return input.ageMs >= NO_CHECKS_GRACE_MS ? `no_checks` : `wait`
 }
 
 /** #FEED-212 (merge-train.json `landing`): a landing is confirmed only when
@@ -455,8 +491,9 @@ export interface TrainVerdict {
 const PASSING = new Set([`success`, `neutral`, `skipped`])
 
 /** COMPOSE's CI mode (`pipeline.checksModes`). A Merge now is untested
- *  only when nothing was resolved and no lockfile drifted from its unit's
- *  head: either way the tree is one nobody tested, so CI runs (#LOGS-2). */
+ *  only when nothing was resolved, no lockfile drifted from its unit's head
+ *  and no PR is behind the base: any of them = the tree is one nobody
+ *  tested, so CI runs (#LOGS-2; behind: #2590 onto #2597, 2026-11-10). */
 export function trainChecksMode(input: {
   mode: `test` | `untested`
   composed: boolean
@@ -466,10 +503,13 @@ export function trainChecksMode(input: {
   drifted: boolean
   /** A lone unit whose composed tree is its tested_sha's. */
   proven: boolean
+  /** Any composed PR whose head does not contain base_sha: its own checks
+   *  ran on an older base. */
+  behind: boolean
   workflows: readonly string[]
 }): TrainChecksMode {
   if (!input.composed) return `none`
-  if (input.mode === `untested` && !input.resolved && !input.drifted) return `skipped`
+  if (input.mode === `untested` && !input.resolved && !input.drifted && !input.behind) return `skipped`
   if (input.proven) return `proven`
   return input.workflows.length > 0 ? `dispatched` : `none`
 }
@@ -537,6 +577,8 @@ export function failingText(
 
 export function heldText(number: number, reason: HoldReason): string {
   if (reason === `person`) return `A person put #${number} on hold. It does not merge until they resume it.`
+  if (reason === `no_checks`) return `Auto-merge of #${number} is held: no CI ran on its head. Push a commit to trigger it: it re-queues by itself.`
+  if (reason === `conflict`) return `Auto-merge of #${number} is held: it conflicts with its base, so no CI ran. Rebase, resolve and push: it re-queues by itself.`
   const why =
     reason === `bounces`
       ? ` after ${MERGE_TRAIN_LIMITS.bounces} bounces`
@@ -546,7 +588,13 @@ export function heldText(number: number, reason: HoldReason): string {
 
 /** The Assistant's held line (person holds never reach it). */
 export function stuckText(number: number, reason: Exclude<HoldReason, `person`>): string {
-  return `Auto-merge stuck on #${number} (${reason === `bounces` ? `${MERGE_TRAIN_LIMITS.bounces} bounces` : `${MERGE_TRAIN_LIMITS.hours} hours`}).`
+  const why = {
+    bounces: `${MERGE_TRAIN_LIMITS.bounces} bounces`,
+    timeout: `${MERGE_TRAIN_LIMITS.hours} hours`,
+    no_checks: `no CI ran`,
+    conflict: `merge conflict`,
+  }[reason]
+  return `Auto-merge stuck on #${number} (${why}).`
 }
 
 // ── ROUTING ────────────────────────────────────────────────────────────────

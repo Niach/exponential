@@ -55,7 +55,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   // Round 9 §6.6: a failing `error` check disables it (warning / info never do).
   const disabled = bool(props.disabled) || failingChecks(props.checks).length > 0
   const inert = disabled || loading
-  const iconOnly = props.size === `icon`
+  const iconOnly = props.size === `icon` || props.size === `icon-xs`
   const Spinner = CHROME.spinner
   const hasChild = node.children.length > 0
   const shown = usePendingShown(loading)

@@ -59,6 +59,27 @@ pub fn without(doc: &mut Document, ids: &[&str]) {
     }
 }
 
+/// #EDE-65 lane O: the document narrowed to node `id`'s subtree, which
+/// becomes its root (a host draws one region of a shared document on its
+/// own: the IDE's composer is the chat's `chat_footer`). `false` = no such
+/// node (the document is left alone).
+pub fn only(doc: &mut Document, id: &str) -> bool {
+    fn find(node: &eui_core::types::NestedNode, id: &str) -> Option<eui_core::types::NestedNode> {
+        if node.id == id {
+            return Some(node.clone());
+        }
+        node.children.iter().flatten().chain(node.slots.iter().flat_map(|slots| slots.values())).find_map(|c| find(c, id))
+    }
+    let Body::Nested(tree) = &mut doc.body else { return false };
+    match find(tree, id) {
+        Some(node) => {
+            *tree = node;
+            true
+        }
+        None => false,
+    }
+}
+
 /// The document's tree as JSON (a styleguide entry draws it as a surface).
 pub fn root_json(doc: &Document) -> Option<serde_json::Value> {
     match &doc.body {
@@ -75,6 +96,8 @@ pub fn set_prop(doc: &mut Document, id: &str, prop: &str, value: serde_json::Val
             node.props.get_or_insert_with(Default::default).insert(prop.to_string(), value.clone());
         }
         node.children.iter_mut().flatten().for_each(|c| walk(c, id, prop, value));
+        // #EDE-65 lane O: a slot's node too (the Composer's "+" Menu).
+        node.slots.iter_mut().flat_map(|slots| slots.values_mut()).for_each(|c| walk(c, id, prop, value));
     }
     if let Body::Nested(tree) = &mut doc.body {
         walk(tree, id, prop, &value);

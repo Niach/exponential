@@ -298,6 +298,22 @@ final class Round8Tests: XCTestCase {
         XCTAssertTrue(mts.tabular)
         XCTAssertEqual(meter.frame(mv).width, TextShaper.width("65%", mts), accuracy: 0.01, "Meter value: measured box = painted line")
     }
+
+    /// The style key `fontVariantNumeric: "tabular-nums"` (#EXP-1629): on a
+    /// Text, inherited from a Box like CSS (the core's restyle), off on a
+    /// plain Text; measured in the tnum face it paints in.
+    func testFontVariantNumericTabularNumsMeasuresAndPaintsWithTnum() throws {
+        let m = try makeModel(theme: "neutral", mode: .light)
+        try m.setNested(json: #"{"id":"row","component":"Box","style":{"flexDirection":"row","alignItems":"flex-start"},"children":[{"id":"age","component":"Text","props":{"text":"10m"},"style":{"fontVariantNumeric":"tabular-nums"}},{"id":"col","component":"Box","style":{"fontVariantNumeric":"tabular-nums"},"children":[{"id":"kid","component":"Text","props":{"text":"3h"}}]},{"id":"plain","component":"Text","props":{"text":"11"}}]}"#)
+        let age = try XCTUnwrap(m.index(of: "age"))
+        let ts = m.textStyle(age)
+        XCTAssertTrue(ts.tabular)
+        XCTAssertTrue(m.textStyle(try XCTUnwrap(m.index(of: "kid"))).tabular, "inherited like CSS")
+        XCTAssertFalse(m.textStyle(try XCTUnwrap(m.index(of: "plain"))).tabular)
+        let features = CTFontCopyFeatureSettings(TextFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, tabular: ts.tabular)) as? [[String: Any]] ?? []
+        XCTAssertTrue(features.contains { $0[kCTFontFeatureTypeIdentifierKey as String] as? Int == kNumberSpacingType && $0[kCTFontFeatureSelectorIdentifierKey as String] as? Int == kMonospacedNumbersSelector }, "the painted face shapes tnum: \(features)")
+        XCTAssertEqual(m.frame(age).width, TextShaper.width(ts.shown("10m"), ts), accuracy: 0.01, "measured as painted (tnum)")
+    }
 }
 
 @MainActor

@@ -13,6 +13,7 @@ import {
   mergedText,
   mergeMenuEntries,
   mergeStep,
+  noChecksVerdict,
   mergeWait,
   prMergeRoute,
   resolveConflicts,
@@ -35,6 +36,9 @@ describe(`merge-train fixture`, () => {
   })
   it.each(fixture.steps)(`step: $name`, ({ pr, event, expected }) => {
     expect(mergeStep(pr as never, event as never)).toEqual(expected as never)
+  })
+  it.each(fixture.noChecks)(`no CI: $name`, ({ input, expected }) => {
+    expect(noChecksVerdict({ expected: input.expected, mergeable: input.mergeable, ageMs: input.ageMinutes * 60_000 })).toBe(expected)
   })
   it.each(fixture.landing)(`landing: $name`, ({ input, expected }) => {
     expect(landingConfirmed(input)).toBe(expected)

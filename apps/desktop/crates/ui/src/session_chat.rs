@@ -83,8 +83,6 @@ pub(crate) const MISSING_GRACE: Duration = Duration::from_secs(5);
 pub(crate) const CONVERSATION_W: f32 = crate::work_header::CHAT_COLUMN_W;
 /// The header + strip's side inset.
 const HEADER_INSET: f32 = 44.;
-/// An issue chip title's ONE max width (then the ellipsis).
-const ISSUE_CHIP_TITLE_MAX_W: f32 = 140.;
 /// The issue chip's lead (a live root's mark) and its state badge.
 const CHIP_MARK_PX: f32 = 12.;
 const CHIP_BADGE_PX: f32 = 5.;
@@ -384,6 +382,7 @@ pub(crate) fn dismiss_card(message_id: String, cx: &mut App) {
 }
 
 /// `sessions.unqueue` — take back a message the device has not consumed.
+#[cfg(test)]
 pub(crate) fn unqueue_message(message_id: String, cx: &mut App) {
     background_write("remove", "the message", cx, move |trpc| api::sessions::unqueue(trpc, &message_id));
 }
@@ -745,50 +744,10 @@ fn link_issue_source(target: &ChatMenuTarget) -> crate::picker::search_list::Men
 // styleguide draw them too)
 // ---------------------------------------------------------------------------
 
-/// The strip's chip frame (an issue, a session, a folded zone): THE strip
-/// chip box ×2 (EXP-1334 [`crate::surface::strip_chip_frame`], the box the
-/// work tabs strip wears too) with its hairline at rest.
-pub(crate) fn strip_chip(id: impl Into<gpui::ElementId>, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
-    crate::surface::strip_chip_frame(id, active, true, cx)
-}
-
 /// THE issue chip's lead ×4: the issue's STATUS glyph. S-3: an unresolved
 /// status (the issue row not synced) draws NO glyph, never a Backlog one.
 pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Option<Icon> {
     status.map(|status| crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0())
-}
-
-/// The issue chip's body in the strip: status glyph, mono identifier, title.
-pub(crate) fn strip_issue_body(
-    status: Option<domain::statuses::ResolvedStatus>,
-    identifier: &str,
-    title: &str,
-    active: bool,
-    cx: &App,
-) -> Vec<AnyElement> {
-    let theme = cx.theme();
-    let mut body: Vec<AnyElement> = issue_glyph(status.as_ref(), cx)
-        .map(IntoElement::into_any_element)
-        .into_iter()
-        .collect();
-    body.extend([
-        div()
-            .flex_shrink_0()
-            .text_xs()
-            .font_family(theme::terminal::FONT_FAMILY)
-            .text_color(theme.muted_foreground)
-            .child(SharedString::from(identifier.to_string()))
-            .into_any_element(),
-        div()
-            .flex_shrink(1.)
-            .min_w_0()
-            .max_w(px(ISSUE_CHIP_TITLE_MAX_W))
-            .truncate()
-            .text_color(if active { theme.foreground } else { theme.muted_foreground })
-            .child(SharedString::from(title.to_string()))
-            .into_any_element(),
-    ]);
-    body
 }
 
 /// The page title (draft 3): the title at the header rung, a lock while the
@@ -1078,6 +1037,7 @@ pub(crate) const QUEUED_WORD: &str = "queued";
 
 /// EXP-1317: a queued row offers its `Remove from queue` X only to its
 /// author, and only while it is queued.
+#[cfg(test)]
 pub(crate) fn unqueue_offered(queued: bool, own: bool) -> bool {
     queued && own
 }
@@ -1351,13 +1311,6 @@ pub(crate) fn sender_row(
         .into_any_element()
 }
 
-/// A conversation row as the grouping reads it: a card-less message, a
-/// child's report (a message from its session), a subagent line (the
-/// agent's trace), every other card full.
-pub(crate) fn transcript_item(row: &SessionChatRow) -> domain::transcript_grouping::TranscriptItem {
-    domain::chat_document::transcript_item(row)
-}
-
 /// #EXP-1736: a row layout's identity for the list's measure (its avatar,
 /// name and gap move the row's height).
 pub(crate) fn layout_fingerprint(layout: &domain::transcript_grouping::TranscriptRowLayout) -> u64 {
@@ -1380,72 +1333,10 @@ pub(crate) fn xref_session(xref: &domain::session_tree::SessionXref) -> domain::
     }
 }
 
-/// #EXP-1736: the grouping input of a conversation's `rows`: the viewer,
-/// the chat (its session, title, agent, the S-3 `origin` that started it
-/// and whether `rows` begin at the conversation's first row: the origin
-/// sends that first message), the members and agents it names off the
-/// synced rows, the sessions its links know (every row's xref + the origin).
-pub(crate) fn conversation_input<'a>(
-    rows: impl IntoIterator<Item = &'a SessionChatRow>,
-    session_id: &str,
-    title: &str,
-    agent_id: Option<&str>,
-    origin: Option<&domain::session_tree::SessionXref>,
-    from_start: bool,
-    cx: &App,
-) -> domain::transcript_grouping::TranscriptInput {
-    use domain::transcript_grouping::{TranscriptAgent, TranscriptChat, TranscriptInput, TranscriptMember};
-    let store = Store::try_global(cx);
-    let mut input = TranscriptInput {
-        // No store (a styleguide entry) = no viewer, never a panic.
-        viewer_id: store.and_then(|_| crate::queries::active_account(cx)).map(|me| me.user_id),
-        chat: TranscriptChat {
-            session_id: session_id.to_string(),
-            title: title.to_string(),
-            agent_id: agent_id.filter(|id| !id.is_empty()).map(str::to_string),
-            origin_session_id: origin.map(|origin| origin.session_id.clone()),
-            from_start,
-        },
-        ..TranscriptInput::default()
-    };
-    if let Some(agent) = input.chat.agent_id.as_deref() {
-        if let Some(name) = crate::session_data::agent_def(agent, cx).and_then(|def| def.name).filter(|name| !name.trim().is_empty()) {
-            input.agents.push(TranscriptAgent { id: agent.to_string(), name });
-        }
-    }
-    let mut seen: HashSet<String> = HashSet::new();
-    if let Some(origin) = origin {
-        seen.insert(origin.session_id.clone());
-        input.sessions.push(xref_session(origin));
-    }
-    let mut members: HashSet<String> = HashSet::new();
-    for row in rows {
-        let xref = match row {
-            SessionChatRow::Message { author_id, xref, .. } => {
-                if let Some(user_id) = author_id.as_deref().filter(|id| members.insert(id.to_string())) {
-                    let user = store.and_then(|store| store.collections().users.read(cx).get(user_id).cloned());
-                    if let Some(user) = user {
-                        input.members.push(TranscriptMember {
-                            id: user_id.to_string(),
-                            name: crate::comments::author_label(Some(&user)),
-                        });
-                    }
-                }
-                xref.as_ref()
-            }
-            SessionChatRow::Report { xref, .. } => Some(xref),
-            _ => None,
-        };
-        if let Some(xref) = xref.filter(|xref| seen.insert(xref.session_id.clone())) {
-            input.sessions.push(xref_session(xref));
-        }
-    }
-    input
-}
-
 /// A card-less message row (or a child's report) as THE bubble under its
 /// layout (`key` prefixes the element ids, `at` its createdAt); a system
 /// line = the muted line; `None` for every card ([`card_row`]).
+#[cfg(test)]
 pub(crate) fn transcript_message(
     row: &SessionChatRow,
     layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
@@ -2491,6 +2382,10 @@ pub(crate) type OnTabPick = Rc<dyn Fn(SessionScreenTab, &mut Window, &mut App)>;
 /// A tree row's pick (an issue or a session of the Issues / Sessions tab).
 pub(crate) type OnTreePick = Rc<dyn Fn(&TreeItem, &mut Window, &mut App)>;
 
+/// #EXP-1785: how long a chip's pick waits for the opened session's feed
+/// to hold its card before it rings alone.
+const WAITING_REVEAL_WAIT: Duration = Duration::from_secs(5);
+
 /// The Segmented's height (the app editor's).
 const SCREEN_TABS_H: f32 = 32.;
 
@@ -2554,7 +2449,9 @@ pub(crate) fn screen_header(header: ScreenHeader, cx: &App) -> AnyElement {
                         .gap_3()
                         .items_center()
                         .child(div().flex_shrink_0().child(header.avatar))
-                        .child(v_flex().flex_1().min_w_0().child(header.title).children(subtitle))
+                        // Web `min-w-40 flex-1`: the title keeps 160 px; the
+                        // waiting chips (#EXP-1785) give way before it.
+                        .child(v_flex().flex_1().min_w(px(160.)).child(header.title).children(subtitle))
                         .child(div().flex_shrink_0().child(header.tabs))
                         .children(header.trailing)
                         .children(gear)
@@ -3277,6 +3174,10 @@ pub(crate) struct SessionChatScreenView {
     /// #EXP-1562 (`?card=`): a waiting card to scroll to (and ring) in the
     /// root's session view.
     reveal: Option<String>,
+    /// #EXP-1785: a waiting chip's question UNDER the root: the session it
+    /// opened in place and the card to scroll to (and ring) once that
+    /// session's feed holds it; given up after [`WAITING_REVEAL_WAIT`].
+    waiting_reveal: Option<(String, String, Instant)>,
     /// #EXP-1662: the opened plan's body state and the plan it last painted
     /// (a new plan opens from its top).
     plan_state: crate::plan_page::PlanPageState,
@@ -3367,6 +3268,7 @@ impl SessionChatScreenView {
             closed_queue_reads: HashMap::new(),
             probe_timer: None,
             reveal: None,
+            waiting_reveal: None,
             plan_state: Default::default(),
             plan_painted: None,
             _missing_tick: missing_tick,
@@ -3636,6 +3538,51 @@ impl SessionChatScreenView {
         cx.notify();
     }
 
+    /// #EXP-1785 (waiting-cards.json `waitingTarget`): a header chip's pick.
+    /// A plan opens THE plan page as the opened item (any session's plan);
+    /// the root's question scrolls the Chat tab to its card (the IDE is wide:
+    /// the chat is always on show); a question under the root opens THAT
+    /// session in place, scrolled to its card.
+    fn pick_waiting(&mut self, card: &domain::waiting_cards::WaitingCardInput, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use domain::waiting_cards::{waiting_target, WaitingOpen};
+        let target = waiting_target(card.kind, &card.session_id, &self.root_id);
+        match target.open {
+            WaitingOpen::Plan => self.open_item(ChatOpened::Plan(card.id.clone()), window, cx),
+            WaitingOpen::Card => self.select_waiting(&card.id, window, cx),
+            WaitingOpen::Session => {
+                self.waiting_reveal = Some((target.session_id.clone(), card.id.clone(), Instant::now()));
+                self.open_session_here(target.session_id, window, cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// #EXP-1785: the pending reveal in the session opened in place, once
+    /// its feed holds the card (the ring alone once the wait ran out).
+    fn take_waiting_reveal(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some((session_id, card_id, at)) = self.waiting_reveal.clone() else { return };
+        let Some((focus_id, view)) = self.focus.clone() else {
+            if at.elapsed() > WAITING_REVEAL_WAIT {
+                self.waiting_reveal = None;
+            }
+            return;
+        };
+        if focus_id != session_id {
+            if at.elapsed() > WAITING_REVEAL_WAIT {
+                self.waiting_reveal = None;
+            }
+            return;
+        }
+        let inner = view.read(cx).inner().clone();
+        let found = inner.update(cx, |inner, cx| inner.try_reveal_card(&card_id, cx));
+        if found {
+            self.waiting_reveal = None;
+        } else if at.elapsed() > WAITING_REVEAL_WAIT {
+            self.waiting_reveal = None;
+            crate::waiting_cards::highlight(&card_id, cx);
+        }
+    }
+
     /// #EXP-1562 (`?card=`): the pending reveal, scrolled to and ringed in
     /// the root's session view.
     fn take_reveal(&mut self, cx: &mut gpui::Context<Self>) {
@@ -3698,6 +3645,13 @@ impl SessionChatScreenView {
             });
             (on_press, open)
         });
+        // #EXP-1785 (waiting-cards.json): the tree's WAITING plans and
+        // questions, at the START of the trailing slot (after the tabs).
+        let this = cx.entity().downgrade();
+        let on_waiting: crate::waiting_cards::OnWaitingPick = Rc::new(move |card, window, cx| {
+            let _ = this.update(cx, |this, cx| this.pick_waiting(card, window, cx));
+        });
+        let waiting = crate::waiting_cards::header_chips(&crate::waiting_cards::chat_waiting_cards(&model.view.rows), on_waiting, cx);
         let (avatar, title, trailing, menu, agent) = match conversation_agent(model) {
             // An agent's (the Assistant's) conversation: its disc, its NAME,
             // the telephone, THE agent menu.
@@ -3720,6 +3674,7 @@ impl SessionChatScreenView {
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
         let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
         let subtitle_color = Some(tone_color(tone, cx));
+        let trailing = waiting.into_iter().chain(trailing).collect();
         screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, gear, menu, back, tabs }, cx)
     }
 
@@ -4295,6 +4250,7 @@ impl Render for SessionChatScreenView {
         // composer posting to the root. #EXP-1736: its origin = the sender
         // of the prompt that started it.
         self.take_reveal(cx);
+        self.take_waiting_reveal(cx);
         let inner = self.root_view.read(cx).inner().clone();
         let origin = model.view.origin.clone();
         if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
@@ -4369,6 +4325,7 @@ mod tests {
     /// opens the plan BESIDE the chat, across frames and a decision; its `‹`
     /// closes it; any other tab opens the pane beside the chat too.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_agent_chats_plan_opens_beside_the_chat(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         fn seed_plan(decision: Option<&str>, cx: &mut App) {
@@ -4572,6 +4529,7 @@ mod tests {
     /// bubbles, a tool row is the view's own row painted by the host (a
     /// host row, measured at its own height), in the feed's order.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn the_chat_tab_draws_its_transcript_as_the_chat_document(cx: &mut gpui::TestAppContext) {
         seed_agent_chat("Hey", cx);
         let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
@@ -4915,7 +4873,10 @@ mod tests {
         arrive(1, &view, cx);
         for _ in 0..2 {
             let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
-            assert!(now.is_some_and(|now| (now - y).abs() < 0.5), "a reader above stays put: {y} -> {now:?}");
+            // Within the keep engine's own half-pixel hold (`keep.rs` `hold`:
+            // `<= 0.5` counts as in place; #EXP-1782's transcript ends at the
+            // Dock band's top, so a re-measured row above can land on it).
+            assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "a reader above stays put: {y} -> {now:?}");
             one_frame(cx);
         }
         assert!(!chat_at_bottom(&view, cx), "not pulled to the bottom");
@@ -4927,6 +4888,40 @@ mod tests {
         assert!(chat_at_bottom(&view, cx), "following again: {:?}", chat_extent(&view, cx));
         one_frame(cx);
         assert!(chat_at_bottom(&view, cx), "following again: {:?}", chat_extent(&view, cx));
+    }
+
+    /// #EXP-1782: the transcript ends at the Dock band's top edge; a reader
+    /// scrolled up while FIFTY rows land below stays within the keep
+    /// engine's half pixel of where they were: the hold never accumulates.
+    #[gpui::test]
+    fn a_reader_above_does_not_drift_while_fifty_rows_land(cx: &mut gpui::TestAppContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let line = "A line of the agent's narration that wraps once or twice in the reading column of the chat, so rows differ.";
+        let mut events = vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)];
+        for n in 0..40u64 {
+            events.push(steer::ViewerEvent::Activity(2 * n + 1, steer::ActivityEvent::tool("Bash", Some(format!("step {n}")))));
+            events.push(steer::ViewerEvent::Activity(2 * n + 2, steer::ActivityEvent::narration(&line.repeat(1 + (n % 3) as usize))));
+        }
+        apply_events(&view, events, cx);
+        settle_frames(cx);
+        wheel_chat(&view, 300., cx);
+        settle_frames(cx);
+        assert!(!chat_follows(&view, cx), "a wheel up stops following");
+        let document = chat_document(&view, cx);
+        let list_top = cx.update(|_, cx| document.read(cx).painted_bounds(crate::chat_tab_transcript::SCROLL)).expect("painted").top();
+        let (y, _, id) = painted_markdowns(&document, cx).into_iter().find(|(y, _, _)| *y >= f32::from(list_top)).expect("a bubble on screen");
+        for seq in 100..150u64 {
+            let event = if seq % 2 == 0 { steer::ActivityEvent::tool("Bash", Some(format!("more {seq}"))) } else { steer::ActivityEvent::narration(&line.repeat(1 + (seq % 3) as usize)) };
+            apply_events(&view, vec![steer::ViewerEvent::Activity(seq, event)], cx);
+            one_frame(cx);
+            let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
+            assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "row {seq}: a reader above stays put: {y} -> {now:?}");
+        }
+        settle_frames(cx);
+        let now = painted_markdowns(&document, cx).into_iter().find(|(_, _, painted)| *painted == id).map(|(y, _, _)| y);
+        assert!(now.is_some_and(|now| (now - y).abs() <= 0.5), "after fifty rows: {y} -> {now:?}");
+        assert!(!chat_at_bottom(&view, cx), "not pulled to the bottom");
     }
 
     /// #EDE-65 lane O PAGING: the reader scrolled to the top of the window
@@ -5087,6 +5082,7 @@ mod tests {
     /// its own child: each lands with a Back to the chat; the same screens
     /// reached another way wear none, nor does a session opened in place.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_session_opened_from_an_agent_chat_has_a_way_back(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         cx.update(|cx| {
@@ -5229,6 +5225,7 @@ mod tests {
     /// chats.json THE WAY BACK: an agent's chat reached through a link
     /// (a cross-session bubble, #EXP-1736), wears the Back in THE agent header.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn an_agent_chat_without_a_strip_wears_the_links_back(cx: &mut gpui::TestAppContext) {
         use sync::ShapeRow as _;
         cx.update(|cx| {
@@ -5443,5 +5440,155 @@ mod tests {
             shot.save(format!("{dir}/{name}.png")).expect("saved");
         }
         std::mem::forget(cx);
+    }
+
+    // ── #EDE-65 lane O: THE composer is the chat document's footer ─────────
+
+    /// The Chat tab's live root view, its composer document and a draw.
+    fn chat_tab_composer(cx: &mut gpui::TestAppContext) -> (Entity<crate::steer_viewer::SteerSessionView>, Entity<eui_gpui::view::SurfaceView>, &mut gpui::VisualTestContext) {
+        seed_agent_chat("Hey", cx);
+        let (view, cx) = cx.add_window_view(|window, cx| SessionChatScreenView::new("r1".to_string(), window, cx));
+        let inner = cx.update(|_, cx| view.read(cx).root_view.read(cx).inner().clone());
+        cx.update(|_, cx| inner.update(cx, |inner, cx| inner.apply_events_for_test(vec![steer::ViewerEvent::Phase(steer::ViewerPhase::Live)], cx)));
+        settle(cx);
+        let document = cx.update(|_, cx| inner.read(cx).composer_document()).expect("THE composer is the chat document's footer");
+        crate::steer_viewer::chat_tab_composer::DISPATCHED.with(|dispatched| dispatched.borrow_mut().clear());
+        (inner, document, cx)
+    }
+
+    fn settle(cx: &mut gpui::VisualTestContext) {
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+    }
+
+    fn dispatched() -> Vec<crate::steer_viewer::chat_tab_composer::ComposerEvent> {
+        crate::steer_viewer::chat_tab_composer::DISPATCHED.with(|dispatched| dispatched.borrow().clone())
+    }
+
+    fn type_draft(document: &Entity<eui_gpui::view::SurfaceView>, text: &str, cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| document.update(cx, |document, cx| document.type_into("chat_composer", text, window, cx)));
+        cx.run_until_parked();
+        // The field's debounce, flushed (what a press or a key does first).
+        cx.update(|window, cx| document.update(cx, |document, cx| document.flush_field("chat_composer", None, window, cx)));
+        settle(cx);
+    }
+
+    /// Typing is THE draft; a send goes through the view's send (no server
+    /// here: refused, its draft goes back into the field).
+    #[gpui::test]
+    fn the_chat_tabs_composer_types_and_sends(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        cx.update(|_, cx| {
+            let document = document.read(cx);
+            for id in ["chat_composer", "chat_plus_button"] {
+                assert!(document.painted_bounds(id).is_some(), "{id} paints");
+            }
+        });
+        type_draft(&document, "Ship it", cx);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "Ship it", "{:?} field {:?}", dispatched(), cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)));
+        cx.update(|window, cx| document.update(cx, |document, cx| document.submit_composer("chat_composer", window, cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Send("Ship it".into())), "{:?}", dispatched());
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), "Ship it", "a refused send keeps its draft");
+        assert_eq!(cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)).as_deref(), Some("Ship it"), "…and the field shows it again");
+    }
+
+    /// A running turn makes Send the Stop (one round button), which stops it.
+    #[gpui::test]
+    fn the_chat_tabs_composer_stops_a_running_turn(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        cx.update(|_, cx| {
+            inner.update(cx, |inner, cx| inner.apply_events_for_test(
+                vec![
+                    steer::ViewerEvent::Activity(1, steer::ActivityEvent::user_message("Ship the fix")),
+                    steer::ViewerEvent::Activity(2, steer::ActivityEvent::turn(steer::TurnState::Started)),
+                ],
+                cx,
+            ))
+        });
+        settle(cx);
+        let busy = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.surface().layout_node(document.index_of("chat_composer").unwrap()).and_then(|node| node.props.get("busy").cloned())
+        });
+        assert_eq!(busy, Some(serde_json::json!(true)), "the composer is busy while the turn runs");
+        cx.update(|window, cx| document.update(cx, |document, cx| document.submit_composer("chat_composer", window, cx)));
+        settle(cx);
+        assert_eq!(dispatched(), vec![ComposerEvent::Stop]);
+    }
+
+    /// THE `/` menu above the composer: the keys move its highlight and
+    /// Enter picks the row (its insertion in the draft, nothing sent).
+    #[gpui::test]
+    fn the_chat_tabs_slash_menu_picks_a_row_by_key(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::ComposerEvent;
+        let (inner, document, cx) = chat_tab_composer(cx);
+        type_draft(&document, "/", cx);
+        assert!(cx.update(|_, cx| document.read(cx).painted_bounds("chat_slash").is_some()), "the / menu opens over the composer");
+        let items = crate::slash_commands::slash_items("/", Some(steer::activity::SessionAgent::Claude), &[]);
+        let second = match &items[1] {
+            crate::slash_commands::SlashItem::Command(command) => crate::slash_commands::insertion(command),
+            other => panic!("{other:?}"),
+        };
+        for key in ["down", "enter"] {
+            let taken = cx.update(|window, cx| document.update(cx, |document, cx| document.composer_key("chat_composer", key, &gpui::Modifiers::default(), false, window, cx)));
+            assert!(taken, "{key} goes to the menu");
+            settle(cx);
+        }
+        assert_eq!(dispatched().iter().filter(|e| matches!(e, ComposerEvent::Key(_))).count(), 2);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_draft(cx)), second);
+        assert_eq!(cx.update(|_, cx| document.read(cx).field_text("chat_composer", cx)), Some(second.clone()), "the insertion is in the field");
+        assert!(!dispatched().iter().any(|e| matches!(e, ComposerEvent::Send(_))), "a pick never sends");
+    }
+
+    /// The "+" Menu is THE options menu (its rows from the data); "Photo or
+    /// file" opens the file chooser, the pick's chip sits in the strip and
+    /// removes it; a pasted image stages the same way.
+    #[gpui::test]
+    fn the_chat_tabs_plus_menu_attaches_and_a_chip_unattaches(cx: &mut gpui::TestAppContext) {
+        use crate::steer_viewer::chat_tab_composer::{ComposerEvent, PlusAction};
+        let (inner, document, cx) = chat_tab_composer(cx);
+        let items = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.surface().layout_node(document.index_of("chat_plus").unwrap()).and_then(|node| node.props.get("items").cloned())
+        });
+        assert_eq!(items.as_ref().and_then(|items| items[0]["value"].as_str()), Some("add-file"), "{items:?}");
+        assert!(cx.update(|window, cx| inner.update(cx, |inner, cx| inner.open_composer_plus(None, window, cx))));
+        settle(cx);
+        assert!(cx.update(|_, cx| document.read(cx).layers().iter().any(|layer| layer.owner == "chat_plus")), "the + opens its Menu");
+        let item = cx.update(|_, cx| document.read(cx).index_of("chat_plus.item.0")).expect("Photo or file");
+        cx.update(|window, cx| document.update(cx, |document, cx| document.press(item, window, cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Plus(PlusAction::AddFile)), "{:?}", dispatched());
+        assert!(cx.did_prompt_for_paths(), "the file chooser opens");
+        let dir = std::env::temp_dir().join(format!("ui-chat-tab-composer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("shot.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\n0000").unwrap();
+        let picked = png.clone();
+        cx.simulate_path_prompt_response(move |_| Some(vec![picked]));
+        settle(cx);
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 1);
+        let remove = cx.update(|_, cx| {
+            let document = document.read(cx);
+            document.placed_nodes().iter().find(|node| node.id.starts_with("chat_file") && node.id.contains("remove") && !node.hidden && !node.removed).map(|node| node.id.clone())
+        });
+        let remove = remove.expect("the file's chip is removable");
+        let index = cx.update(|_, cx| document.read(cx).index_of(&remove)).unwrap();
+        cx.update(|window, cx| document.update(cx, |document, cx| document.press(index, window, cx)));
+        settle(cx);
+        assert!(dispatched().iter().any(|e| matches!(e, ComposerEvent::Unattach(_))), "{:?}", dispatched());
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 0, "the chip removed it");
+        // A pasted image: the upload hook stages it, `attach` {files} follows.
+        let pasted = eui_gpui::view::PastedImage { name: "image.png".into(), mime: "image/png".into(), path: png.clone(), size: 12 };
+        cx.update(|_, cx| document.update(cx, |document, cx| document.composer_paste("chat_composer", vec![pasted], cx)));
+        settle(cx);
+        assert!(dispatched().contains(&ComposerEvent::Attach { pasted: true }));
+        assert_eq!(cx.update(|_, cx| inner.read(cx).composer_files()), 1, "the paste staged it");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

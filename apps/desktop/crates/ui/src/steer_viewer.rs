@@ -66,7 +66,7 @@ use gpui::{
     div, prelude::FluentBuilder as _, px,
     AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
     Focusable, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
+    ParentElement as _, Pixels, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
@@ -518,9 +518,6 @@ pub(crate) struct SteerSessionView {
     answer_cursor_for: Option<FeedItemId>,
     /// EXP-724: the open `/` menu, refreshed on every draft change.
     slash: Option<SlashMenu>,
-    /// The slash menu's scroll (release review R5): ↑/↓ keep the selected
-    /// command in view past the cap.
-    slash_scroll: ScrollHandle,
     /// The exact draft Escape dismissed the menu for — it stays shut until
     /// the draft changes again (and after an accept, so inserting `/clear`
     /// does not immediately re-open the menu on its own result).
@@ -538,6 +535,10 @@ pub(crate) struct SteerSessionView {
     replayed: bool,
     /// The composer controls' element ids.
     composer_ids: ComposerIds,
+    /// #EDE-65 lane O: THE composer, the shared chat document's footer.
+    composer_doc: chat_tab_composer::ComposerDoc,
+    /// The field's placeholder ([`Self::set_placeholder`]).
+    composer_placeholder: SharedString,
     sending: bool,
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
@@ -892,13 +893,14 @@ impl SteerSessionView {
             answer_cursor: None,
             answer_cursor_for: None,
             slash: None,
-            slash_scroll: ScrollHandle::new(),
             slash_dismissed_for: None,
             pending_images: PendingImages::default(),
             tree_scope: false,
             hide_empty_replay: false,
             replayed: false,
             composer_ids: ComposerIds::session(),
+            composer_doc: chat_tab_composer::ComposerDoc::default(),
+            composer_placeholder: SharedString::new_static(COMPOSER_PLACEHOLDER),
             sending: false,
             notice: None,
             picked: HashMap::new(),
@@ -1173,16 +1175,6 @@ impl SteerSessionView {
                 });
             }
         })
-    }
-
-    /// #EXP-1715: the picked teams as the strip's chips (a subset only).
-    fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        if !self.to_assistant(cx) {
-            return None;
-        }
-        let teams = crate::teams_pick::pick_teams(cx);
-        let on_change = self.teams_change(cx);
-        crate::teams_pick::chips_row("steer-composer-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
     }
 
     /// #EXP-1736: the origin its host set ([`Self::set_transcript_origin`]).
@@ -1944,9 +1936,11 @@ impl SteerSessionView {
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
         }
-        // N-12: the last row clears THE Dock's band (its measured height).
-        let tail = self.dock.read(cx).band_height() + crate::dock::DOCK_GAP;
-        self.chat.set_tail(tail, cx);
+        // N-12 / #EXP-1782: the transcript ends at THE Dock band's top edge
+        // (the band is a flow child under it), so the last row clears it by
+        // the gap alone; a band that grows shrinks the viewport and the
+        // following list holds its newest row.
+        self.chat.set_tail(crate::dock::DOCK_GAP, cx);
         self.chat.sync_scroll(cx)
     }
 
@@ -2031,14 +2025,22 @@ impl SteerSessionView {
     /// `typeSlashInSessionComposer`). Called by this view's render and by a
     /// chat screen hosting it as THE root composer.
     pub(crate) fn dev_type_composer_text(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // #EDE-65 lane T: and once the chat document's Composer is mounted,
+        // so its field (the one drawn) takes the focus and shows the caret,
+        // never the hidden draft state behind it.
         if !self.row.as_ref().is_some_and(|row| row.team_id.is_some())
             || !crate::navigation::shapes_ready(cx)
+            || self.composer_doc.field_focus(cx).is_none()
         {
             return;
         }
         if let Some(text) = crate::screens::take_dev_composer_text() {
-            self.input.update(cx, |state, cx| state.set_value(text, window, cx));
-            self.input.read(cx).focus_handle(cx).focus(window, cx);
+            // Typed through the drawn field (a keystroke's path): its change
+            // brings the draft, and the menus, back to this view.
+            if !self.composer_doc.dev_type(&text, window, cx) {
+                self.input.update(cx, |state, cx| state.set_value(text, window, cx));
+                self.input.read(cx).focus_handle(cx).focus(window, cx);
+            }
             self.refresh_slash(cx);
             cx.notify();
         }
@@ -2790,6 +2792,15 @@ impl SteerSessionView {
     /// Conversation card, or an engine ask's feed card by its row): its
     /// list row scrolled to the centre and the card ringed.
     pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
+        if !self.try_reveal_card(message_id, cx) {
+            crate::waiting_cards::highlight(message_id, cx);
+        }
+    }
+
+    /// [`Self::reveal_card`] only when the card's row is in the list yet
+    /// (#EXP-1785: a session just opened in place replays its feed first);
+    /// `false` = not there, nothing done.
+    pub(crate) fn try_reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) -> bool {
         let items = self.feed.items();
         let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
             self.rows
@@ -2810,15 +2821,12 @@ impl SteerSessionView {
                 })
             }
         };
-        match ix {
-            Some(ix) => {
-                // #EDE-65 lane O: the document centres the row.
-                self.chat.reveal(ix, "center");
-                cx.notify();
-                crate::waiting_cards::highlight(message_id, cx);
-            }
-            None => crate::waiting_cards::highlight(message_id, cx),
-        }
+        let Some(ix) = ix else { return false };
+        // #EDE-65 lane O: the document centres the row.
+        self.chat.reveal(ix, "center");
+        cx.notify();
+        crate::waiting_cards::highlight(message_id, cx);
+        true
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -3468,7 +3476,8 @@ impl SteerSessionView {
             return;
         }
         self.composer_shown = visible;
-        let field = self.input.read(cx).focus_handle(cx);
+        // #EDE-65 lane O: the field is the chat document's Composer.
+        let field = self.composer_doc.field_focus(cx).unwrap_or_else(|| self.input.read(cx).focus_handle(cx));
         if !visible {
             if self.inline.is_some() || self.pending_card_id().is_none() {
                 return;
@@ -3747,44 +3756,6 @@ impl SteerSessionView {
         };
     }
 
-    fn move_slash(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
-        if let Some(menu) = self.slash.as_mut() {
-            let len = menu.items.len() as isize;
-            if len > 0 {
-                menu.selected = (menu.selected as isize + delta).rem_euclid(len) as usize;
-                self.slash_scroll.scroll_to_item(menu.selected);
-                cx.notify();
-            }
-        }
-    }
-
-    /// Put the highlighted command in the composer. NEVER sends — the user
-    /// still presses Enter on the finished draft (web/iOS/Android parity).
-    fn accept_slash(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(menu) = self.slash.take() else {
-            return;
-        };
-        let command = match menu.items.get(menu.selected).cloned() {
-            Some(slash_commands::SlashItem::Command(command)) => command,
-            Some(slash_commands::SlashItem::Prompt(prompt)) => {
-                self.pick_prompt(prompt, window, cx);
-                return;
-            }
-            None => return,
-        };
-        let draft = slash_commands::insertion(&command);
-        let position = crate::markdown::byte_offset_to_position(&draft, draft.len());
-        // Set BEFORE the write: the value change re-enters `refresh_slash`,
-        // and a bare `/clear` would otherwise re-open the menu on its own
-        // insertion.
-        self.slash_dismissed_for = Some(draft.clone());
-        self.input.update(cx, |state, cx| {
-            state.set_value(draft, window, cx);
-            state.set_cursor_position(position, window, cx);
-        });
-        cx.notify();
-    }
-
     /// NEW-2 (web `session-composer` `pickPrompt`): a picked prompt's BODY
     /// (`prompts.get`, the only body path: the shape is body-less) REPLACES
     /// the `/name` draft the menu was open on, to be edited and sent. A draft
@@ -3814,13 +3785,8 @@ impl SteerSessionView {
                     if slash_commands::slash_query(&this.input.read(cx).value()).is_none() {
                         return;
                     }
-                    let body = full.body;
-                    let position = crate::markdown::byte_offset_to_position(&body, body.len());
                     this.slash = None;
-                    this.input.update(cx, |state, cx| {
-                        state.set_value(body, window, cx);
-                        state.set_cursor_position(position, window, cx);
-                    });
+                    chat_tab_composer::mirror_draft(&this.input, full.body, window, cx);
                     cx.notify();
                 }
                 Err(err) => crate::action_error::failed_action_err("load", &prompt.name, &err, cx),
@@ -3830,54 +3796,6 @@ impl SteerSessionView {
     }
 
     // -- keyboard capture (runs BEFORE the textarea's own handlers) ---------
-
-    fn on_slash_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.slash.is_some() {
-            self.move_slash(-1, cx);
-            cx.stop_propagation();
-        }
-    }
-
-    fn on_slash_down(&mut self, _: &input::MoveDown, _: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.slash.is_some() {
-            self.move_slash(1, cx);
-            cx.stop_propagation();
-        }
-    }
-
-    fn on_slash_escape(&mut self, _: &input::Escape, _: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.slash.take().is_some() {
-            self.slash_dismissed_for = Some(self.input.read(cx).value().to_string());
-            cx.stop_propagation();
-            cx.notify();
-        }
-    }
-
-    /// The whole point of the capture: with a menu open Enter ACCEPTS, and
-    /// the textarea never emits the `PressEnter` that sends.
-    fn on_slash_enter(
-        &mut self,
-        action: &input::Enter,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.slash.is_some() && !action.shift {
-            self.accept_slash(window, cx);
-            cx.stop_propagation();
-        }
-    }
-
-    fn on_slash_tab(
-        &mut self,
-        _: &input::IndentInline,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.slash.is_some() {
-            self.accept_slash(window, cx);
-            cx.stop_propagation();
-        }
-    }
 
     /// EXP-724: a context-discarding command asks first. The publisher runs
     /// whatever it receives, so the confirm is entirely the client's — same
@@ -4272,15 +4190,6 @@ impl SteerSessionView {
     fn remove_pending(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.pending_images.remove(key, &self.input, window, cx);
         cx.notify();
-    }
-
-    fn on_paste(&mut self, _: &input::Paste, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let images = composer_images::clipboard_images(cx);
-        if images.is_empty() {
-            return;
-        }
-        cx.stop_propagation();
-        self.stage_images(images, window, cx);
     }
 
     /// Attach files (and the "+" menu's "Add file or image"): the native
@@ -5325,35 +5234,6 @@ pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
-/// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
-/// tone (`session-card.json`): the styleguide's `run-status-row` (N-11: the
-/// session view no longer draws it over the transcript).
-pub(crate) fn session_status_row(
-    id: impl Into<gpui::ElementId>,
-    agent: Option<coding::CodingAgent>,
-    state: domain::session_tree::SessionState,
-    word: &str,
-    cx: &App,
-) -> AnyElement {
-    h_flex()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .items_start()
-        .gap_2()
-        .child(crate::run_rows::run_mark(agent, state, cx))
-        .child(
-            v_flex().flex_1().min_w_0().child(
-                div()
-                    .text_sm()
-                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(word.to_string())),
-            ),
-        )
-        .into_any_element()
-}
-
 impl SteerSessionView {
     fn render_feed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -5442,7 +5322,32 @@ impl SteerSessionView {
                         .into_any_element(),
                 ])
             };
-            return div().flex_1().min_h_0().child(body).into_any_element();
+            // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no
+            // transcript to hold the cards; the session's WAITING ones draw
+            // under it, so a header chip or a Needs-you row reaches a card.
+            let waiting: Vec<usize> = self
+                .conv_cards
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| {
+                    matches!(
+                        row,
+                        domain::session_tree::SessionChatRow::Plan { decision: None, .. }
+                            | domain::session_tree::SessionChatRow::Question { answered: false, .. }
+                    )
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if waiting.is_empty() {
+                return div().flex_1().min_h_0().child(body).into_any_element();
+            }
+            let cards = self.render_conversation_cards(&waiting, window, cx);
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(div().flex_1().min_h_0().child(body))
+                .child(div().w_full().flex_shrink_0().px_4().pb_2().child(cards))
+                .into_any_element();
         }
 
         crate::dev_ready::note_feed_painted();
@@ -8247,111 +8152,6 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    fn render_composer(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let can_send = self.can_send(cx);
-        let stop = self.shows_stop(cx);
-        // EXP-790: ONE round button — Stop while the agent works, Send
-        // otherwise (and always once there is a draft). Same ring, the glyph
-        // swaps. No tooltip — a floating label beside a circled glyph reads
-        // as a second button (EXP-698).
-        let kind = if stop {
-            crate::composer::SubmitKind::Stop
-        } else {
-            crate::composer::SubmitKind::Send
-        };
-        let on_click = cx.listener(move |this, _: &ClickEvent, window, cx| {
-            if stop {
-                this.stop_turn(window, cx);
-            } else {
-                this.send(window, cx);
-            }
-        });
-        let submit = crate::composer::SessionComposerSubmit::send(
-            self.composer_ids.send.clone(),
-            !stop && !can_send,
-            on_click,
-        )
-        .kind(kind)
-        .loading(self.sending);
-        // The captures run before the field's own handlers, so with a `/`
-        // menu open Enter/Tab accept and never reach the textarea (so
-        // `PressEnter`, the thing that SENDS, never fires for them). EXP-820:
-        // the card keyboard's captures sit on the view's ROOT, since the
-        // composer is hidden while a card is pending.
-        let (up, down, escape, enter, tab) = (
-            cx.listener(Self::on_slash_up),
-            cx.listener(Self::on_slash_down),
-            cx.listener(Self::on_slash_escape),
-            cx.listener(Self::on_slash_enter),
-            cx.listener(Self::on_slash_tab),
-        );
-        let paste = cx.listener(Self::on_paste);
-        // EXP-1294: THE session composer box — the same card the chat
-        // reply and the agent channel paint. EXP-1649: the `/` menu is the
-        // web's popover above the card.
-        let slash = self.slash.as_ref().map(|menu| {
-            crate::composer::session_slash_menu(
-                "steer-slash-menu",
-                "steer-slash-row",
-                &menu.items,
-                menu.selected,
-                &self.slash_scroll,
-                |this: &mut Self, index, cx| {
-                    if let Some(menu) = this.slash.as_mut() {
-                        if menu.selected != index {
-                            menu.selected = index;
-                            cx.notify();
-                        }
-                    }
-                },
-                |this: &mut Self, index, window, cx| {
-                    if let Some(menu) = this.slash.as_mut() {
-                        menu.selected = index;
-                    }
-                    this.accept_slash(window, cx);
-                },
-                window,
-                cx,
-            )
-        });
-        let replies = self
-            .replies
-            .as_ref()
-            .map(|replies| crate::composer::composer_replies_row(replies, true, cx));
-        crate::composer::session_composer_card(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
-                // EXP-1211: the quick replies sit DIRECTLY above the box.
-                .replies(replies)
-                .above_card(slash)
-                .field_hook(move |field| {
-                    field
-                        .key_context("SteerComposer")
-                        .capture_action(up)
-                        .capture_action(down)
-                        .capture_action(escape)
-                        .capture_action(enter)
-                        .capture_action(tab)
-                })
-                .strip({
-                    // #EXP-1715: the Assistant's picked teams lead the strip.
-                    let chips = self.render_team_chips(cx);
-                    let files = (!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx));
-                    match (chips, files) {
-                        (None, files) => files,
-                        (Some(chips), files) => Some(
-                            v_flex().w_full().min_w_0().gap_1p5().child(chips).children(files).into_any_element(),
-                        ),
-                    }
-                })
-                // N-12: the "+" options menu is the only tool (no inline
-                // image / file / # / emoji tools).
-                .tool(self.render_plus_menu(cx))
-                .card_hook(move |card| card.capture_action(paste))
-                .controls(self.render_composer_controls(cx)),
-            cx,
-        )
-    }
-
     /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
     /// is to do or the session is over. #EXP-1545: a chat reads each Live
     /// child's through its own view.
@@ -8577,9 +8377,9 @@ impl SteerSessionView {
     }
 
     /// THE composer card (the notice above it) for THE Dock's band.
-    pub(crate) fn render_composer_card(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn render_composer_card(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         self.ensure_mcp_loaded(cx);
-        Some(self.render_composer(window, cx))
+        Some(self.render_doc_composer(window, cx))
     }
 
     /// Host this view as a ROOT session's composer (the chat screen, the
@@ -8612,21 +8412,9 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) {
         let placeholder = placeholder.into();
+        self.composer_placeholder = placeholder.clone();
         self.input
             .update(cx, |input, cx| input.set_placeholder(placeholder, window, cx));
-    }
-
-    /// EXP-877 — the run's controls in the composer card's bottom row
-    /// ([`crate::composer::SessionComposerControls`]): the device pin, the
-    /// model pin, the context ring (S-3: no Plan switch).
-    fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
-        // S-3: NO options line (the model is a "+" row; a running session
-        // never moves device here): the context ring stays.
-        crate::composer::SessionComposerControls {
-            device_pin: None,
-            model_pin: None,
-            context_ring: self.render_context_ring(cx),
-        }
     }
 
     /// #EXP-1535 — the "+" menu's Account › (composer-menu.json
@@ -8811,284 +8599,6 @@ impl SteerSessionView {
         .detach();
     }
 
-    /// EXP-1334 / S-3 — the composer's "+": THE composer menu
-    /// (composer-menu.json) on the `session` surface (`agent` for an agent
-    /// conversation): Photo or file, Issue › (THE issue search list; a pick
-    /// inserts `#IDENT` at the caret), then #EXP-1535 Account › while the
-    /// device is online and the viewer steers the session (THE usage wall's
-    /// switch: [`Self::composer_account_switch`]), then Model › while the run
-    /// may switch models (claude and codex: `sessions.configure({model})`).
-    /// A running session never moves device here; the work rows belong to a
-    /// start.
-    fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        use crate::chat_screen::{composer_menu_rows, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
-        let view = cx.entity().downgrade();
-        let session_id = self.session_id.to_string();
-        let surface = if self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty()) {
-            ComposerSurface::Agent
-        } else {
-            ComposerSurface::Session
-        };
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
-        // #EXP-1434: the team's prompts, the `/` menu's list.
-        let prompts: Vec<slash_commands::SlashPrompt> = team_id
-            .as_deref()
-            .filter(|_| sync::Store::try_global(cx).is_some())
-            .map(|team_id| {
-                crate::queries::team_prompts(cx, team_id)
-                    .0
-                    .iter()
-                    .map(slash_commands::SlashPrompt::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let account_switch = self.composer_account_switch(cx);
-        let editor_runner = self.editor_runner.clone().filter(|_| !self.configurable());
-        let configurable = self.configurable();
-        let to_assistant = self.to_assistant(cx);
-        let rows = composer_menu_rows(
-            surface,
-            ComposerMenuConditions {
-                // #FEED-204: an app editor's composer reads its device.
-                device: self.editor_device.is_some(),
-                // #EXP-1729: an ended editor root's held picks.
-                account: account_switch.is_some() || editor_runner.is_some(),
-                model: self.configurable() || editor_runner.is_some(),
-                prompts: !prompts.is_empty(),
-                // #EXP-1715: the viewer's Assistant in more than one team.
-                assistant: to_assistant,
-                teams: to_assistant && crate::teams_pick::several_teams(cx),
-                ..ComposerMenuConditions::default()
-            },
-        );
-        let editor_device = self.editor_device.clone();
-        let teams_view = view.clone();
-        let teams_change = self.teams_change(cx);
-        let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
-            let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
-                .map(|chip| chip.value)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
-            let choices: &'static [(&'static str, &'static str)] = if self.agent() == SessionAgent::Claude {
-                &crate::coding_selects::MODEL_CHOICES
-            } else {
-                &crate::coding_selects::CODEX_MODEL_CHOICES
-            };
-            (choices, value)
-        };
-        // #EXP-1535 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=session-account`):
-        // open the menu once with Account › selected (its submenu open).
-        let account_step = rows
-            .iter()
-            .filter(|row| **row != Row::Separator)
-            .position(|row| *row == Row::Account);
-        let dev_open = account_step.is_some()
-            && crate::navigation::shapes_ready(cx)
-            && crate::screens::take_dev_session_account_menu();
-        // #EXP-1752: what the rows draw (the rows themselves, an app editor's
-        // devices, the logins, the model): the open menu follows it live.
-        let content_key = {
-            use std::hash::{Hash as _, Hasher as _};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            format!("{rows:?}").hash(&mut hasher);
-            if let Some(device) = &editor_device {
-                device.device_id.hash(&mut hasher);
-                device.rows.hash(&mut hasher);
-            }
-            if let Some((_, targets)) = &account_switch {
-                for target in targets {
-                    (&target.profile_id, &target.caption, target.current, &target.blocked).hash(&mut hasher);
-                }
-            }
-            models.hash(&mut hasher);
-            model_picked.hash(&mut hasher);
-            hasher.finish()
-        };
-        let input = self.input.clone();
-        let trigger = crate::composer::composer_tool(
-            SharedString::from(format!("{}-plus", self.composer_ids.attach)),
-            registry::UI_ADD,
-            cx,
-        )
-        .tooltip(crate::chat_screen::PLUS_TOOLTIP)
-        .disabled(self.sending);
-        crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
-            use crate::controls::{pointer_check_item, pointer_menu_item};
-            let root = cx.entity().downgrade();
-            menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(260.)));
-            for row in rows.iter().copied() {
-                menu = match row {
-                    Row::Separator => menu.separator(),
-                    // #EXP-1715: THE multi picker rows over the viewer's teams.
-                    Row::Teams => {
-                        let state_view = teams_view.clone();
-                        crate::teams_pick::teams_submenu(
-                            menu,
-                            "steer-teams",
-                            std::rc::Rc::new(move |cx: &App| {
-                                let picked = state_view.upgrade().and_then(|view| view.read(cx).teams_picked.clone());
-                                (crate::teams_pick::pick_teams(cx), picked)
-                            }),
-                            teams_change.clone(),
-                            root.clone(),
-                            window,
-                            cx,
-                        )
-                    }
-                    Row::AddFile => {
-                        let view = view.clone();
-                        menu.item(pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
-                            if let Some(view) = view.upgrade() {
-                                view.update(cx, |this, cx| this.pick_files(window, cx));
-                            }
-                        }))
-                    }
-                    Row::ImplementIssue => {
-                        let Some(team_id) = team_id.clone() else {
-                            continue;
-                        };
-                        let input = input.clone();
-                        let root = root.clone();
-                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
-                            let input = input.clone();
-                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
-                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
-                                    input.update(cx, |state, cx| state.insert(text, window, cx));
-                                    input.read(cx).focus_handle(cx).focus(window, cx);
-                                });
-                            crate::picker::search_list::menu_search_list_submenu(
-                                "steer-issue-ref",
-                                crate::picker::search_list::issue_ref_source(team_id.clone(), insert),
-                                sub,
-                                root.clone(),
-                                window,
-                                cx,
-                            )
-                        })
-                    }
-                    // #EXP-1434: Prompts › — the `/` pick's body, inserted at
-                    // the caret.
-                    Row::Prompts => {
-                        let input = input.clone();
-                        let root = root.clone();
-                        let prompts = prompts.clone();
-                        menu.submenu_with_icon(row.icon().map(Icon::new), row.label(), window, cx, move |sub, window, cx| {
-                            let input = input.clone();
-                            let insert: std::rc::Rc<dyn Fn(String, &mut Window, &mut App)> =
-                                std::rc::Rc::new(move |text: String, window: &mut Window, cx: &mut App| {
-                                    input.update(cx, |state, cx| state.insert(text, window, cx));
-                                    input.read(cx).focus_handle(cx).focus(window, cx);
-                                });
-                            let pick: std::rc::Rc<dyn Fn(slash_commands::SlashPrompt, &mut Window, &mut App)> =
-                                std::rc::Rc::new(move |prompt, window: &mut Window, cx: &mut App| {
-                                    crate::picker::search_list::insert_prompt_body(prompt, insert.clone(), window, cx)
-                                });
-                            crate::picker::search_list::menu_search_list_submenu(
-                                "steer-prompts",
-                                crate::picker::search_list::prompt_source(prompts.clone(), pick),
-                                sub,
-                                root.clone(),
-                                window,
-                                cx,
-                            )
-                        })
-                    }
-                    // #FEED-204 (apps.json EDITOR DEVICE).
-                    Row::Device => match &editor_device {
-                        Some(device) => device.menu_row(menu, row, window, cx),
-                        None => menu,
-                    },
-                    // #EXP-1535: THE account rows (agent mark, login, health
-                    // hint, the usage preview on hover), the run's login
-                    // checked; a pick IS the usage wall's "Switch account"
-                    // (`account_switch::switch_to`: `sessions.send {sessionId,
-                    // account}`, no text). A refusal disables its row.
-                    Row::Account => {
-                        let Some((context, targets)) = account_switch.clone() else {
-                            // #EXP-1729: THE launch rows; the pick rides
-                            // the ended editor root's next send.
-                            if let Some(runner) = &editor_runner {
-                                menu = runner.account_row(menu, "steer-menu-account", window, cx);
-                            }
-                            continue;
-                        };
-                        let value = crate::account_switch::current_caption(&targets);
-                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), value, window, cx, move |mut sub, _, _| {
-                            let agent = context.agent;
-                            for target in &targets {
-                                let session_id = context.session_id.clone();
-                                let local = context.local;
-                                let profile_id = target.profile_id.clone();
-                                sub = sub.item(
-                                    crate::controls::pointer_account_item(
-                                        format!("steer-menu-account-{}", target.profile_id),
-                                        move || crate::coding_selects::agent_mark(agent),
-                                        target.caption.clone(),
-                                        target.health.badge_label(),
-                                        target.current,
-                                        target.usage.as_ref().and_then(coding::account_option::account_limits),
-                                        move |window, cx| {
-                                            crate::account_switch::switch_to(
-                                                session_id.clone(),
-                                                local,
-                                                profile_id.clone(),
-                                                window,
-                                                cx,
-                                            );
-                                        },
-                                    )
-                                    .disabled(!target.pickable()),
-                                );
-                            }
-                            sub
-                        })
-                    }
-                    Row::Model if !configurable => match &editor_runner {
-                        Some(runner) => runner.model_row(menu, window, cx),
-                        None => menu,
-                    },
-                    Row::Model => {
-                        let value = models
-                            .iter()
-                            .find(|(_, value)| *value == model_picked)
-                            .map(|(label, _)| (*label).to_string())
-                            .unwrap_or_else(|| crate::steer_viewer::model_label(&model_picked));
-                        let picked = model_picked.clone();
-                        let view = view.clone();
-                        let session_id = session_id.clone();
-                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), Some(value), window, cx, move |mut sub, _, _| {
-                            for (label, value) in models {
-                                let view = view.clone();
-                                let session_id = session_id.clone();
-                                let value = (*value).to_string();
-                                sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
-                                    Self::configure(
-                                        view.clone(),
-                                        api::sessions::ConfigureInput {
-                                            session_id: session_id.clone(),
-                                            model: Some(value.clone()),
-                                            ..Default::default()
-                                        },
-                                        cx,
-                                    );
-                                }));
-                            }
-                            sub
-                        })
-                    }
-                    // Launch-only rows never reach a session's surface.
-                    _ => menu,
-                };
-            }
-            menu
-        })
-        .anchor(gpui::Anchor::BottomLeft)
-        .live(content_key)
-        .dev_open(dev_open)
-        .dev_steps(account_step.map_or(1, |at| at + 1))
-        .into_any_element()
-    }
-
     /// EXP-877 — the context ring, and the usage sheet it opens. Hidden on a
     /// replay and once the run is over (a finished run's window is a number
     /// about a machine that is no longer working) and whenever the run has
@@ -9126,20 +8636,6 @@ impl SteerSessionView {
         )
     }
 
-    /// EXP-724: the pinned strip while the agent folds its context. The bar
-    /// is INDETERMINATE on purpose — no agent reports compaction progress,
-    /// and the only honest signal is "still going". EXP-1157: a quiet
-    /// status line, not a banner — a short hairline track beside the label,
-    /// no divider above it.
-    /// EXP-698: pending images render as 48px THUMBNAILS with a corner ✕ —
-    /// the web/iOS/Android strip. The bytes are already in hand (they are
-    /// what the send uploads), so the old filename chip was showing the
-    /// least useful thing about a picture; a chip survives only as the
-    /// fallback for bytes nothing can decode.
-    fn render_pending_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        self.pending_images
-            .render_strip("steer-pending-remove", self.sending, Self::remove_pending, cx)
-    }
 }
 
 /// #EXP-1383: a view over a FINISHED local engine follows a LIVE one hosting
@@ -9722,9 +9218,9 @@ impl Render for SteerSessionView {
         // N-11 (owner 2026-10-24): no status row over the transcript; the
         // live "Working…" row at its bottom is the one working signal.
         // N-12: THE Dock (the waiting cards, THE Queue, the queued messages,
-        // the banners, then THE composer) floats over the transcript's
-        // bottom edge; the transcript is the ONE scroll region and pads by
-        // the band's height.
+        // the banners, then THE composer) sits under the transcript; the
+        // transcript is the ONE scroll region and ENDS at the band's top
+        // edge (#EXP-1782: clipped there, no fade, nothing behind the band).
         let (dock, sheet) = self.render_session_dock(window, cx);
         let composer_visible = self.composer_visible();
         let feed = self.render_feed(window, cx);
@@ -9853,6 +9349,9 @@ fn now_epoch_ms() -> i64 {
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0)
 }
+
+#[path = "chat_tab_composer.rs"]
+pub(crate) mod chat_tab_composer;
 
 #[cfg(test)]
 mod work_elapsed_tests {

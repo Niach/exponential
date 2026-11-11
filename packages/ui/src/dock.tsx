@@ -37,7 +37,7 @@ import { useIsMobile } from "./use-mobile"
 import { CHAT_COLUMN_CLASS } from "./work-header"
 
 // N-12: THE Dock ×web (fixtures/dock.json ×4; desktop `dock.rs`, iOS
-// `Dock.swift`, Android `Dock.kt`): the floating band over the transcript's
+// `Dock.swift`, Android `Dock.kt`): the band under the transcript's
 // bottom edge in the composer column: the DockCards (a waiting plan or
 // question, THE Queue, the queued messages, a status banner) piled like the
 // toasts (`stackLayout`, anchored at the bottom: the front card last, the
@@ -160,11 +160,6 @@ export function Dock({
         data-mode={view.mode}
         className={cn(`pointer-events-none absolute inset-x-0 bottom-0 z-20`, className)}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-10 bottom-0"
-          style={{ background: `linear-gradient(to top, var(--background) 72%, transparent)` }}
-        />
         <div
           className={cn(
             // An empty phone band is clearance only: taps reach the transcript.

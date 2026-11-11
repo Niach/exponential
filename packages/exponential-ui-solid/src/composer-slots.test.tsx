@@ -18,7 +18,11 @@ interface SlotsCase {
   props: Record<string, unknown>
   slots: Record<string, NestedNode>
   direction?: `rtl`
+  stack?: string[]
   order: string[]
+  data?: Record<string, unknown>
+  field?: { rows: number; grown: boolean }
+  hiddenAbove?: { path: string; value: unknown; stack: string[] }
   steps: { press: string }[]
   events: Fired[]
 }
@@ -37,7 +41,7 @@ function rowOrder(root: ParentNode): string[] {
   // the leading bar and the controls bar).
   const host = root.querySelector(`[data-xui-id="c"]`)!
   const flat = host.getAttribute(`data-r-layout`) === `flat`
-  const row = flat ? Array.from(host.children).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
+  const row = flat ? Array.from(host.children).filter((el) => !el.classList.contains(`xui-composer-above`)).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
   return row.map((el) => {
     const c = el.className
     if (c.includes(`xui-Composer-field`)) return `field`
@@ -49,6 +53,34 @@ function rowOrder(root: ParentNode): string[] {
   })
 }
 
+/** #EXP-1762: the value the surface's stylesheets give `el` for `prop` (jsdom
+ *  computes no cascade: the last matching rule's declaration). */
+function cascaded(el: Element, prop: string): string {
+  let value = ``
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSStyleRule) {
+        const v = rule.style.getPropertyValue(prop)
+        if (v && el.matches(rule.selectorText)) value = v
+      } else if (`cssRules` in rule) walk((rule as CSSGroupingRule).cssRules)
+    }
+  }
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules)
+  return el instanceof HTMLElement && el.style.getPropertyValue(prop) ? el.style.getPropertyValue(prop) : value
+}
+
+/** #EXP-1762: the composer's content top → bottom (`above`, `field`, `row`; a flat field is in the row). */
+function composerStack(root: ParentNode): string[] {
+  const host = root.querySelector(`[data-xui-id="c"]`)!
+  const flat = host.getAttribute(`data-r-layout`) === `flat`
+  const out: string[] = []
+  for (const el of Array.from(host.children)) {
+    const k = el.classList.contains(`xui-composer-above`) ? `above` : !flat && el.className.includes(`xui-Composer-field`) ? `field` : `row`
+    if (out[out.length - 1] !== k) out.push(k)
+  }
+  return out
+}
+
 describe(`fixtures/interactions-round1.json composerSlots`, () => {
   for (const c of fx.composerSlots.cases) {
     it(`composerSlots: ${c.name}`, () => {
@@ -56,10 +88,67 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       const s = fx.composerSlots.surface
       const composer = { ...s, props: { ...s.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
       const tree = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
-      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `cs`, data: {}, initial: tree })} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />)
+      let state!: SurfaceState
+      const { container } = render(() => {
+        state = createSurface({ surfaceId: `cs`, data: structuredClone(c.data ?? {}), initial: tree })
+        return <ExponentialSurface surface={state} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />
+      })
       expect(rowOrder(container)).toEqual(c.order)
+      if (c.field) {
+        // The field stretches across the row (grown by its min-height, never
+        // a height) and its text starts at the recipe's padding-top
+        // (neutral `$spacing.sm`).
+        const field = container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+        expect(field.value.split(`\n`)).toHaveLength(c.field.rows)
+        expect(cascaded(field, `align-self`)).toBe(`stretch`)
+        expect(cascaded(field, `padding-top`)).toBe(`var(--xui-spacing-sm)`)
+        expect(field.style.height).toBe(``)
+      }
+      if (c.stack) expect(composerStack(container)).toEqual(c.stack)
       for (const step of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${step.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      // #EDE-65: a hidden `above` is the slot absent (no wrapper, so no gap);
+      // shown it is the slot, hidden again it is gone.
+      if (c.hiddenAbove) {
+        const host = container.querySelector(`[data-xui-id="c"]`)!
+        const { path, value, stack } = c.hiddenAbove
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+        expect(host.querySelector(`.xui-composer-above`)).toBeNull()
+        state.setData(`/${path}`, value)
+        expect(composerStack(container)).toEqual(stack)
+        expect(host.getAttribute(`data-above`)).toBe(`true`)
+        expect(container.querySelector(`[data-xui-id="strip"]`)).not.toBeNull()
+        state.setData(`/${path}`, false)
+        expect(composerStack(container)).toEqual(c.stack)
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+      }
+    })
+  }
+})
+
+// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+describe(`Composer sendIcon`, () => {
+  for (const [theme, layout, size] of [[`neutral`, `flat`, `16px`], [`neutral`, `stacked`, `16px`], [`exponential`, `flat`, `24px`], [`exponential`, `stacked`, `16px`]] as const) {
+    it(`${theme} ${layout}: the glyph is ${size}`, () => {
+      const s = fx.composerSlots.surface
+      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `si`, data: { draft: `hi` }, initial: { ...s, props: { ...s.props, layout } } as NestedNode })} theme={theme} id="si" />)
+      const glyph = container.querySelector(`[data-xui-part="Composer/send"] svg`)!
+      expect(glyph.getAttribute(`data-xui-part`)).toBe(`Composer/sendIcon`)
+      expect(cascaded(glyph, `width`)).toBe(size)
+      expect(cascaded(glyph, `height`)).toBe(size)
+    })
+  }
+})
+
+// #EDE-65: a disabled send's dim is the `send` part's `state: disabled` opacity.
+describe(`Composer disabled send`, () => {
+  for (const [theme, layout, opacity] of [[`neutral`, `flat`, 0.5], [`neutral`, `stacked`, 0.5], [`exponential`, `flat`, 0.4], [`exponential`, `stacked`, 0.4]] as const) {
+    it(`${theme} ${layout}: an empty draft dims send to ${opacity}`, () => {
+      const s = fx.composerSlots.surface
+      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `sd`, data: { draft: `` }, initial: { ...s, props: { ...s.props, layout } } as NestedNode })} theme={theme} id="sd" />)
+      const send = container.querySelector(`[data-xui-part="Composer/send"]`) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      expect(Number(cascaded(send, `opacity`))).toBe(opacity)
     })
   }
 })

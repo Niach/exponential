@@ -64,7 +64,7 @@ describe(`recipe contract`, () => {
     expect(parts.Row.props).toEqual([`selected`, `density`, `surface`, `depth`, `open`]) // #VAPP-284: the foldIcon's `open`
     expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
-    expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
+    expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`, `tone`]) // #EXP-1629: + tone
     expect(Object.keys(parts).length).toBe(106) // #EXP-1760: + IconPicker, ColorPicker; #EDE-65: + Embed; #EXP-1629: + KeyRecorder, KbdGroup; + Window; round 8: + Canvas; #VAPP-285: + Tree; VAPP-280: + SettingsRow; VAPP-217: + RecordForm, RecordTable; VAPP-232: + Calendar, Timeline; VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic; EXP-1586: + ZoomableImage; EXP-1604: + Motion
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
@@ -285,6 +285,20 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
     expect(ring).toHaveLength(3)
     for (const id of [`neutral`, `playful`])
       for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
+  })
+
+  test(`#EXP-1629 a destructive Menu item: web's destructive DropdownMenuItem (text, glyph and its highlight)`, () => {
+    for (const id of [`neutral`, `exponential`, `playful`]) {
+      const t = builtinTheme(id)
+      expect(t.modes.light.color.destructiveHover as string).toBe(`${t.modes.light.color.destructive.slice(0, 7)}1a`)
+      expect(t.modes.dark.color.destructiveHover as string).toBe(`${t.modes.dark.color.destructive.slice(0, 7)}33`)
+      const item = (destructive: boolean, states: string[]) => resolveRecipe(t, { component: `Menu`, part: `item`, props: { openOn: `press`, destructive }, states }, `dark`)
+      expect(item(true, []).color).toBe(t.modes.dark.color.destructive)
+      expect(item(true, [`hover`]).backgroundColor).toBe(t.modes.dark.color.destructiveHover)
+      expect(item(true, [`hover`]).color).toBe(t.modes.dark.color.destructive)
+      expect(item(true, [`selected`]).backgroundColor).toBe(t.modes.dark.color.destructiveHover)
+      expect(item(false, []).color).not.toBe(t.modes.dark.color.destructive)
+    }
   })
 
   test(`strokeActive: the glass active stroke in exponential, ring elsewhere; a focused box Input takes it`, () => {

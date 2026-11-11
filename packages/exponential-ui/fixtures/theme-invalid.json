@@ -182,7 +182,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].style.display",
-          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip|paddingTop|paddingBottom|textAlign"
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native|marginTop|marginBottom|borderTopLeftRadius|maxWidth|backgroundClip|paddingTop|paddingBottom|textAlign|borderTopRightRadius|borderBottomRightRadius|borderBottomLeftRadius"
         }
       ]
     },
@@ -244,7 +244,7 @@
             "root": [
               {
                 "when": {
-                  "tone": "primary"
+                  "side": "top"
                 },
                 "style": {
                   "color": "$color.primary"
@@ -256,8 +256,8 @@
       },
       "issues": [
         {
-          "path": "recipes.Button.root[0].when.tone",
-          "message": "not a recipe prop of this part; known: state|variant|size|disabled|loading"
+          "path": "recipes.Button.root[0].when.side",
+          "message": "not a recipe prop of this part; known: state|variant|size|disabled|loading|tone"
         }
       ]
     },
@@ -684,6 +684,14 @@
         {
           "path": "modes.dark.color.strokeActive",
           "message": "missing value for $color.strokeActive"
+        },
+        {
+          "path": "modes.light.color.destructiveHover",
+          "message": "missing value for $color.destructiveHover"
+        },
+        {
+          "path": "modes.dark.color.destructiveHover",
+          "message": "missing value for $color.destructiveHover"
         },
         {
           "path": "tokens.spacing.none",

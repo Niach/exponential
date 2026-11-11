@@ -991,6 +991,28 @@
             "dark": "#ffffff29"
           }
         }
+      },
+      {
+        "name": "destructiveHover",
+        "ref": "$color.destructiveHover",
+        "values": {
+          "neutral": {
+            "light": "#e7000b1a",
+            "dark": "#ff646733"
+          },
+          "exponential": {
+            "light": "#e7000b1a",
+            "dark": "#ff646733"
+          },
+          "playful": {
+            "light": "#e11d481a",
+            "dark": "#fb718533"
+          },
+          "orange": {
+            "light": "#e7000b1a",
+            "dark": "#ff646733"
+          }
+        }
       }
     ],
     "spacing": [
@@ -2791,7 +2813,10 @@
     "backgroundClip",
     "paddingTop",
     "paddingBottom",
-    "textAlign"
+    "textAlign",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius"
   ],
   "components": [
     {
@@ -3495,10 +3520,14 @@
         "count",
         "list",
         "empty",
-        "fade"
+        "fade",
+        "identifier",
+        "detail",
+        "preview"
       ],
       "props": [
-        "openOn"
+        "openOn",
+        "destructive"
       ]
     },
     {
@@ -3769,7 +3798,8 @@
         "variant",
         "size",
         "disabled",
-        "loading"
+        "loading",
+        "tone"
       ]
     },
     {
@@ -4012,13 +4042,16 @@
         "itemIcon",
         "itemText",
         "itemLabel",
-        "itemDescription"
+        "itemDescription",
+        "itemHint"
       ],
       "props": [
         "multiple",
         "searchable",
         "disabled",
-        "triggerVariant"
+        "triggerVariant",
+        "joinTop",
+        "joinBottom"
       ]
     },
     {
@@ -4212,7 +4245,8 @@
         "field",
         "placeholder",
         "attachment",
-        "send"
+        "send",
+        "sendIcon"
       ],
       "props": [
         "attachments",

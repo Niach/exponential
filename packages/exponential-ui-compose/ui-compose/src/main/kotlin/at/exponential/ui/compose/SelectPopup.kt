@@ -1,7 +1,6 @@
 package at.exponential.ui.compose
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -75,8 +75,10 @@ import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sign
 
 /** The core's anchored-overlay offset (eui-core `overlay::OVERLAY_OFFSET`) and viewport margin. */
 private const val POPUP_OFFSET = 4f
@@ -88,7 +90,7 @@ private const val POPUP_MARGIN = 8f
  * a plain option's trailing reads on inside [text]). #EXP-1629: a
  * [description] = the muted second line under its label.
  */
-internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null)
+internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null, val iconColor: String? = null, val hint: String? = null)
 
 /**
  * A Select's OBJECT options whose label contains [query] (lowercase; empty
@@ -104,7 +106,7 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     val trailing = o["trailing"]?.displayText.orEmpty()
     val mono = o["mono"]?.bool == true
     val text = if (trailing.isEmpty() || mono) label else "$label $trailing"
-    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() })
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() }, o["iconColor"]?.string, o["hint"]?.displayText?.takeIf { it.isNotEmpty() })
 }
 
 /** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */
@@ -129,14 +131,16 @@ internal fun selectPopupAlign(owner: Props): String = owner.str("align").ifEmpty
  * (dp): a row's hangs off its value; #EXP-1765: a pill's border box
  * `selectPillPopupOffset` under it.
  */
-internal fun selectPopupSpacing(row: Boolean, pill: Boolean = false): Pair<Float, Float> = when {
+internal fun selectPopupSpacing(row: Boolean, pill: Boolean = false, button: Boolean = false): Pair<Float, Float> = when {
     row -> CatalogConstants.SELECT_ROW_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
+    // #EXP-1778: a `button`'s (the IDE pointer menu) border box under the trigger.
+    button -> CatalogConstants.SELECT_BUTTON_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
     pill -> CatalogConstants.SELECT_PILL_POPUP_OFFSET to CatalogConstants.SELECT_ROW_POPUP_MARGIN
     else -> POPUP_OFFSET to POPUP_MARGIN
 }
 
 /** #EXP-1765: how far OUTSIDE the anchor's aligned edge the popup starts (dp): a pill's `selectPillPopupInset`, else 0. */
-internal fun selectPopupInset(pill: Boolean): Float = if (pill) CatalogConstants.SELECT_PILL_POPUP_INSET else 0f
+internal fun selectPopupInset(pill: Boolean, button: Boolean = false): Float = if (pill || button) CatalogConstants.SELECT_PILL_POPUP_INSET else 0f
 
 /**
  * #EXP-1765: the popup's border-box x (px) for [align] along the anchor
@@ -152,27 +156,58 @@ internal fun selectPopupX(align: String, rtl: Boolean, left: Int, right: Int, w:
 /** #EXP-1629: does the list have options below its visible end (the IDE picker's `has_more_below`)? */
 internal fun selectMoreBelow(offset: Int, max: Int): Boolean = max > 0 && offset < max - 1
 
+/**
+ * #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is ONE
+ * block (web's Picker, the IDE's `multi_row_edges`): row [index]'s
+ * `joinTop` (the row above is picked too) and `joinBottom` (the row below).
+ */
+internal fun selectItemJoins(multiple: Boolean, picked: List<Boolean>, index: Int): Pair<Boolean, Boolean> {
+    if (!multiple || picked.getOrNull(index) != true) return false to false
+    return (index > 0 && picked[index - 1]) to (picked.getOrNull(index + 1) == true)
+}
+
 /** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
 internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
     owner.num("popupWidth")?.toFloat()?.takeIf { it > 0f } ?: if (row && selectPopupMinWidth(owner) == null) CatalogConstants.SELECT_ROW_POPUP_WIDTH else null
 
 /** #EXP-1629: `popupMinWidth`: the popup fits its options, at least this wide (the IDE's non-searchable picker). */
 internal fun selectPopupMinWidth(owner: Props): Float? = owner.num("popupMinWidth")?.toFloat()?.takeIf { it > 0f }
+    // #EXP-1778: a `button`'s pointer menu: at least `selectButtonPopupMinWidth`.
+    ?: if (owner.str("triggerVariant") == "button") CatalogConstants.SELECT_BUTTON_POPUP_MIN_WIDTH else null
+
+/**
+ * #EXP-1765: where a Select popup's border box lands (px): [align]ed along
+ * the anchor ([selectPopupX], [inset] outside its aligned edge FIRST), under
+ * it (above when it does not fit) and clamped [margin] inside the window;
+ * with an [inset] (a pill's) the content's offset from the anchor's origin
+ * then rounds to whole dp, half away from zero (the IDE Popover's,
+ * `overlay-geometry.json` `inset`, the core's `place_inset_overlay`).
+ */
+internal fun selectPopupOrigin(align: String, rtl: Boolean, offset: Int, margin: Int, inset: Int, density: Float, anchor: IntRect, window: IntSize, w: Int, h: Int): IntOffset {
+    val x = selectPopupX(align, rtl, anchor.left, anchor.right, w, inset)
+    val below = anchor.bottom + offset
+    val above = anchor.top - offset - h
+    val y = if (below + h <= window.height - margin || above < margin) below else above
+    val clamped = x.coerceIn(margin, max(margin, window.width - w - margin))
+    if (inset <= 0) return IntOffset(clamped, y)
+    fun snap(at: Int, origin: Int): Int {
+        val dp = (at + inset - origin) / density
+        return origin + (sign(dp) * floor(abs(dp) + 0.5f) * density).roundToInt() - inset
+    }
+    return IntOffset(snap(clamped, anchor.left), snap(y, anchor.top))
+}
 
 /**
  * Under the anchor (above when it does not fit), aligned along it by
- * `start | center | end` (logical), inside the window. [bleed] = the
- * transparent room around the box its shadow paints into (px).
+ * `start | center | end` (logical), inside the window ([selectPopupOrigin]).
+ * [bleed] = the transparent room around the box its shadow paints into (px).
  */
-private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int, val bleed: Int, val inset: Int = 0) : PopupPositionProvider {
+private class SelectPopupPosition(val align: String, val rtl: Boolean, val offset: Int, val margin: Int, val bleed: Int, val inset: Int = 0, val density: Float = 1f) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val w = popupContentSize.width - 2 * bleed
         val h = popupContentSize.height - 2 * bleed
-        val x = selectPopupX(align, rtl, anchorBounds.left, anchorBounds.right, w, inset)
-        val below = anchorBounds.bottom + offset
-        val above = anchorBounds.top - offset - h
-        val y = if (below + h <= windowSize.height - margin || above < margin) below else above
-        return IntOffset(x.coerceIn(margin, max(margin, windowSize.width - w - margin)) - bleed, y - bleed)
+        val at = selectPopupOrigin(align, rtl, offset, margin, inset, density, anchorBounds, windowSize, w, h)
+        return IntOffset(at.x - bleed, at.y - bleed)
     }
 }
 
@@ -212,6 +247,8 @@ internal fun SelectPopup(cx: LeafContext) {
     val searchable = owner.flag("searchable")
     val row = selectRowVariant(cx.props, owner)
     val pill = selectPillVariant(cx.props, owner)
+    // #EXP-1778: a `button` popup is the IDE's pointer menu.
+    val button = selectButtonVariant(cx.props, owner)
     val loading = owner.flag("loading")
     var query by remember(cx.node.id) { mutableStateOf("") }
     // #EXP-1765: a pointer-opened pill starts without a cursor.
@@ -266,9 +303,9 @@ internal fun SelectPopup(cx: LeafContext) {
 
     // The shadow paints into transparent room around the box.
     val bleed = cs.shadows.maxOfOrNull { abs(it.x) + abs(it.y) + it.blur + it.spread }?.coerceAtLeast(0f) ?: 0f
-    val position = remember(row, pill, owner, cx.rtl, density, bleed) {
-        val (offset, margin) = selectPopupSpacing(row, pill)
-        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill).dp.roundToPx() })
+    val position = remember(row, pill, button, owner, cx.rtl, density, bleed) {
+        val (offset, margin) = selectPopupSpacing(row, pill, button)
+        SelectPopupPosition(selectPopupAlign(owner), cx.rtl, with(density) { offset.dp.roundToPx() }, with(density) { margin.dp.roundToPx() }, with(density) { bleed.dp.roundToPx() }, with(density) { selectPopupInset(pill, button).dp.roundToPx() }, density.density)
     }
     val fill = cs.copy(background = cs.background ?: cx.themeColor("popover"))
     val fadeInk = cx.part("Select", "fade").style.background ?: fill.background
@@ -277,6 +314,8 @@ internal fun SelectPopup(cx: LeafContext) {
             Modifier
                 .padding(bleed.dp)
                 .then(if (width != null) Modifier.width(width.dp) else Modifier.widthIn(min = selectPopupMinWidth(owner)?.dp ?: cx.size.width.dp))
+                // #EXP-1778: a `button`'s pointer menu fits its options (the core's rule).
+                .then(if (width == null && button) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)
                 .heightIn(max = maxH.dp)
                 .paintedSurface(fill)
                 .clip(shape)
@@ -313,10 +352,12 @@ internal fun SelectPopup(cx: LeafContext) {
                 }
             }
             Box(Modifier.weight(1f, fill = false).fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().verticalScroll(scroll)) {
+                // #EXP-1778: a `button`'s menu rows sit `selectButtonItemGap` apart.
+                Column(Modifier.fillMaxWidth().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy((if (button) CatalogConstants.SELECT_BUTTON_ITEM_GAP else 0f).dp)) {
                     if (loading) SelectSkeletonRows(cx)
+                    val picked = options.map { chosen.contains(it.value.displayText) }
                     for ((i, o) in options.withIndex()) {
-                        SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupTs, popupInk, onHover = {
+                        SelectOptionRow(cx, o, i == cursor, picked[i], selectItemJoins(multiple, picked, i), itemH, popupTs, popupInk, checkOnChosenOnly = button, onHover = {
                             cursorless = false
                             cursor = i
                         }, onPick = { pick(o) })
@@ -407,13 +448,19 @@ private fun SelectSearch(cx: LeafContext, query: String, hint: String, pill: Boo
 
 /** One option: the `item` recipe under its states (`hover` = the cursor, `selected` = chosen), icon, label, the check slot. */
 @Composable
-private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, height: Float, base: ResolvedTextStyle, popupInk: Color, onHover: () -> Unit, onPick: () -> Unit) {
+private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, joins: Pair<Boolean, Boolean>, height: Float, base: ResolvedTextStyle, popupInk: Color, checkOnChosenOnly: Boolean = false, onHover: () -> Unit, onPick: () -> Unit) {
     val states = buildList {
         if (cursor) add("hover")
         if (chosen) add("selected")
         if (o.disabled) add("disabled")
     }
-    val item = cx.part("Select", "item", states)
+    // #EXP-1629: a joined edge's recipe drops its stroke and corners and
+    // pads it (`paddingTop` / `paddingBottom`).
+    val joinProps = buildMap {
+        if (joins.first) put("joinTop", JsonValue.Bool(true))
+        if (joins.second) put("joinBottom", JsonValue.Bool(true))
+    }
+    val item = if (joinProps.isEmpty()) cx.part("Select", "item", states) else cx.part("Select", "item", cx.ownerProps + joinProps, states)
     val hover by rememberUpdatedState(onHover)
     val s = item.style
     val ink = item.color ?: popupInk
@@ -422,15 +469,16 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
     val sans = base.copy(fontSize = s.fontSize ?: base.fontSize, lineHeight = s.lineHeight ?: base.lineHeight, fontFamily = item.fontFamily ?: base.fontFamily)
     // #EXP-1765: a mono option's label in the theme's mono type.
     val ts = cx.composeTextStyle(ts = if (o.mono) sans.copy(fontFamily = cx.model.effectiveTheme?.monoFamily ?: "ui-monospace") else sans, color = ink)
-    val shape = RoundedCornerShape(s.radius.dp)
+    val (tl, tr, br, bl) = s.corners
+    val shape = AbsoluteRoundedCornerShape(tl.dp, tr.dp, br.dp, bl.dp)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = height.dp)
             .alpha(s.opacity ?: 1f)
             .clip(shape)
-            .background(s.background ?: Color.Transparent, shape)
-            .then(if (s.borderWidth > 0f) s.borderColor?.let { Modifier.border(s.borderWidth.dp, it, shape) } ?: Modifier else Modifier)
+            // The fill and the stroke per side and corner (a joined edge has neither).
+            .paintedSurface(s)
             .pointerInput(o.value) {
                 awaitPointerEventScope {
                     while (true) {
@@ -440,12 +488,12 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
                 }
             }
             .selectable(selected = chosen, interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !o.disabled, role = Role.DropdownList, onClick = onPick)
-            .padding(horizontal = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, vertical = (item.px("paddingVertical") ?: 0f).dp),
+            .padding(start = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, end = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, top = (item.px("paddingTop") ?: item.px("paddingVertical") ?: 0f).dp, bottom = (item.px("paddingBottom") ?: item.px("paddingVertical") ?: 0f).dp),
         horizontalArrangement = Arrangement.spacedBy((s.gap.takeIf { it > 0f } ?: cx.spacing("sm")).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // #EXP-1629: the `itemIcon` recipe's size; the `itemDescription` under the label.
-        o.icon?.let { IconView(it, cx.part("Select", "itemIcon", states).width ?: 16f, ink, cx.model, rtl = cx.rtl) }
+        o.icon?.let { IconView(it, cx.part("Select", "itemIcon", states).width ?: 16f, o.iconColor?.let(cx::propColor) ?: ink, cx.model, rtl = cx.rtl) }
         if (o.description != null) {
             val dp = cx.part("Select", "itemDescription", states)
             val dts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = dp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = dp.style.lineHeight ?: cx.textStyle.lineHeight), color = dp.color ?: cx.themeColor("mutedForeground") ?: ink)
@@ -459,7 +507,13 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             BasicText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText(o.trailing, style = cx.composeTextStyle(ts = base.copy(fontSize = sans.fontSize, lineHeight = sans.lineHeight, fontFamily = null), color = cx.themeColor("mutedForeground") ?: ink), maxLines = 1, softWrap = false)
         }
-        Box(Modifier.size(checkSize.dp)) {
+        // #EXP-1629: web's picker hint: a small muted run at the row's end.
+        o.hint?.let { hint ->
+            val hp = cx.part("Select", "itemHint", states)
+            BasicText(hint, style = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = hp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = hp.style.lineHeight ?: cx.textStyle.lineHeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: ink), maxLines = 1)
+        }
+        // #EXP-1778: a `button` menu row holds the check on the chosen row only.
+        if (chosen || !checkOnChosenOnly) Box(Modifier.size(checkSize.dp)) {
             if (chosen) IconOrGlyph(builtinIcon("Select.check", "ui-check"), Glyph.Check, checkSize, cx, check.color ?: ink)
         }
     }
@@ -473,8 +527,8 @@ private val SKELETON_BARS = listOf(56f to 168f, 56f to 120f, 56f to 192f)
 
 /**
  * #EXP-1765: a `loading` Select's placeholder in our own popup: the core's
- * Skeleton rows (`selectLoadingRows` of them, `$control.row` high, a
- * hairline between, the dot and the two bars) from the `Skeleton/row|dot|bar`
+ * Skeleton rows (`selectLoadingRows` of them, `$control.row` high,
+ * borderless, the dot and the two bars) from the `Skeleton/row|dot|bar`
  * recipes, each block pulsing like the painted Skeleton's.
  */
 @Composable
@@ -484,8 +538,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
     val dot = cx.part("Skeleton", "dot", none)
     val bar = cx.part("Skeleton", "bar", none)
     val fill = cx.themeColor("muted") ?: Color.Transparent
-    val line = cx.themeColor("border")
-    val hairline = cx.control("hairline", 1f)
     val h = cx.control("row", 32f)
     val reduced = cx.model.reducedMotion
     for (r in 0 until CatalogConstants.SELECT_LOADING_ROWS) {
@@ -494,7 +546,6 @@ private fun SelectSkeletonRows(cx: LeafContext) {
             Modifier
                 .fillMaxWidth()
                 .height(h.dp)
-                .drawBehind { if (r > 0 && line != null) drawLine(line, Offset(0f, hairline.dp.toPx() / 2f), Offset(size.width, hairline.dp.toPx() / 2f), hairline.dp.toPx()) }
                 .padding(horizontal = (rowPart.px("paddingHorizontal") ?: rowPart.style.paddingHorizontal).dp),
             horizontalArrangement = Arrangement.spacedBy((rowPart.px("gap") ?: rowPart.style.gap).dp),
             verticalAlignment = Alignment.CenterVertically,

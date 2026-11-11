@@ -296,7 +296,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let count = props["count"].map(\.displayText) ?? ""
             // #EXP-1765: a mono Select option's `trailing` (the surface's sans type) counts like a count.
             let trailing = props["trailing"].map(\.displayText) ?? ""
-            let countW = !count.isEmpty ? line(count, ts) : (trailing.isEmpty ? 0 : line(trailing, SelectTrigger.trailingStyle(ts, sans: theme?.sansFamily)))
+            var countW = !count.isEmpty ? line(count, ts) : (trailing.isEmpty ? 0 : line(trailing, SelectTrigger.trailingStyle(ts, sans: theme?.sansFamily)))
+            // #EXP-1778: a `button` menu row's check: its recipe width.
+            if SelectTrigger.checkOnChosenOnly(props) { countW = SelectTrigger.glyphSize(self.part("Select", "check", ["triggerVariant": .string("button")])) }
             // The core names the owner (`FfiLeaf.ownerComponent`, round 2); the
             // part-name guess stays for an owner this table does not know.
             let owner = leaf.ownerComponent.flatMap { Self.chromeOwners.contains($0) ? $0 : nil } ?? Self.textOwner(part, props)
@@ -485,6 +487,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // Round 2 §7: the count is its own muted part after the title.
         case ("Accordion", "trigger"): return (0, (has(props, "count") ? 8 + countWidth : 0) + 16 + max(gap, 8))
         // #EXP-1765: a mono option's `trailing` (`countWidth`) sits before the check slot.
+        // #EXP-1778: a `button`'s menu row (`checkSlot: chosen`): the check
+        // (`countWidth` = its recipe width) after the item `gap` on the chosen row only.
+        case ("Select", "item") where SelectTrigger.checkOnChosenOnly(props): return (icon("icon"), has(props, "check") ? gap + countWidth : 0)
         case ("Select", "item"): return (icon("icon"), 16 + max(gap, 8) + (has(props, "trailing") ? SelectTrigger.trailingGap(gap) + countWidth : 0))
         case ("Menu", "itemLabel"): return (icon("icon"), 0)
         case ("Table", "headerCell"): return (0, has(props, "sortIcon") || props.flag("sortable") ? 16 + 4 : 0)
@@ -550,7 +555,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let label = props.str("label")
         let loading = props.flag("loading")
         let hasIcon = Self.has(props, "icon") || loading
-        let iconOnly = props.str("size") == "icon"
+        let iconOnly = ["icon", "icon-xs"].contains(props.str("size"))
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0
@@ -667,7 +672,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // slots' width off `wrap`), the row is the taller of field and disc.
         if props.str("layout") == "flat" {
             let att = props.flag("attachments") ? Self.composerAttachWidth + gap : 0
-            let fh = TextShaper.measure(text, fieldTs, wrap: max(w - send - gap - att, 1), lines: nil).height
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = (field.px("paddingTop") ?? 0) + (field.px("paddingBottom") ?? 0)
+            let fh = TextShaper.measure(text, fieldTs, wrap: max(w - send - gap - att, 1), lines: nil).height + pad
             return CGSize(width: w, height: max(min(max(fh, minH), 200), send))
         }
         let th = TextShaper.measure(text, fieldTs, wrap: max(w, 1), lines: nil).height
@@ -847,9 +856,15 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // #EXP-1629: the glyph is the `chevron` part (a `row` trigger is a
         // container of parts, measured as its nodes).
         let glyph = SelectTrigger.glyphSize(part("Select", "chevron", leaf.props))
-        // #EXP-1765: a pill's text and glyph sit its recipe `gap` apart.
-        let gap = SelectTrigger.isPill(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
-        return MeasuredContent(line(text, ts) + gap + glyph, ts.lineHeight, Self.baseline(ts))
+        // #EXP-1765: a pill's text and glyph sit its recipe `gap` apart (#EXP-1778: a `button`'s too).
+        let gap = SelectTrigger.isPillLike(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
+        // #EXP-1629: a `button`'s picked-option glyph.
+        let picked = leaf.props.str("valueIcon").isEmpty ? 0 : SelectTrigger.glyphSize(part("Select", "valueIcon", leaf.props)) + gap
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger).
+        let lift = part("Select", "value", leaf.props).px("marginTop") ?? 0
+        let height = lift != 0 ? max(ts.lineHeight + lift, glyph) : ts.lineHeight
+        return MeasuredContent(line(text, ts) + gap + glyph + picked, height, Self.baseline(ts) + lift)
     }
 
     /// The web's `<audio controls>` bar height (Chromium).
@@ -921,7 +936,37 @@ enum SelectTrigger {
     /// #EXP-1765: `triggerVariant: pill` on the trigger (the core copies the
     /// owner's props), else on its owner.
     static func isPill(_ props: Props, owner: Props = [:]) -> Bool {
-        (props["triggerVariant"]?.string ?? owner["triggerVariant"]?.string) == "pill"
+        variant(props, owner: owner) == "pill"
+    }
+
+    /// #EXP-1778: `triggerVariant: button` (an outline small button; the
+    /// IDE's pointer menus), on the trigger else on its owner.
+    static func isButton(_ props: Props, owner: Props = [:]) -> Bool {
+        variant(props, owner: owner) == "button"
+    }
+
+    /// #EXP-1629: `triggerVariant: inline` (web's inline picker trigger:
+    /// chromeless text and a small chevron, the field's popup).
+    static func isInline(_ props: Props, owner: Props = [:]) -> Bool {
+        variant(props, owner: owner) == "inline"
+    }
+
+    /// #EXP-1778: a trigger painted as a pill's (`pill`, `button`, #EXP-1629
+    /// `inline`): no label part, the `Select.dropdown` glyph at opacity 1,
+    /// the recipe gap. The pointer-opened popup without a cursor and the
+    /// search clear button stay `isPill` alone.
+    static func isPillLike(_ props: Props, owner: Props = [:]) -> Bool {
+        isPill(props, owner: owner) || isButton(props, owner: owner) || isInline(props, owner: owner)
+    }
+
+    /// #EXP-1778: a `button`'s menu row (the core's `checkSlot: chosen`)
+    /// holds the check on the chosen row only; the others reserve no slot.
+    static func checkOnChosenOnly(_ props: Props) -> Bool {
+        props["checkSlot"]?.string == "chosen"
+    }
+
+    private static func variant(_ props: Props, owner: Props) -> String? {
+        props["triggerVariant"]?.string ?? owner["triggerVariant"]?.string
     }
 
     /// #EXP-1765: a pill's text-to-glyph gap: the recipe's, else `$spacing.sm`

@@ -871,7 +871,7 @@ impl McpServersPane {
     /// Open the add/edit form (EXP-810). `config` = the row being edited;
     /// `None` adds one. `team_id` comes from the caller so an edit and an add
     /// name the same team even mid team switch.
-    // dialog stays native: `mcp_server_dialog` is its own native window (row inputs, the device picker, the Advanced disclosure; group 4).
+    // dialog: `mcp_server_dialog` is its own native window, its content a document.
     fn open_editor(
         &mut self,
         config: Option<McpServerConfig>,

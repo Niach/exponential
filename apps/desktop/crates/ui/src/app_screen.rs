@@ -1346,10 +1346,10 @@ impl AppScreenView {
                 .w_full()
                 .justify_center()
                 .p_2()
-                .child(crate::styleguide::entries::phone_tab_bar::capsule().children(screens.into_iter().map(
+                .child(crate::phone_bar::capsule().children(screens.into_iter().map(
                     |(template, title, icon)| {
                         let selected = template == shown;
-                        crate::styleguide::entries::phone_tab_bar::screen_tab(screen_icon(icon.as_deref()), title, selected, cx)
+                        crate::phone_bar::screen_tab(screen_icon(icon.as_deref()), title, selected, cx)
                             .id(SharedString::from(format!("preview-screen-{template}")))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {

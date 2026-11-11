@@ -5,7 +5,7 @@
 // label (a 700 ms buffer; one repeated letter cycles).
 
 import { LAYOUT_CONSTANTS } from "../layout"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "../overlay"
+import { OVERLAY_OFFSET, OVERLAY_PADDING, placeInsetOverlay } from "../overlay"
 import type { UiNode } from "../types"
 
 /** The TYPE-AHEAD buffer resets after this pause (ms). */
@@ -47,22 +47,51 @@ export function typeaheadStep(buffer: TypeaheadBuffer, key: string, now: number,
  *  hangs `selectPillPopupOffset` under the pill, starting
  *  `selectPillPopupInset` OUTSIDE its aligned edge (`alignOffset`, the
  *  popper's: negative = outward for `start` and `end`, none centred), the
- *  same margin; a field's off the trigger by the overlay defaults. */
-export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; alignOffset: number; collisionPadding: number } {
+ *  same margin; #EXP-1778: a `button`'s (the IDE pointer menu) fits its
+ *  options, at least `selectButtonPopupMinWidth` (or `popupMinWidth`), its
+ *  border box `selectButtonPopupOffset` under the trigger and the pill's
+ *  inset outside its edge; a field's off the trigger by the overlay defaults. `inset`
+ *  (a pill's, a button's) = `placeInsetOverlay`'s: after the shift and flip the box
+ *  moves to whole px from the pill (Solid's popper middleware, React's
+ *  `insetPopupNudge`). */
+export function selectPopupGeometry(props: Record<string, unknown>, triggerWidthVar: string): { align: `start` | `center` | `end`; minWidth: string | undefined; width: string | undefined; anchorValue: boolean; sideOffset: number; alignOffset: number; collisionPadding: number; inset: number | undefined } {
   const row = props.triggerVariant === `row`
   const pill = props.triggerVariant === `pill`
+  const button = props.triggerVariant === `button`
   const align = props.align === `start` || props.align === `center` || props.align === `end` ? props.align : `start`
-  const set = typeof props.popupWidth === `number` && Number.isFinite(props.popupWidth) && props.popupWidth > 0 ? props.popupWidth : undefined
-  const width = set ?? (row || pill ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
+  const px = (v: unknown) => (typeof v === `number` && Number.isFinite(v) && v > 0 ? v : undefined)
+  // `popupMinWidth`: the popup fits its options, at least that wide (the
+  // core's rule); #EXP-1778: a `button`'s at least `selectButtonPopupMinWidth`.
+  const min = px(props.popupMinWidth) ?? (button ? LAYOUT_CONSTANTS.selectButtonPopupMinWidth : undefined)
+  const width = px(props.popupWidth) ?? ((row || pill) && min === undefined ? LAYOUT_CONSTANTS.selectRowPopupWidth : undefined)
   return {
     align,
-    minWidth: width === undefined ? `var(${triggerWidthVar})` : undefined,
+    minWidth: width !== undefined ? undefined : min !== undefined ? `${min}px` : `var(${triggerWidthVar})`,
     width: width === undefined ? undefined : `${width}px`,
     anchorValue: row,
-    sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : pill ? LAYOUT_CONSTANTS.selectPillPopupOffset! : OVERLAY_OFFSET,
-    alignOffset: pill && align !== `center` ? -LAYOUT_CONSTANTS.selectPillPopupInset! : 0,
-    collisionPadding: row || pill ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
+    sideOffset: row ? LAYOUT_CONSTANTS.selectRowPopupOffset! : pill ? LAYOUT_CONSTANTS.selectPillPopupOffset! : button ? LAYOUT_CONSTANTS.selectButtonPopupOffset! : OVERLAY_OFFSET,
+    alignOffset: (pill || button) && align !== `center` ? -LAYOUT_CONSTANTS.selectPillPopupInset! : 0,
+    collisionPadding: row || pill || button ? LAYOUT_CONSTANTS.selectRowPopupMargin! : OVERLAY_PADDING,
+    inset: pill || button ? LAYOUT_CONSTANTS.selectPillPopupInset! : undefined,
   }
+}
+
+/** #EXP-1629: how far a pill popup's content moves (a `translate`) from
+ *  where Radix's popper put its `wrapper` (which rounds to device px and
+ *  takes no middleware) onto `placeInsetOverlay`'s box: the inset, the
+ *  clamp, then whole px from the `trigger`. Null until the wrapper is laid
+ *  out (or with no `inset`). Under RTL the popper's `start` is the right
+ *  edge, as floating-ui reads the wrapper's direction. */
+export function insetPopupNudge(trigger: Element, wrapper: HTMLElement, geometry: { align: `start` | `center` | `end`; sideOffset: number; collisionPadding: number; inset: number | undefined }): { x: number; y: number } | null {
+  if (geometry.inset === undefined) return null
+  const w = wrapper.getBoundingClientRect()
+  if (w.width === 0 && w.height === 0) return null
+  const t = trigger.getBoundingClientRect()
+  const doc = wrapper.ownerDocument.documentElement
+  const rtl = getComputedStyle(wrapper).direction === `rtl`
+  const align = rtl && geometry.align !== `center` ? (geometry.align === `start` ? `end` : `start`) : geometry.align
+  const at = placeInsetOverlay({ x: t.left, y: t.top, width: t.width, height: t.height }, { width: w.width, height: w.height }, { width: doc.clientWidth, height: doc.clientHeight }, { side: `bottom`, align, offset: geometry.sideOffset, padding: geometry.collisionPadding }, geometry.inset)
+  return { x: at.x - w.left, y: at.y - w.top }
 }
 
 /** #EXP-1765: the Skeleton a `loading` Select's list holds in place of its
@@ -112,6 +141,15 @@ export function openingCursorIndex(count: number, isDisabled: (index: number) =>
   if (!isChosen) return firstEnabledIndex(count, isDisabled)
   for (let i = 0; i < count; i++) if (!isDisabled(i) && isChosen(i)) return i
   return -1
+}
+
+/** #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is
+ *  ONE block (web's Picker, the IDE's `multi_row_edges`): the item recipe
+ *  props of shown row `index`, `joinTop` under a picked row and
+ *  `joinBottom` over one (only the true ones; nothing on a single Select). */
+export function selectItemJoins(multiple: boolean, count: number, isPicked: (index: number) => boolean, index: number): { joinTop?: true; joinBottom?: true } {
+  if (!multiple || !isPicked(index)) return {}
+  return { ...(index > 0 && isPicked(index - 1) ? { joinTop: true as const } : {}), ...(index + 1 < count && isPicked(index + 1) ? { joinBottom: true as const } : {}) }
 }
 
 /** #EXP-1629: does `list` have rows below its visible end (the bottom

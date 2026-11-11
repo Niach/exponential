@@ -35,6 +35,8 @@ const bar: NestedNode = {
   children: [
     { id: `b1`, component: `Button`, props: { label: `Save`, icon: `star`, variant: `secondary` } },
     { id: `b2`, component: `Button`, props: { label: `Star`, icon: `star`, size: `icon` } },
+    // #EXP-1629: the IDE's composer tool (a muted ghost icon-xs).
+    { id: `b4`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
     { id: `b3`, component: `Button`, props: { label: `Off`, disabled: true, variant: `outline` } },
     { id: `l1`, component: `Link`, props: { label: `Docs`, href: `https://ui.exponential.at/docs` } },
     { id: `l2`, component: `Link`, props: { href: `javascript:alert(1)` } },

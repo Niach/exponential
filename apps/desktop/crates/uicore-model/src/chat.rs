@@ -115,6 +115,87 @@ pub struct ChatInput {
     /// The host's composer has the `/` menu (the IDE); eDE until it does not.
     pub slash_commands: bool,
     pub rows: Vec<ChatRowInput>,
+    /// #EDE-65 lane O: the "+" menu's rows the host serves
+    /// (composer-menu.json, the host resolved them), in order.
+    #[serde(default)]
+    pub plus: Vec<ChatPlusRow>,
+    /// The quick replies over the composer (the newest message's).
+    #[serde(default)]
+    pub replies: Option<ChatRepliesInput>,
+    /// The host paints the context ring beside Send (an Embed it claims).
+    #[serde(default)]
+    pub ring: bool,
+}
+
+/// #EDE-65 lane O: one row of the composer's "+" menu as the host resolved
+/// it: `id` (composer-menu.json's; `separator` = a separator), its label and
+/// concept icon; `items` = a submenu's entries (absent = an action row).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPlusRow {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub items: Option<Vec<ChatPlusItem>>,
+    /// The submenu filters its entries in a search field.
+    #[serde(default)]
+    pub searchable: bool,
+    /// #EDE-65 lane T: a submenu parent's current value (`Model › Opus`).
+    #[serde(default)]
+    pub detail: String,
+}
+
+/// A submenu entry: `checked` = a check entry (the picked model, a team),
+/// absent = an action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPlusItem {
+    pub label: String,
+    pub value: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub checked: Option<bool>,
+    #[serde(default)]
+    pub disabled: bool,
+    /// #EDE-65 lane T: the muted text after the label (an Account's health).
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// The mono id before the label (`EXP-12`, an Issue row).
+    #[serde(default)]
+    pub identifier: Option<String>,
+    /// The glyph's own tint (an Issue row's status colour).
+    #[serde(default)]
+    pub icon_color: Option<String>,
+    /// The nested surface beside the row (an Account's usage card).
+    #[serde(default)]
+    pub preview: Option<Value>,
+}
+
+/// The quick replies of message `message_id`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRepliesInput {
+    pub message_id: String,
+    pub items: Vec<ChatReplyInput>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatReplyInput {
+    pub id: String,
+    pub text: String,
+}
+
+/// One quick reply as the document's chip draws it (its message rides along).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatReply {
+    pub key: String,
+    pub label: String,
+    pub message_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,6 +282,88 @@ pub struct ChatComposer {
     pub placeholder: String,
     pub can_send: bool,
     pub busy: bool,
+    /// #EDE-65 lane T: a send in flight (the IDE's `sending`): the "+" is
+    /// inert until it lands.
+    pub sending: bool,
+    /// #EDE-65 lane O: the "+" Menu's `items` (genUI menuItems; the host
+    /// sets them as the Menu's literal prop), `plus` = any.
+    pub plus: bool,
+    pub menu: Vec<Value>,
+    /// The quick replies' chips and their message (`""` = none).
+    pub replies: Vec<ChatReply>,
+    pub replies_message_id: String,
+    pub ring: bool,
+}
+
+/// The "+" rows as genUI menuItems: a separator; an action row = its id as
+/// the value; a submenu row = its entries, each `<row id>:<value>` (a check
+/// entry a checkbox), `searchable` when it filters.
+pub fn plus_menu(rows: &[ChatPlusRow]) -> Vec<Value> {
+    use serde_json::{json, Map};
+    rows.iter()
+        .map(|row| {
+            if row.id == "separator" {
+                return json!({"kind": "separator"});
+            }
+            let mut item = Map::new();
+            item.insert("label".into(), json!(row.label));
+            item.insert("value".into(), json!(row.id));
+            if !row.icon.is_empty() {
+                item.insert("icon".into(), json!(row.icon));
+            }
+            if !row.detail.is_empty() {
+                item.insert("detail".into(), json!(row.detail));
+            }
+            if let Some(entries) = &row.items {
+                item.insert("kind".into(), json!("submenu"));
+                if row.searchable {
+                    item.insert("searchable".into(), json!(true));
+                }
+                let entries: Vec<Value> = entries
+                    .iter()
+                    .map(|entry| {
+                        let mut e = Map::new();
+                        e.insert("label".into(), json!(entry.label));
+                        e.insert("value".into(), json!(format!("{}:{}", row.id, entry.value)));
+                        if let Some(icon) = entry.icon.as_deref().filter(|i| !i.is_empty()) {
+                            e.insert("icon".into(), json!(icon));
+                        }
+                        if let Some(checked) = entry.checked {
+                            e.insert("kind".into(), json!("checkbox"));
+                            e.insert("checked".into(), json!(checked));
+                        }
+                        if entry.disabled {
+                            e.insert("disabled".into(), json!(true));
+                        }
+                        if let Some(detail) = entry.detail.as_deref().filter(|d| !d.is_empty()) {
+                            e.insert("detail".into(), json!(detail));
+                        }
+                        if let Some(identifier) = entry.identifier.as_deref().filter(|i| !i.is_empty()) {
+                            e.insert("identifier".into(), json!(identifier));
+                        }
+                        if let Some(color) = entry.icon_color.as_deref().filter(|c| !c.is_empty()) {
+                            e.insert("iconColor".into(), json!(color));
+                        }
+                        if let Some(preview) = &entry.preview {
+                            e.insert("preview".into(), preview.clone());
+                        }
+                        Value::Object(e)
+                    })
+                    .collect();
+                item.insert("items".into(), Value::Array(entries));
+            }
+            Value::Object(item)
+        })
+        .collect()
+}
+
+/// A "+" pick (`select` {value}): the row's id and, for a submenu entry,
+/// its own value (the first `:` splits them).
+pub fn plus_pick(value: &str) -> (&str, Option<&str>) {
+    match value.split_once(':') {
+        Some((row, entry)) => (row, Some(entry)),
+        None => (value, None),
+    }
 }
 
 /// What the document binds.
@@ -365,6 +528,16 @@ pub fn chat_view(input: &ChatInput) -> ChatView {
             },
             can_send: !input.draft.trim().is_empty() && !input.sending && (!home || picked.is_some()),
             busy: input.busy,
+            sending: input.sending,
+            plus: !input.plus.is_empty(),
+            menu: plus_menu(&input.plus),
+            replies: input
+                .replies
+                .iter()
+                .flat_map(|r| r.items.iter().map(|item| ChatReply { key: item.id.clone(), label: item.text.clone(), message_id: r.message_id.clone() }))
+                .collect(),
+            replies_message_id: input.replies.as_ref().filter(|r| !r.items.is_empty()).map(|r| r.message_id.clone()).unwrap_or_default(),
+            ring: input.ring && !home,
         },
     }
 }

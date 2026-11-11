@@ -10557,6 +10557,12 @@ data class FfiTextStyle (
     var `textTransform`: kotlin.String? = null 
     , 
     var `fontStyle`: kotlin.String? = null 
+    , 
+    /**
+     * `fontVariantNumeric`: `tabular-nums` = shape with the OpenType `tnum`
+     * feature (measure AND paint); null = the font's own figures.
+     */
+    var `fontVariantNumeric`: kotlin.String? = null 
     
 ){
     
@@ -10580,6 +10586,7 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -10590,7 +10597,8 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterOptionalString.allocationSize(value.`fontFamily`) +
             FfiConverterOptionalFloat.allocationSize(value.`letterSpacing`) +
             FfiConverterOptionalString.allocationSize(value.`textTransform`) +
-            FfiConverterOptionalString.allocationSize(value.`fontStyle`)
+            FfiConverterOptionalString.allocationSize(value.`fontStyle`) +
+            FfiConverterOptionalString.allocationSize(value.`fontVariantNumeric`)
     )
 
     override fun write(value: FfiTextStyle, buf: ByteBuffer) {
@@ -10601,6 +10609,7 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterOptionalFloat.write(value.`letterSpacing`, buf)
             FfiConverterOptionalString.write(value.`textTransform`, buf)
             FfiConverterOptionalString.write(value.`fontStyle`, buf)
+            FfiConverterOptionalString.write(value.`fontVariantNumeric`, buf)
     }
 }
 

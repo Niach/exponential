@@ -4,7 +4,7 @@ import XCTest
 
 // #EXP-1561 / #EXP-1562: waiting cards, locked ×4 against
 // `packages/domain-contract/fixtures/waiting-cards.json` (`stateCases`,
-// `chipCases`; `dismissCases` are the server's). Whole-value compares.
+// `chipCases`, `targetCases`; `dismissCases` are the server's). Whole-value compares.
 final class WaitingCardsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -73,6 +73,23 @@ final class WaitingCardsTests: XCTestCase {
                     ["id": $0.id, "kind": $0.kind.rawValue, "icon": $0.icon, "label": $0.label]
                 },
             ]
+            XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: expected), name)
+        }
+    }
+
+    func testTargetCases() throws {
+        let cases = try XCTUnwrap(try fixture()["targetCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? "?"
+            let card = try XCTUnwrap(testCase["card"] as? [String: Any])
+            let picked = WaitingCards.TargetCard(
+                kind: try XCTUnwrap((card["kind"] as? String).flatMap(AskDock.Kind.init(rawValue:))),
+                sessionId: try XCTUnwrap(card["sessionId"] as? String)
+            )
+            let target = WaitingCards.waitingTarget(card: picked, rootId: try XCTUnwrap(testCase["rootId"] as? String))
+            let actual: [String: Any] = ["open": target.open.rawValue, "sessionId": target.sessionId]
+            let expected = try XCTUnwrap(testCase["expected"] as? [String: Any])
             XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: expected), name)
         }
     }

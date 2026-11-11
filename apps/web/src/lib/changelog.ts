@@ -25,6 +25,31 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-11-waiting-in-the-header`,
+    date: `2026-11-11`,
+    title: `Waiting plans and questions are back in the header`,
+    summary: `A chat's header shows every plan and question waiting on you again, from the chat and its sessions: tap one to open it.`,
+    body: `- **In the header**: every waiting plan and question of the chat and of its sessions sits in the chat's header again, on every platform; on a phone it is one button with the count.
+- **One tap**: a plan opens the plan page, a question takes you to its card (in its session when a session asked it), ready to answer.`,
+  },
+  {
+    id: `2026-11-10-chat-ends-at-composer`,
+    date: `2026-11-10`,
+    title: `The chat ends at the composer`,
+    summary: `No more shadow over the composer: the conversation scrolls up to the composer's top edge and stops there, and the newest message sits fully visible just above it.`,
+    body: `- **No shadow**: the dark fade over the bottom of a chat is gone, on every platform.
+- **A clean edge**: the conversation ends at the top of the composer (or the cards above it), so nothing scrolls behind the composer.`,
+  },
+  {
+    id: `2026-11-10-no-more-freezes`,
+    date: `2026-11-10`,
+    title: `No more freezes with many sessions`,
+    summary: `The desktop app no longer freezes for seconds when you have many sessions: the sidebar and a chat that streams elsewhere update only what changed.`,
+    body: `- **No more freezes**: with thousands of sessions the desktop app's sidebar and session list update only what changed, so another chat streaming or a new event no longer freezes the window.
+- **Live replies in long chats**: an agent's streamed reply now just adds to the open chat, so even a very long chat keeps up while it writes.
+- **Exponential Desktop 0.2.15**: the same fix, plus the chat and genUI changes since 0.2.14.`,
+  },
+  {
     id: `2026-11-10-quieter-agent-chats`,
     date: `2026-11-10`,
     title: `Quieter agent chats`,
