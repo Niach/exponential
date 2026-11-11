@@ -695,7 +695,9 @@ impl McpPane {
                 rows.push(json!({"key": format!("{}:{}", app.id, row.user_id), "header": false, "member": true, "gap": false,
                     "app": app.id, "user": row.user_id, "name": name, "initials": crate::user_avatar::initials(&name),
                     "avatarFill": hex(fill), "avatarInk": hex(ink), "hasPicture": picture.is_some(), "noPicture": picture.is_none(), "picture": picture.unwrap_or_default(),
-                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit}));
+                    "level": level, "levelLabel": level_label(&level), "editable": data.can_edit, "reader": !data.can_edit,
+                    // The single-select Picker's check on the current level.
+                    "levels": LEVELS.iter().map(|(value, label)| json!({"label": label, "value": value, "kind": "checkbox", "checked": *value == level})).collect::<Vec<_>>()}));
             }
         }
         json!({"shown": true, "rows": rows})
@@ -1043,8 +1045,7 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
             level_value,
             glyph("level_chevron", json!("ui-chevron-down"), ink.r(0.75), &ink.muted),
         ]});
-    let items: Vec<Value> = LEVELS.iter().map(|(value, label)| json!({"label": label, "value": value})).collect();
-    let menu = json!({"id": "level_menu", "component": "Menu", "visible": path("editable"), "props": {"items": items, "align": "end"},
+    let menu = json!({"id": "level_menu", "component": "Menu", "visible": path("editable"), "props": {"items": path("levels"), "align": "end"},
         "on": {"select": {"event": {"name": "level", "context": {"app": path("app"), "user": path("user")}}}}, "children": [trigger]});
     let mut reader = ink.text("level_text", path("levelLabel"), SM, &ink.muted);
     reader["visible"] = path("reader");
