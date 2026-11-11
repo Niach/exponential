@@ -141,7 +141,8 @@ struct PickerTriggerLeaf: View {
     var body: some View {
         let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
         let select = cx.node.recipeComponent == "Select"
-        // #EXP-1778: a `button` trigger paints as a pill does (its own recipe).
+        // #EXP-1778: a `button` trigger paints as a pill does (its own recipe);
+        // #EXP-1629: so does an `inline` one (no chrome).
         let pill = select && SelectTrigger.isPillLike(cx.props, owner: cx.ownerProps)
         let states = pill && cx.model.isDisabled(cx.index) ? ["disabled"] : []
         let ph = cx.part(cx.node.recipeComponent, "placeholder", states: states)
@@ -161,10 +162,15 @@ struct PickerTriggerLeaf: View {
                 ConceptIcon(name: picked, size: size, color: cx.props["iconColor"]?.string.flatMap(cx.propColor) ?? ink, model: cx.model)
                     .frame(width: size, height: size)
             }
+            // #EXP-1629: the `value` part's `marginTop` lifts the text off
+            // the centre (the measurer shortened the box by as much: half
+            // of it is the centring, half this offset).
+            let lift = value.px("marginTop") ?? 0
             TextLabel(text(isPlaceholder), cx.textStyle, color: ink, align: cx.style.textAlign, lines: 1)
                 .opacity(inkOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
+                .offset(y: lift / 2)
             glyphView
         }
         .frame(width: cx.inner.width, height: cx.inner.height)

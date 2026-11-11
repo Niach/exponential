@@ -380,7 +380,8 @@
       "field",
       "row",
       "pill",
-      "button"
+      "button",
+      "inline"
     ],
     "inputVariant": [
       "field",

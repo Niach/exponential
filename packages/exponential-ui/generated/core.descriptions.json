@@ -2298,7 +2298,7 @@
           "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron."
         },
         "triggerIcon": {
           "description": "`row`: chosen option's `icon` before the value."

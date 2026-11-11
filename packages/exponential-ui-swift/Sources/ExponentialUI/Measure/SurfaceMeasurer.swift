@@ -860,7 +860,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let gap = SelectTrigger.isPillLike(leaf.props) ? SelectTrigger.pillGap(leaf.control.gap, sm: spacing("sm")) : max(leaf.control.gap, spacing("sm"))
         // #EXP-1629: a `button`'s picked-option glyph.
         let picked = leaf.props.str("valueIcon").isEmpty ? 0 : SelectTrigger.glyphSize(part("Select", "valueIcon", leaf.props)) + gap
-        return MeasuredContent(line(text, ts) + gap + glyph + picked, ts.lineHeight, Self.baseline(ts))
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger).
+        let lift = part("Select", "value", leaf.props).px("marginTop") ?? 0
+        let height = lift != 0 ? max(ts.lineHeight + lift, glyph) : ts.lineHeight
+        return MeasuredContent(line(text, ts) + gap + glyph + picked, height, Self.baseline(ts) + lift)
     }
 
     /// The web's `<audio controls>` bar height (Chromium).
@@ -941,12 +945,18 @@ enum SelectTrigger {
         variant(props, owner: owner) == "button"
     }
 
-    /// #EXP-1778: a trigger painted as a pill's (`pill` or `button`): no
-    /// label part, the `Select.dropdown` glyph at opacity 1, the recipe gap,
-    /// a pointer-opened popup without a cursor. The pill's search clear
-    /// button stays `isPill` alone.
+    /// #EXP-1629: `triggerVariant: inline` (web's inline picker trigger:
+    /// chromeless text and a small chevron, the field's popup).
+    static func isInline(_ props: Props, owner: Props = [:]) -> Bool {
+        variant(props, owner: owner) == "inline"
+    }
+
+    /// #EXP-1778: a trigger painted as a pill's (`pill`, `button`, #EXP-1629
+    /// `inline`): no label part, the `Select.dropdown` glyph at opacity 1,
+    /// the recipe gap. The pointer-opened popup without a cursor and the
+    /// search clear button stay `isPill` alone.
     static func isPillLike(_ props: Props, owner: Props = [:]) -> Bool {
-        isPill(props, owner: owner) || isButton(props, owner: owner)
+        isPill(props, owner: owner) || isButton(props, owner: owner) || isInline(props, owner: owner)
     }
 
     /// #EXP-1778: a `button`'s menu row (the core's `checkSlot: chosen`)

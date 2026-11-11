@@ -609,13 +609,18 @@ class SurfaceMeasurer(
         val ts = ts(leaf)
         val c = leaf.control
         val text = leaf.props.str("text").ifEmpty { leaf.props.str("placeholder") }
-        val gap = max(c.gap, spacing("sm"))
+        // #EXP-1629: an `inline` Select's gap is its recipe's exactly (gpui's).
+        val gap = if (leaf.props.str("triggerVariant") == "inline" && c.gap > 0f) c.gap else max(c.gap, spacing("sm"))
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
         // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).let { it.width ?: it.height } ?: 16f
         // #EXP-1629: a `button`'s picked-option glyph.
         val picked = if (leaf.props.str("valueIcon").isEmpty()) 0f else (part("Select", "valueIcon", leaf.props).let { it.width ?: it.height } ?: 16f) + gap
-        return Content(line(shown(text, leaf), ts) + gap + glyph + picked, ts.lineHeight, baseline(ts))
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger).
+        val lift = part("Select", "value", leaf.props).px("marginTop") ?: 0f
+        val h = if (lift != 0f) max(ts.lineHeight + lift, glyph) else ts.lineHeight
+        return Content(line(shown(text, leaf), ts) + gap + glyph + picked, h, baseline(ts) + lift)
     }
 
     /**

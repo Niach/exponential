@@ -3608,6 +3608,20 @@
                 "backgroundColor": "#00000000",
                 "boxShadow": "$shadow.none"
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": "$spacing.xs",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
             }
           ],
           "label": [
@@ -3769,6 +3783,14 @@
               "style": {
                 "opacity": 0.7
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "opacity": 0.7
+              }
             }
           ],
           "chevron": [
@@ -3784,6 +3806,17 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 12,
+                "height": 12,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             }
           ],
@@ -12558,6 +12591,20 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": "$spacing.xs",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
@@ -12661,6 +12708,21 @@
               },
               "style": {
                 "backgroundColor": "#ffffff12"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": 7,
+                "borderWidth": 0,
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none",
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
@@ -13103,6 +13165,14 @@
             },
             {
               "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "row"
               },
               "style": {
@@ -13147,6 +13217,14 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "marginTop": -1
+              }
             }
           ],
           "chevron": [
@@ -13162,6 +13240,17 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 12,
+                "height": 12,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             },
             {
@@ -13212,6 +13301,15 @@
                 "height": 14,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
@@ -22152,6 +22250,20 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": "$spacing.xs",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "borderRadius": "$radius.full",
                 "borderWidth": "$border.thick",
@@ -22324,6 +22436,14 @@
               "style": {
                 "opacity": 0.7
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "opacity": 0.7
+              }
             }
           ],
           "chevron": [
@@ -22339,6 +22459,17 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 12,
+                "height": 12,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             }
           ],
@@ -31442,6 +31573,20 @@
               }
             },
             {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": "$spacing.xs",
+                "borderWidth": 0,
+                "borderRadius": "$radius.none",
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none"
+              }
+            },
+            {
               "style": {
                 "backgroundColor": "$color.card",
                 "borderColor": "$color.input",
@@ -31545,6 +31690,21 @@
               },
               "style": {
                 "backgroundColor": "#ffffff12"
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "paddingHorizontal": 0,
+                "paddingVertical": 0,
+                "gap": 7,
+                "borderWidth": 0,
+                "backgroundColor": "#00000000",
+                "boxShadow": "$shadow.none",
+                "fontSize": 12.25,
+                "lineHeight": 19.82
               }
             }
           ],
@@ -31987,6 +32147,14 @@
             },
             {
               "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "opacity": 0.7
+              }
+            },
+            {
+              "when": {
                 "triggerVariant": "row"
               },
               "style": {
@@ -32031,6 +32199,14 @@
               "style": {
                 "opacity": 0.35
               }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "marginTop": -1
+              }
             }
           ],
           "chevron": [
@@ -32046,6 +32222,17 @@
               },
               "style": {
                 "opacity": 0.7
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 12,
+                "height": 12,
+                "color": "$color.mutedForeground",
+                "opacity": 1
               }
             },
             {
@@ -32096,6 +32283,15 @@
                 "height": 14,
                 "color": "$color.mutedForeground",
                 "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "triggerVariant": "inline"
+              },
+              "style": {
+                "width": 10.5,
+                "height": 10.5
               }
             }
           ],
