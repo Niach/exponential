@@ -418,6 +418,11 @@
           "type": "icon",
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true,
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "type": "boolean",
           "description": "Shows the option but refuses it."

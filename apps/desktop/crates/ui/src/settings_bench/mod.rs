@@ -198,6 +198,7 @@ mod readiness;
 mod repositories;
 mod resend_invite;
 mod row_parity;
+mod select_icon_color;
 mod select_multi;
 mod select_row_disabled;
 mod select_variants;
