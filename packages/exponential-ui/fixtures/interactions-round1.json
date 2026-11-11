@@ -5019,6 +5019,228 @@
           "identifier": "EXP-14"
         }
       ]
+    },
+    {
+      "name": "a searchable submenu draws its rows' identifier, tint and detail",
+      "items": [
+        {
+          "label": "Issue",
+          "kind": "submenu",
+          "searchable": true,
+          "items": [
+            {
+              "label": "Fix the tray",
+              "value": "EXP-12",
+              "identifier": "EXP-12",
+              "icon": "status-in-progress",
+              "iconColor": "$color.warning",
+              "detail": "Doing"
+            },
+            {
+              "label": "Ship the menu",
+              "value": "EXP-14",
+              "identifier": "EXP-14"
+            },
+            {
+              "label": "Copy the tray link",
+              "value": "copy",
+              "icon": "status-done",
+              "iconColor": "$color.success"
+            }
+          ]
+        }
+      ],
+      "submenu": 0,
+      "shown": ["0.0", "0.1", "0.2"],
+      "rows": [
+        {
+          "key": "0.0",
+          "parts": [
+            "icon",
+            "identifier",
+            "label",
+            "detail"
+          ],
+          "label": "Fix the tray",
+          "identifier": "EXP-12",
+          "detail": "Doing",
+          "iconColor": "$color.warning"
+        },
+        {
+          "key": "0.1",
+          "parts": [
+            "identifier",
+            "label"
+          ],
+          "label": "Ship the menu",
+          "identifier": "EXP-14"
+        },
+        {
+          "key": "0.2",
+          "parts": [
+            "icon",
+            "label"
+          ],
+          "label": "Copy the tray link",
+          "iconColor": "$color.success"
+        }
+      ]
+    },
+    {
+      "name": "a searchable submenu: typing an identifier keeps only that row",
+      "items": [
+        {
+          "label": "Issue",
+          "kind": "submenu",
+          "searchable": true,
+          "items": [
+            {
+              "label": "Fix the tray",
+              "value": "EXP-12",
+              "identifier": "EXP-12",
+              "icon": "status-in-progress",
+              "iconColor": "$color.warning",
+              "detail": "Doing"
+            },
+            {
+              "label": "Ship the menu",
+              "value": "EXP-14",
+              "identifier": "EXP-14"
+            },
+            {
+              "label": "Copy the tray link",
+              "value": "copy",
+              "icon": "status-done",
+              "iconColor": "$color.success"
+            }
+          ]
+        }
+      ],
+      "submenu": 0,
+      "query": "EXP-12",
+      "shown": ["0.0"],
+      "rows": [
+        {
+          "key": "0.0",
+          "parts": [
+            "icon",
+            "identifier",
+            "label",
+            "detail"
+          ],
+          "label": "Fix the tray",
+          "identifier": "EXP-12",
+          "detail": "Doing",
+          "iconColor": "$color.warning"
+        }
+      ]
+    },
+    {
+      "name": "a searchable submenu: typing part of a label finds its row",
+      "items": [
+        {
+          "label": "Issue",
+          "kind": "submenu",
+          "searchable": true,
+          "items": [
+            {
+              "label": "Fix the tray",
+              "value": "EXP-12",
+              "identifier": "EXP-12",
+              "icon": "status-in-progress",
+              "iconColor": "$color.warning",
+              "detail": "Doing"
+            },
+            {
+              "label": "Ship the menu",
+              "value": "EXP-14",
+              "identifier": "EXP-14"
+            },
+            {
+              "label": "Copy the tray link",
+              "value": "copy",
+              "icon": "status-done",
+              "iconColor": "$color.success"
+            }
+          ]
+        }
+      ],
+      "submenu": 0,
+      "query": "fix the",
+      "shown": ["0.0"],
+      "rows": [
+        {
+          "key": "0.0",
+          "parts": [
+            "icon",
+            "identifier",
+            "label",
+            "detail"
+          ],
+          "label": "Fix the tray",
+          "identifier": "EXP-12",
+          "detail": "Doing",
+          "iconColor": "$color.warning"
+        }
+      ]
+    },
+    {
+      "name": "a searchable submenu: an identifier prefix matches case-insensitively, rows in order",
+      "items": [
+        {
+          "label": "Issue",
+          "kind": "submenu",
+          "searchable": true,
+          "items": [
+            {
+              "label": "Fix the tray",
+              "value": "EXP-12",
+              "identifier": "EXP-12",
+              "icon": "status-in-progress",
+              "iconColor": "$color.warning",
+              "detail": "Doing"
+            },
+            {
+              "label": "Ship the menu",
+              "value": "EXP-14",
+              "identifier": "EXP-14"
+            },
+            {
+              "label": "Copy the tray link",
+              "value": "copy",
+              "icon": "status-done",
+              "iconColor": "$color.success"
+            }
+          ]
+        }
+      ],
+      "submenu": 0,
+      "query": "exp-1",
+      "shown": ["0.0", "0.1"],
+      "rows": [
+        {
+          "key": "0.0",
+          "parts": [
+            "icon",
+            "identifier",
+            "label",
+            "detail"
+          ],
+          "label": "Fix the tray",
+          "identifier": "EXP-12",
+          "detail": "Doing",
+          "iconColor": "$color.warning"
+        },
+        {
+          "key": "0.1",
+          "parts": [
+            "identifier",
+            "label"
+          ],
+          "label": "Ship the menu",
+          "identifier": "EXP-14"
+        }
+      ]
     }
   ],
   "menuPreview": {

@@ -495,8 +495,8 @@ function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string;
   }, [])
   const rows = objects<MenuItem>(item.items)
     .map((entry, index) => ({ index, entry }))
-    .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label) }, query))
-    .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, disabled: bool(entry.disabled) } }))
+    .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label), identifier: entry.identifier }, query))
+    .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, iconColor: entry.iconColor, identifier: entry.identifier, detail: entry.detail, disabled: bool(entry.disabled) } }))
   return (
     <div
       ref={box}
@@ -526,8 +526,10 @@ function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string;
         rowPart={(_, __, active) => part(`item`, active && `selected`) as Record<string, string>}
         renderRow={(row) => (
           <>
-            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} /> : null}
+            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} style={propColor(row.iconColor) ? { color: propColor(row.iconColor) } : undefined} /> : null}
+            {typeof row.identifier === `string` && row.identifier ? <span {...(part(`identifier`) as Record<string, string>)}>{row.identifier}</span> : null}
             <span className="xui-menu-label">{row.label}</span>
+            {typeof row.detail === `string` && row.detail ? <span {...(part(`detail`) as Record<string, string>)}>{row.detail}</span> : null}
           </>
         )}
       />
