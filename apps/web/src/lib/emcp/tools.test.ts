@@ -1359,7 +1359,6 @@ describe(`exponential_attachments_upload without issueId (EXP-1516)`, () => {
     userId: USER.id,
     deviceId: null,
     rootAgentId: null,
-    planMode: false,
     watched: false,
   }
 
@@ -3030,13 +3029,6 @@ describe(`pull request tools (EXP-1291)`, () => {
     const inside = await collectTools(USER, null, ALL_MCP_TOOL_GATES, teamConfined([WS]))
       .get(`exponential_pr_open`)!({ title: `Chore`, repositoryId: REPO, head: `chore` })
     expect(inside.isError).toBeFalsy()
-  })
-
-  it(`S-3: pr_open has no plan gate (plan mode is gone)`, async () => {
-    dbRows.current = [callerRow({ planMode: true })]
-    prs.openPullRequest.mockResolvedValue({ pullRequestId: PR_ID })
-    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
-    expect(result.isError).toBeFalsy()
   })
 
   it(`pr_merge defaults to the caller session's PR, queues it and reports its place; stack is accepted and ignored`, async () => {

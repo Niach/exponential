@@ -80,7 +80,6 @@ import { detectAgentSignOuts, type AgentSignOut } from "@/lib/agent-sign-out"
 import {
   agentEffortValues,
   agentModelValues,
-  agentSupportsPlanMode,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -177,9 +176,6 @@ function clampLaunchDefaults(
       // null-free (native clients parse it off the devices shape).
       if (typeof d.ultracode === `boolean` && agentSupportsUltracode(agent)) {
         entry.ultracode = d.ultracode
-      }
-      if (typeof d.planMode === `boolean` && agentSupportsPlanMode(agent)) {
-        entry.planMode = d.planMode
       }
       // EXP-1082 §6: a boolean passes, anything else is dropped.
       if (typeof d.autoRotateAccounts === `boolean`) {

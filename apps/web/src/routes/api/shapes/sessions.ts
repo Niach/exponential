@@ -24,7 +24,6 @@ export const SESSION_COLUMNS = [
   `account`,
   `model`,
   `effort`,
-  `plan_mode`,
   `computer_use`,
   `ultracode`,
   // EXP-1583: the daemon reads it at launch.

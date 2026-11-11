@@ -1877,6 +1877,13 @@
       "when": 1794217069461,
       "tag": "0267_mcp_oauth_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 268,
+      "version": "7",
+      "when": 1794403631638,
+      "tag": "0268_silky_ma_gnuci",
+      "breakpoints": true
     }
   ]
 }

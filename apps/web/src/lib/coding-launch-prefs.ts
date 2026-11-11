@@ -132,16 +132,10 @@ export function agentEffortValues(agent: string): readonly string[] {
   }
 }
 
-/** Ultracode and plan mode are Claude-only (EXP-849 dropped pi; S-3: the
- * UI has no plan switch, the server still validates a device's default with
- * this). EXP-690
+/** Ultracode is Claude-only (EXP-849 dropped pi). EXP-690
  * retired the skip-permissions choice: every launch bypasses the agent's
  * permission prompts. */
 export function agentSupportsUltracode(agent: string): boolean {
-  return agent === `claude`
-}
-
-export function agentSupportsPlanMode(agent: string): boolean {
   return agent === `claude`
 }
 

@@ -364,19 +364,15 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
         cli: `claude`,
         model: `opus`,
         effort: `high`,
-        planMode: true,
         ultracode: true,
         computerUse: true,
         text: `build it`,
       },
     })
-    // S-3: plan mode is gone: an old client's planMode is accepted and
-    // never stored (the legacy column stays false).
     const picks = {
       cli: `claude`,
       model: `opus`,
       effort: `high`,
-      planMode: false,
       ultracode: true,
       computerUse: true,
     }
@@ -387,12 +383,12 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,
-      input: { parentId: root.sessionId, text: `part 2`, model: `haiku`, planMode: false },
+      input: { parentId: root.sessionId, text: `part 2`, model: `haiku` },
     })
-    expect(await row(picked.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
+    expect(await row(picked.sessionId)).toMatchObject({ model: `haiku`, effort: `high` })
     // A grandchild inherits from ITS parent.
     const grand = await sendSession({ userId: w.owner, input: { parentId: picked.sessionId, text: `deeper` } })
-    expect(await row(grand.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
+    expect(await row(grand.sessionId)).toMatchObject({ model: `haiku`, effort: `high` })
     // An old client's blank model/effort ("CLI default") is tolerated but
     // never stored: the inherited pick stays.
     const blank = await sendSession({
@@ -1730,7 +1726,6 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     const out = await owner.configure({
       sessionId: child.sessionId,
       model: `sonnet`,
-      planMode: true,
       effort: `high`,
       ultracode: true,
       computerUse: true,
@@ -1739,7 +1734,6 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect(out.txid).toBeTypeOf(`number`)
     expect(await row(child.sessionId)).toMatchObject({
       model: `sonnet`,
-      planMode: false,
       effort: `high`,
       ultracode: true,
       computerUse: true,
@@ -1748,7 +1742,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [server!.id] })
     // Omitted = unchanged; a null effort = the agent's default; [] = none.
     await owner.configure({ sessionId: child.sessionId, effort: null, mcpServerIds: [] })
-    expect(await row(child.sessionId)).toMatchObject({ planMode: false, effort: null, mcpServerIds: null })
+    expect(await row(child.sessionId)).toMatchObject({ effort: null, mcpServerIds: null })
     expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [] })
 
     // Validation: the agent's own effort set, ultracode on claude only, the
@@ -1773,22 +1767,22 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect((await row(codex.sessionId)).model).toBe(`gpt-5.6-luna`)
 
     // NEW-1: a root runs on its own picks: configure moves them like a child's.
-    await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
-    expect(await row(root.sessionId)).toMatchObject({ model: `opus`, planMode: false, effort: `low` })
+    await owner.configure({ sessionId: root.sessionId, model: `opus`, effort: `low` })
+    expect(await row(root.sessionId)).toMatchObject({ model: `opus`, effort: `low` })
 
     // The steer rule: a private session refuses a teammate; the device-only
     // read refuses anyone but the host.
-    await expect(caller(w.mate).configure({ sessionId: child.sessionId, planMode: false })).rejects.toMatchObject({
+    await expect(caller(w.mate).configure({ sessionId: child.sessionId, effort: `low` })).rejects.toMatchObject({
       code: `NOT_FOUND`,
     })
     // An ended session refuses.
     await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `Done.` })
-    await expect(owner.configure({ sessionId: child.sessionId, planMode: false })).rejects.toMatchObject({
+    await expect(owner.configure({ sessionId: child.sessionId, effort: `low` })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
     })
   })
 
-  it(`S-3: a plan-mode send is never stored; the model the device reports follows`, async () => {
+  it(`the model the device reports follows`, async () => {
     const w = await world()
     const root = await sendSession({
       userId: w.owner,
@@ -1796,10 +1790,9 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
     const child = await sendSession({
       userId: w.owner,
-      input: { parentId: root.sessionId, planMode: true, text: `plan first` },
+      input: { parentId: root.sessionId, text: `plan first` },
     })
     const host = caller(w.owner)
-    expect((await row(child.sessionId)).planMode).toBe(false)
 
     // The model the run reports (a `/model` switch) follows onto the row; a
     // value outside the agent's vocabulary is ignored, never refused.
@@ -2905,7 +2898,6 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
       userId: w.mate,
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
     })
-    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const host = caller(w.owner)
     await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
     const first = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. Old` }) })
@@ -2916,7 +2908,7 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
     // Consumed with it: the device never feeds a superseded card as an answer.
     expect(old.consumedAt).not.toBeNull()
     expect(await message(second.messageId)).toMatchObject({ answeredAt: null, consumedAt: null, card: { decision: null } })
-    expect(await row(sent.sessionId)).toMatchObject({ planMode: true, needsInput: true })
+    expect(await row(sent.sessionId)).toMatchObject({ needsInput: true })
     // A superseded card takes no answer.
     await expect(caller(w.mate).answer({ messageId: first.messageId, decision: `approved` })).rejects.toMatchObject({
       code: `CONFLICT`,
@@ -2936,7 +2928,6 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
       userId: w.mate,
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
     })
-    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     await caller(w.owner).claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
     const engine = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `1. Engine` }) })
     await db
@@ -2956,11 +2947,10 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
       userId: w.mate,
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
     })
-    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const host = caller(w.owner)
     await host.claim({ sessionId: sent.sessionId, deviceId: w.deviceId })
 
-    // S-3: plan mode is gone: even a legacy plan_mode row gets no Plan section.
+    // S-3: plan mode is gone: the brief has no Plan section.
     const { brief } = await host.brief({ sessionId: sent.sessionId })
     expect(brief).not.toContain(`## Plan`)
 
@@ -3044,7 +3034,6 @@ describe.skipIf(!ready.ok)(`the plan card (S-3: exponential_show plan)`, async (
     expect((await message(posted.messageId)).consumedAt).not.toBeNull()
 
     // A rejection keeps planning; a new plan may follow once one is answered.
-    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const second = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `2. Again` }) })
     await caller(w.mate).answer({ messageId: second.messageId, decision: `rejected` })
     expect(await row(sent.sessionId)).toMatchObject({ needsInput: false })

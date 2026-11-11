@@ -384,8 +384,6 @@ interface CallerSession {
   /** NEW-2: the root is an agent's conversation (never ends). */
   rootAgentId: string | null
   unattended: boolean
-  /** EXP-1280: the session plans (`exponential_pr_open` refuses). */
-  planMode: boolean
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
@@ -728,7 +726,6 @@ export function registerExponentialTools(
         userId: sessions.userId,
         deviceId: sessions.deviceId,
         rootAgentId: root.agentId,
-        planMode: sessions.planMode,
         // NEW-1: a live session watches this one (its spawner).
         watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
       })
@@ -745,7 +742,6 @@ export function registerExponentialTools(
       userId: row.userId,
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
-      planMode: row.planMode === true,
     }
   }
 
@@ -2498,7 +2494,6 @@ export function registerExponentialTools(
         account: z.string().optional(),
         model: z.string().optional(),
         effort: z.string().optional(),
-        planMode: z.boolean().optional(),
         computerUse: z.boolean().optional(),
         ultracode: z.boolean().optional(),
         // Caps live in sessionsSendInputSchema (a sealed text runs longer).

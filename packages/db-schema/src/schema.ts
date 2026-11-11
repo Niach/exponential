@@ -1065,7 +1065,6 @@ export interface DeviceAgentLaunchDefaults {
   model?: string
   effort?: string
   ultracode?: boolean
-  planMode?: boolean
   /** EXP-1082 §6: rotate to another logged-in account of this agent when
    * the active one hits its usage wall (claude only in practice; the
    * schema just allows the key). Absent = off. Seam only: no UI yet. */
@@ -1122,10 +1121,10 @@ export const deviceLaunchDefaultsSchema = z.object({
       z.object({
         model: z.string().max(64).nullish(),
         effort: z.string().max(64).nullish(),
-        // #EXP-1734: old devices may still send subagentModel/threadModel;
-        // z.object strips them (the settings are gone, every model = opus).
+        // #EXP-1734: old devices may still send subagentModel/threadModel
+        // (and pre-S-3 ones planMode); z.object strips them (the settings
+        // are gone, every model = opus).
         ultracode: z.boolean().nullish(),
-        planMode: z.boolean().nullish(),
         // EXP-1082 §6: see DeviceAgentLaunchDefaults.autoRotateAccounts.
         autoRotateAccounts: z.boolean().nullish(),
       })
@@ -2139,7 +2138,6 @@ export const sessions = pgTable(
     // EXP-1583: claude only, the model its SUBAGENTS run on
     // (`CLAUDE_CODE_SUBAGENT_MODEL`); NULL = the device's own default.
     subagentModel: varchar(`subagent_model`, { length: 64 }),
-    planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —

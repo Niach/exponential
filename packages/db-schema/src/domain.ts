@@ -1523,7 +1523,6 @@ export const sessionsSendInputSchema = z
     effort: z.string().max(32).optional(),
     // EXP-1583: claude only, a NEW session's subagent model (fixed at start).
     subagentModel: z.string().max(64).optional(),
-    planMode: z.boolean().optional(),
     computerUse: z.boolean().optional(),
     ultracode: z.boolean().optional(),
     mcpServerIds: z.array(sendUuid).max(20).optional(),
@@ -1632,7 +1631,6 @@ export const sessionsSendInputSchema = z
         // EXP-1376: a runner pick alone configures the session.
         !input.model?.trim() &&
         input.effort === undefined &&
-        input.planMode === undefined &&
         input.computerUse === undefined &&
         input.ultracode === undefined &&
         input.mcpServerIds === undefined &&
@@ -1662,7 +1660,7 @@ export const sessionsSendClientMessageIdSchema = z.string().min(1).max(SESSIONS_
  * EXP-1334 `sessions.configure`: change a LIVE session's launch options
  * mid-session (same steer rule as messaging it; an ended session refuses).
  * Omitted = unchanged; `effort: null`/`""` = the agent's default. The host
- * device applies them: plan mode and the model at once, everything else at
+ * device applies them: the model at once, everything else at
  * the next turn (a between-turn restart resuming the SAME run). On a
  * dispatcher root the picks are its WORK picks (its children's).
  */
@@ -1672,7 +1670,6 @@ export const sessionsConfigureInputSchema = z
     // The agent's model (contract codingModel / codexModel): the live run
     // switches at once (`/model`), a resume launches on it.
     model: z.string().min(1).max(64).optional(),
-    planMode: z.boolean().optional(),
     effort: z.string().max(32).nullable().optional(),
     ultracode: z.boolean().optional(),
     computerUse: z.boolean().optional(),
@@ -1682,7 +1679,6 @@ export const sessionsConfigureInputSchema = z
   .refine(
     (input) =>
       input.model !== undefined ||
-      input.planMode !== undefined ||
       input.effort !== undefined ||
       input.ultracode !== undefined ||
       input.computerUse !== undefined ||
