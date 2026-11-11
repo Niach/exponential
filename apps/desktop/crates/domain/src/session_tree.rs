@@ -36,7 +36,7 @@ use crate::contract::{
     PR_STATE_MERGED,
 };
 use crate::rows::{AgentDefRow, Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
-use crate::session_title::{session_title, session_titles};
+use crate::session_title::session_titles;
 
 /// A resolved title from [`session_titles`] (`""` when absent, TS `?? ''`).
 fn title_of<'t>(titles: &'t HashMap<String, String>, id: &str) -> &'t str {
@@ -2165,6 +2165,9 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
     let mut buckets: HashMap<ChatsListKey, Vec<ChatsListRow>> = HashMap::new();
+    // #LOGS-3: every root's title off one index (was a scan of every link,
+    // issue and message per root).
+    let titles = crate::session_title::TitleIndex::new(input.session_issues, input.issues, input.messages);
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
             // NEW-2: an agent's conversation (a root with `agent_id`) is no
@@ -2186,7 +2189,7 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
                 activity = session.updated_at.clone().unwrap_or_default();
             }
         }
-        let title = session_title(root, input.session_issues, input.issues, input.messages);
+        let title = titles.title(root);
         let key = if needs_you {
             ChatsListKey::NeedsYou
         } else if running {

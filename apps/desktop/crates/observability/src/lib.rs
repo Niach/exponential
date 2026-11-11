@@ -17,6 +17,7 @@
 
 pub mod config;
 pub mod lag;
+pub mod probe;
 pub mod scrub;
 mod transport;
 

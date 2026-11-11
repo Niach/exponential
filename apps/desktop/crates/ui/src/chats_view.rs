@@ -131,6 +131,8 @@ pub struct ChatsView {
     /// The page's measured width (the issue list's probe): the bar shows
     /// its labels at or above `chat_bar_label_min_width` (EXP-698's rule).
     measured_width: std::rc::Rc<std::cell::Cell<gpui::Pixels>>,
+    /// #LOGS-3: a held list re-renders when it re-derives.
+    held_wake: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -147,6 +149,7 @@ impl ChatsView {
             anchor: None,
             focus_handle: cx.focus_handle(),
             measured_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
+            held_wake: false,
             _subscriptions: subscriptions,
         };
         view.apply_dev_selection();
@@ -290,6 +293,18 @@ impl Render for ChatsView {
             session_data::ensure_assistant(&team_id, cx);
         }
         let model = self.model(cx);
+        if let Some(at) = session_data::chats_model_stale_until(cx).filter(|_| !self.held_wake) {
+            self.held_wake = true;
+            let wait = at.saturating_duration_since(cx.background_executor().now());
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.held_wake = false;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         let view_kind = self.view;
         let rows = self.visible_rows(&model);
         // The selection keeps only rows still in the list, in list order.

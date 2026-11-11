@@ -815,7 +815,7 @@ impl Navigation {
 /// `agent:<uuid>` (EXP-1294: one `sessions` row — a chat root, any session
 /// of a tree, an agent root) | `specimen:<entry id>` (EXP-1259: one dev-only
 /// specimen, full-window) (anything else = no pre-route).
-fn parse_dev_screen(spec: &str) -> Option<Screen> {
+pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.

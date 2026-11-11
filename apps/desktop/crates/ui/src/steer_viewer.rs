@@ -632,6 +632,9 @@ pub(crate) struct SteerSessionView {
     /// `FollowMode::Tail`: it snaps to the end while following, stops on an
     /// upward wheel, re-arms when the reader is back at the bottom.
     chat: crate::chat_tab_transcript::ChatTranscript,
+    /// #LOGS-3: a synced row elsewhere (an issue, a session) re-reads every
+    /// row's chips; on a long chat that waits out the duty cycle.
+    chat_cycle: crate::duty_cycle::DutyCycle,
     /// EXP-776: the cached row projection the list indexes into, refreshed
     /// once per frame by [`Self::sync_list`] together with `row_keys` (what
     /// the list was last told) and `active` (the answerable cards, read by
@@ -934,6 +937,7 @@ impl SteerSessionView {
             // for an answer, the composer's context) and every appended row
             // keeps it there: the transcript starts FOLLOWING.
             chat: crate::chat_tab_transcript::ChatTranscript::new(),
+            chat_cycle: Default::default(),
             rows: Vec::new(),
             orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
@@ -1850,7 +1854,10 @@ impl SteerSessionView {
         // #VAPP-258: the live reply (the run's last item, a narration, while
         // live) streams, as `render_narration` did.
         let streaming = self.streaming_row().and_then(|ix| self.row_keys.get(ix)).map(|key| row_key(key.id));
-        if self.chat.dirty || self.chat.revision() != revision || self.chat.streaming_key() != streaming.as_deref() {
+        let rows_moved = self.chat.dirty || self.chat.streaming_key() != streaming.as_deref();
+        let chips_moved = self.chat.revision() != revision;
+        if rows_moved || (chips_moved && self.chat_cycle.ready(cx, |view| &mut view.chat_cycle)) {
+            let started = std::time::Instant::now();
             let items = self.feed.items();
             let agent = self.agent();
             let mut rows = Vec::with_capacity(self.row_keys.len());
@@ -1935,6 +1942,7 @@ impl SteerSessionView {
             // The new and changed host rows measure where the document is
             // about to paint them (`host_leaf_prepaint`), in this frame.
             self.chat.push(rows, push, cx);
+            self.chat_cycle.ran(started.elapsed(), cx.background_executor().now());
         }
         // N-12 / #EXP-1782: the transcript ends at THE Dock band's top edge
         // (the band is a flow child under it), so the last row clears it by

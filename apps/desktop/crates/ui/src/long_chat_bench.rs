@@ -185,6 +185,7 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
     if let Ok(phase) = std::env::var("LOGS7_PROFILE") {
         let until = Instant::now() + Duration::from_secs(8);
         eprintln!("[LOGS-7] profiling {phase} in pid {}", std::process::id());
+        crate::duty_cycle::enable_for_test(std::env::var("LOGS_DUTY").is_ok());
         let mut k = 100usize;
         while Instant::now() < until {
             k += 1;
@@ -219,6 +220,10 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
                 }
                 "other" => {
                     other_session_syncs(k, cx);
+                    frame(cx);
+                }
+                "issue" => {
+                    an_issue_syncs(k, cx);
                     frame(cx);
                 }
                 "append" => {
@@ -295,16 +300,32 @@ fn long_chat_bench(cx: &mut gpui::TestAppContext) {
     }
     println!("[LOGS-7] new message: {}", Stats(append));
 
-    // The team's other sessions syncing (a busy team): an unrelated row moves.
-    let mut other = Vec::new();
-    for n in 0..20 {
-        let started = Instant::now();
-        other_session_syncs(n, cx);
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        cx.run_until_parked();
-        other.push(started.elapsed());
+    // The team's other sessions syncing (a busy team): an unrelated row
+    // moves; then an issue no chip names. #LOGS-3: without, then with the
+    // duty cycle (production's), 20 rows back to back.
+    for on in [false, true] {
+        crate::duty_cycle::enable_for_test(on);
+        let label = if on { "duty cycle on" } else { "duty cycle off" };
+        let mut other = Vec::new();
+        for n in 0..20 {
+            let started = Instant::now();
+            other_session_syncs(n + if on { 100 } else { 0 }, cx);
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+            other.push(started.elapsed());
+        }
+        println!("[LOGS-7] another session syncs ({label}): {}", Stats(other));
+        let mut issue = Vec::new();
+        for n in 0..20 {
+            let started = Instant::now();
+            an_issue_syncs(n + if on { 100 } else { 0 }, cx);
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+            issue.push(started.elapsed());
+        }
+        println!("[LOGS-3] an issue syncs ({label}): {}", Stats(issue));
     }
-    println!("[LOGS-7] another session syncs: {}", Stats(other));
+    crate::duty_cycle::enable_for_test(false);
 
     // #LOGS-10: a short feed under the chat's 200 surface cards (their calls
     // are not in the feed: the head, above the first row), scrolled through.
@@ -360,6 +381,21 @@ fn other_session_syncs(n: usize, cx: &mut gpui::VisualTestContext) {
         }))
         .unwrap();
         collections.sessions.update(cx, |collection, cx| {
+            collection.seed(row.key(), row);
+            cx.notify();
+        });
+    });
+}
+
+/// #LOGS-3: an issue no row of the chat names moves.
+fn an_issue_syncs(n: usize, cx: &mut gpui::VisualTestContext) {
+    cx.update(|_, cx| {
+        let collections = Store::global(cx).collections().clone();
+        let row: domain::rows::Issue = serde_json::from_value(serde_json::json!({
+            "id": "i-other", "board_id": "b-other", "number": 1, "identifier": "OTH-1", "title": format!("Unrelated {n}"), "status": "in_progress",
+        }))
+        .unwrap();
+        collections.issues.update(cx, |collection, cx| {
             collection.seed(row.key(), row);
             cx.notify();
         });

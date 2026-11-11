@@ -114,6 +114,7 @@ pub(crate) fn activate(print: bool) {
 /// Called once, on the UI thread, before the event loop runs.
 pub fn mark_main_thread() {
     IS_MAIN.with(|main| main.set(true));
+    crate::probe::mark_main_thread();
 }
 
 fn is_main() -> bool {
@@ -284,11 +285,14 @@ pub struct Hang {
     pub stacks: Vec<(String, u32)>,
     /// The main-thread spans that closed inside it, by self time.
     pub spans: Vec<SpanRecord>,
+    /// #LOGS-3: why it did not move (its scheduler state, CPU time, faults,
+    /// the machine's load); `None` where the platform tells nothing.
+    pub probe: Option<crate::probe::HangProbe>,
 }
 
 fn watchdog() {
     let shared = shared();
-    let mut hang: Option<(Instant, HashMap<String, u32>)> = None;
+    let mut hang: Option<(Instant, HashMap<String, u32>, Instant, crate::probe::HangProbeBuilder)> = None;
     loop {
         std::thread::sleep(Duration::from_millis(20));
         let last = shared.last_tick.load(Ordering::Acquire);
@@ -299,17 +303,22 @@ fn watchdog() {
         let last_at = shared.epoch + Duration::from_micros(last);
         let since = last_at.elapsed();
         if since > TICK + HANG {
-            let (_, stacks) = hang.get_or_insert_with(|| (last_at, HashMap::new()));
+            let (_, stacks, _, probe) = hang.get_or_insert_with(|| (last_at, HashMap::new(), Instant::now(), Default::default()));
             let stack = current_stack();
             *stacks.entry(if stack.is_empty() { "(no span)".into() } else { stack }).or_default() += 1;
-        } else if let Some((start, stacks)) = hang.take() {
+            probe.sample();
+        } else if let Some((start, stacks, probed_from, probe)) = hang.take() {
             let end = shared.epoch + Duration::from_micros(shared.last_tick.load(Ordering::Acquire));
             let mut stacks: Vec<(String, u32)> = stacks.into_iter().collect();
             stacks.sort_by(|a, b| b.1.cmp(&a.1));
             let mut spans = spans_between(start, end);
             spans.sort_by(|a, b| b.self_time.cmp(&a.self_time));
             spans.truncate(20);
-            report_hang(Hang { start, end, stacks, spans });
+            // The probe's counters span its own samples (the hang minus the
+            // detection delay).
+            let probe = probe.finish(end.saturating_duration_since(probed_from));
+            let probe = (!probe.states.is_empty()).then_some(probe);
+            report_hang(Hang { start, end, stacks, spans, probe });
         }
     }
 }
@@ -321,6 +330,9 @@ fn report_hang(hang: Hang) {
         let top = hang.stacks.first().map(|(stack, _)| stack.as_str()).unwrap_or("(no span)");
         let spans = top_spans(&hang.spans, 5);
         eprintln!("[frame-stats] HANG {:.0} ms · stack: {top} · closed spans: {spans}", ms(duration));
+        if let Some(probe) = &hang.probe {
+            eprintln!("[frame-stats]   why: {} · {} · {}", probe.cause(), probe.thread_line(), probe.system_line());
+        }
     }
     if !crate::sentry_enabled() {
         return;
@@ -339,6 +351,11 @@ fn report_hang(hang: Hang) {
         event.extra.insert("stacks".into(), stacks.join("\n").into());
         event.extra.insert("spans".into(), top_spans(&hang.spans, 10).into());
         event.tags.insert("hang_stack".into(), top.chars().take(200).collect());
+        if let Some(probe) = &hang.probe {
+            event.tags.insert("hang_cause".into(), probe.cause().into());
+            event.extra.insert("thread".into(), probe.thread_line().into());
+            event.extra.insert("system".into(), probe.system_line().into());
+        }
         sentry::Hub::main().capture_event(event);
     }
 }
@@ -591,7 +608,7 @@ mod tests {
         stats.record_frame(Duration::from_millis(40), &[span("render", Some("Board"), 30), span("markdown.parse", None, 6)]);
         stats.record_frame(Duration::from_millis(20), &[span("render", Some("Board"), 12)]);
         stats.record_tick_gap(Duration::from_millis(2));
-        stats.record_hang(&Hang { start, end: start + Duration::from_millis(250), stacks: vec![("sync.apply(issues)".into(), 9)], spans: vec![] });
+        stats.record_hang(&Hang { start, end: start + Duration::from_millis(250), stacks: vec![("sync.apply(issues)".into(), 9)], spans: vec![], probe: None });
         let report = stats.report();
         assert!(report.contains("60 frames"), "{report}");
         assert!(report.contains(">16ms 2 · >33ms 1"), "{report}");

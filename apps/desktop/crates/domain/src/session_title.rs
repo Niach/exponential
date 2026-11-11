@@ -103,11 +103,15 @@ pub fn session_issues<'i>(
 ) -> Vec<&'i TreeIssue> {
     let by_id: HashMap<&str, &TreeIssue> =
         issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
-    let mut own: Vec<&SessionIssueRow> = links
+    let own: Vec<&SessionIssueRow> = links
         .iter()
         .copied()
         .filter(|link| link.session_id == session.id)
         .collect();
+    resolve_links(own, &by_id)
+}
+
+fn resolve_links<'i>(mut own: Vec<&SessionIssueRow>, by_id: &HashMap<&str, &'i TreeIssue>) -> Vec<&'i TreeIssue> {
     own.sort_by(|a, b| {
         a.sort_order
             .unwrap_or(0.0)
@@ -124,22 +128,18 @@ fn no_card(message: &MessageRow) -> bool {
     matches!(message.card, None | Some(serde_json::Value::Null))
 }
 
-/// The first prompt's usable line: a person's text or another session's
-/// input, oldest first (`created_at`, then `id`).
+/// The first prompt of `session_id` among `messages`: the oldest usable
+/// input (a person's, or another session's), never a card.
 pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option<&'m str> {
-    let inputs: Vec<&MessageRow> = messages
-        .iter()
-        .copied()
-        .filter(|message| {
-            message.session_id == session_id
-                && no_card(message)
-                && (message.author_kind.as_deref() == Some(MESSAGE_AUTHOR_KIND_USER)
-                    || message
-                        .author_session_id
-                        .as_deref()
-                        .is_some_and(|author| !author.is_empty() && author != session_id))
-        })
-        .collect();
+    let inputs = messages.iter().copied().filter(|message| {
+        message.session_id == session_id
+            && no_card(message)
+            && (message.author_kind.as_deref() == Some(MESSAGE_AUTHOR_KIND_USER)
+                || message
+                    .author_session_id
+                    .as_deref()
+                    .is_some_and(|author| !author.is_empty() && author != session_id))
+    });
     let at = |message: &MessageRow| {
         message
             .created_at
@@ -150,7 +150,6 @@ pub fn first_prompt<'m>(session_id: &str, messages: &[&'m MessageRow]) -> Option
     // #LOGS-7: the oldest usable one in one pass (each timestamp parsed
     // once), not a sort of every input.
     inputs
-        .into_iter()
         .filter_map(|message| Some((at(message), message.id.as_str(), first_line(message.body_text())?)))
         .min_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)))
         .map(|(_, _, line)| line)
@@ -163,13 +162,7 @@ pub fn session_title(
     issues: &[TreeIssue],
     messages: &[&MessageRow],
 ) -> String {
-    let own: Vec<TitleIssue<'_>> = session_issues(session, links, issues)
-        .into_iter()
-        .map(|issue| TitleIssue { identifier: &issue.identifier, title: &issue.title })
-        .collect();
-    let needs_prompt = clean(session.title.as_deref()).is_none() && own.is_empty();
-    let prompt = if needs_prompt { first_prompt(&session.id, messages) } else { None };
-    title_from_parts(session.title.as_deref(), &own, prompt)
+    TitleIndex::new(links, issues, messages).title(session)
 }
 
 /// Every given session's title, keyed by id (the tree's card names).
@@ -179,10 +172,54 @@ pub fn session_titles(
     issues: &[TreeIssue],
     messages: &[&MessageRow],
 ) -> HashMap<String, String> {
+    let index = TitleIndex::new(links, issues, messages);
     sessions
         .iter()
-        .map(|session| (session.id.clone(), session_title(session, links, issues, messages)))
+        .map(|session| (session.id.clone(), index.title(session)))
         .collect()
+}
+
+/// #LOGS-3: [`session_title`] for many sessions over the same rows: the
+/// links, issues and messages grouped ONCE (a per-session scan of each made
+/// a large team's titles O(sessions × rows), on every synced change).
+pub struct TitleIndex<'a> {
+    issues: HashMap<&'a str, &'a TreeIssue>,
+    links: HashMap<&'a str, Vec<&'a SessionIssueRow>>,
+    messages: HashMap<&'a str, Vec<&'a MessageRow>>,
+}
+
+impl<'a> TitleIndex<'a> {
+    pub fn new(links: &[&'a SessionIssueRow], issues: &'a [TreeIssue], messages: &[&'a MessageRow]) -> Self {
+        let mut by_session: HashMap<&'a str, Vec<&'a SessionIssueRow>> = HashMap::new();
+        for link in links {
+            by_session.entry(link.session_id.as_str()).or_default().push(link);
+        }
+        let mut own: HashMap<&'a str, Vec<&'a MessageRow>> = HashMap::new();
+        for message in messages {
+            own.entry(message.session_id.as_str()).or_default().push(message);
+        }
+        Self {
+            issues: issues.iter().map(|issue| (issue.id.as_str(), issue)).collect(),
+            links: by_session,
+            messages: own,
+        }
+    }
+
+    /// [`session_title`] of `session`.
+    pub fn title(&self, session: &SessionRow) -> String {
+        let own_links = self.links.get(session.id.as_str()).cloned().unwrap_or_default();
+        let own: Vec<TitleIssue<'_>> = resolve_links(own_links, &self.issues)
+            .into_iter()
+            .map(|issue| TitleIssue { identifier: &issue.identifier, title: &issue.title })
+            .collect();
+        let needs_prompt = clean(session.title.as_deref()).is_none() && own.is_empty();
+        let prompt = if needs_prompt {
+            self.messages.get(session.id.as_str()).and_then(|messages| first_prompt(&session.id, messages))
+        } else {
+            None
+        };
+        title_from_parts(session.title.as_deref(), &own, prompt)
+    }
 }
 
 #[cfg(test)]
