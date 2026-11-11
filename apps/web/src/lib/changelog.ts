@@ -30,10 +30,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `One chat composer for the desktop app and Exponential Desktop`,
     summary: `The desktop app and Exponential Desktop now share one chat composer and one transcript, so a chat looks and works the same on both.`,
     body: `- **One composer, one look**: the desktop app's chat and Exponential Desktop's chat are now the same composer and the same transcript, so they look and behave alike.
-- **The "+" menu**: attach files, pick skills and more from the composer's "+" button.
-- **Quick menus while you type**: "/" opens prompts and skills, "#" issues, "@" people and ":" emoji, right where you type.
+- **The "+" menu**: attach files and pick an issue, prompt, team, model or account from the composer's "+" button.
+- **Quick menus while you type**: "/" opens the CLI's commands and the team's prompts, "#" issues, "@" people and ":" emoji, right where you type.
 - **Files in the card**: attached files and images sit inside the composer card, above the text.
-- **Exponential Desktop 0.2.16**: the shared composer plus the chat fixes since 0.2.15 (a typeahead no longer steals focus from the text, cleaner send button).`,
+- **Exponential Desktop 0.2.16**: the shared composer plus the chat fixes since 0.2.15 (the text field keeps the cursor while a menu is open, cleaner send button).`,
   },
   {
     id: `2026-11-11-waiting-in-the-header`,
