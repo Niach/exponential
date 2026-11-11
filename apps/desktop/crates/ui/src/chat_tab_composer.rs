@@ -338,6 +338,21 @@ impl ComposerDoc {
         })
     }
 
+    /// DEV-ONLY (`EXP_DEV_COMPOSER_TEXT`): `text` typed into the Composer's
+    /// field as a keystroke would (focused, then the field's own edit and
+    /// its change), so it shows in the field and the menus follow. `false`
+    /// before the document is mounted.
+    pub(crate) fn dev_type(&self, text: &str, window: &mut Window, cx: &mut App) -> bool {
+        let Some(view) = self.view.clone() else { return false };
+        view.update(cx, |view, cx| {
+            if !view.focus_field(COMPOSER, window, cx) || !view.type_into(COMPOSER, text, window, cx) {
+                return false;
+            }
+            view.flush_field(COMPOSER, None, window, cx);
+            true
+        })
+    }
+
     /// The Composer field's focus handle, once mounted.
     pub(crate) fn field_focus(&self, cx: &App) -> Option<gpui::FocusHandle> {
         self.view.as_ref()?.read(cx).field_focus_handle(COMPOSER, cx)

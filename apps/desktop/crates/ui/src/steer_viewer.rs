@@ -2035,10 +2035,11 @@ impl SteerSessionView {
             return;
         }
         if let Some(text) = crate::screens::take_dev_composer_text() {
-            self.input.update(cx, |state, cx| state.set_value(text, window, cx));
-            match self.composer_doc.field_focus(cx) {
-                Some(field) => field.focus(window, cx),
-                None => self.input.read(cx).focus_handle(cx).focus(window, cx),
+            // Typed through the drawn field (a keystroke's path): its change
+            // brings the draft, and the menus, back to this view.
+            if !self.composer_doc.dev_type(&text, window, cx) {
+                self.input.update(cx, |state, cx| state.set_value(text, window, cx));
+                self.input.read(cx).focus_handle(cx).focus(window, cx);
             }
             self.refresh_slash(cx);
             cx.notify();
