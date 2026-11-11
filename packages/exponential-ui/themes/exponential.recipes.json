@@ -41,7 +41,7 @@
       "label": [ { "when": { "tone": "neutral", "shape": "pill" }, "style": { "color": "$color.foreground", "opacity": 0.7, "fontSize": 10.5 } } ]
     },
     "Row": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent" } } ] },
-    "Menu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ], "identifier": [ { "style": { "fontSize": 10.5, "lineHeight": 14 } } ], "detail": [ { "style": { "fontSize": 10.5, "lineHeight": 14 } } ], "preview": [ { "style": { "width": 144, "padding": 8 } } ] },
+    "Menu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } }, { "when": { "destructive": true, "state": "hover" }, "style": { "backgroundColor": "$color.destructiveHover" } }, { "when": { "destructive": true, "state": "selected" }, "style": { "backgroundColor": "$color.destructiveHover" } } ], "identifier": [ { "style": { "fontSize": 10.5, "lineHeight": 14 } } ], "detail": [ { "style": { "fontSize": 10.5, "lineHeight": 14 } } ], "preview": [ { "style": { "width": 144, "padding": 8 } } ] },
     "Alert": { "root": [ { "style": { "backgroundColor": "$color.card" } } ] },
     "Dialog": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl" } } ] },
     "Drawer": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl3" } } ] },

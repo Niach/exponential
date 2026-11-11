@@ -686,6 +686,14 @@
           "message": "missing value for $color.strokeActive"
         },
         {
+          "path": "modes.light.color.destructiveHover",
+          "message": "missing value for $color.destructiveHover"
+        },
+        {
+          "path": "modes.dark.color.destructiveHover",
+          "message": "missing value for $color.destructiveHover"
+        },
+        {
           "path": "tokens.spacing.none",
           "message": "missing value for $spacing.none"
         },

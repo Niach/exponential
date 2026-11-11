@@ -287,6 +287,20 @@ describe(`#EDE-65 the IDE's chat bubble`, () => {
       for (const mode of [`light`, `dark`] as const) expect(builtinTheme(id).modes[mode].shadow.popoverRing).toEqual(builtinTheme(id).modes[mode].shadow.popover)
   })
 
+  test(`#EXP-1629 a destructive Menu item: web's destructive DropdownMenuItem (text, glyph and its highlight)`, () => {
+    for (const id of [`neutral`, `exponential`, `playful`]) {
+      const t = builtinTheme(id)
+      expect(t.modes.light.color.destructiveHover as string).toBe(`${t.modes.light.color.destructive.slice(0, 7)}1a`)
+      expect(t.modes.dark.color.destructiveHover as string).toBe(`${t.modes.dark.color.destructive.slice(0, 7)}33`)
+      const item = (destructive: boolean, states: string[]) => resolveRecipe(t, { component: `Menu`, part: `item`, props: { openOn: `press`, destructive }, states }, `dark`)
+      expect(item(true, []).color).toBe(t.modes.dark.color.destructive)
+      expect(item(true, [`hover`]).backgroundColor).toBe(t.modes.dark.color.destructiveHover)
+      expect(item(true, [`hover`]).color).toBe(t.modes.dark.color.destructive)
+      expect(item(true, [`selected`]).backgroundColor).toBe(t.modes.dark.color.destructiveHover)
+      expect(item(false, []).color).not.toBe(t.modes.dark.color.destructive)
+    }
+  })
+
   test(`strokeActive: the glass active stroke in exponential, ring elsewhere; a focused box Input takes it`, () => {
     const exp = builtinTheme(`exponential`)
     expect(exp.modes.dark.color.strokeActive).toBe(`#ffffff29`)

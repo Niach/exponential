@@ -23082,7 +23082,8 @@
               "link",
               "borderStrong",
               "ghostHover",
-              "strokeActive"
+              "strokeActive",
+              "destructiveHover"
             ]
           }
         },
@@ -25340,7 +25341,7 @@
         },
         "destructive": {
           "type": "boolean",
-          "description": "Styles the entry as a destructive action."
+          "description": "Styles the entry as a destructive action: text and icon in `$color.destructive`, its highlight in `$color.destructiveHover` (web's destructive DropdownMenuItem)."
         },
         "disabled": {
           "type": "boolean",

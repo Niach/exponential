@@ -781,7 +781,7 @@ function MenuPlainItem(props: EntryProps): JSX.Element {
         pv.ref(el)
       }}
       role="menuitem"
-      {...props.root.part(`item`, disabled() && `disabled`)}
+      {...props.root.part.with(`item`, { destructive: bool(props.item.destructive) }, disabled() && `disabled`)}
       data-destructive={props.item.destructive ? `true` : undefined}
       {...row.attrs()}
       onClick={row.handlers.onClick}

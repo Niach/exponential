@@ -234,7 +234,8 @@ impl Builder<'_, '_> {
                     if kind == "checkbox" {
                         props["checked"] = json!(checked);
                     }
-                    if item.get("destructive").and_then(Value::as_bool) == Some(true) {
+                    let destructive = item.get("destructive").and_then(Value::as_bool) == Some(true);
+                    if destructive {
                         props["destructive"] = json!(true);
                     }
                     // #EXP-1629: an action or checkbox row with a `preview`
@@ -244,6 +245,9 @@ impl Builder<'_, '_> {
                         props["hasPreview"] = json!(true);
                     }
                     let row = self.part_in(parent, owner, "item", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm"}), props, &suffix);
+                    // #EXP-1629 (catalog/recipes.json Menu `destructive`): the
+                    // row's recipe discriminator, always concrete.
+                    self.query_prop(row, "destructive", Value::Bool(destructive));
                     self.nodes[row as usize].pressable = !disabled;
                     if disabled {
                         self.add_state(row, "disabled");
