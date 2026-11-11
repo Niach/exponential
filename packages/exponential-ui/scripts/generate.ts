@@ -619,6 +619,8 @@ const INCOME_EXPENSES = {
  *  together with it, with no custom child so the prop itself paints
  *  (EXP-1259: the pending Button paints `pendingLabel`). */
 const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
+  // #EXP-1629: a `button` trigger leads with the picked option's own glyph, in its tint.
+  Select: { "triggerVariant=button+icon": { triggerVariant: `button`, value: `review`, options: [{ label: `In Review`, value: `review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Do nothing`, value: `none` }] } },
   // #EXP-1674: an href press target.
   Row: { href: { title: `Docs`, href: `https://ui.exponential.at` } },
   // #EXP-1736: an incoming bubble that opens its sender (a cross-session sender).
@@ -1200,6 +1202,19 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       component: `Group`,
       children: [
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: web's PR trigger: the picked option's glyph leads, in its
+    // tint; an option with no glyph leaves the value alone.
+    label: `triggerVariant · button + the picked option's icon`,
+    node: {
+      id: `pr_targets`,
+      component: `Stack`,
+      props: { direction: `horizontal`, gap: `sm`, align: `center` },
+      children: [
+        { id: `pr_opened_button`, component: `Select`, props: { label: `When a PR opens`, name: `prOpenedButton`, triggerVariant: `button`, value: `in_review`, options: [{ label: `In Review`, value: `in_review`, icon: `status-in-review`, iconColor: `$color.success` }, { label: `Done`, value: `done`, icon: `status-done`, iconColor: `$color.info` }, { label: `Do nothing`, value: `none` }] }, style: { width: 176 } },
+        { id: `pr_merged_button`, component: `Select`, props: { label: `When a PR merges`, name: `prMergedButton`, triggerVariant: `button`, value: `none`, options: [{ label: `Done`, value: `done`, icon: `status-done`, iconColor: `$color.info` }, { label: `Do nothing`, value: `none` }] }, style: { width: 176 } },
       ],
     },
   }, {

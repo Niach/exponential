@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select option `hint` (#EXP-1629): the `itemHint` part before the check.
+- Select `button` trigger glyph (#EXP-1629): the picked option's `icon` + `iconColor` before the value.
 - Select `button` trigger + Text `truncate` (#EXP-1778): the button is the field trigger with no label part (the label = its `aria-label`) and the `Select.dropdown` glyph; its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it; a `middle` Text cuts its line with `watchMiddleTruncate` (the element's font on a canvas, again on resize).
 - Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.
 - Menu item `detail`, `identifier`, `preview` (#EXP-1629): the `identifier` part between a row's icon and its label, the `detail` part after the label (a SubTrigger's too); a row's `preview` = the Embed native in the `Menu/preview` box portalled beside the row (`natives/menu-preview.tsx`: the TS reference's timing, a keyboard focus = the highlight, Radix's outside guards let presses into it), its events the Menu's `action`; a menu without previews tracks nothing. `menuRows` + `menuPreview` replay here.

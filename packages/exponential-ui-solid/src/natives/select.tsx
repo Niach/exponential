@@ -220,7 +220,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   )
   const describedBy = () => joinIds(!pill() && description() && `${id}-d`, f.describedBy)
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
-  const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
+  const chosenIcon = () => (((row() && bool(props.props.triggerIcon)) || str(props.props.triggerVariant) === `button`) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
   const ValueIcon = () => (
     <Show when={chosenIcon()} keyed>
       {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} style={propColor(options().find((o) => o.value === str(value()))?.iconColor) ? { color: propColor(options().find((o) => o.value === str(value()))?.iconColor) } : undefined} />}

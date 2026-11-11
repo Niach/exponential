@@ -1523,6 +1523,14 @@ pub fn select_trigger(cx: &LeafCx, text: &str, is_placeholder: bool, icon: &str)
             out = out.child(div().flex_none().whitespace_nowrap().font(font).text_size(px(size_px)).line_height(px(lh)).text_color(ls.color.unwrap_or(cx.ink)).when_some(ls.opacity, |d, o| d.opacity(o)).child(SharedString::from(label.to_string())));
         }
     }
+    // #EXP-1629: a `button` leads with the picked option's glyph, in its tint.
+    let picked = cx.str("valueIcon");
+    if !picked.is_empty() {
+        let part = cx.part_props("Select", "valueIcon", &[]);
+        let picked_size = px_prop(&part, "width").or_else(|| px_prop(&part, "height")).unwrap_or(16.0) * cx.scale;
+        let ink = Some(cx.str("iconColor")).filter(|c| !c.is_empty()).and_then(|c| cx.prop_color(c)).unwrap_or(color);
+        out = out.child(div().flex_none().child(icons::concept(cx.host, picked, picked_size, ink)));
+    }
     out.child(text_el).child(div().flex_none().opacity(glyph_fade).child(icons::concept(cx.host, icon, size, glyph_ink))).into_any_element()
 }
 

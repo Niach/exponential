@@ -212,7 +212,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
       children
     )
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
-  const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
+  const chosenIcon = ((row && bool(props.triggerIcon)) || str(props.triggerVariant) === `button`) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
   const chosenTint = chosenIcon ? propColor(options.find((o) => o.value === str(value))?.iconColor) : undefined
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),

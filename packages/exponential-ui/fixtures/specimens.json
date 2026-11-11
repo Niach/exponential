@@ -13291,12 +13291,98 @@
                 "id": "specimen_select_case_9_label",
                 "component": "Text",
                 "props": {
+                  "text": "triggerVariant · button + the picked option's icon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_pr_targets",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c9_pr_opened_button",
+                    "component": "Select",
+                    "props": {
+                      "label": "When a PR opens",
+                      "name": "prOpenedButton",
+                      "triggerVariant": "button",
+                      "value": "in_review",
+                      "options": [
+                        {
+                          "label": "In Review",
+                          "value": "in_review",
+                          "icon": "status-in-review",
+                          "iconColor": "$color.success"
+                        },
+                        {
+                          "label": "Done",
+                          "value": "done",
+                          "icon": "status-done",
+                          "iconColor": "$color.info"
+                        },
+                        {
+                          "label": "Do nothing",
+                          "value": "none"
+                        }
+                      ]
+                    },
+                    "style": {
+                      "width": 176
+                    }
+                  },
+                  {
+                    "id": "c9_pr_merged_button",
+                    "component": "Select",
+                    "props": {
+                      "label": "When a PR merges",
+                      "name": "prMergedButton",
+                      "triggerVariant": "button",
+                      "value": "none",
+                      "options": [
+                        {
+                          "label": "Done",
+                          "value": "done",
+                          "icon": "status-done",
+                          "iconColor": "$color.info"
+                        },
+                        {
+                          "label": "Do nothing",
+                          "value": "none"
+                        }
+                      ]
+                    },
+                    "style": {
+                      "width": 176
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_10_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · button + option hint",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c9_estimate_scale",
+                "id": "c10_estimate_scale",
                 "component": "Select",
                 "props": {
                   "label": "Estimate scale",
@@ -13327,7 +13413,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_10",
+            "id": "specimen_select_case_11",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13336,7 +13422,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_10_label",
+                "id": "specimen_select_case_11_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · button",
@@ -13344,7 +13430,7 @@
                 }
               },
               {
-                "id": "c10_accounts",
+                "id": "c11_accounts",
                 "component": "Stack",
                 "props": {
                   "direction": "horizontal",
@@ -13353,7 +13439,7 @@
                 },
                 "children": [
                   {
-                    "id": "c10_upstream",
+                    "id": "c11_upstream",
                     "component": "Select",
                     "props": {
                       "label": "github",
@@ -13380,7 +13466,7 @@
                     }
                   },
                   {
-                    "id": "c10_upstream_busy",
+                    "id": "c11_upstream_busy",
                     "component": "Select",
                     "props": {
                       "label": "linear",
@@ -13404,7 +13490,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_11",
+            "id": "specimen_select_case_12",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13413,7 +13499,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_11_label",
+                "id": "specimen_select_case_12_label",
                 "component": "Text",
                 "props": {
                   "text": "triggerVariant · row + description, disabled",
@@ -13421,11 +13507,11 @@
                 }
               },
               {
-                "id": "c11_agent_effort",
+                "id": "c12_agent_effort",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c11_effort_locked",
+                    "id": "c12_effort_locked",
                     "component": "Select",
                     "props": {
                       "label": "Effort",
@@ -13451,7 +13537,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_12",
+            "id": "specimen_select_case_13",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13460,7 +13546,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_12_label",
+                "id": "specimen_select_case_13_label",
                 "component": "Text",
                 "props": {
                   "text": "option iconColor + triggerIcon",
@@ -13468,11 +13554,11 @@
                 }
               },
               {
-                "id": "c12_pr_automation",
+                "id": "c13_pr_automation",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c12_pr_opened",
+                    "id": "c13_pr_opened",
                     "component": "Select",
                     "props": {
                       "label": "When a PR opens",
@@ -13514,7 +13600,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_13",
+            "id": "specimen_select_case_14",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13523,7 +13609,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_13_label",
+                "id": "specimen_select_case_14_label",
                 "component": "Text",
                 "props": {
                   "text": "multiple · searchable · row + option icon, description",
@@ -13531,11 +13617,11 @@
                 }
               },
               {
-                "id": "c13_agent_skills",
+                "id": "c14_agent_skills",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c13_skills",
+                    "id": "c14_skills",
                     "component": "Select",
                     "props": {
                       "label": "Skills",

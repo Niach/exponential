@@ -5405,7 +5405,7 @@
           "type": "enum",
           "enum": "selectTrigger",
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon."
         },
         "triggerIcon": {
           "type": "boolean",
