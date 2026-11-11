@@ -12831,7 +12831,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },
@@ -31666,7 +31666,7 @@
                 "paddingHorizontal": 8,
                 "paddingVertical": 4.5,
                 "gap": 7,
-                "fontSize": 12.25,
+                "fontSize": 14,
                 "lineHeight": 19.82
               }
             },

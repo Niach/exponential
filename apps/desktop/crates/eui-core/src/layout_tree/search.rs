@@ -168,7 +168,7 @@ impl Builder<'_, '_> {
             .into_iter()
             .enumerate()
             .filter(|(_, it)| !matches!(it.get("kind").and_then(Value::as_str), Some("separator" | "label")))
-            .filter(|(_, it)| search_matches(&it.get("label").map(js).unwrap_or_default(), "", &query))
+            .filter(|(_, it)| search_matches(&it.get("label").map(js).unwrap_or_default(), &it.get("identifier").map(js).unwrap_or_default(), &query))
             .collect();
         let placeholder = str_prop(item.as_object().unwrap_or(&serde_json::Map::new()), "placeholder").map(str::to_string).unwrap_or_else(|| self.string("search"));
         let count = (!query.trim().is_empty()).then_some(entries.len());
@@ -194,11 +194,10 @@ impl Builder<'_, '_> {
                 self.add_state(row, "disabled");
             }
             let mut label_props = json!({"text": label, "lines": 1});
-            if let Some(icon) = entry.get("icon") {
-                label_props["icon"] = icon.clone();
-            }
+            self.menu_row_lead(row, owner, entry, &row_suffix, &mut label_props);
             let l = self.part_in(row, owner, "itemLabel", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), label_props, &row_suffix);
             self.nodes[l as usize].part_query = None;
+            self.menu_row_detail(row, owner, entry, &row_suffix);
             if kind == "checkbox" && entry.get("checked").and_then(Value::as_bool) == Some(true) {
                 let glyph = format!("{}.check", owner.component);
                 self.icon_part(row, owner, "check", &glyph, &row_suffix);
