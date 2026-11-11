@@ -169,5 +169,13 @@ fn settings_members_menu_hover() {
     members_hover("members-menu-hover", shot(), Some(point));
 }
 
+/// #EXP-1629: the second row's ⋯ open (the genUI Menu).
+#[test]
+#[ignore]
+fn settings_members_menu_open() {
+    let shot = shot();
+    shoot_pane_acted("members-menu-open", MembersPane::for_shots, move |pane, cx| pane.show(shot, cx), None, &[], |pane, window, cx| pane.press_for_shots("member_menu_more.m2", window, cx));
+}
+
 /// The second row's ⋯ (window points), read off `members-owner`.
 const MENU: (f32, f32) = (700., 140.);

@@ -11,18 +11,17 @@
 //!
 //! #EXP-1629: the groups are parts of the Settings tab's document
 //! (`app_detail`): each a builder of its rows' template and a projection of
-//! its rows; the share rows' ⋯ menus stay the IDE's own (`host_leaf` Embeds).
+//! its rows; the share rows' ⋯ are genUI Menus ([`share_menu_items`]).
 
 use std::collections::HashMap;
 
-use eui_gpui::controls::CTL_MD_H;
 use gpui::{div, px, App, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{button::Button, ActiveTheme as _, Disableable as _, Icon};
 use serde_json::{json, Value};
 
 use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
-use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, AppDetailPane, Paint, Tints};
+use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, Paint, Tints};
 use super::doc::{path, Ink, SM, XS};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;
@@ -150,52 +149,19 @@ pub(crate) fn with_tool_enabled(data: &AppToolsOut, tool: &str, enabled: bool) -
     next
 }
 
-/// What the Settings tab's ⋯ on a share row needs (the IDE's own menu,
-/// `share_menu`).
-pub(super) struct ShareMenu {
-    pub name: String,
-    pub url: String,
-    pub disabled: bool,
-}
-
 /// VAPP-241 / VAPP-247: a live share row's `…` (an owner's): Copy link, New
-/// link, then the expiry items.
-// drop with EXP-1629-group4: the per-row menu stays the IDE's own (a
-// `host_leaf` Embed) until the catalog Menu carries it.
-pub(super) fn share_menu(menu: &ShareMenu, view: gpui::WeakEntity<AppDetailPane>, cx: &App) -> gpui::AnyElement {
+/// link, then the expiry items (`expiry:<days>`, `expiry:never`).
+pub(super) fn share_menu_items() -> Vec<Value> {
     use domain::app_share::APP_SHARE;
-    let (url, name) = (menu.url.clone(), menu.name.clone());
-    crate::controls::ghost_icon_button(SharedString::from(format!("app-share-menu-{}", menu.name)), Icon::new(registry::UI_MORE), cx)
-        .accessibility_label(menu.name.clone())
-        .disabled(menu.disabled)
-        .pointer_menu(move |menu, _, _| {
-            let (url, name, view) = (url.clone(), name.clone(), view.clone());
-            let (rotate_name, rotate_view) = (name.clone(), view.clone());
-            let mut menu = menu
-                .item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
-                    crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
-                }))
-                .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
-                    let name = rotate_name.clone();
-                    let _ = rotate_view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
-                }));
-            for choice in &APP_SHARE.expiry_choices {
-                let (name, view, days) = (name.clone(), view.clone(), choice.days);
-                menu = menu.item(crate::controls::pointer_label_item(choice.label.clone(), false).on_click(move |_, _, cx| {
-                    let name = name.clone();
-                    let _ = view.update(cx, |this, cx| this.set_share_expiry(name, days, cx));
-                }));
-            }
-            menu
-        })
-        .into_any_element()
-}
-
-/// The `Embed` surface of a host-drawn leaf: its `data` changes whenever
-/// the leaf must draw again.
-fn leaf_surface(data: Value) -> Value {
-    json!({"root": {"id": "leaf", "component": "Box"}, "data": data})
+    let mut items = vec![
+        json!({"label": APP_SHARE.copy.copy_link, "value": "copy"}),
+        json!({"label": APP_SHARE.copy.new_link, "value": "rotate"}),
+    ];
+    for choice in &APP_SHARE.expiry_choices {
+        let value = choice.days.map_or_else(|| "expiry:never".to_string(), |days| format!("expiry:{days}"));
+        items.push(json!({"label": choice.label, "value": value}));
+    }
+    items
 }
 
 /// The Accounts rows (`app-settings-accounts`) as the document binds them;
@@ -333,8 +299,8 @@ pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, 
 /// VAPP-241 (app-share.json SETTINGS, `rowCases`): the Public links rows
 /// (`app-settings-share-links`): the name over its subtitle; an owner's
 /// Switch (on = enable, off = revoke) and, while on, the `…` menu. Fills
-/// `menus` with the rows' menus.
-pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>, menus: &mut HashMap<String, ShareMenu>) -> Value {
+/// `menuItems` = what its ⋯ opens.
+pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>) -> Value {
     use domain::app_share::{share_row_subtitle, share_switch_on, ShareLinkState, ShareMode};
     let rows: Vec<Value> = data
         .shares
@@ -345,17 +311,14 @@ pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>, menus: &mut Ha
             let state = ShareLinkState::parse(&share.state).unwrap_or(ShareLinkState::Off);
             let mode = ShareMode::parse(&share.mode).unwrap_or(ShareMode::Submit);
             let on = state == ShareLinkState::On;
-            let menu = share.url.clone().filter(|_| data.can_toggle && on);
-            if let Some(url) = &menu {
-                menus.insert(share.name.clone(), ShareMenu { name: share.name.clone(), url: url.clone(), disabled: busy.is_some() });
-            }
+            let menu = share.url.is_some() && data.can_toggle && on;
             json!({
                 "key": share.name,
                 "divided": ix > 0,
                 "name": share.name,
                 "subtitle": share_row_subtitle(mode, state, share.expires_at.as_deref()),
-                "menu": menu.is_some(),
-                "menuSurface": leaf_surface(json!({"url": menu, "disabled": busy.is_some()})),
+                "menu": menu,
+                "items": if menu { share_menu_items() } else { Vec::new() },
                 "switch": data.can_toggle,
                 "checked": share_switch_on(state),
                 "disabled": busy.is_some(),
@@ -365,8 +328,6 @@ pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>, menus: &mut Ha
     json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// The share row's ⋯ (`<node>.<row key>` once painted).
-pub(super) const SHARE_MENU: &str = "share_menu";
 
 /// A webhook row's run of mono text cut in its MIDDLE: a URL or secret keeps
 /// both ends.
@@ -382,7 +343,9 @@ fn mid_text(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
 /// The Public links group.
 pub(super) fn shares_group(ink: &Ink, tints: &Tints) -> Value {
     use domain::app_share::APP_SHARE;
-    let menu = json!({"id": SHARE_MENU, "component": "Embed", "visible": path("menu"), "props": {"surface": path("menuSurface")}, "style": {"width": CTL_MD_H, "height": CTL_MD_H, "flexShrink": 0}});
+    // The row's ⋯ is inert (gpui-component's disabled ghost) while a share
+    // change is in flight.
+    let menu = ink.row_menu("share_menu", path("name"), path("menu"), &tints.list_hover, Some(path("disabled")), None);
     let switch = visible(switch("share_switch", "share", "share"), path("switch"));
     let row = row_shell(ink, "share", vec![two_lines(ink, "share", text_line(ink, "share_name", path("name"), SM, &ink.foreground, false), text_line(ink, "share_subtitle", path("subtitle"), XS, &ink.muted, false), None), menu, switch]);
     titled(ink, &APP_SHARE.test_ids.share_links, &APP_SHARE.copy.title, "/pane/shares", row, tints)

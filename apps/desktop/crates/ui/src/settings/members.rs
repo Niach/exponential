@@ -35,20 +35,18 @@
 //! and placeholder pills, the email), the invite form (genUI `box` Inputs,
 //! the primary "Send invite" with its pending face, the outline "Add without
 //! inviting"), the notices, the link rows with their copy buttons, "Generate
-//! invite link" and the pending invites with revoke. Each row's ⋯ stays the
-//! IDE's own menu, drawn into the document as a `host_leaf` Embed; the
-//! confirms and the Resend invite dialog stay native.
+//! invite link", the pending invites with revoke, and each row's ⋯ (a
+//! genUI `Menu`); the confirms and the Resend invite dialog stay native.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
-    div, AnyElement, App, AppContext as _, ClipboardItem, ElementId, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window,
 };
-use gpui_component::{ActiveTheme as _, Colorize as _, Icon, IconNamed as _};
+use gpui_component::{ActiveTheme as _, Colorize as _, IconNamed as _};
 use serde_json::{json, Value};
 use sync::Store;
 
@@ -57,7 +55,6 @@ use domain::contract::TEAM_ROLE_OWNER;
 use domain::placeholder_status::{invite_is_pending, placeholder_statuses, PlaceholderStatus};
 use domain::rows::{TeamInvite, TeamMember, User};
 use eui_gpui::binding::Binding;
-use eui_gpui::controls::CTL_MD_H;
 use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
@@ -119,8 +116,9 @@ pub struct MembersPane {
     copy_generation: u64,
     #[cfg(test)]
     shot: Option<MembersShot>,
-    /// The rows' ⋯ menus the document's host draws.
-    host: Rc<RefCell<HostState>>,
+    /// What each row's ⋯ opens, by member id (refilled by every
+    /// projection).
+    menus: RefCell<HashMap<String, MenuRow>>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
@@ -182,7 +180,7 @@ impl MembersPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["edit", "send", "add", "generate", "copy", "revoke"] {
+            for name in ["edit", "send", "add", "generate", "copy", "revoke", "menu"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -199,9 +197,8 @@ impl MembersPane {
             }
             binding
         });
-        let host = Rc::new(RefCell::new(HostState { menus: HashMap::new() }));
         let tints = Tints::of(cx);
-        let plugin = Rc::new(MembersHost { ide: super::doc::ide_plugin(), state: host.clone() });
+        let plugin = Rc::new(MembersHost { ide: super::doc::ide_plugin() });
         let view = mount_with("settings-members", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
         Self {
             nav,
@@ -220,7 +217,7 @@ impl MembersPane {
             copy_generation: 0,
             #[cfg(test)]
             shot: None,
-            host,
+            menus: RefCell::default(),
             binding,
             view,
             _subscriptions: subscriptions,
@@ -240,6 +237,17 @@ impl MembersPane {
         self.generating = shot.generating;
         self.shot = Some(shot);
         cx.notify();
+    }
+
+    /// The bench's press on a node by id (a row's ⋯), its popup's fade run
+    /// out (the headless clock stands still).
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(id).expect("the pressed node");
+            view.press(index, window, cx);
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
     }
 
     /// The form's typed text and its request in flight, after the first
@@ -375,6 +383,30 @@ impl MembersPane {
                 spawn_trpc(cx, "teamInvites.revoke", move |trpc| {
                     api::teams::team_invites_revoke(trpc, &invite_id)
                 });
+            }
+            // A row's ⋯ pick: its confirm or the Resend invite dialog.
+            "menu" => {
+                let key = context.get("key").and_then(Value::as_str).unwrap_or_default();
+                let Some(row) = self.menus.borrow().get(key).cloned() else { return };
+                match payload.get("value").and_then(Value::as_str) {
+                    // dialog stays a native window, around its own document.
+                    Some("resend") => {
+                        let Some(resend) = row.resend.filter(|_| row.i_am_owner && !row.is_self) else { return };
+                        super::resend_invite_dialog::open(window, cx, resend.team_id, resend.display_name, resend.status, resend.target);
+                    }
+                    // EXP-1230: a role change confirms with the prompts
+                    // fixture's make-owner / make-member.
+                    Some("role") if row.i_am_owner && !row.is_self => {
+                        let role = if row.is_owner_row { api::teams::TeamRole::Member } else { api::teams::TeamRole::Owner };
+                        open_role_dialog(row.member_id, &row.name, role, window, cx);
+                    }
+                    // EXP-771: losing team access is instant and has no
+                    // undo — it confirms first, in the web's words.
+                    Some("remove") if row.is_self || row.i_am_owner => {
+                        open_remove_member_dialog(row.member_id, &row.team_id, &row.name, row.is_self, window, cx);
+                    }
+                    _ => {}
+                }
             }
             _ => {}
         }
@@ -601,12 +633,12 @@ impl MembersPane {
         .detach();
     }
 
-    /// The pane's state as the document reads it; the rows' ⋯ menus are
-    /// written into the host's table at the same time.
+    /// The pane's state as the document reads it; what the rows' ⋯ menus
+    /// open is kept for their picks at the same time.
     fn project(&self, cx: &App) -> Value {
         let mut menus = HashMap::new();
         let Some(team_id) = self.pane_team(cx) else {
-            self.host.borrow_mut().menus = menus;
+            *self.menus.borrow_mut() = menus;
             return json!({"noTeam": true, "owner": false, "rows": [], "pending": []});
         };
         let my_user_id = self.my_user_id(cx);
@@ -635,6 +667,7 @@ impl MembersPane {
                 let placeholder = placeholders.get(&member.user_id).copied();
                 // Web: sole remaining owner gets no self-actions.
                 let menu = (i_am_owner || is_self) && !(is_self && is_owner_row && owner_count <= 1);
+                let items = if menu { menu_items(is_self, is_owner_row, i_am_owner, placeholder) } else { Vec::new() };
                 if menu {
                     menus.insert(member.id.clone(), MenuRow {
                         member_id: member.id.clone(),
@@ -677,12 +710,12 @@ impl MembersPane {
                     "picture": picture.unwrap_or_default(),
                     "seed": member.user_id,
                     "menu": menu,
-                    // The ⋯ leaf repaints when what it draws moves.
-                    "menuSurface": {"root": {"id": "menu", "component": "Box"}, "data": {"self": is_self, "ownerRow": is_owner_row, "owner": i_am_owner, "name": name, "placeholder": placeholder.map(PlaceholderStatus::label)}},
+                    "menuLabel": format!("Member actions for {name}"),
+                    "items": items,
                 })
             })
             .collect();
-        self.host.borrow_mut().menus = menus;
+        *self.menus.borrow_mut() = menus;
 
         // EXP-630: PENDING = unaccepted AND unexpired. An expired placeholder
         // invite is a badge on its member row above, not a live link in this
@@ -793,10 +826,8 @@ struct ResendContext {
     target: ResendTarget,
 }
 
-/// The row's ⋯ (`member_menu.<key>` once painted).
-const MENU_NODE: &str = "member_menu";
-
-/// What a row's ⋯ needs to draw and open its menu.
+/// What a row's ⋯ pick needs.
+#[derive(Clone)]
 struct MenuRow {
     member_id: String,
     team_id: String,
@@ -807,16 +838,10 @@ struct MenuRow {
     resend: Option<ResendContext>,
 }
 
-#[derive(Default)]
-struct HostState {
-    menus: HashMap<String, MenuRow>,
-}
-
-/// The pane's host: the IDE's plugin, gpui-component's copy glyphs, the
-/// members' pictures, and the rows' ⋯ menus drawn by the IDE itself.
+/// The pane's host: the IDE's plugin, gpui-component's copy glyphs and the
+/// members' pictures.
 struct MembersHost {
     ide: crate::exponential_ui_host::IdePlugin,
-    state: Rc<RefCell<HostState>>,
 }
 
 impl HostPlugin for MembersHost {
@@ -833,133 +858,32 @@ impl HostPlugin for MembersHost {
     fn media_allowed(&self, src: &str) -> bool {
         picture_src(src) || self.ide.media_allowed(src)
     }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
-        self.state.borrow().menus.contains_key(key).then_some(CTL_MD_H)
-    }
-
-    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let key = component_id.strip_prefix(MENU_NODE)?.strip_prefix('.')?;
-        let state = self.state.borrow();
-        let row = state.menus.get(key)?;
-        Some(
-            member_actions_menu(
-                row.member_id.clone(),
-                &row.team_id,
-                &row.name,
-                row.is_self,
-                row.is_owner_row,
-                row.i_am_owner,
-                row.resend.clone(),
-                cx,
-            )
-            .into_any_element(),
-        )
-    }
 }
 
 /// Web `DropdownMenu` per member row: Resend invite / Send invite (owner, not
-/// self, still a placeholder), role changes (owner, not self), then Leave team
-/// (self) / Remove member (owner).
-// drop with EXP-1629-group4: the per-row menu stays the IDE's own (a
-// `host_leaf` Embed) until the catalog Menu carries icons.
-#[allow(clippy::too_many_arguments)]
-fn member_actions_menu(
-    member_id: String,
-    team_id: &str,
-    name: &str,
-    is_self: bool,
-    is_owner_row: bool,
-    i_am_owner: bool,
-    resend: Option<ResendContext>,
-    cx: &gpui::App,
-) -> impl IntoElement {
-    // EXP-862: a row's "..." is a GHOST glyph, never a circle.
-    crate::controls::ghost_icon_button(
-        row_id("member-actions", &member_id),
-        Icon::new(registry::UI_MORE),
-        cx,
-    )
-        .accessibility_label(format!("Member actions for {name}"))
-        .pointer_menu({
-            let member_id = member_id.clone();
-            let team_id = team_id.to_string();
-            let name = name.to_string();
-            move |mut menu, _, _| {
-                // EXP-630: first item — the invite is the thing that is
-                // unfinished about this row.
-                if let Some(resend) = resend.clone().filter(|_| i_am_owner && !is_self) {
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(resend.status.invite_verb(), false)
-                            .icon(Icon::new(registry::UI_MAIL))
-                            .on_click(move |_, window, cx| {
-                                let resend = resend.clone();
-                                // dialog stays a native window, around its own document.
-                                super::resend_invite_dialog::open(
-                                    window,
-                                    cx,
-                                    resend.team_id,
-                                    resend.display_name,
-                                    resend.status,
-                                    resend.target,
-                                );
-                            }),
-                    );
-                }
-                if i_am_owner && !is_self {
-                    // Only the applicable role change renders — demoting another
-                    // owner is always safe (I stay an owner). The no-op variant
-                    // is HIDDEN, not a disabled dead item (EXP-228).
-                    let role_item = if is_owner_row {
-                        ("Make member", api::teams::TeamRole::Member, registry::UI_MEMBER)
-                    } else {
-                        ("Make owner", api::teams::TeamRole::Owner, registry::UI_OWNER)
-                    };
-                    let (label, role, icon) = role_item;
-                    let member_id = member_id.clone();
-                    let name = name.clone();
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(label, false)
-                            .icon(Icon::new(icon))
-                            // EXP-1230: a role change confirms with the
-                            // prompts fixture's make-owner / make-member.
-                            .on_click(move |_, window, cx| {
-                                open_role_dialog(member_id.clone(), &name, role, window, cx);
-                            }),
-                    );
-                }
-                if is_self || i_am_owner {
-                    let member_id = member_id.clone();
-                    let team_id = team_id.clone();
-                    let name = name.clone();
-                    // EXP-687: leaving is a sign-out, removing someone is a
-                    // user-minus — the web draws the same two concepts.
-                    let (label, icon) = if is_self {
-                        ("Leave team", registry::NAV_SIGN_OUT)
-                    } else {
-                        ("Remove member", registry::UI_REMOVE_MEMBER)
-                    };
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(label, false)
-                            .icon(Icon::new(icon))
-                            // EXP-771: losing team access is instant and has
-                            // no undo — it confirms first, in the web's words.
-                            .on_click(move |_, window, cx| {
-                                open_remove_member_dialog(
-                                    member_id.clone(),
-                                    &team_id,
-                                    &name,
-                                    is_self,
-                                    window,
-                                    cx,
-                                );
-                            }),
-                    );
-                }
-                menu
-            }
-        })
+/// self, still a placeholder), the applicable role change (owner, not self),
+/// then Leave team (self) / Remove member (owner).
+fn menu_items(is_self: bool, is_owner_row: bool, i_am_owner: bool, placeholder: Option<PlaceholderStatus>) -> Vec<Value> {
+    let mut items = Vec::new();
+    // EXP-630: first item — the invite is the thing that is unfinished
+    // about this row. EXP-1076: the status picks the verb.
+    if let Some(status) = placeholder.filter(|_| i_am_owner && !is_self) {
+        items.push(json!({"label": status.invite_verb(), "value": "resend", "icon": "ui-mail"}));
+    }
+    if i_am_owner && !is_self {
+        // Only the applicable role change renders — demoting another owner
+        // is always safe (I stay an owner). The no-op variant is HIDDEN,
+        // not a disabled dead item (EXP-228).
+        let (label, icon) = if is_owner_row { ("Make member", "ui-member") } else { ("Make owner", "ui-owner") };
+        items.push(json!({"label": label, "value": "role", "icon": icon}));
+    }
+    if is_self || i_am_owner {
+        // EXP-687: leaving is a sign-out, removing someone is a user-minus —
+        // the web draws the same two concepts, as destructive items.
+        let (label, icon) = if is_self { ("Leave team", "nav-sign-out") } else { ("Remove member", "ui-remove-member") };
+        items.push(json!({"label": label, "value": "remove", "icon": icon, "destructive": true}));
+    }
+    items
 }
 
 /// The remove/leave confirm: the prompts fixture's `remove-member` /
@@ -1027,6 +951,12 @@ fn open_role_dialog(
 impl Render for MembersPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "MembersPane").entered();
+        // The bench: an open popup's enter fade run out by hand (the
+        // headless clock stands still).
+        #[cfg(test)]
+        if self.shot.is_some() && !self.view.read(cx).layers().is_empty() {
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+        }
         let projection = self.project(cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         div().w_full().min_w_0().child(self.view.clone())
@@ -1059,10 +989,6 @@ fn display_name(row: &MemberRow) -> String {
         .unwrap_or_else(|| domain::member_fallback_label(&row.member.user_id))
 }
 
-fn row_id(kind: &str, id: &str) -> ElementId {
-    ElementId::Name(SharedString::from(format!("{kind}-{id}")))
-}
-
 // ---------------------------------------------------------------------------
 // The document
 // ---------------------------------------------------------------------------
@@ -1087,6 +1013,8 @@ pub(super) struct Tints {
     outline_stroke_dim: String,
     /// A ghost `Button`'s ink and hover wash (half the accent).
     ghost_fg: String,
+    /// The ghost ⋯'s hover wash.
+    list_hover: String,
     ghost_hover: String,
     /// The contract avatar hues: the 20% fill and the solid initials.
     hues: Vec<(String, String)>,
@@ -1111,6 +1039,7 @@ impl Tints {
             outline_stroke_dim: c("#ffffff13"),
             ghost_fg: c("#fafafaff"),
             ghost_hover: c("#ffffff0a"),
+            list_hover: c("#ffffff0f"),
             hues: Vec::new(),
         }
     }
@@ -1131,6 +1060,7 @@ impl Tints {
             outline_fill_dim: premultiplied_hex(theme.input_background().opacity(0.5)),
             outline_stroke_dim: hex(theme.input.opacity(0.5)),
             ghost_fg: hex(theme.secondary_foreground),
+            list_hover: hex(theme.list_hover),
             ghost_hover: premultiplied_hex(theme.accent.opacity(0.5)),
             hues: theme::tokens::avatar::HUES
                 .iter()
@@ -1200,7 +1130,8 @@ fn member_row(ink: &Ink, tints: &Tints) -> Value {
     placeholder["visible"] = path("hasPlaceholder");
     let mut email = line(ink, "row_email", path("email"), XS, &ink.muted);
     email["visible"] = path("hasEmail");
-    let menu = json!({"id": MENU_NODE, "component": "Embed", "visible": path("menu"), "props": {"surface": path("menuSurface")}, "style": {"width": CTL_MD_H, "height": CTL_MD_H, "flexShrink": 0}});
+    // EXP-862: a row's "..." is a GHOST glyph, never a circle.
+    let menu = ink.row_menu("member_menu", path("menuLabel"), path("menu"), &tints.list_hover, None, None);
     json!({"id": "row", "component": "Box",
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
         "children": [

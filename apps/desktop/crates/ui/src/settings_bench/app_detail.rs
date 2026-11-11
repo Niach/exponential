@@ -230,6 +230,13 @@ fn settings_app_detail_share_hover() {
     shoot("app-detail-share-hover", owner(), Pointer::Hover(SHARE_MENU));
 }
 
+/// #EXP-1629: the first share row's ⋯ open (the genUI Menu).
+#[test]
+#[ignore]
+fn settings_app_detail_share_open() {
+    shoot("app-detail-share-open", owner(), Pointer::Press("share_menu_more.contact-form"));
+}
+
 #[test]
 #[ignore]
 fn settings_app_detail_icon_open() {

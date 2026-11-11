@@ -399,6 +399,36 @@ impl Ink {
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": list_hover}},
             "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": self.foreground, "opacity": VALUE_ALPHA}}]})
     }
+
+    /// A row's ⋯ (#EXP-1629): the ghost "ui-more" trigger (named `label`)
+    /// opening the row's `items` as the genUI Menu that fires `menu` with
+    /// the row's `key`, shown while `visible`. `locked` (bound) = the
+    /// disabled ghost `Button` instead (the muted glyph at half, inert);
+    /// `loading` = its glyph turned spinner.
+    pub(super) fn row_menu(&self, id: &str, label: Value, visible: Value, list_hover: &str, locked: Option<Value>, loading: Option<Value>) -> Value {
+        // a11y: named by the caller (`label`, the node's accessibility label).
+        let mut more = self.ghost_icon_button(&format!("{id}_more"), "ui-more", label.clone(), Value::Null, list_hover);
+        more.as_object_mut().expect("the trigger").remove("on");
+        let mut menu = json!({"id": id, "component": "Menu", "props": {"items": path("items"), "align": "start"},
+            "on": {"select": {"event": {"name": "menu", "context": {"key": path("key")}}}}, "children": [more]});
+        let Some(locked) = locked else {
+            menu["visible"] = visible;
+            return menu;
+        };
+        menu["visible"] = not(locked.clone());
+        let glyph = self.r(0.875);
+        let mut icon = json!({"id": format!("{id}_off_icon"), "component": "Icon", "props": {"name": "ui-more"}, "style": {"width": glyph, "height": glyph, "color": self.muted, "opacity": HINT_ALPHA}});
+        let mut faces = vec![];
+        if let Some(loading) = loading {
+            icon["visible"] = not(loading.clone());
+            faces.push(json!({"id": format!("{id}_off_spin"), "component": "Spinner", "visible": loading, "style": {"width": glyph, "height": glyph, "color": self.muted, "opacity": HINT_ALPHA}}));
+        }
+        faces.insert(0, icon);
+        let off = json!({"id": format!("{id}_off"), "component": "Box", "visible": locked, "accessibility": {"label": label},
+            "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md},
+            "children": faces});
+        json!({"id": format!("{id}_slot"), "component": "Box", "visible": visible, "style": {"display": "flex", "flexShrink": 0}, "children": [menu, off]})
+    }
 }
 
 /// The issues a settings document must not raise: the documents write the
