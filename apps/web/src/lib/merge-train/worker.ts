@@ -467,7 +467,8 @@ async function land(
   if (head === run.baseSha) {
     // #FEED-222: nothing composed because an earlier run already landed
     // these heads (its confirmation read missed it): they landed there.
-    const earlier = await landedEarlier(repo, run, ids, forge)
+    const heads = new Map(ids.flatMap((id) => (run.heads[id] ? [[id, run.heads[id]!] as const] : [])))
+    const earlier = await landedEarlier(repo, run.base, heads, forge, now)
     for (const [sha, landedIds] of earlier) await landPullRequests(repo, landedIds, run.base, sha, forge, now)
     const done = new Set([...earlier.values()].flat())
     if (ids.every((id) => done.has(id))) return true
@@ -498,37 +499,76 @@ async function land(
   return true
 }
 
-/** #FEED-222: the PRs of `ids` an earlier unconfirmed run of the same base
- *  already landed: one with the same head of the PR, whose tested commit
- *  the base holds. → that commit → its PR ids. */
-async function landedEarlier(repo: RepoRow, run: RunRow, ids: string[], forge: Forge): Promise<Map<string, string[]>> {
+/** #FEED-222: whether `base` holds an earlier run's tested commit. A
+ *  settled answer (its run finished a while ago) is remembered: the tick
+ *  never asks the forge about it again. */
+const holdsCache = new Map<string, boolean>()
+const SETTLED_MS = 5 * 60_000
+async function baseHolds(repo: RepoRow, forge: Forge, base: string, sha: string, finishedAt: Date | null, now: Date): Promise<boolean> {
+  const key = `${repo.id}:${base}:${sha}`
+  const known = holdsCache.get(key)
+  if (known !== undefined) return known
+  const holds = (await forge.branchContains(forgeRepo(repo), base, sha).catch(() => null)) === true
+  if (finishedAt && now.getTime() - finishedAt.getTime() > SETTLED_MS) holdsCache.set(key, holds)
+  return holds
+}
+
+/** #FEED-222: the PRs of `heads` (id → its head) an earlier unconfirmed run
+ *  of `base` already landed: that run tested the same head and the base
+ *  holds its tested commit. → that commit → its PR ids. */
+async function landedEarlier(
+  repo: RepoRow,
+  base: string,
+  heads: Map<string, string>,
+  forge: Forge,
+  now: Date
+): Promise<Map<string, string[]>> {
   const found = new Map<string, string[]>()
+  if (heads.size === 0) return found
   const earlier = await db
-    .select({ id: mergeTrains.id, testedSha: mergeTrains.testedSha, baseSha: mergeTrains.baseSha, heads: mergeTrains.heads })
+    .select({ testedSha: mergeTrains.testedSha, baseSha: mergeTrains.baseSha, heads: mergeTrains.heads, finishedAt: mergeTrains.finishedAt })
     .from(mergeTrains)
     .where(
       and(
         eq(mergeTrains.repositoryId, repo.id),
-        eq(mergeTrains.base, run.base),
+        eq(mergeTrains.base, base),
         eq(mergeTrains.state, `error`),
-        ne(mergeTrains.id, run.id),
         isNotNull(mergeTrains.testedSha)
       )
     )
     .orderBy(desc(mergeTrains.createdAt))
-    .limit(20)
-  const held = new Map<string, boolean>()
-  for (const id of ids) {
+    .limit(50)
+  for (const [id, head] of heads) {
     for (const prior of earlier) {
       const sha = prior.testedSha!
-      if (sha === prior.baseSha || !run.heads[id] || prior.heads[id] !== run.heads[id]) continue
-      if (!held.has(sha)) held.set(sha, (await forge.branchContains(forgeRepo(repo), run.base, sha).catch(() => null)) === true)
-      if (!held.get(sha)) continue
+      if (sha === prior.baseSha || prior.heads[id] !== head) continue
+      if (!(await baseHolds(repo, forge, base, sha, prior.finishedAt, now))) continue
       found.set(sha, [...(found.get(sha) ?? []), id])
       break
     }
   }
   return found
+}
+
+/** #FEED-222 (merge-train.json `landed_earlier`): a live PR out of any run
+ *  whose exact head an unconfirmed run already landed is merged here, before
+ *  a batch composes it again (onto the moved base it would read as a
+ *  conflict, or compose nothing). */
+async function landEarlierLandings(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): Promise<void> {
+  const candidates = prs.filter((pr) => pr.mergeState !== `testing` && pr.mergeHeadSha && pr.state === `open`)
+  for (const base of new Set(candidates.map((pr) => pr.base))) {
+    const heads = new Map(candidates.filter((pr) => pr.base === base).map((pr) => [pr.id, pr.mergeHeadSha!]))
+    for (const [sha, ids] of await landedEarlier(repo, base, heads, forge, now)) {
+      // A head pushed since is new work: it never lands from the old commit.
+      const still: string[] = []
+      for (const id of ids) {
+        const pr = candidates.find((c) => c.id === id)!
+        const live = await forge.readPullRequest(forgeRepo(repo), pr.number).catch(() => null)
+        if (live?.state === `open` && live.headSha === pr.mergeHeadSha) still.push(id)
+      }
+      if (still.length > 0) await landPullRequests(repo, still, base, sha, forge, now, true, { type: `landed_earlier` })
+    }
+  }
 }
 
 /** The landing of PRs whose commits are on `base` as `sha`: pr_merged (the
@@ -541,7 +581,8 @@ async function landPullRequests(
   sha: string | null,
   forge: Forge,
   now: Date,
-  closeOnForge = true
+  closeOnForge = true,
+  event: MergeEvent = { type: `train_landed` }
 ): Promise<void> {
   const { applyPullRequestMerged } = await import(`@/lib/integrations/pr-sync`)
   const batch: Array<{ id: string; number: number; assistant: string | null; issues: string[] }> = []
@@ -550,7 +591,7 @@ async function landPullRequests(
   for (const id of ids) {
     await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null, trainLanding: true })
     const result = await db.transaction(async (tx) => {
-      const step = await stepPullRequestInTx(tx, id, { type: `train_landed` }, { base, now })
+      const step = await stepPullRequestInTx(tx, id, event, { base, now })
       const [pr] = await tx.select({ number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.id, id)).limit(1)
       return { step, number: pr?.number ?? 0, issues: await closedIssueIdentifiers(tx, id) }
     })
@@ -808,6 +849,7 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
     .orderBy(asc(mergeTrains.createdAt))
     .limit(1)
   let busy = live ? await pollRun(repo, live, forge, now) : false
+  await landEarlierLandings(repo, await livePrs(repo.id), forge, now)
 
   const until = backoff.get(repo.id)
   if (!busy && (until === undefined || until <= now.getTime())) {
@@ -1050,6 +1092,7 @@ export async function queueReport(pullRequestId: string): Promise<QueueReport | 
 
 export function resetMergeTrainForTests(): void {
   backoff.clear()
+  holdsCache.clear()
   inFlight.clear()
 }
 

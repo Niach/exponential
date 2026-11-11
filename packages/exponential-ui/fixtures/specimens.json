@@ -13554,16 +13554,79 @@
                 "id": "specimen_select_case_12_label",
                 "component": "Text",
                 "props": {
+                  "text": "triggerVariant · inline",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c12_access_level",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "sm",
+                  "align": "center",
+                  "justify": "between"
+                },
+                "children": [
+                  {
+                    "id": "c12_access_member",
+                    "component": "Text",
+                    "props": {
+                      "text": "ada@example.com"
+                    }
+                  },
+                  {
+                    "id": "c12_access",
+                    "component": "Select",
+                    "props": {
+                      "label": "Access",
+                      "name": "access",
+                      "triggerVariant": "inline",
+                      "align": "end",
+                      "value": "read",
+                      "options": [
+                        {
+                          "label": "None",
+                          "value": "none"
+                        },
+                        {
+                          "label": "Read only",
+                          "value": "read"
+                        },
+                        {
+                          "label": "Full",
+                          "value": "full"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_13",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_13_label",
+                "component": "Text",
+                "props": {
                   "text": "triggerVariant · row + description, disabled",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c12_agent_effort",
+                "id": "c13_agent_effort",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c12_effort_locked",
+                    "id": "c13_effort_locked",
                     "component": "Select",
                     "props": {
                       "label": "Effort",
@@ -13589,7 +13652,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_13",
+            "id": "specimen_select_case_14",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13598,7 +13661,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_13_label",
+                "id": "specimen_select_case_14_label",
                 "component": "Text",
                 "props": {
                   "text": "option iconColor + triggerIcon",
@@ -13606,11 +13669,11 @@
                 }
               },
               {
-                "id": "c13_pr_automation",
+                "id": "c14_pr_automation",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c13_pr_opened",
+                    "id": "c14_pr_opened",
                     "component": "Select",
                     "props": {
                       "label": "When a PR opens",
@@ -13652,7 +13715,7 @@
             ]
           },
           {
-            "id": "specimen_select_case_14",
+            "id": "specimen_select_case_15",
             "component": "Stack",
             "props": {
               "direction": "vertical",
@@ -13661,7 +13724,7 @@
             },
             "children": [
               {
-                "id": "specimen_select_case_14_label",
+                "id": "specimen_select_case_15_label",
                 "component": "Text",
                 "props": {
                   "text": "multiple · searchable · row + option icon, description",
@@ -13669,11 +13732,11 @@
                 }
               },
               {
-                "id": "c14_agent_skills",
+                "id": "c15_agent_skills",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c14_skills",
+                    "id": "c15_skills",
                     "component": "Select",
                     "props": {
                       "label": "Skills",

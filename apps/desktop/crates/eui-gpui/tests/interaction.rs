@@ -2005,3 +2005,51 @@ fn a_menu_item_preview_shows_on_hover_and_highlight(cx: &mut TestAppContext) {
         assert!(view.read_with(vcx, |v, _| v.layers().is_empty()), "Escape closed the menu");
     }
 }
+
+/// #EDE-65 (interactions-round1.json typeaheadFocus) through the painter: a
+/// Popover anchored on a text field (the IDE composer's `/` menu) opened
+/// and closed through data never moves the focus out of the field; a
+/// Button-anchored one still focuses its content and returns the focus to
+/// the anchor, a trigger press still focuses the content.
+#[gpui::test]
+fn a_field_anchored_popover_never_takes_the_focus_like_the_fixture(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["typeaheadFocus"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let which = c["surface"].as_str().unwrap();
+        let (view, _log, vcx) = surface(cx, fx["surfaces"][which].clone(), false);
+        view.update(vcx, |v, cx| {
+            for (k, val) in c["data"].as_object().unwrap() {
+                v.set_data(&format!("/{k}"), Some(val.clone()), cx).unwrap();
+            }
+        });
+        draw(vcx);
+        let field = match which {
+            "composer" => "c",
+            "input" => "q.field",
+            _ => "",
+        };
+        for step in c["steps"].as_array().unwrap() {
+            let op = step["do"].as_str().unwrap();
+            match op {
+                "focusField" => vcx.update(|window, cx| view.update(cx, |v, cx| assert!(v.focus_field(field, window, cx), "{name}: the field"))),
+                "open" | "close" => view.update(vcx, |v, cx| v.set_data("/open", Some(json!(op == "open")), cx).unwrap()),
+                "pressTrigger" => vcx.update(|window, cx| view.update(cx, |v, cx| v.press(v.index_of("t").unwrap(), window, cx))),
+                other => panic!("typeaheadFocus: unknown step {other}"),
+            }
+            draw(vcx);
+            draw(vcx);
+            let open = view.read_with(vcx, |v, _| v.layers().iter().any(|l| l.owner == "menu"));
+            assert_eq!(open, step["open"].as_bool().unwrap(), "{name}: {op} open");
+            let at = view.read_with(vcx, |v, _| v.focused().and_then(|i| v.surface().layout_node(i).map(|n| (n.id.clone(), n.layer))));
+            let place = match &at {
+                Some((id, _)) if id == field => "field".to_string(),
+                Some((id, _)) if id == "b" => "anchor".to_string(),
+                Some((_, layer)) if *layer > 0 => "content".to_string(),
+                other => format!("{other:?}"),
+            };
+            assert_eq!(place, step["focus"].as_str().unwrap(), "{name}: {op} focus");
+        }
+    }
+}

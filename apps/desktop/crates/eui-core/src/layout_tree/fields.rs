@@ -373,7 +373,8 @@ impl Builder<'_, '_> {
         props["placeholder"] = json!(placeholder);
         props["icon"] = json!(super::builtin_icon(glyph).unwrap_or("ui-selector"));
         // #EXP-1765: a `pill` Select's capsule sizes to its content.
-        let pill = owner.component == "Select" && owner.props.get("triggerVariant").and_then(Value::as_str) == Some("pill");
+        // #EXP-1629: so does an `inline` one (the chromeless text trigger).
+        let pill = owner.component == "Select" && matches!(owner.props.get("triggerVariant").and_then(Value::as_str), Some("pill" | "inline"));
         let t = self.part(owner, "trigger", &owner.component, NodeKind::Leaf, json!({"alignSelf": if pill { "flex-start" } else { "stretch" }}), props);
         let disabled = bool_prop(&owner.props, "disabled");
         self.nodes[t as usize].pressable = !disabled;
@@ -405,7 +406,11 @@ impl Builder<'_, '_> {
         // field trigger's parts, the `Select.dropdown` glyph, the label the
         // accessible name), its popup the IDE's pointer menu.
         let button = variant == "button";
-        let owner = self.field_open_with(index, !row && !pill && !button);
+        // #EXP-1629: an `inline` trigger is web's inline picker word: no
+        // chrome, the value then the `Select.dropdown` glyph, hugging its
+        // content; the label names it; its popup is the field's.
+        let inline = variant == "inline";
+        let owner = self.field_open_with(index, !row && !pill && !button && !inline);
         // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
@@ -422,7 +427,7 @@ impl Builder<'_, '_> {
         let value_icon = (row && bool_prop(&owner.props, "triggerIcon") && chosen.len() == 1)
             .then(|| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("icon")).and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string))
             .flatten();
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill || button { "Select.dropdown" } else { "Select.trigger" }), None) };
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill || button || inline { "Select.dropdown" } else { "Select.trigger" }), None) };
         // #EXP-1629: the chosen option's `iconColor` tints its `valueIcon`.
         if value_icon.is_some() {
             let color = options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("iconColor")).cloned();
@@ -444,7 +449,7 @@ impl Builder<'_, '_> {
                 }
             }
         }
-        if let Some(label) = str_prop(&owner.props, "label").filter(|l| (pill || button) && !l.is_empty()) {
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| (pill || button || inline) && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
         self.field_close(&owner, Some(trigger));

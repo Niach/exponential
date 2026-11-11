@@ -87,7 +87,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
-  selectTrigger: ["field","row","pill","button"],
+  selectTrigger: ["field","row","pill","button","inline"],
   inputVariant: ["field","row","bare","code","box"],
   inputSize: ["default","sm"],
   buttonTone: ["default","muted"],

@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Style key `fontVariantNumeric: tabular-nums` (the Solid painter's).
+- Select `triggerVariant: "inline"` (#EXP-1629): through the React renderer.
 - Select `button` popup keeps its starting cursor (#EXP-1629): through the React renderer.
 - Select `button` popup matches web's picker (#EXP-1629): through the React renderer.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): through the React renderer.

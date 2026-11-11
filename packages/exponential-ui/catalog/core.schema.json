@@ -6367,7 +6367,7 @@
         },
         "anchor": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "Open-at node; it toggles it."
+          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
         },
         "openOn": {
           "enum": [
@@ -13205,9 +13205,10 @@
             "field",
             "row",
             "pill",
-            "button"
+            "button",
+            "inline"
           ],
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon.",
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron.",
           "default": "field"
         },
         "triggerIcon": {
