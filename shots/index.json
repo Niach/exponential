@@ -4554,8 +4554,8 @@
         "file": "shots/exponential-ui-select/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 39878,
-        "sha256": "ac5ad58046b2fd6f91981b0023348c0f5fb6bb9ebd3551ad116a29d1cd3ca0f3"
+        "bytes": 39842,
+        "sha256": "bebe016677e326c73b583077ab10640d70a7723cfe7838794c6d09ce89891dcf"
       },
       "desktop": {
         "file": "shots/exponential-ui-select/desktop.webp",
