@@ -14,22 +14,22 @@
 //! A row: the state glyph in its tone, the label, the device-written detail
 //! at the right edge in its tone, at most ONE action pill (the block's filled
 //! one, or glass; its disabled face while the action runs). The Computer use row
-//! is the switch row. A permission row is indented. The Computer use band's
-//! host rows (the model and Work screen pickers) stay the host's own gpui
-//! rows, as named `host_leaf` slots ([`TAIL_SLOTS`]).
+//! is the switch row. A permission row is indented. Under the Computer use
+//! band, the host's picker rows (the model and Work screen pickers,
+//! [`TAIL_SLOTS`]) are `row` Selects (#EXP-1771).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
-use gpui::{div, AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window};
+use gpui::{div, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Window};
 use gpui_component::ActiveTheme as _;
 use serde_json::{json, Value};
 
 use coding::device_doctor::{DoctorAction, DoctorGroup};
 
-use crate::device_readiness::{BlockProps, ReadinessRow, ReadinessSection, Tone};
+use crate::device_readiness::{BlockProps, ReadinessRow, ReadinessSection, TailPicker, Tone};
 
 use super::doc::{faded, hex, path, Ink, PillPaint, SM, XS};
 
@@ -37,9 +37,18 @@ use super::doc::{faded, hex, path, Ink, PillPaint, SM, XS};
 /// `BlockProps::computer_use_tail` holds.
 pub(crate) const TAIL_SLOTS: [&str; 2] = ["computer_use_model", "work_screen"];
 
+/// The [`TAIL_SLOTS`] rows' labels.
+fn tail_label(slot: &str) -> String {
+    match slot {
+        "work_screen" => domain::work_screen::WORK_SCREEN.copy.row.clone(),
+        _ => "Computer use model".to_string(),
+    }
+}
+
 /// The document's actions (a pill, the switch, the install row's Custom
-/// path pill, its field and Save path, Check again).
-pub(crate) const EVENTS: [&str; 6] = ["readinessAction", "readinessToggle", "readinessCustomPath", "readinessPathEdit", "readinessSavePath", "readinessRecheck"];
+/// path pill, its field and Save path, Check again, a Computer use picker's
+/// pick).
+pub(crate) const EVENTS: [&str; 7] = ["readinessAction", "readinessToggle", "readinessCustomPath", "readinessPathEdit", "readinessSavePath", "readinessRecheck", "readinessPick"];
 
 /// What a person did in the block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +59,8 @@ pub(crate) enum Event {
     PathEdit { key: String, value: String },
     SavePath(String),
     Recheck,
+    /// A [`TAIL_SLOTS`] row's pick: the slot's index and the value.
+    Pick { slot: usize, value: String },
 }
 
 /// One of [`EVENTS`] as an [`Event`].
@@ -62,6 +73,10 @@ pub(crate) fn event(name: &str, context: &Value, payload: &Value) -> Option<Even
         "readinessPathEdit" => Some(Event::PathEdit { key: key()?, value: payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string() }),
         "readinessSavePath" => Some(Event::SavePath(key()?)),
         "readinessRecheck" => Some(Event::Recheck),
+        "readinessPick" => {
+            let slot = context.get("slot").and_then(Value::as_str)?;
+            Some(Event::Pick { slot: TAIL_SLOTS.iter().position(|known| *known == slot)?, value: payload.get("value").and_then(Value::as_str)?.to_string() })
+        }
         _ => None,
     }
 }
@@ -245,12 +260,18 @@ fn ladder(ink: &Ink, paint: &Paint, id: &str, list: &str, custom_path: bool) -> 
         "children": [{"id": format!("{id}_item"), "component": "Box", "style": column(), "children": row(ink, paint, id, custom_path)}]})
 }
 
-/// The Computer use band's host rows: `host_leaf` slots named
-/// `<id>_<slot>` ([`TAIL_SLOTS`]).
+/// The Computer use band's picker rows ([`TAIL_SLOTS`], `<id>_<slot>`):
+/// `glass_picker_row` + the IDE's Select popup = genUI's `row` Select, its
+/// value and options at `<at>/tail/<slot>`.
 fn tail(id: &str, at: &str) -> Vec<Value> {
     TAIL_SLOTS
         .iter()
-        .map(|slot| json!({"id": format!("{id}_{slot}"), "component": "Embed", "visible": path(&format!("{at}/tail/{slot}")), "props": {"surface": {}}, "style": {"width": "100%"}}))
+        .map(|slot| {
+            let base = format!("{at}/tail/{slot}");
+            json!({"id": format!("{id}_{slot}"), "component": "Select", "visible": path(&format!("{base}/shown")),
+                "props": {"triggerVariant": "row", "label": tail_label(slot), "name": slot, "value": path(&format!("{base}/value")), "options": path(&format!("{base}/options"))},
+                "on": {"change": {"event": {"name": "readinessPick", "context": {"slot": slot}}}}})
+        })
         .collect()
 }
 
@@ -302,13 +323,13 @@ pub(crate) struct Facts<'a> {
     pub toggle: bool,
     pub notes: &'a HashMap<String, String>,
     pub paths: &'a HashMap<String, PathField>,
-    /// How many [`TAIL_SLOTS`] the host fills.
-    pub tail: usize,
+    /// The [`TAIL_SLOTS`] rows the host fills.
+    pub tail: &'a [TailPicker],
 }
 
 impl<'a> Facts<'a> {
     pub(crate) fn of(props: &'a BlockProps, paths: &'a HashMap<String, PathField>) -> Self {
-        Self { busy: &props.busy, toggle: props.on_toggle.is_some(), notes: &props.notes, paths, tail: props.computer_use_tail.len() }
+        Self { busy: &props.busy, toggle: props.on_toggle.is_some(), notes: &props.notes, paths, tail: &props.computer_use_tail }
     }
 }
 
@@ -377,7 +398,15 @@ pub(crate) fn project(shape: Shape, facts: &Facts) -> Value {
             tail = true;
         }
     }
-    let slots: serde_json::Map<String, Value> = TAIL_SLOTS.iter().enumerate().map(|(ix, slot)| (slot.to_string(), json!(tail && ix < facts.tail))).collect();
+    let slots: serde_json::Map<String, Value> = TAIL_SLOTS
+        .iter()
+        .enumerate()
+        .map(|(ix, slot)| {
+            let picker = facts.tail.get(ix);
+            let options: Vec<Value> = picker.map(|picker| picker.options.iter().map(|(label, value)| json!({"label": label, "value": value})).collect()).unwrap_or_default();
+            (slot.to_string(), json!({"shown": tail && picker.is_some(), "value": picker.map(|picker| picker.value.clone()).unwrap_or_default(), "options": options}))
+        })
+        .collect();
     json!({
         "loading": matches!(shape, Shape::Loading),
         "sectioned": matches!(shape, Shape::Sections(_)),
@@ -421,10 +450,16 @@ impl ReadinessBlock {
             }
             binding
         });
-        let plugin: Rc<dyn HostPlugin> = Rc::new(TailPlugin { inner: super::doc::ide_plugin(), props: props.clone(), heights: RefCell::default() });
+        let plugin: Rc<dyn HostPlugin> = Rc::new(super::doc::ide_plugin());
         let tree = block(&Ink::of(cx), &Paint::of(cx), "readiness", "/block", false);
         let view = super::doc::mount_with(surface_id, tree, &binding, plugin, false, window, cx);
         Self { binding, view, props }
+    }
+
+    /// The mounted document (the settings bench presses its nodes).
+    #[cfg(test)]
+    pub(crate) fn view_for_shots(&self) -> Entity<SurfaceView> {
+        self.view.clone()
     }
 
     /// The rows to show and the host's wiring.
@@ -464,54 +499,13 @@ fn dispatch(props: &Rc<RefCell<BlockProps>>, event: Event, window: &mut Window, 
                 handler(on, window, cx);
             }
         }
+        Event::Pick { slot, value } => {
+            let handler = props.borrow().on_pick.clone();
+            if let Some(handler) = handler {
+                handler(slot, value, window, cx);
+            }
+        }
         _ => {}
-    }
-}
-
-/// The IDE's plugin plus the Computer use band's host rows.
-struct TailPlugin {
-    inner: crate::exponential_ui_host::IdePlugin,
-    props: Rc<RefCell<BlockProps>>,
-    heights: RefCell<HashMap<usize, f32>>,
-}
-
-impl TailPlugin {
-    fn slot(component_id: &str) -> Option<usize> {
-        TAIL_SLOTS.iter().position(|slot| component_id.ends_with(&format!("_{slot}")))
-    }
-
-    fn row(&self, slot: usize, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let build = self.props.borrow().computer_use_tail.get(slot).cloned()?;
-        Some(crate::surface::list_row(build(window, cx)).into_any_element())
-    }
-}
-
-impl HostPlugin for TailPlugin {
-    fn icon(&self, name: &str) -> Option<SharedString> {
-        self.inner.icon(name)
-    }
-
-    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
-        self.inner.on_unknown(node)
-    }
-
-    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
-        let slot = Self::slot(component_id)?;
-        Some(self.heights.borrow().get(&slot).copied().unwrap_or(0.))
-    }
-
-    fn host_leaf_prepaint(&self, component_id: &str, width: f32, window: &mut Window, cx: &mut App) -> bool {
-        let Some(slot) = Self::slot(component_id) else { return false };
-        let Some(row) = self.row(slot, window, cx) else { return false };
-        let height = crate::chat_tab_transcript::measure(row, width, window, cx);
-        let old = self.heights.borrow_mut().insert(slot, height);
-        old.is_none_or(|old| (old - height).abs() > 0.01)
-    }
-
-    // drop with EXP-1771: the device settings' Computer use model and Work
-    // screen pickers are the IDE's own `Select` rows until they move.
-    fn host_leaf(&self, component_id: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        self.row(Self::slot(component_id)?, window, cx)
     }
 }
 
@@ -573,6 +567,7 @@ pub(crate) mod tests {
             assert_eq!(event("readinessAction", &context, &Value::Null), Some(Event::Action { key: "claude".into(), action }));
         }
         assert_eq!(event("readinessToggle", &Value::Null, &json!({"checked": true})), Some(Event::Toggle(true)));
+        assert_eq!(event("readinessPick", &json!({"slot": "work_screen"}), &json!({"value": "auto"})), Some(Event::Pick { slot: 1, value: "auto".into() }));
     }
 
     /// The projection: one band per group with rows, the primary pill
@@ -585,7 +580,8 @@ pub(crate) mod tests {
         let sections = crate::device_readiness::sections(&doctor, true, None);
         let busy: HashSet<String> = ["claude".to_string()].into();
         let (notes, paths) = (HashMap::new(), HashMap::new());
-        let facts = Facts { busy: &busy, toggle: true, notes: &notes, paths: &paths, tail: 2 };
+        let tail = [TailPicker { value: "haiku".into(), options: vec![("Haiku".into(), "haiku".into())] }, TailPicker::default()];
+        let facts = Facts { busy: &busy, toggle: true, notes: &notes, paths: &paths, tail: &tail };
         let state = project(Shape::Sections(&sections), &facts);
         assert_eq!(state["shown"]["required"], json!(true));
         assert_eq!(state["shown"]["voice"], json!(false));
@@ -593,8 +589,10 @@ pub(crate) mod tests {
         assert_eq!((claude["primaryBusy"].clone(), claude["primaryOn"].clone(), claude["pillLabel"].clone()), (json!(true), json!(false), json!("Update")));
         let switch = &state["groups"]["computer_use"][0];
         assert_eq!((switch["switch"].clone(), switch["on"].clone()), (json!(true), json!(true)));
-        assert_eq!(state["tail"]["work_screen"], json!(true));
+        assert_eq!(state["tail"]["work_screen"]["shown"], json!(true));
+        assert_eq!(state["tail"]["computer_use_model"]["value"], json!("haiku"));
+        assert_eq!(state["tail"]["computer_use_model"]["options"], json!([{"label": "Haiku", "value": "haiku"}]));
         let loading = project(Shape::Loading, &facts);
-        assert_eq!((loading["loading"].clone(), loading["tail"]["work_screen"].clone()), (json!(true), json!(false)));
+        assert_eq!((loading["loading"].clone(), loading["tail"]["work_screen"]["shown"].clone()), (json!(true), json!(false)));
     }
 }

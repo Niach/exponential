@@ -24,7 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, SharedString, Window};
+use gpui::{App, SharedString, Window};
 
 use coding::device_doctor::{
     self, DeviceDoctor, DoctorAction, DoctorGroup, DoctorItem, DoctorState, KEY_COMPUTER_USE,
@@ -526,9 +526,16 @@ pub(crate) fn agent_for(key: &str) -> Option<CodingAgent> {
 pub(crate) type ActionHandler = Rc<dyn Fn(&str, DoctorAction, &mut Window, &mut App)>;
 /// The computer-use switch.
 pub(crate) type ToggleHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
-/// One of the Computer use band's host rows (`settings::readiness::
-/// TAIL_SLOTS`), built where the block paints it.
-pub(crate) type TailRow = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+/// #EXP-1771: one of the Computer use band's picker rows
+/// (`settings::readiness::TAIL_SLOTS`): the picked value and the choices
+/// (label, value) its Select offers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TailPicker {
+    pub value: String,
+    pub options: Vec<(String, String)>,
+}
+/// A pick in one of them: its slot (`TAIL_SLOTS` index) and the value.
+pub(crate) type PickHandler = Rc<dyn Fn(usize, String, &mut Window, &mut App)>;
 
 /// The host's wiring. No handler = inert (the styleguide).
 #[derive(Default)]
@@ -539,13 +546,15 @@ pub(crate) struct BlockProps {
     pub busy: HashSet<String>,
     /// A line under a row, by its key (a finished command's outcome).
     pub notes: HashMap<String, String>,
-    /// EXP-1236: host rows appended to the Computer use band, under the
+    /// EXP-1236: picker rows appended to the Computer use band, under the
     /// switch and its permission rows (the Computer use model picker, NEW-59
     /// the Work screen picker under it). The host hands them over only while
     /// the switch is on; with no Computer use band to hang them on (an older
     /// device's doctor) they are dropped. The bare switch row (no doctor)
     /// carries them too.
-    pub computer_use_tail: Vec<TailRow>,
+    pub computer_use_tail: Vec<TailPicker>,
+    /// A pick in one of [`Self::computer_use_tail`].
+    pub on_pick: Option<PickHandler>,
 }
 
 // ---------------------------------------------------------------------------
