@@ -538,9 +538,9 @@ extension SurfaceModel {
     }
 
     /// #EXP-1765: does Select `owner`'s popup open without a cursor (a
-    /// `pill`, opened by the pointer)?
+    /// `pill`, #EXP-1778: or a `button`, opened by the pointer)?
     func selectOpensCursorless(_ owner: String) -> Bool {
-        !keyboardFocus && SelectTrigger.isPill(node(id: owner)?.props ?? [:])
+        !keyboardFocus && SelectTrigger.isPillLike(node(id: owner)?.props ?? [:])
     }
 
     /// #EXP-1765: a key went while `n` (a Select's trigger, search or

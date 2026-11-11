@@ -703,6 +703,9 @@ pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String
         // Round 2 §7: `count` is its own muted part after the title, then the chevron.
         ("Accordion", Some("trigger")) => (0.0, if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 } + 16.0 + gap.max(8.0)),
         // #EXP-1765: a mono option's `trailing` (its width = `count_w`) before the check slot.
+        // #EXP-1778: a `button`'s menu row (`checkSlot: chosen`): the check
+        // (`count_w` = its recipe width) after the item `gap` on the chosen row only.
+        ("Select", Some("item")) if props.get("checkSlot").and_then(Value::as_str) == Some("chosen") => (icon("icon"), if has(props, "check") { gap + count_w } else { 0.0 }),
         ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0) + if has(props, "trailing") { gap.max(4.0) + count_w } else { 0.0 }),
         ("Menu", Some("itemLabel")) => (icon("icon"), 0.0),
         ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
@@ -1272,6 +1275,8 @@ impl<'a> GpuiMeasure<'a> {
             ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => self.trigger(leaf),
             ("Text", part) => {
                 let count_w = props.get("count").or_else(|| props.get("trailing")).map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
+                // #EXP-1778: a `button` menu row's check: its recipe width.
+                let count_w = if props.get("checkSlot").and_then(Value::as_str) == Some("chosen") { px_prop(&self.part("Select", "check", &serde_json::Map::from_iter([("triggerVariant".to_string(), Value::from("button"))]), &[]), "width").unwrap_or(16.0) } else { count_w };
                 let chrome = text_chrome(leaf.owner_component.unwrap_or(owner), part, props, c.gap, count_w);
                 let shown = display_text(props.get("text"));
                 let raw = shown.as_str();

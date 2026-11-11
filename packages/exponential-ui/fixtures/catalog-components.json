@@ -2311,6 +2311,30 @@
       }
     },
     {
+      "name": "Text/truncate=end",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "truncate": "end"
+        }
+      }
+    },
+    {
+      "name": "Text/truncate=middle",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "truncate": "middle"
+        }
+      }
+    },
+    {
       "name": "Text/tone=neutral",
       "node": {
         "id": "text",
@@ -11384,6 +11408,29 @@
           ],
           "value": "sprint",
           "triggerVariant": "pill"
+        }
+      }
+    },
+    {
+      "name": "Select/triggerVariant=button",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "button"
         }
       }
     },
