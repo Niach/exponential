@@ -378,6 +378,8 @@ pub struct LocalState {
     pub range_anchor: HashMap<String, String>,
     /// The open submenu of a menu (item index).
     pub submenu: HashMap<String, usize>,
+    /// #EXP-1629: each open menu's item `preview` state (which row's shows).
+    pub menu_preview: HashMap<String, crate::menu_preview::MenuPreview>,
     /// EXP-1259: the highlighted row of a SearchList (by its id) or of a
     /// searchable submenu (by its `search` part's id), a position in the
     /// FILTERED rows.

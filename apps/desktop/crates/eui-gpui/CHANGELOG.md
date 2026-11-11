@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `row` disabled (#EXP-1629): the dimmed value + chevron from the theme (Settings → Coding CLIs' locked Effort row).
+- Menu item `detail`, `identifier`, `preview` (#EXP-1629): the parts and the preview layer come from the core (its Embed leaf mounted like any Embed); a preview layer is passive (`passive_layer`): never the Tab order, Escape or the focus a newly opened layer takes.
 - Select option `iconColor` (#EXP-1629): painted from the core's Icon part colour; `settings_select_icon_color` (the IDE's PR-automation status picker rows).
 - Composer matches the app: the send disc draws the catalog's `Composer.send` (`ui-submit`: `Glyph::Submit`, Lucide `circle-arrow-up` painted on a canvas, no `IconName` for it); a flat Composer's Textarea sits so its text starts the field recipe's `paddingTop` below the row's top, one line or grown, reaching the row's bottom (`flat_field_box`: top = paddingTop − the editor inset), and the measure adds the field's paddingTop/paddingBottom before deciding whether the row grows past the disc.
 - Menu item `iconColor` (#EXP-1629): the `itemLabel`'s glyph paints in `LeafCx::prop_color` (a `$color.<name>` token of the theme, else the host's hex), else the ink; the IDE's PR-automation status picker.

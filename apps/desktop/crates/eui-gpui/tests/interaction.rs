@@ -1858,3 +1858,78 @@ fn an_autosize_textarea_grows_when_its_bound_value_arrives_later(cx: &mut TestAp
     draw(vcx);
     assert_eq!(view.read_with(vcx, |v, _| v.surface_height()), forty, "the loaded body fills maxRows");
 }
+
+/// #EXP-1629 (interactions-round1.json `menuPreview`) through the painter:
+/// a real pointer over a row with a `preview` shows it beside the row only
+/// after the 150 ms wait (the core's `HoverTimer` on gpui's clock), as a
+/// nested surface (the Embed leaf `m.preview.<row>.surface`); another row
+/// restarts the wait; a keyboard highlight shows its row's at once; an
+/// inner press fires the Menu's `action` {name, context}; the preview never
+/// takes Escape (it closes the menu, the preview with it).
+#[gpui::test]
+fn a_menu_item_preview_shows_on_hover_and_highlight(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["menuPreview"];
+    let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40}, "children": [fx["menu"].clone()]}), false);
+    view.update(vcx, |v, _| v.record_bounds(true));
+    draw(vcx);
+    let shown = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext| {
+        view.read_with(vcx, |v, _| v.layers().iter().filter_map(|l| v.placed_nodes().get(l.root as usize)).find(|n| n.part.as_deref() == Some("preview")).map(|n| n.id.clone()))
+    };
+    let wait = |vcx: &mut VisualTestContext, ms: u64| {
+        vcx.executor().advance_clock(Duration::from_millis(ms));
+        vcx.run_until_parked();
+        draw(vcx);
+    };
+    let center = |view: &Entity<SurfaceView>, vcx: &mut VisualTestContext, id: &str| view.read_with(vcx, |v, _| v.painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted")).center();
+    let t = center(&view, vcx, "m.trigger");
+    vcx.simulate_mouse_down(t, MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(t, MouseButton::Left, Modifiers::default());
+    draw(vcx);
+    draw(vcx);
+    assert_eq!(shown(&view, vcx), None, "nothing shows on its own");
+    let row0 = center(&view, vcx, "m.item.0");
+    vcx.simulate_mouse_move(row0, None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_eq!(shown(&view, vcx), None, "not before 150 ms");
+    wait(vcx, 60);
+    assert_eq!(shown(&view, vcx).as_deref(), Some("m.preview.0"), "after the wait");
+    let texts = view.read_with(vcx, |v, _| v.embedded("m.preview.0.surface")).expect("the nested surface");
+    let inner: Vec<String> = vcx.read(|cx| texts.read(cx).placed_nodes().iter().filter_map(|n| n.props.get("text").and_then(Value::as_str).map(str::to_string)).collect());
+    assert!(inner.iter().any(|t| t == "Usage"), "{inner:?}");
+    // Beside its row, at the inline end.
+    let (row, card) = view.read_with(vcx, |v, _| (v.painted_bounds("m.item.0").unwrap(), v.painted_bounds("m.preview.0").unwrap()));
+    assert!(card.origin.x >= row.origin.x + row.size.width, "{row:?} {card:?}");
+    // Another row restarts the wait.
+    let row1 = center(&view, vcx, "m.item.1");
+    vcx.simulate_mouse_move(row1, None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_ne!(shown(&view, vcx).as_deref(), Some("m.preview.1"), "row 1 waits its own 150 ms");
+    wait(vcx, 60);
+    assert_eq!(shown(&view, vcx).as_deref(), Some("m.preview.1"));
+    // An inner press: the Menu's `action`, the menu stays open.
+    let child = view.read_with(vcx, |v, _| v.embedded("m.preview.1.surface")).expect("the nested surface");
+    vcx.update(|window, cx| child.update(cx, |v, cx| v.press(v.index_of("yes").unwrap(), window, cx)));
+    draw(vcx);
+    let fired: Vec<Value> = log.0.borrow().actions.iter().filter(|a| a.name != "picked").map(|a| json!({"name": a.name, "context": a.context})).collect();
+    assert_eq!(fired, vec![json!({"name": "previewed", "context": {"menu": "more", "name": "reply", "context": {"text": "Yes"}}})]);
+    assert!(view.read_with(vcx, |v, _| v.layers().iter().any(|l| l.owner == "m" && v.placed_nodes()[l.root as usize].id == "m.content")), "the menu stays open");
+    // The pointer leaves everything: hidden 80 ms later.
+    vcx.simulate_mouse_move(gpui::point(px(900.0), px(700.0)), None, Modifiers::default());
+    draw(vcx);
+    wait(vcx, 100);
+    assert_eq!(shown(&view, vcx), None, "hidden after the pointer left");
+    // A keyboard highlight shows at once.
+    key(&view, vcx, "down");
+    let focused = view.read_with(vcx, |v, _| v.focused().and_then(|i| v.placed_nodes().get(i as usize)).map(|n| n.id.clone()));
+    assert!(focused.as_deref().is_some_and(|id| id.starts_with("m.item.")), "the arrow moved the menu's focus: {focused:?}");
+    if let Some(row) = focused.as_deref().and_then(|id| id.strip_prefix("m.item.")).filter(|k| matches!(*k, "0" | "1")) {
+        assert_eq!(shown(&view, vcx), Some(format!("m.preview.{row}")), "the highlighted row's, at once");
+        // Escape is the menu's: it closes, the preview with it.
+        assert!(vcx.update(|window, cx| view.update(cx, |v, cx| v.escape(window, cx))));
+        draw(vcx);
+        assert!(view.read_with(vcx, |v, _| v.layers().is_empty()), "Escape closed the menu");
+    }
+}

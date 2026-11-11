@@ -490,6 +490,16 @@
         "shortcut": {
           "type": "string"
         },
+        "identifier": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "object",
+          "bindable": true
+        },
         "checked": {
           "type": "boolean",
           "bindable": true
@@ -2816,7 +2826,8 @@
         }
       },
       "events": [
-        "select"
+        "select",
+        "action"
       ]
     },
     "Toast": {

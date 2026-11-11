@@ -6702,6 +6702,115 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_menu_case_4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen_menu_case_4_label",
+                "component": "Text",
+                "props": {
+                  "text": "items · detail + identifier + preview",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4_composer_menu",
+                "component": "Menu",
+                "props": {
+                  "label": "Options",
+                  "items": [
+                    {
+                      "label": "Model",
+                      "kind": "submenu",
+                      "detail": "Opus",
+                      "items": [
+                        {
+                          "label": "Opus",
+                          "value": "opus",
+                          "kind": "checkbox",
+                          "checked": true
+                        },
+                        {
+                          "label": "Sonnet",
+                          "value": "sonnet",
+                          "kind": "checkbox"
+                        }
+                      ]
+                    },
+                    {
+                      "label": "ada@example.com",
+                      "value": "account",
+                      "icon": "brand-claude",
+                      "detail": "Healthy",
+                      "preview": {
+                        "root": {
+                          "id": "usage",
+                          "component": "Stack",
+                          "props": {
+                            "gap": "xs"
+                          },
+                          "children": [
+                            {
+                              "id": "usage_title",
+                              "component": "Text",
+                              "props": {
+                                "text": "5-hour limit",
+                                "variant": "caption"
+                              }
+                            },
+                            {
+                              "id": "usage_bar",
+                              "component": "Progress",
+                              "props": {
+                                "value": 42,
+                                "label": "42%"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "label": "Issue",
+                      "kind": "submenu",
+                      "items": [
+                        {
+                          "label": "Fix the login redirect",
+                          "value": "EXP-12",
+                          "identifier": "EXP-12",
+                          "icon": "status-in-progress"
+                        },
+                        {
+                          "label": "Ship the composer menu",
+                          "value": "EXP-14",
+                          "identifier": "EXP-14",
+                          "icon": "status-done"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "children": [
+                  {
+                    "id": "c4_composer_plus",
+                    "component": "Button",
+                    "props": {
+                      "icon": "ui-add",
+                      "label": "Options",
+                      "variant": "ghost",
+                      "size": "icon"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

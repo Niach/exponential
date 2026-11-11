@@ -19113,6 +19113,18 @@
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
         },
+        "identifier": {
+          "type": "string",
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "$ref": "common_types.json#/$defs/DynamicValue",
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
+        },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
           "description": "Checkbox entry's state; bind it."
