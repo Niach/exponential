@@ -126,7 +126,7 @@ export function DiffPath({
           data-full={dir}
           className="relative min-w-0 overflow-hidden whitespace-pre before:invisible before:content-[attr(data-full)]"
         >
-          <span className="absolute inset-0 text-muted-foreground">
+          <span className="absolute inset-0 text-right text-muted-foreground">
             {shown ?? dir}
           </span>
         </span>
