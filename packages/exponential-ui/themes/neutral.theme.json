@@ -4187,6 +4187,14 @@
             "opacity": "$opacity.disabled"
           }
         }
+      ],
+      "sendIcon": [
+        {
+          "style": {
+            "width": 16,
+            "height": 16
+          }
+        }
       ]
     },
     "List": {

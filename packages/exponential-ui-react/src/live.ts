@@ -100,7 +100,9 @@ export function nodeDeps(node: UiNode, scope: string, ctx: SurfaceContextValue):
     collect(node.visible, scope, paths, ctx.functions) ||
     collect(node.style, scope, paths, ctx.functions) ||
     collect(node.recipe?.props, scope, paths, ctx.functions) ||
-    collect(node.accessibility, scope, paths, ctx.functions)
+    collect(node.accessibility, scope, paths, ctx.functions) ||
+    // #EDE-65: a native may lay out around a slot's visibility (Composer `above`).
+    Object.values(node.slots ?? {}).some((slot) => collect(slot.visible, scope, paths, ctx.functions))
   if (node.template) paths.push(absolutePath(node.template.path, scope))
   const unique = [...new Set(paths)]
   return { paths: unique, tokens: unique.map(pointerTokens), all, breakpoint: hosted || responsiveProps(node.component, ctx.extensionDefs).length > 0, xq: hosted || mediaDirection(node.style as Record<string, unknown> | undefined), mode: hosted || MODE_READERS.has(node.component) }

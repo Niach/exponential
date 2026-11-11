@@ -1671,6 +1671,17 @@
             "paddingTop": 4.25
           }
         }
+      ],
+      "sendIcon": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "width": 24,
+            "height": 24
+          }
+        }
       ]
     },
     "Tabs": {

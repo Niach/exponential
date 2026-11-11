@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer (#EDE-65): the send/stop glyph takes the `sendIcon` recipe part's size; a hidden `above` paints as no slot.
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
 - Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer (the IDE's `web_icon_xs`: 24 round, a 10.5 glyph from the `icon` part); the muted ink comes from the root recipe's colour.

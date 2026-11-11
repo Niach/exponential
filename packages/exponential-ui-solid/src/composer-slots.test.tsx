@@ -22,6 +22,7 @@ interface SlotsCase {
   order: string[]
   data?: Record<string, unknown>
   field?: { rows: number; grown: boolean }
+  hiddenAbove?: { path: string; value: unknown; stack: string[] }
   steps: { press: string }[]
   events: Fired[]
 }
@@ -87,7 +88,11 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       const s = fx.composerSlots.surface
       const composer = { ...s, props: { ...s.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
       const tree = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
-      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `cs`, data: structuredClone(c.data ?? {}), initial: tree })} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />)
+      let state!: SurfaceState
+      const { container } = render(() => {
+        state = createSurface({ surfaceId: `cs`, data: structuredClone(c.data ?? {}), initial: tree })
+        return <ExponentialSurface surface={state} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />
+      })
       expect(rowOrder(container)).toEqual(c.order)
       if (c.field) {
         // The field stretches across the row (grown by its min-height, never
@@ -102,6 +107,35 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       if (c.stack) expect(composerStack(container)).toEqual(c.stack)
       for (const step of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${step.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      // #EDE-65: a hidden `above` is the slot absent (no wrapper, so no gap);
+      // shown it is the slot, hidden again it is gone.
+      if (c.hiddenAbove) {
+        const host = container.querySelector(`[data-xui-id="c"]`)!
+        const { path, value, stack } = c.hiddenAbove
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+        expect(host.querySelector(`.xui-composer-above`)).toBeNull()
+        state.setData(`/${path}`, value)
+        expect(composerStack(container)).toEqual(stack)
+        expect(host.getAttribute(`data-above`)).toBe(`true`)
+        expect(container.querySelector(`[data-xui-id="strip"]`)).not.toBeNull()
+        state.setData(`/${path}`, false)
+        expect(composerStack(container)).toEqual(c.stack)
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+      }
+    })
+  }
+})
+
+// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+describe(`Composer sendIcon`, () => {
+  for (const [theme, layout, size] of [[`neutral`, `flat`, `16px`], [`neutral`, `stacked`, `16px`], [`exponential`, `flat`, `24px`], [`exponential`, `stacked`, `16px`]] as const) {
+    it(`${theme} ${layout}: the glyph is ${size}`, () => {
+      const s = fx.composerSlots.surface
+      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `si`, data: { draft: `hi` }, initial: { ...s, props: { ...s.props, layout } } as NestedNode })} theme={theme} id="si" />)
+      const glyph = container.querySelector(`[data-xui-part="Composer/send"] svg`)!
+      expect(glyph.getAttribute(`data-xui-part`)).toBe(`Composer/sendIcon`)
+      expect(cascaded(glyph, `width`)).toBe(size)
+      expect(cascaded(glyph, `height`)).toBe(size)
     })
   }
 })

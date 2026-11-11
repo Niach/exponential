@@ -4234,6 +4234,14 @@
                 "opacity": "$opacity.disabled"
               }
             }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            }
           ]
         },
         "List": {
@@ -13759,6 +13767,23 @@
                 "opacity": "$opacity.disabled"
               }
             }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
+              }
+            }
           ]
         },
         "List": {
@@ -22762,6 +22787,14 @@
             {
               "style": {
                 "borderRadius": "$radius.full"
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
               }
             }
           ]
@@ -32592,6 +32625,23 @@
               },
               "style": {
                 "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
               }
             }
           ]

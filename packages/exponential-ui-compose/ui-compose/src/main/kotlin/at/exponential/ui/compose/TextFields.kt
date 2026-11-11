@@ -500,6 +500,8 @@ internal fun ComposerLeaf(cx: LeafContext) {
     val index = cx.index
     val field = cx.part("Composer", "field")
     val send = cx.part("Composer", "send")
+    // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+    val sendIcon = cx.part("Composer", "sendIcon").width ?: 16f
     val placeholder = cx.part("Composer", "placeholder")
     val chip = cx.part("Composer", "attachment")
     val sendSize = send.height ?: cx.control("buttonIcon", 36f)
@@ -601,7 +603,7 @@ internal fun ComposerLeaf(cx: LeafContext) {
                     contentAlignment = Alignment.Center,
                 ) {
                     val sendInk = send.color ?: cx.themeColor("primaryForeground") ?: Color.White
-                    if (busy) IconOrGlyph(builtinIcon("Composer.stop", "ui-stop"), Glyph.Stop, 16f, cx, sendInk) else IconOrGlyph(builtinIcon("Composer.send", "ui-submit"), Glyph.Submit, 16f, cx, sendInk)
+                    if (busy) IconOrGlyph(builtinIcon("Composer.stop", "ui-stop"), Glyph.Stop, sendIcon, cx, sendInk) else IconOrGlyph(builtinIcon("Composer.send", "ui-submit"), Glyph.Submit, sendIcon, cx, sendInk)
                 }
             }
     }

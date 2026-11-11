@@ -794,8 +794,17 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
             let frames: HashMap<String, (f32, f32, f32, f32)> = out.frames.iter().map(|f| (nodes[f.index as usize].id.clone(), (f.x, f.y, f.w, f.h))).collect();
             (s, frames)
         };
+        let without_above = {
+            let mut p = composer.clone();
+            if let Some(o) = p.get_mut("slots").and_then(Value::as_object_mut) {
+                o.remove("above");
+            }
+            p
+        };
         let (mut s, frames) = run(composer);
         let (_, bare) = run(plain);
+        let (_, no_above) = run(without_above);
+        let hidden = c.get("hiddenAbove");
         let frame = |id: &str| *frames.get(id).unwrap_or_else(|| panic!("{name}: no frame for {id}"));
         let cf = frame("c");
         let ci = s.index_of("c").unwrap();
@@ -805,8 +814,18 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
         let (start, end) = if rtl { (cf.0 + cf.2 - pad[1] - b, cf.0 + pad[3] + b) } else { (cf.0 + pad[3] + b, cf.0 + cf.2 - pad[1] - b) };
         let token = |t: &str| eui_core::theme::resolve_token(s.theme().unwrap(), &json!(t), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
         let xs = token("$spacing.xs");
+        // #EDE-65: the root's gap (`hiddenAbove`'s growth once shown).
+        let root_gap = token(if c["props"]["layout"] == "flat" { "$spacing.xs" } else { "$spacing.sm" });
         let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
-        if slots.contains_key("above") {
+        if hidden.is_some() {
+            // #EDE-65: a hidden child = the slot absent: nothing laid out for
+            // it, and every other frame where it is without the slot.
+            assert!(!frames.contains_key("c.above") && !frames.contains_key("strip"), "{name}: a hidden above lays nothing out");
+            for (id, f) in &no_above {
+                assert_eq!(frames.get(id), Some(f), "{name}: {id} as if the slot were absent");
+            }
+        }
+        if slots.contains_key("above") && hidden.is_none() {
             // #EXP-1762: `above` sits at the content top, the content box's
             // full width, and SIZES the composer: + its height + the root's gap.
             let above = frame("c.above");
@@ -858,6 +877,25 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
             fired.extend(s.event(i, "press", None).into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
         }
         assert_eq!(json!(fired), c["events"], "{name}: events");
+        // #EDE-65: shown = grows by its height + the gap; hidden again = back.
+        if let Some(h) = hidden {
+            let path = format!("/{}", h["path"].as_str().unwrap());
+            let at = |s: &mut Surface| {
+                let out = s.layout(&mut fixed());
+                let nodes = s.nodes();
+                out.frames.iter().map(|f| (nodes[f.index as usize].id.clone(), (f.x, f.y, f.w, f.h))).collect::<HashMap<String, (f32, f32, f32, f32)>>()
+            };
+            s.set_data(&path, Some(h["value"].clone())).unwrap();
+            let shown = at(&mut s);
+            let above = shown.get("c.above").unwrap_or_else(|| panic!("{name}: shown above laid out"));
+            assert!(above.3 > 0.0, "{name}: the shown above has a height");
+            near(shown["c"].3, bare["c"].3 + above.3 + root_gap, "the shown above grows the composer by its height + the gap");
+            near(shown["c.sendSpace"].1 + shown["c.sendSpace"].3, shown["c"].1 + shown["c"].3 - pad[2] - b, "the row stays at the content bottom");
+            s.set_data(&path, Some(json!(false))).unwrap();
+            let again = at(&mut s);
+            assert!(!again.contains_key("c.above"), "{name}: hidden again");
+            assert_eq!(again["c"], bare["c"], "{name}: hidden again = as if absent");
+        }
     }
 }
 
@@ -941,6 +979,25 @@ fn a_flat_composer_field_starts_its_text_at_the_recipe_top_padding() {
             seen += 1;
         }
         assert_eq!(seen, 2, "a one-line and a grown case");
+    }
+}
+
+/// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part: 16
+/// everywhere, the exponential theme's (and orange's, which extends it)
+/// flat composer 24 (the IDE's 32 px
+/// send: gpui-component's 0.75× icon).
+#[test]
+fn the_composer_send_glyph_takes_the_send_icon_part() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        for layout in ["flat", "stacked"] {
+            let q = RecipeQuery { component: "Composer".into(), part: "sendIcon".into(), props: serde_json::from_value(json!({"layout": layout, "attachments": false, "busy": false})).unwrap(), states: vec![] };
+            let style = recipe_style(&theme, &q);
+            let px = |key: &str| style.get(key).and_then(|v| if v.is_number() { Some(v.clone()) } else { resolve_token(&theme, v, Mode::Light) }).and_then(|v| v.as_f64()).unwrap_or_else(|| panic!("{id}/{layout}: no sendIcon {key}"));
+            let want = if matches!(id, "exponential" | "orange") && layout == "flat" { 24.0 } else { 16.0 };
+            assert_eq!((px("width"), px("height")), (want, want), "{id}/{layout}");
+        }
     }
 }
 
