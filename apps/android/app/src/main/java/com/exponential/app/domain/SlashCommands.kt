@@ -103,6 +103,18 @@ object SlashCommands {
         agent?.takeIf { it.isNotBlank() }?.trim()
             ?: if (acp) EXTERNAL_AGENT else defaultAgent
 
+    /**
+     * #EXP-1791: the CODING agent a run is on, for everything about its
+     * machine (the Usage overlay's login and windows, the account switch, the
+     * usage refresh): `sessions.cli`, a blank one being claude. Never
+     * [agentId]'s external arm: a chat root carries no `cli` at all, and
+     * reading it as "no agent" left the overlay on "Checking…" with no
+     * accounts. Mirrored ×4 (web `runAgentId`, iOS `SlashCommands.runAgent`,
+     * desktop `slash_commands::run_agent`).
+     */
+    fun runAgent(cli: String?): String =
+        cli?.trim()?.takeIf { it.isNotEmpty() } ?: defaultAgent
+
     /** The rows applicable to [agent] (null = the default agent), in contract
      *  order. */
     fun catalogFor(agent: String?): List<SlashCommand> {

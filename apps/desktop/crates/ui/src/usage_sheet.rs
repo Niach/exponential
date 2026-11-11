@@ -134,13 +134,13 @@ pub(crate) fn render_usage_sheet(
             cx,
         )),
         None => {
-            // EXP-862: a live run's login IS signed in, so windows nothing has
-            // read yet are "Checking…" (the ×4 `usage_caption` rule) IN PLACE
-            // of the block — never a machine that looks broken, and never a
-            // silently missing section.
-            let caption =
-                crate::usage_bar::usage_caption(crate::usage_bar::UsageState::Checking, None)
-                    .unwrap_or_default();
+            // EXP-862: a signed-in login nothing has read YET is "Checking…"
+            // (the ×4 `usage_caption` rule) IN PLACE of the block. #EXP-1791:
+            // only while an answer can still come — a host that reported no
+            // login for the agent, a signed-out login or an offline host
+            // SAYS so instead of checking forever.
+            let host_online = switch.as_ref().is_some_and(|switch| switch.host_online(cx));
+            let caption = run_windows_caption(current.map(|target| target.health), host_online);
             sections.push(
                 div()
                     .text_xs()
@@ -181,6 +181,29 @@ pub(crate) fn render_usage_sheet(
         sheet = sheet.child(slot.child(section));
     }
     sheet.into_any_element()
+}
+
+/// #EXP-1791 — the line the sheet prints where the run's windows go when it
+/// has none to draw. "Checking…" only while an answer can still arrive (a
+/// healthy login on an online host — the sheet's open already asked it for a
+/// read); otherwise the ×4 terminal captions: no login resolved for the run's
+/// agent = [`crate::usage_bar::NO_LOGIN_REPORTED`], a signed-out or broken
+/// login (its badge already says which) or an offline host = "No usage
+/// reported". Before this the sheet said "Checking…" unconditionally, so a
+/// run whose login never resolved checked forever.
+pub(crate) fn run_windows_caption(
+    login: Option<coding::agent_accounts::Health>,
+    host_online: bool,
+) -> String {
+    use coding::agent_accounts::Health;
+    use crate::usage_bar::{usage_caption, UsageState};
+    let state = match login {
+        None => return crate::usage_bar::NO_LOGIN_REPORTED.to_string(),
+        Some(Health::SignedOut | Health::NeedsRelogin) => UsageState::None,
+        Some(_) if !host_online => UsageState::None,
+        Some(_) => UsageState::Checking,
+    };
+    usage_caption(state, None).unwrap_or_default()
 }
 
 /// EXP-877 — the composer footer's CONTEXT RING: a 16px radial meter of how
@@ -489,3 +512,22 @@ fn render_legend_row(index: usize, row: &crate::context_layout::ContextLegendRow
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coding::agent_accounts::Health;
+
+    /// #EXP-1791: "Checking…" is a beat, never a resting state — every case
+    /// where no answer can come says so with the ×4 captions.
+    #[test]
+    fn the_windows_caption_only_checks_while_an_answer_can_come() {
+        assert_eq!(run_windows_caption(Some(Health::Ok), true), "Checking…");
+        assert_eq!(run_windows_caption(Some(Health::Unknown), true), "Checking…");
+        assert_eq!(run_windows_caption(Some(Health::Ok), false), "No usage reported");
+        assert_eq!(run_windows_caption(Some(Health::SignedOut), true), "No usage reported");
+        assert_eq!(run_windows_caption(Some(Health::NeedsRelogin), true), "No usage reported");
+        assert_eq!(run_windows_caption(None, true), "No login reported");
+        assert_eq!(run_windows_caption(None, false), "No login reported");
+    }
+}

@@ -502,7 +502,8 @@ object AgentUsagePresentation {
         nowMs: Long,
     ): AgentUsage? {
         if (session.isEnded) return null
-        val agent = session.cli?.takeIf { it.isNotBlank() } ?: return null
+        // #EXP-1791: a cli-less run (every chat root) is claude.
+        val agent = SlashCommands.runAgent(session.cli)
         val deviceId = session.deviceId.takeIf { it.isNotBlank() } ?: return null
         val matches = devices.filter { it.deviceId == deviceId }
         val row = matches.firstOrNull { it.userId == session.userId } ?: matches.firstOrNull() ?: return null

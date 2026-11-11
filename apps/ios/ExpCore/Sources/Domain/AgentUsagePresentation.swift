@@ -514,7 +514,8 @@ public enum AgentUsagePresentation {
         now: Date = Date()
     ) -> SessionAgentUsage? {
         guard status != DomainContract.sessionStatusEnded else { return nil }
-        guard let agent = cli, !agent.isEmpty else { return nil }
+        // #EXP-1791: a cli-less run (every chat root) is claude.
+        let agent = SlashCommands.runAgent(cli)
         guard let deviceId, !deviceId.isEmpty else { return nil }
         let byId = devices.filter { $0.deviceId == deviceId }
         guard let row = byId.first(where: { $0.userId == userId }) ?? byId.first else { return nil }

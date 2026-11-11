@@ -139,6 +139,18 @@ public enum SlashCommands {
         return acp ? externalAgent : defaultAgent
     }
 
+    /// #EXP-1791: the CODING agent a run is on, for everything about its
+    /// machine (the Usage overlay's login and windows, the account switch,
+    /// the usage refresh): `sessions.cli`, a blank one being claude. Never
+    /// `agentId`'s external arm: a chat root carries no `cli` at all, and
+    /// reading it as "no agent" left the overlay on "Checking…" with no
+    /// accounts. Mirrored ×4 (web `runAgentId`, Android
+    /// `SlashCommands.runAgent`, desktop `slash_commands::run_agent`).
+    public static func runAgent(_ cli: String?) -> String {
+        let trimmed = cli?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? defaultAgent : trimmed
+    }
+
     /// Every command the given agent can run, in catalog order.
     public static func catalog(for agent: String?) -> [SlashCommand] {
         let resolved = resolve(agent)

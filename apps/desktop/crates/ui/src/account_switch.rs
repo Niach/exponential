@@ -294,6 +294,27 @@ impl SwitchContext {
             .filter(|email| !email.is_empty())
     }
 
+    /// #EXP-1791 — whether the run's host can still answer a usage read: a
+    /// run hosted HERE always can (this process reads it); another machine
+    /// only while its synced row is online.
+    pub(crate) fn host_online(&self, cx: &App) -> bool {
+        if self.local {
+            return true;
+        }
+        let Some(device_id) = self.device_id.as_deref() else {
+            return false;
+        };
+        let Some(store) = sync::Store::try_global(cx) else {
+            return false;
+        };
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let devices = store.collections().devices.read(cx);
+        devices
+            .iter()
+            .filter(|row| row.device_id.as_deref() == Some(device_id))
+            .any(|row| crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms))
+    }
+
     /// EXP-863 — the switch decision for this run: every account its host
     /// holds for the agent, the current one included and flagged. `None` when
     /// the machine reported no account at all for the agent (nothing to say,

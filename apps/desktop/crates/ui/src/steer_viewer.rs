@@ -1145,14 +1145,19 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// The builtin agent behind this session, for the usage sheet's device
-    /// cards (an external agent reports no usage windows of its own).
+    /// The coding agent behind this session, for the usage sheet's account
+    /// and windows, Account › and the usage wall. #EXP-1791: a REMOTE run
+    /// reads `sessions.cli` (NULL = claude, web's rule) — never the `/`
+    /// catalog's External arm, which a cli-less chat with an ACP config hit,
+    /// leaving the sheet on "Checking…" with no accounts. Always `Some`; the
+    /// `Option` stays for the callers' signatures.
     pub(crate) fn builtin_agent(&self) -> Option<coding::CodingAgent> {
-        match self.agent() {
-            SessionAgent::Claude => Some(coding::CodingAgent::Claude),
-            SessionAgent::Codex => Some(coding::CodingAgent::Codex),
-            SessionAgent::External => None,
+        if let Some(session) = self.source.session() {
+            return Some(session.agent());
         }
+        Some(slash_commands::run_agent(
+            self.row.as_ref().and_then(|row| row.cli.as_deref()),
+        ))
     }
 
     /// #EXP-1715: this is the viewer's own Assistant conversation (its ROOT;

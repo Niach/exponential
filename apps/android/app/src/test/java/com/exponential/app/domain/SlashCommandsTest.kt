@@ -103,6 +103,17 @@ class SlashCommandsTest {
      * claude. An EXTERNAL ACP agent syncs no agent either, so its catalog is
      * empty — and with agent commands never merged (NEW-2) its menu is shut.
      */
+    /**
+     * #EXP-1791, mirrored ×4 under this name: to its MACHINE (the Usage
+     * overlay's login and windows) a cli-less run is claude, ACP or not.
+     */
+    @Test
+    fun `a cli-less run is claude to the machine`() {
+        assertEquals("claude", SlashCommands.runAgent(null))
+        assertEquals("claude", SlashCommands.runAgent("  "))
+        assertEquals("codex", SlashCommands.runAgent(" codex "))
+    }
+
     @Test
     fun `an agent-less acp run is an external agent`() {
         assertFalse(SlashCommands.EXTERNAL_AGENT in DomainContract.codingAgentValues)

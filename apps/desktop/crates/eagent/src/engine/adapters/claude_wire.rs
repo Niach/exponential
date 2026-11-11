@@ -1632,15 +1632,37 @@ pub fn context_window_from_model_usage(
         .map(|window| ContextWindowReport { window, exact: false })
 }
 
-/// The heuristic the upstream adapter uses before any authoritative number
-/// arrives: a `1m` in the model id means the million-token window.
+/// The million-token window every current Claude model runs with.
+pub const CONTEXT_WINDOW_1M: u64 = 1_000_000;
+/// The window of the 4.x-and-older models without the `[1m]` opt-in.
+pub const CONTEXT_WINDOW_200K: u64 = 200_000;
+
+/// The window guessed before any authoritative number arrives (the first
+/// `result.modelUsage`). A `1m` in the model id means the million-token
+/// window; so does every Claude 5 model (Opus, Sonnet, Haiku, Fable 5.x all
+/// report `contextWindow: 1000000` without the suffix), and so does a bare
+/// alias (`opus`, `default`), which names the current family. Only an id that
+/// spells an OLDER generation (`claude-opus-4-6`, `claude-3-5-sonnet`) keeps
+/// the 200k guess. #EXP-1791: guessing 200k for `claude-opus-5-5` showed
+/// `320k / 200k (100%)` for the whole of a long first turn.
 pub fn infer_context_window(model: &str) -> u64 {
     let lower = model.to_ascii_lowercase();
-    let millionish = lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| part == "1m");
-    if millionish {
-        1_000_000
-    } else {
-        200_000
+    let parts: Vec<&str> = lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.contains(&"1m") {
+        return CONTEXT_WINDOW_1M;
+    }
+    // The generation is the first all-digit part (`claude-opus-4-6` → 4,
+    // `claude-3-5-sonnet` → 3); a dated suffix (`20250929`) never comes first.
+    let generation = parts
+        .iter()
+        .find(|part| part.chars().all(|c| c.is_ascii_digit()))
+        .and_then(|part| part.parse::<u64>().ok());
+    match generation {
+        Some(generation) if generation < 5 => CONTEXT_WINDOW_200K,
+        _ => CONTEXT_WINDOW_1M,
     }
 }
 
@@ -2601,7 +2623,34 @@ mod tests {
         );
         assert_eq!(context_window_from_model_usage(&json!({}), "opus"), None);
         assert_eq!(infer_context_window("claude-opus-5[1m]"), 1_000_000);
-        assert_eq!(infer_context_window("claude-sonnet-5"), 200_000);
+    }
+
+    /// #EXP-1791: every Claude 5 id (what `system.init` reports for the
+    /// `opus`/`fable`/`sonnet`/`haiku` aliases) and every bare alias is the
+    /// 1M window; only an older generation without `[1m]` is 200k.
+    #[test]
+    fn the_guessed_context_window_knows_the_claude_5_family() {
+        for model in [
+            "claude-opus-5-5",
+            "claude-fable-5-2",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+            "claude-sonnet-5",
+            "opus",
+            "default",
+            "claude-opus-4-6[1m]",
+            "claude-sonnet-4-5-20250929[1m]",
+        ] {
+            assert_eq!(infer_context_window(model), CONTEXT_WINDOW_1M, "{model}");
+        }
+        for model in [
+            "claude-opus-4-6",
+            "claude-sonnet-4-5-20250929",
+            "claude-3-5-sonnet-20241022",
+            "claude-haiku-4-5",
+        ] {
+            assert_eq!(infer_context_window(model), CONTEXT_WINDOW_200K, "{model}");
+        }
     }
 
     /// EXP-1134: the host asks for the name and persists it; a blank or

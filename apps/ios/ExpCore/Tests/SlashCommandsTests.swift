@@ -84,6 +84,14 @@ final class SlashCommandsTests: XCTestCase {
     /// EXP-746: "no agent" alone does not mean claude — an EXTERNAL ACP agent
     /// syncs no agent either, and its curated catalog is empty. NEW-2: what it
     /// advertises stays hidden too, so its menu is empty.
+    /// #EXP-1791, mirrored ×4: to its MACHINE (the Usage overlay's login and
+    /// windows) a cli-less run is claude, ACP or not.
+    func testACliLessRunIsClaudeToTheMachine() {
+        XCTAssertEqual(SlashCommands.runAgent(nil), "claude")
+        XCTAssertEqual(SlashCommands.runAgent("  "), "claude")
+        XCTAssertEqual(SlashCommands.runAgent(" codex "), "codex")
+    }
+
     func testAnAgentLessAcpRunIsAnExternalAgent() {
         XCTAssertFalse(DomainContract.codingAgentValues.contains(SlashCommands.externalAgent))
         XCTAssertEqual(SlashCommands.agentId(nil, acp: true), SlashCommands.externalAgent)

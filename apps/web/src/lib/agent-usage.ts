@@ -18,6 +18,7 @@ import { contract } from "@exp/domain-contract"
 import { SESSION_CARD_COPY } from "@exp/domain-contract/session-tree"
 import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { relativeTime } from "@/components/comment-rows/format"
+import { runAgentId } from "@/lib/steer-commands"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
   Device,
@@ -509,17 +510,19 @@ export function sessionAgentUsage(
   if (session.status !== `running` && session.status !== `idle`) {
     return null
   }
-  if (!session.agent || !session.deviceId) return null
+  // #EXP-1791: a cli-less run (every chat root) is claude.
+  const agent = runAgentId(session.agent)
+  if (!session.deviceId) return null
   const matches = devices.filter(
     (device) => device.deviceId === session.deviceId
   )
   const row =
     matches.find((device) => device.userId === session.userId) ?? matches[0]
   if (!row) return null
-  const usage = parseAgentUsage(row.agentUsage?.[session.agent])
+  const usage = parseAgentUsage(row.agentUsage?.[agent])
   if (!usage || usage.windows.length === 0) return null
   if (!usageIsFresh(usage, now)) return null
-  return { agent: session.agent, usage }
+  return { agent, usage }
 }
 
 /** EXP-484: what the device wrote into a finished `agent_login` command's

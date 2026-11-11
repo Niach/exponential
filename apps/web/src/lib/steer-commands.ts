@@ -61,6 +61,15 @@ export function steerAgentId(
   return acp ? EXTERNAL_STEER_AGENT : DEFAULT_STEER_AGENT
 }
 
+/** #EXP-1791: the CODING agent a run is on, for everything about its machine
+ * (the usage sheet's login and windows, the account switch): `sessions.cli`,
+ * a blank one being claude. Never `steerAgentId`'s external arm: a chat root
+ * carries no `cli` at all. Mirrored ×4 (iOS/Android `SlashCommands.runAgent`,
+ * desktop `slash_commands::run_agent`). */
+export function runAgentId(cli: string | null | undefined): string {
+  return cli?.trim() || DEFAULT_STEER_AGENT
+}
+
 /** The whole catalog, in contract order. */
 export const STEER_COMMANDS: readonly SteerCommand[] =
   contract.steerCommands.commands

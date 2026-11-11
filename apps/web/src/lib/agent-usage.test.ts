@@ -476,12 +476,15 @@ describe(`sessionAgentUsage`, () => {
     expect(sessionAgentUsage(session, [stale], NOW)).toBeNull()
   })
 
-  it(`hides on ended runs, agent-less rows, unknown devices and empty usage`, () => {
+  it(`reads a cli-less run as claude (#EXP-1791)`, () => {
+    expect(
+      sessionAgentUsage({ ...session, agent: null }, [device], NOW)?.agent
+    ).toBe(`claude`)
+  })
+
+  it(`hides on ended runs, unknown devices and empty usage`, () => {
     expect(
       sessionAgentUsage({ ...session, status: `ended` }, [device], NOW)
-    ).toBeNull()
-    expect(
-      sessionAgentUsage({ ...session, agent: null }, [device], NOW)
     ).toBeNull()
     expect(
       sessionAgentUsage({ ...session, deviceId: null }, [device], NOW)

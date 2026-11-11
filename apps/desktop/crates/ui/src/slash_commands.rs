@@ -42,6 +42,19 @@ pub(crate) fn agent_of(row: &domain::rows::SessionRow, acp: bool) -> SessionAgen
     agent_from_id(row.cli.as_deref(), acp)
 }
 
+/// #EXP-1791 — the CODING agent a run is on, for everything that is about
+/// the machine rather than the `/` catalog (the usage sheet's account and
+/// windows, Account ›, the usage wall): `sessions.cli`, a NULL one being
+/// claude (web `row?.cli ?? "claude"`). Never [`agent_of`]'s External arm:
+/// every run publishes an ACP config now, so a cli-less chat read as an
+/// external agent and the sheet sat on "Checking…" with no accounts.
+pub(crate) fn run_agent(cli: Option<&str>) -> coding::CodingAgent {
+    match agent_from_id(cli, false) {
+        SessionAgent::Codex => coding::CodingAgent::Codex,
+        _ => coding::CodingAgent::Claude,
+    }
+}
+
 /// The pure half of [`agent_of`] — `sessions.cli` is a raw wire
 /// string, and an unknown one is claude like an absent one.
 fn agent_from_id(agent: Option<&str>, acp: bool) -> SessionAgent {
@@ -354,6 +367,16 @@ mod tests {
     fn an_agent_less_acp_run_is_an_external_agent() {
         assert_eq!(agent_from_id(None, true), SessionAgent::External);
         assert_eq!(agent_from_id(Some("  "), true), SessionAgent::External);
+    }
+
+    /// #EXP-1791: a cli-less run (every chat root) is claude to the usage
+    /// sheet, whatever its ACP config says; only `codex` is codex.
+    #[test]
+    fn a_cli_less_run_is_claude_to_the_machine() {
+        assert_eq!(run_agent(None), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some("  ")), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some("claude")), coding::CodingAgent::Claude);
+        assert_eq!(run_agent(Some(" Codex ")), coding::CodingAgent::Codex);
         // A named agent keeps its own catalog on the ACP path.
         assert_eq!(agent_from_id(Some("codex"), true), SessionAgent::Codex);
         assert!(names("/", agent_from_id(None, true)).is_empty());
