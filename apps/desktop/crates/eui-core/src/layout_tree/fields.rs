@@ -419,6 +419,13 @@ impl Builder<'_, '_> {
             .then(|| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("icon")).and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string))
             .flatten();
         let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
+        // #EXP-1629: the chosen option's `iconColor` tints its `valueIcon`.
+        if value_icon.is_some() {
+            let color = options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("iconColor")).cloned();
+            if let Some(index) = self.slot_of_id(&format!("{}.valueIcon", owner.id)) {
+                self.tint(index, color.as_ref());
+            }
+        }
         if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
@@ -504,7 +511,8 @@ impl Builder<'_, '_> {
                 }
                 let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, style, json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
                 if let Some(icon) = icon {
-                    self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                    let glyph = self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                    self.tint(glyph, option.get("iconColor"));
                 }
                 let column = self.part_in(item, &owner, "itemText", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), &suffix);
                 self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
@@ -607,6 +615,16 @@ impl Builder<'_, '_> {
         self.nodes[d as usize].lines = None;
         let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
         (t, Some(self.row_value(control, owner, text, placeholder, icon)))
+    }
+
+    /// #EXP-1629: an option's `iconColor` (`$color.<name>`, or the host's
+    /// resolved colour bound from data) as its glyph's own colour, over any
+    /// recipe (a status picker's tinted glyphs).
+    fn tint(&mut self, index: u32, color: Option<&Value>) {
+        let Some(color) = color.and_then(Value::as_str).filter(|c| !c.is_empty()) else { return };
+        let n = &mut self.nodes[index as usize];
+        n.base_style.insert("color".to_string(), json!(color));
+        n.authored_keys.push("color".to_string());
     }
 
     /// A `row` trigger's `button` (the IDE picker's ghost value button: the

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `iconColor` (#EXP-1629), React's (parity-tested open).
 - Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
 - Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
 - Skeleton `rows` (#EXP-1629): no hairline between rows (the shared base CSS), React's.

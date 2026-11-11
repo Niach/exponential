@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `iconColor` (#EXP-1629): an option's tint becomes its `itemIcon`'s (and, with `triggerIcon`, the `valueIcon`'s) authored `color`, a token resolved per mode or the host's bound hex (`tests/select_icon_color.rs`).
 - Composer matches the app: generated catalog (`Composer.send` = `ui-submit`) + themes (the flat field's `paddingTop`: neutral `$spacing.sm`, exponential 4.25); `interactions_fixture` replays composerSlots `field` against the recipes.
 - Menu item `iconColor` (#EXP-1629): an item with an `icon` passes its `iconColor` to the `itemLabel` leaf's props (`tests/menu_icon_color.rs`); a literal is validated as a colour token, a bound one is the host's.
 - Skeleton `rows` are borderless (#EXP-1629, `fixtures/skeleton-rows.json`): no `borderTopWidth` hairline between rows, so rows after the first centre their dot and bars in the full row height again (+0.5 px off before). `tests/skeleton_rows.rs` replays the fixture.

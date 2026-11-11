@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `iconColor` (#EXP-1629): painted from the core's Icon part colour; `settings_select_icon_color` (the IDE's PR-automation status picker rows).
 - Composer matches the app: the send disc draws the catalog's `Composer.send` (`ui-submit`: `Glyph::Submit`, Lucide `circle-arrow-up` painted on a canvas, no `IconName` for it); a flat Composer's Textarea sits so its text starts the field recipe's `paddingTop` below the row's top, one line or grown, reaching the row's bottom (`flat_field_box`: top = paddingTop − the editor inset), and the measure adds the field's paddingTop/paddingBottom before deciding whether the row grows past the disc.
 - Menu item `iconColor` (#EXP-1629): the `itemLabel`'s glyph paints in `LeafCx::prop_color` (a `$color.<name>` token of the theme, else the host's hex), else the ink; the IDE's PR-automation status picker.
 - Skeleton `rows` (#EXP-1629, from eui-core): no hairline between rows.
