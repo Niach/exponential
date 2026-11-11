@@ -76,6 +76,26 @@ pub(crate) fn team_events<'a>(events: impl Iterator<Item = &'a EventRow>, team_i
     rows
 }
 
+/// A state the pictures show (`settings_bench`; headless has no team,
+/// membership or synced rows).
+#[cfg(test)]
+pub(crate) struct AgentsIndexShot {
+    /// `None` = no team selected.
+    pub team: Option<String>,
+    pub owner: bool,
+    /// `agents.lead`: `None` = not read yet, `Some(None)` = no lead.
+    pub lead: Option<Option<String>>,
+    /// The team's members, `(id, display name)`.
+    pub members: Vec<(String, String)>,
+    pub agents: Vec<domain::session_tree::AgentRow>,
+    pub agents_ready: bool,
+    pub events: Vec<EventRow>,
+    pub events_ready: bool,
+    /// The emitters' session titles and person names, by id.
+    pub titles: std::collections::HashMap<String, String>,
+    pub names: std::collections::HashMap<String, String>,
+}
+
 /// The Agents index pane.
 pub struct AgentsIndexPane {
     nav: Entity<Navigation>,
@@ -86,6 +106,9 @@ pub struct AgentsIndexPane {
     lead_key: Option<(String, Option<String>)>,
     /// An `agents.setLeadAssistant` is in flight (row disabled).
     lead_busy: bool,
+    /// The bench's state.
+    #[cfg(test)]
+    shot: Option<AgentsIndexShot>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -106,8 +129,91 @@ impl AgentsIndexPane {
             lead: None,
             lead_key: None,
             lead_busy: false,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: AgentsIndexShot, cx: &mut gpui::Context<Self>) {
+        self.lead = shot.lead.clone();
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The pane's team (the bench's, under test).
+    fn team_id(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    fn owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        super::is_owner(cx, team_id)
+    }
+
+    /// The team's members as `(id, display name)`.
+    fn members(&self, team_id: &str, cx: &App) -> Vec<(String, String)> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.members.clone();
+        }
+        crate::queries::team_users(cx, team_id)
+            .iter()
+            .map(|user| (user.id.clone(), crate::issue_draft::display_name(user)))
+            .collect()
+    }
+
+    /// The team's agents and whether their shape is ready.
+    fn agents(&self, team_id: &str, cx: &App) -> (Vec<domain::session_tree::AgentRow>, bool) {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return (shot.agents.clone(), shot.agents_ready);
+        }
+        (
+            crate::session_data::agents_in_team(team_id, cx),
+            Store::global(cx).collections().agents.read(cx).is_ready(),
+        )
+    }
+
+    /// The Events band's rows and whether their shape is ready.
+    fn events(&self, team_id: &str, cx: &App) -> (Vec<EventRow>, bool) {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return (team_events(shot.events.iter(), team_id), shot.events_ready);
+        }
+        let collections = Store::global(cx).collections();
+        let collection = collections.events.read(cx);
+        (team_events(collection.iter(), team_id), collection.is_ready())
+    }
+
+    /// An event row's caption.
+    fn emitter(&self, event: &EventRow, cx: &App) -> String {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return event_emitter_label(
+                event,
+                |session_id| shot.titles.get(session_id).cloned(),
+                |user_id| shot.names.get(user_id).cloned().unwrap_or_else(|| user_id.to_string()),
+            );
+        }
+        event_emitter_label(
+            event,
+            |session_id| crate::session_data::session_title_of(session_id, cx),
+            |user_id| crate::session_chat::member_name(Some(user_id), cx),
+        )
     }
 
     /// #EXP-1735: re-read `agents.lead` when the pane first shows a team, when
@@ -115,6 +221,10 @@ impl AgentsIndexPane {
     /// deleted Assistant) and after a save. Called from `render`; the key
     /// is stamped before the fetch, so a failure never loops.
     fn ensure_lead(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         let synced = Store::global(cx)
             .collections()
             .teams
@@ -168,10 +278,7 @@ impl AgentsIndexPane {
             .clone()
             .flatten()
             .unwrap_or_else(|| LEAD_NONE.to_string());
-        let members: Vec<(String, String)> = crate::queries::team_users(cx, team_id)
-            .iter()
-            .map(|user| (user.id.clone(), crate::issue_draft::display_name(user)))
-            .collect();
+        let members = self.members(team_id, cx);
         let items: Vec<crate::picker::PickerItem<String>> =
             std::iter::once(crate::picker::PickerItem::new(LEAD_NONE.to_string(), LEAD.copy.none.clone()))
                 .chain(
@@ -272,8 +379,7 @@ impl AgentsIndexPane {
 
     /// The agents band (web `AgentsListBand`).
     fn render_agents(&self, team_id: &str, owner: bool, cx: &App) -> gpui::AnyElement {
-        let agents = crate::session_data::agents_in_team(team_id, cx);
-        let ready = Store::global(cx).collections().agents.read(cx).is_ready();
+        let (agents, ready) = self.agents(team_id, cx);
         let trailing = owner.then(|| {
             crate::surface::glass_pill_button("agents-new", crate::surface::PillSize::Sm, cx)
                 .icon(registry::UI_ADD)
@@ -336,10 +442,7 @@ impl AgentsIndexPane {
 
     /// The Events band (web `AgentEventsBand`).
     fn render_events(&self, team_id: &str, cx: &App) -> gpui::AnyElement {
-        let collections = Store::global(cx).collections();
-        let collection = collections.events.read(cx);
-        let ready = collection.is_ready();
-        let events = team_events(collection.iter(), team_id);
+        let (events, ready) = self.events(team_id, cx);
         let body = section(cx).child(crate::surface::glass_section_header(EVENTS_TITLE, None, cx));
         if events.is_empty() {
             return body
@@ -354,11 +457,7 @@ impl AgentsIndexPane {
         let muted = cx.theme().muted_foreground;
         let mut list = v_flex().w_full().min_w_0();
         for event in events {
-            let emitter = event_emitter_label(
-                &event,
-                |session_id| crate::session_data::session_title_of(session_id, cx),
-                |user_id| crate::session_chat::member_name(Some(user_id), cx),
-            );
+            let emitter = self.emitter(&event, cx);
             let at = event
                 .created_at
                 .as_deref()
@@ -411,14 +510,14 @@ impl AgentsIndexPane {
 impl Render for AgentsIndexPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AgentsIndexPane").entered();
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = self.team_id(cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
                 crate::empty_state_copy::NO_TEAM_SELECTED,
                 cx,
             ));
         };
-        let owner = super::is_owner(cx, &team_id);
+        let owner = self.owner(&team_id, cx);
         // #EXP-1735: the Lead Assistant row tops the pane (where the
         // Coordinator row was).
         self.ensure_lead(&team_id, cx);
