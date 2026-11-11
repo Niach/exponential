@@ -243,6 +243,26 @@ fn when(at: &str) -> String {
 // The page
 // ---------------------------------------------------------------------------
 
+/// A state the pictures show (`settings_bench`; headless has no team,
+/// account or server).
+#[cfg(test)]
+pub(crate) struct McpShot {
+    /// `None` = no team selected.
+    pub team: Option<String>,
+    pub owner: bool,
+    pub endpoint: String,
+    pub scope: &'static str,
+    /// `None` = loading.
+    pub clients: Option<McpClientsOut>,
+    /// `None` = loading or failed (no section).
+    pub access: Option<AccessOut>,
+    /// Typed into the built-in tools filter.
+    pub filter: &'static str,
+    pub revoking: bool,
+    /// The servers list: `None` loading, `Some(Err)` failed.
+    pub servers: Option<Result<Vec<api::mcp_servers::McpServerListEntry>, String>>,
+}
+
 pub struct McpPane {
     nav: Entity<Navigation>,
     servers: Entity<McpServersPane>,
@@ -260,6 +280,9 @@ pub struct McpPane {
     /// A Revoke in flight.
     revoking: bool,
     stale: bool,
+    /// The bench's state.
+    #[cfg(test)]
+    shot: Option<McpShot>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -285,8 +308,60 @@ impl McpPane {
             access_generation: 0,
             revoking: false,
             stale: false,
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), window, cx)
+    }
+
+    /// The page in a pinned state.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: McpShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.team_id = shot.team.clone();
+        self.scope = shot.scope;
+        self.clients = shot.clients.clone();
+        self.access = shot.access.clone();
+        self.revoking = shot.revoking;
+        let filter = shot.filter;
+        self.tool_filter.update(cx, |state, cx| state.set_value(filter, window, cx));
+        let servers = super::mcp_servers::McpShot { team: shot.team.clone(), owner: shot.owner };
+        let load = shot.servers.clone();
+        self.servers.update(cx, |pane, cx| pane.show(servers, load, false, None, None, cx));
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The pane's team (the bench's, under test).
+    fn active_team(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.team.clone();
+        }
+        active_team_id(&self.nav, cx)
+    }
+
+    fn owner(&self, team_id: &str, cx: &App) -> bool {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.owner;
+        }
+        super::is_owner(cx, team_id)
+    }
+
+    /// The global apps endpoint of the active account.
+    fn endpoint(&self, cx: &App) -> String {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.endpoint.clone();
+        }
+        queries::active_account(cx)
+            .map(|account| endpoint_url(&queries::display_instance_url(&account.instance_url)))
+            .unwrap_or_else(|| SETTINGS_MCP.endpoint_path.to_string())
     }
 
     /// Every entry refetches (server reads: a client authorized or a level
@@ -298,6 +373,10 @@ impl McpPane {
     }
 
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
             self.scope = "mine";
@@ -457,9 +536,7 @@ impl McpPane {
     // -- sections -------------------------------------------------------------
 
     fn render_endpoint(&self, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let url = queries::active_account(cx)
-            .map(|account| endpoint_url(&queries::display_instance_url(&account.instance_url)))
-            .unwrap_or_else(|| SETTINGS_MCP.endpoint_path.to_string());
+        let url = self.endpoint(cx);
         let mono = cx.theme().mono_font_family.clone();
         let copy_url = url.clone();
         section(cx)
@@ -840,7 +917,7 @@ impl McpPane {
 impl Render for McpPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "McpPane").entered();
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = self.active_team(cx) else {
             return v_flex().id(test_id("page")).child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
                 crate::empty_state_copy::NO_TEAM_SELECTED,
@@ -848,7 +925,7 @@ impl Render for McpPane {
             ));
         };
         self.ensure_loaded(&team_id, cx);
-        let owner = super::is_owner(cx, &team_id);
+        let owner = self.owner(&team_id, cx);
         let endpoint = self.render_endpoint(cx);
         let clients = self.render_clients(owner, cx);
         let access = self.render_access(cx);
@@ -878,13 +955,49 @@ pub struct McpActivityPane {
     data: Option<McpActivityOut>,
     generation: u64,
     stale: bool,
+    /// The bench's state: `Some(team)` pins it (`None` inside = no team).
+    #[cfg(test)]
+    shot: Option<Option<String>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl McpActivityPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
-        Self { nav, team_id: None, data: None, generation: 0, stale: false, _subscriptions: subscriptions }
+        Self {
+            nav,
+            team_id: None,
+            data: None,
+            generation: 0,
+            stale: false,
+            #[cfg(test)]
+            shot: None,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(crate::navigation::nav_for_window(window, cx), cx)
+    }
+
+    /// The page in a pinned state: `team` (`None` = no team), `data`
+    /// (`None` = loading).
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, team: Option<String>, data: Option<McpActivityOut>, cx: &mut gpui::Context<Self>) {
+        self.team_id = team.clone();
+        self.data = data;
+        self.shot = Some(team);
+        cx.notify();
+    }
+
+    /// The pane's team (the bench's, under test).
+    fn active_team(&self, cx: &App) -> Option<String> {
+        #[cfg(test)]
+        if let Some(team) = &self.shot {
+            return team.clone();
+        }
+        active_team_id(&self.nav, cx)
     }
 
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
@@ -893,6 +1006,10 @@ impl McpActivityPane {
     }
 
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
             self.data = None;
@@ -931,7 +1048,7 @@ impl Render for McpActivityPane {
         let body = section(cx)
             .id(test_id("activity"))
             .child(crate::surface::glass_section_header(SETTINGS_MCP.activity, None, cx));
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
+        let Some(team_id) = self.active_team(cx) else {
             return body.child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
                 crate::empty_state_copy::NO_TEAM_SELECTED,

@@ -189,6 +189,7 @@ mod focus;
 mod issues;
 mod labels;
 mod local_repos;
+mod mcp;
 mod mcp_server_dialog;
 mod mcp_servers;
 mod members;
