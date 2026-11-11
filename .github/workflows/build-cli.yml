@@ -44,10 +44,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+        if: runner.os == 'Linux'
       - name: Linux system deps
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+          sudo apt-get install -y pkg-config libssl-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -146,6 +148,7 @@ jobs:
             LICENSE
             NOTICE
             .github/actions/updater-feed
+            .github/actions/apt-mirror
           sparse-checkout-cone-mode: false
       - name: Add LICENSE and NOTICE to the release
         run: |

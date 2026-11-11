@@ -19,7 +19,7 @@ the CALLER, so it cannot reach the scripts it needs; an action carries them
 | `cargo-fetch` | restores the crates `seed-cargo-registry.yml` saves on master (hosted Linux, #EXP-1692), sets cargo's network settings, then `cargo fetch --locked` with retries (EXP-1689) | every job that runs cargo |
 | `setup-bun` | `oven-sh/setup-bun`, falling back to the same Bun from npm's registry when github.com's release download fails | every job that runs bun |
 | `gradle-dist` | downloads every wrapper's Gradle zip itself (retrying every error, its distributionUrl then a mirror) and points the wrapper at the local file, so a services.gradle.org / github.com outage never reaches the wrapper's own unretried download; the committed `distributionSha256Sum` verifies it | every job that sets up JDK 21 |
-| `apt-mirror` | `apt-get update` off the Azure mirror (`archive.ubuntu.com`, then `mirrors.edge.kernel.org`), retried; every later apt download of the job retries too | the system-deps steps of `build-ede.yml`, `desktop-build.yml`, `release-suite.yml`, `test.yml` |
+| `apt-mirror` | `apt-get update` off the Azure mirror: `archive.ubuntu.com` when Canonical resolves, else every source (security too) on `mirrors.edge.kernel.org`, then `ftp.halifax.rwth-aachen.de`; every later apt download of the job retries | every apt step on a GitHub-hosted runner; `updater-feed`'s minisign fallback |
 | `bump-versions` | config-driven version + build-number bump, prints the release tags | `bump-versions.yml` |
 
 Each action's README lists its inputs. The secrets and variables they read

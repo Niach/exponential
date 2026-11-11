@@ -64,7 +64,10 @@ if curl -fsSL --retry 3 -o "$work/minisign.tgz" \
 else
   echo "::warning::the minisign release download failed; using the distro's minisign"
   if ! command -v minisign >/dev/null; then
-    sudo apt-get update -qq && sudo apt-get install -y -qq minisign >/dev/null
+    # The shared mirror fallback (#2668) when the checkout carries it.
+    apt_mirror="$(dirname "$0")/../apt-mirror/apt-mirror.sh"
+    if [ -f "$apt_mirror" ]; then bash "$apt_mirror" >/dev/null; else sudo apt-get update -qq; fi
+    sudo apt-get install -y -qq minisign >/dev/null
   fi
   minisign="$(command -v minisign)"
 fi

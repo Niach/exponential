@@ -2,6 +2,11 @@
 # See action.yml. Rewrites every place apt reads a mirror from: the classic
 # sources.list, sources.list.d (one-line .list and deb822 .sources) and the
 # runner image's mirror+file list (/etc/apt/apt-mirrors.txt).
+#
+# Order: archive.ubuntu.com (security.ubuntu.com kept) when Canonical's hosts
+# resolve; otherwise (2026-11-11: azure.archive, archive AND security all
+# failed DNS on GitHub runners) EVERY source, security included, moves to a
+# non-Canonical mirror. Those carry the -security pockets under the same path.
 set -euo pipefail
 
 sudo=""
@@ -20,23 +25,45 @@ rewrite() { # sed expression
 printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
   | $sudo tee /etc/apt/apt.conf.d/80-ci-retries >/dev/null
 
+resolves() { getent hosts "$1" >/dev/null 2>&1; }
+
 # apt-get update exits 0 when only some indexes failed: read its output too.
-update() {
+update() { # host the ubuntu sources point at now
   local out rc=0
   out="$($sudo apt-get update -o Acquire::Retries=5 2>&1)" || rc=$?
   printf '%s\n' "$out"
   [ "$rc" -eq 0 ] || return 1
-  if grep -E '^(W|E|Err):' <<<"$out" | grep -qE '(archive\.ubuntu\.com|mirrors\.edge\.kernel\.org)'; then
+  if grep -E '^(W|E|Err):' <<<"$out" | grep -qF -e 'ubuntu.com' -e "$1"; then
     return 1
   fi
 }
 
-rewrite 's#azure\.archive\.ubuntu\.com#archive.ubuntu.com#g'
-if update; then exit 0; fi
+canonical='https?://((azure\.)?archive|security)\.ubuntu\.com/ubuntu/?'
+current=''
 
-echo "::warning::archive.ubuntu.com failed, falling back to mirrors.edge.kernel.org"
-rewrite 's#https?://archive\.ubuntu\.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g'
-if update; then exit 0; fi
+if resolves archive.ubuntu.com && resolves security.ubuntu.com; then
+  rewrite 's#azure\.archive\.ubuntu\.com#archive.ubuntu.com#g'
+  if update archive.ubuntu.com; then exit 0; fi
+  echo "::warning::archive.ubuntu.com failed; moving every source to a non-Canonical mirror"
+else
+  echo "::warning::Canonical's apt hosts do not resolve; moving every source to a non-Canonical mirror"
+fi
 
-echo "::error::apt-get update failed on archive.ubuntu.com and mirrors.edge.kernel.org"
+for mirror in mirrors.edge.kernel.org/ubuntu ftp.halifax.rwth-aachen.de/ubuntu; do
+  host="${mirror%%/*}"
+  if ! resolves "$host"; then
+    echo "::warning::$host does not resolve"
+    continue
+  fi
+  if [ -z "$current" ]; then
+    rewrite "s#${canonical}#http://${mirror}/#g"
+  else
+    rewrite "s#https?://${current//./\\.}/?#http://${mirror}/#g"
+  fi
+  current="$mirror"
+  if update "$host"; then exit 0; fi
+  echo "::warning::$host failed"
+done
+
+echo "::error::apt-get update failed on Canonical's mirrors and every fallback"
 exit 1
