@@ -54383,7 +54383,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54393,7 +54393,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#171717",
               "gap": 7,
@@ -54404,7 +54404,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54415,7 +54415,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54428,7 +54428,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54438,7 +54438,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54449,7 +54449,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54460,7 +54460,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54567,7 +54567,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54577,7 +54577,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#7c2d12",
               "gap": 7,
@@ -54588,7 +54588,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54599,7 +54599,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#0a0a0a",
               "gap": 7,
@@ -54612,7 +54612,7 @@
             "default": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54622,7 +54622,7 @@
             "hover": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fed7aa",
               "gap": 7,
@@ -54633,7 +54633,7 @@
             "disabled": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,
@@ -54644,7 +54644,7 @@
             "selected": {
               "paddingHorizontal": 8,
               "borderRadius": 10,
-              "fontSize": 12.25,
+              "fontSize": 14,
               "lineHeight": 19.82,
               "color": "#fafafa",
               "gap": 7,

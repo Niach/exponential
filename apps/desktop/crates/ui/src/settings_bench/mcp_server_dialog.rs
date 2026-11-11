@@ -34,11 +34,6 @@ fn command() -> McpDialogShot {
     McpDialogShot { name: "filesystem", transport: "stdio", command: "npx", args: "-y @acme/mcp /srv/shared", advanced: true, ..add() }
 }
 
-/// The Runs on row's value, Sign-in's and Transport's (window points), read
-/// off the pictures.
-const RUNS_ON: (f32, f32) = (425., 128.);
-const SIGN_IN: (f32, f32) = (425., 265.);
-const TRANSPORT: (f32, f32) = (425., 307.);
 /// The Advanced line's empty end (no glyph, no text under it).
 const ADVANCED_END: (f32, f32) = (300., 231.);
 
@@ -52,6 +47,16 @@ fn wheel(window: &mut Window, cx: &mut gpui::App, dy: f32) {
 }
 
 fn shoot(name: &str, height: f32, shot: McpDialogShot, clicks: &'static [(f32, f32)], settle: Option<u64>) {
+    shoot_acted(name, height, shot, clicks, settle, None);
+}
+
+/// #EXP-1784: a row Select opened by pressing its trigger (a headless click
+/// never reaches an eUI popup).
+fn shoot_open(name: &str, shot: McpDialogShot, trigger: &'static str) {
+    shoot_acted(name, H, shot, &[], Some(1200), Some(trigger));
+}
+
+fn shoot_acted(name: &str, height: f32, shot: McpDialogShot, clicks: &'static [(f32, f32)], settle: Option<u64>, press: Option<&'static str>) {
     shoot_pane_acted(
         name,
         move |window, cx| {
@@ -65,7 +70,11 @@ fn shoot(name: &str, height: f32, shot: McpDialogShot, clicks: &'static [(f32, f
         |_, _| {},
         settle.map(std::time::Duration::from_millis),
         clicks,
-        |_, _, _| {},
+        move |column, window, cx| {
+            if let Some(trigger) = press {
+                column.content.clone().update(cx, |view, cx| view.press_for_shots(trigger, window, cx));
+            }
+        },
     );
 }
 
@@ -138,19 +147,19 @@ fn settings_mcp_dialog_saving() {
 #[test]
 #[ignore]
 fn settings_mcp_dialog_device_open() {
-    shoot("mcp-dialog-device-open", H, McpDialogShot { device: Some("d1"), ..filled() }, &[RUNS_ON], Some(1200));
+    shoot_open("mcp-dialog-device-open", McpDialogShot { device: Some("d1"), ..filled() }, "runs_on.trigger");
 }
 
 #[test]
 #[ignore]
 fn settings_mcp_dialog_sign_in_open() {
-    shoot("mcp-dialog-sign-in-open", H, McpDialogShot { auth: "secret", names: "X-Api-Key", advanced: true, ..filled() }, &[SIGN_IN], Some(1200));
+    shoot_open("mcp-dialog-sign-in-open", McpDialogShot { auth: "secret", names: "X-Api-Key", advanced: true, ..filled() }, "sign_in.trigger");
 }
 
 #[test]
 #[ignore]
 fn settings_mcp_dialog_transport_open() {
-    shoot("mcp-dialog-transport-open", H, McpDialogShot { advanced: true, ..filled() }, &[TRANSPORT], Some(1200));
+    shoot_open("mcp-dialog-transport-open", McpDialogShot { advanced: true, ..filled() }, "transport.trigger");
 }
 
 #[test]
