@@ -1093,14 +1093,28 @@ pub fn try_load_theme(source: &Value, options: &ThemeOptions) -> Result<Resolved
     Ok(theme)
 }
 
+/// `#rrggbb[aa]` with its alpha scaled by `factor` (rounded to a byte).
+fn with_alpha(hex: &str, factor: f64) -> String {
+    let alpha = hex.get(7..9).and_then(|a| u8::from_str_radix(a, 16).ok()).unwrap_or(255);
+    format!("{}{:02x}", &hex[..7.min(hex.len())], (f64::from(alpha) * factor).round() as u8)
+}
+
 /// #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
 /// after themes shipped takes a sibling's value when the chain sets none, so
 /// every older theme stays complete: `link` = `primary`, #EDE-65
 /// `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`,
-/// `strokeActive` = `ring`.
+/// `strokeActive` = `ring`, `destructiveHover` = `destructive` at 10 %
+/// alpha in light and 20 % in dark (web's destructive menu item highlight,
+/// `bg-destructive/10` / `dark:bg-destructive/20`).
 fn derive_colors(theme: &mut ResolvedTheme) {
     for mode in Mode::ALL {
         let m = theme.modes.get_mut(mode);
+        if !m.color.contains_key("destructiveHover") {
+            if let Some(value) = m.color.get("destructive").cloned() {
+                let factor = if mode == Mode::Dark { 0.2 } else { 0.1 };
+                m.color.insert("destructiveHover".to_string(), with_alpha(&value, factor));
+            }
+        }
         for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {
@@ -1649,6 +1663,16 @@ mod tests {
             let t = builtin_theme(id).unwrap();
             assert_eq!(t.modes.light.color["ghostHover"], t.modes.light.color["accent"]);
             assert_eq!(t.modes.dark.color["ghostHover"], t.modes.dark.color["accent"]);
+        }
+    }
+
+    #[test]
+    fn a_destructive_menu_item_is_webs_destructive_dropdown_item() {
+        // #EXP-1629 (catalog/tokens.json `color.destructiveHover`, recipes.json Menu `destructive`).
+        for id in ["neutral", "exponential", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.color["destructiveHover"], format!("{}1a", &t.modes.light.color["destructive"][..7]));
+            assert_eq!(t.modes.dark.color["destructiveHover"], format!("{}33", &t.modes.dark.color["destructive"][..7]));
         }
     }
 

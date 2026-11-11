@@ -462,6 +462,22 @@ impl HostPlugin for Host {
         assets::icon_path(name)
     }
 
+    /// #EDE-65 lane O: an image pasted into a chat composer stages like a
+    /// picked file (its `attach` event follows, carrying {files}).
+    fn on_upload(&self, event: &eui_gpui::host::UploadEvent, cx: &mut App) {
+        if !matches!(event.component_id.as_str(), "chat_composer" | "chat_home_composer") || !allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            return;
+        }
+        let (shell, paths) = (self.shell.clone(), event.paths.clone());
+        cx.defer(move |cx| {
+            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
+            if let Some(notice) = notice {
+                failed_action(&shell, "attach", "the file", &notice, cx);
+            }
+            chat_files_changed(&shell, cx);
+        });
+    }
+
     /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
     /// its dot), and lane I: a team agent's icon in its colour by the IDE
     /// rail's own name (`ide:agent:<id>`, its `shell_regions` glyphs), which
@@ -496,6 +512,26 @@ impl HostPlugin for Host {
         if event.name == "ede_chat" && event.context["action"] == "key" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
             let (shell, key) = (self.shell.clone(), event.context["key"].as_str().unwrap_or("").to_string());
             cx.defer(move |cx| chat_menu_key(&shell, &key, cx));
+            return;
+        }
+        // #EDE-65 lane O: the composer's attach is an event: a pasted
+        // image's carries its {files} (already staged through `on_upload`),
+        // a bare one opens the chooser.
+        if event.name == "ede_chat" && event.context["action"] == "attach" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            if event.context.get("files").is_none_or(Value::is_null) {
+                let shell = self.shell.clone();
+                cx.defer(move |cx| chat_attach(&shell, cx));
+            }
+            return;
+        }
+        // #EDE-65 lane O: the "+" Menu's pick (an event: its context carries the value).
+        if event.name == "ede_chat" && event.context["action"] == "plus" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
+            let (shell, value) = (self.shell.clone(), event.context["value"].as_str().unwrap_or("").to_string());
+            cx.defer(move |cx| match uicore_model::chat::plus_pick(&value) {
+                (chat::PLUS_ADD_FILE, None) => chat_attach(&shell, cx),
+                (chat::PLUS_PROMPTS, Some(id)) => chat_load_prompt(&shell, id, cx),
+                other => tracing::warn!(?other, "a + row eDE does not serve"),
+            });
             return;
         }
         // Lane Q: a chat card's Embed bubbles its inner events as
@@ -963,6 +999,8 @@ impl HostPlugin for Host {
                             }
                         },
                         Some("slash") => chat_menu_pick(&shell, &arg("insert"), &arg("prompt"), cx),
+                        // The quick replies: eDE feeds none yet.
+                        Some("reply" | "dismissReplies") => {}
                         _ => chat_toggle(&shell, cx),
                     }
                 });
@@ -2010,6 +2048,8 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     shell.borrow_mut().chat_prompts = chat::ordered_prompts(prompts);
     shell.borrow_mut().chat_members = members;
     chat_menu_changed(shell);
+    // #EDE-65 lane O: the "+" rows eDE serves (the paperclip's file chooser, the prompts).
+    input.plus = chat::plus_rows(&shell.borrow().chat_prompts);
     input.agent_id = shell.borrow().chat_agent.clone().or(input.agent_id);
     // eDE's composer has THE `/` menu: the conversation promises it (chat.json slashCommands).
     input.slash_commands = true;
@@ -2022,12 +2062,13 @@ fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     refresh(shell, cx);
 }
 
-/// The conversation composer's placeholder and busy are literal props
-/// (genUI binds only a Composer's value): set by id, redrawn on a change.
+/// The conversation composer's placeholder and busy (and the "+" Menu's
+/// items, #EDE-65 lane O) are literal props (genUI binds only a Composer's
+/// value): set by id, redrawn on a change.
 fn chat_composer(shell: &SharedShell, composer: &uicore_model::chat::ChatComposer, cx: &mut App) {
     // EXP-1513: the setup's failure reason is a literal prop too (`chat_cli_failed`).
     let message = shell.borrow().chat_setup.to_value()["message"].clone();
-    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "setupMessage": message});
+    let props = json!({"placeholder": composer.placeholder, "busy": composer.busy, "items": composer.menu, "setupMessage": message});
     if shell.borrow().chat_composer == props {
         return;
     }
@@ -2054,6 +2095,12 @@ fn patch_chat(shell: &Shell, doc: &mut Document) {
     for prop in ["placeholder", "busy"] {
         if let Some(value) = composer.get(prop) {
             uicore_gpui::inline::set_prop(doc, "chat_composer", prop, value.clone());
+        }
+    }
+    // #EDE-65 lane O: the "+" Menu's items are a literal prop too.
+    if let Some(menu) = composer.get("menu") {
+        for id in ["chat_plus", "chat_home_plus"] {
+            uicore_gpui::inline::set_prop(doc, id, "items", menu.clone());
         }
     }
     if let Some(message) = shell.feed.get("/chatting").map(|c| &c["setup"]["message"]).filter(|m| m.is_string()) {
@@ -2378,6 +2425,7 @@ fn chat_menu_changed(shell: &SharedShell) {
         let current = &s.model.switcher.current;
         let query = domain::typeahead::detect_trigger(&s.chat_draft, s.chat_draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::IssueRef).map(|t| t.query);
         let ranked = query.map(|q| issues::rank_in(&s.issue_index, &current.kind, &current.id, &q, domain::typeahead::MAX_ITEMS)).unwrap_or_default();
+        let ranked: Vec<chat::MentionIssue> = ranked.into_iter().map(Into::into).collect();
         match chat::mention_menu(&s.chat_draft, &s.chat_members, &ranked) {
             Some(menu) => (menu, false),
             None => (chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts), true),
@@ -3185,11 +3233,13 @@ fn main() {
         let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
         // EXP-1513: `EDE_SHELL_DEMO_SETUP` = a Local desktop without a CLI at that setup step.
         let setup = demo_setup().filter(|_| demo && !on_team);
-        let chat = match (demo, on_team) {
+        let mut chat = match (demo, on_team) {
             (true, false) if setup.is_none() => local_runs::demo_input(),
             (true, true) => team_chat::demo_input(),
             _ => local_runs::assistant_home(),
         };
+        // #EDE-65 lane O: the "+" (Photo or file; the prompts arrive with a team's rows).
+        chat.plus = chat::plus_rows(&[]);
         let mut chatting = chat::chatting(&uicore_model::chat::chat_view(&chat));
         if let Some(step) = &setup {
             chatting["noCli"] = json!(true);
@@ -3200,7 +3250,7 @@ fn main() {
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
             feed.set("/chat", json!({"draft": draft}));
-            let mut menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            let mut menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues().into_iter().map(Into::into).collect::<Vec<chat::MentionIssue>>()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
             // `EDE_SHELL_DEMO_HIGHLIGHT` = the row the menu keys moved to.
             chat::highlight(&mut menu, std::env::var("EDE_SHELL_DEMO_HIGHLIGHT").ok().and_then(|i| i.parse().ok()).unwrap_or(0), true);
             feed.set("/chatMenu", menu);

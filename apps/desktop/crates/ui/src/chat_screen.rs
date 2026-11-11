@@ -3207,7 +3207,7 @@ impl RunnerMenu {
         self.devices.iter().find(|(id, _)| id == picked).map(|(_, label)| label.clone())
     }
 
-    fn account_value(&self) -> Option<String> {
+    pub(crate) fn account_value(&self) -> Option<String> {
         self.accounts
             .iter()
             .find(|option| option.account_option_key() == self.account_picked)

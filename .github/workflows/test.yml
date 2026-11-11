@@ -11,7 +11,7 @@ name: test
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them, EXCEPT `eui-swift` when the PR
-# touches the Swift package, eui-core, the FFI or the generated catalog (then required). Everything heavy (the rest of the eUI suite: unit suites,
+# touches the Swift package, eui-core, the FFI or the generated catalog (then required; on PR runs only: a merge-train run skips it, see eui-swift). Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, the site,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
@@ -53,6 +53,7 @@ jobs:
       desktop: ${{ steps.f.outputs.desktop }}
       eui: ${{ steps.f.outputs.eui }}
       swift: ${{ steps.f.outputs.swift }}
+      train: ${{ steps.f.outputs.train }}
       ede: ${{ steps.f.outputs.ede }}
       ede_shell: ${{ steps.f.outputs.ede_shell }}
       ios: ${{ steps.f.outputs.ios }}
@@ -81,6 +82,8 @@ jobs:
           BASE_SHA: ${{ inputs.base_sha }}
         run: |
           set -euo pipefail
+          # A merge-train run = a dispatch WITH base_sha (train.yml). It skips eui-swift.
+          echo "train=$([ -z "$PR" ] && [ -n "$BASE_SHA" ] && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           if [ -n "$PR" ]; then
             files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           elif [ -n "$BASE_SHA" ]; then
@@ -587,9 +590,16 @@ jobs:
   # skipped leg let a Swift compile break reach master (`labelStyle`, #2506).
   # Only that case runs here, so `gate` (which needs this job) never waits on a
   # Mac for a PR Swift doesn't compile (an eui-gpui or Cargo.toml edit).
+  # PR RUNS ONLY (Danny 2026-11-11, #FEED-221): a merge-train run
+  # (`changes.train`) skips it and `gate` does not require it there, since the
+  # self-hosted Macs stretched train runs from ~7 to 53-108 minutes. Every unit
+  # already passed it on its own PR (the PR stays REQUIRED before it can queue).
+  # ACCEPTED RISK: two PRs that each pass Swift alone can break Swift together
+  # and land on master; the next PR touching Swift fails its own eui-swift run
+  # and catches it.
   eui-swift:
     needs: [pick, changes]
-    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift == 'true'
+    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift == 'true' && needs.changes.outputs.train != 'true'
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
@@ -597,10 +607,10 @@ jobs:
     secrets: inherit
 
   # The same pass, INFORMATIONAL, for the other eUI PRs: not in `gate`'s
-  # needs, and PR_MAC_LEGS=off skips it.
+  # needs, and PR_MAC_LEGS=off skips it. PR runs only, like eui-swift.
   eui-swift-info:
     needs: [pick, changes]
-    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift != 'true' && vars.PR_MAC_LEGS != 'off'
+    if: needs.changes.outputs.eui == 'true' && needs.changes.outputs.swift != 'true' && needs.changes.outputs.train != 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
@@ -755,11 +765,12 @@ jobs:
       - env:
           PICK: ${{ needs.pick.result }}
           NEEDS: ${{ toJSON(needs) }}
-          SWIFT_REQUIRED: ${{ needs.changes.outputs.swift == 'true' && needs.changes.outputs.eui == 'true' }}
+          SWIFT_REQUIRED: ${{ needs.changes.outputs.swift == 'true' && needs.changes.outputs.eui == 'true' && needs.changes.outputs.train != 'true' }}
         run: |
           [ "$PICK" = success ] || { echo "::error::nothing ran (a fork PR, or the runner pick failed)"; exit 1; }
           # eui-swift counts only when the PR touches what Swift compiles; then
-          # it must have RUN and passed (a skip is a failure there).
+          # it must have RUN and passed (a skip is a failure there). Never on
+          # a merge-train run (see eui-swift: the PR run already required it).
           if [ "$SWIFT_REQUIRED" = true ]; then
             r=$(jq -r '."eui-swift".result' <<<"$NEEDS")
             [ "$r" = success ] || { echo "::error::eui-swift is required for this PR (Swift, eui-core, the FFI or the generated catalog changed) and ended $r"; exit 1; }

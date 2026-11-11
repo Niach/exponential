@@ -1610,7 +1610,8 @@ impl SurfaceView {
         }
         let label = self.composer_labels(n).0;
         let fid = n.id.clone();
-        let disabled = !busy && empty;
+        // #EDE-65 lane O: a host may send an empty draft (staged files).
+        let disabled = !busy && empty && !lcx.host.composer_submits_empty(&n.id, cx);
         // The web dims the send button as ONE layer (the `send` part's
         // `state: disabled` opacity, 0.5 without one; the `busy` recipe's): fill and glyph fade together over the
         // composer. gpui fades each primitive on its own (the glyph would

@@ -213,11 +213,11 @@ pub fn slash_menu(draft: &str, cli: Option<&str>, prompts: &[crate::rows::Prompt
         .map(|cli| crate::slash_menu::menu_matches(draft, cli))
         .unwrap_or_default()
         .into_iter()
-        .map(|c| serde_json::json!({"key": format!("command:{}", c.name), "command": format!("/{}", c.name), "description": c.description, "hint": c.arg_hint, "icon": null, "insert": crate::slash_menu::insertion(c.name, c.arg_hint), "prompt": ""}))
+        .map(|c| plain_row(serde_json::json!({"key": format!("command:{}", c.name), "command": format!("/{}", c.name), "description": c.description, "hint": c.arg_hint, "icon": null, "insert": crate::slash_menu::insertion(c.name, c.arg_hint), "prompt": ""})))
         .collect();
     let named: Vec<&crate::rows::PromptRow> = prompts.iter().filter(|p| p.name.as_deref().is_some_and(|n| !n.trim().is_empty())).collect();
     rows.extend(crate::slash_menu::filter_prompts(&named, |p| p.name.as_deref().unwrap_or_default(), query).into_iter().map(|p| {
-        serde_json::json!({"key": format!("prompt:{}", p.id), "command": "", "description": p.name, "hint": "", "icon": p.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| PROMPT_ICON.into()), "insert": "", "prompt": p.id})
+        plain_row(serde_json::json!({"key": format!("prompt:{}", p.id), "command": "", "description": p.name, "hint": "", "icon": p.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| PROMPT_ICON.into()), "insert": "", "prompt": p.id}))
     }));
     serde_json::json!({"open": !rows.is_empty(), "rows": rows})
 }
@@ -226,6 +226,53 @@ pub fn slash_menu(draft: &str, cli: Option<&str>, prompts: &[crate::rows::Prompt
 pub struct Member {
     pub name: String,
     pub email: String,
+    /// #EDE-65 lane T: the member's picture, for the `@` row's avatar.
+    pub image: Option<String>,
+}
+
+/// #EDE-65 lane T: one `#` row: the issue, its status glyph and tone
+/// (`""` = a plain row, a host that has no status to hand).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MentionIssue {
+    pub identifier: String,
+    pub title: String,
+    pub icon: String,
+    pub tone: String,
+}
+
+impl From<(String, String)> for MentionIssue {
+    fn from((identifier, title): (String, String)) -> Self {
+        Self { identifier, title, ..Self::default() }
+    }
+}
+
+/// The fields a menu row's leading slot binds (a template reads every one,
+/// the ones its kind does not use blank): the `@` avatar, the `:` emoji, the
+/// `#` status glyph and tone.
+fn row_leading(mut row: serde_json::Value, avatar: Option<(&str, Option<&str>)>, emoji: &str, status: (&str, &str)) -> serde_json::Value {
+    let (name, src) = avatar.unwrap_or(("", None));
+    row["hasLeading"] = serde_json::json!(avatar.is_some() || !emoji.is_empty() || !status.0.is_empty());
+    // A command's argument hint (`<level>`), mono at the row's end, moves
+    // out of `hint` (a member's email stays there); `hasIcon` = a glyph.
+    if row["command"].as_str().is_some_and(|c| c.starts_with('/')) {
+        let arg = row["hint"].as_str().filter(|h| !h.is_empty()).map(|h| format!("<{h}>")).unwrap_or_default();
+        row["argHint"] = serde_json::json!(arg);
+        row["hint"] = serde_json::json!("");
+    } else if row.get("argHint").is_none() {
+        row["argHint"] = serde_json::json!("");
+    }
+    row["hasIcon"] = serde_json::json!(row["icon"].as_str().is_some_and(|i| !i.is_empty()));
+    row["avatarName"] = serde_json::json!(name);
+    row["avatarSrc"] = serde_json::json!(src.unwrap_or(""));
+    row["emoji"] = serde_json::json!(emoji);
+    row["statusIcon"] = serde_json::json!(status.0);
+    row["statusTone"] = serde_json::json!(status.1);
+    row
+}
+
+/// A row with nothing in its leading slot (`/`, a host's own rows).
+pub fn plain_row(row: serde_json::Value) -> serde_json::Value {
+    row_leading(row, None, "", ("", ""))
 }
 
 /// THE `@`/`#` typeahead (`crate::typeahead`, the IDE's rules) over the
@@ -235,7 +282,7 @@ pub struct Member {
 /// (`issues`: the caller's already ranked `(identifier, title)`), inserting
 /// `#<IDENTIFIER>`. Rows have the `/` menu's shape; `insert` is the whole
 /// new draft (the token replaced, a space after it).
-pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]) -> Option<serde_json::Value> {
+pub fn mention_menu(draft: &str, members: &[Member], issues: &[MentionIssue]) -> Option<serde_json::Value> {
     use crate::typeahead::{detect_trigger, mention_matches, CompletionTrigger, MAX_ITEMS};
     let token = detect_trigger(draft, draft.len())?;
     let head = &draft[..token.start];
@@ -248,13 +295,13 @@ pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]
             picks
                 .into_iter()
                 .take(MAX_ITEMS)
-                .map(|m| serde_json::json!({"key": format!("member:{}", m.email), "command": "", "description": m.name, "hint": m.email, "icon": "user", "insert": format!("{head}@{} ", m.email), "prompt": ""}))
+                .map(|m| row_leading(serde_json::json!({"key": format!("member:{}", m.email), "command": "", "description": m.name, "hint": m.email, "icon": null, "insert": format!("{head}@{} ", m.email), "prompt": ""}), Some((&m.name, m.image.as_deref())), "", ("", "")))
                 .collect()
         }
         CompletionTrigger::IssueRef => issues
             .iter()
             .take(MAX_ITEMS)
-            .map(|(identifier, title)| serde_json::json!({"key": format!("issue:{identifier}"), "command": identifier, "description": title, "hint": "", "icon": null, "insert": format!("{head}#{identifier} "), "prompt": ""}))
+            .map(|issue| row_leading(serde_json::json!({"key": format!("issue:{}", issue.identifier), "command": issue.identifier, "description": issue.title, "hint": "", "icon": null, "insert": format!("{head}#{} ", issue.identifier), "prompt": ""}), None, "", (&issue.icon, &issue.tone)))
             .collect(),
         // EXP-551: glyph · `:shortcode:` · label; a pick inserts the UNICODE.
         CompletionTrigger::Emoji => {
@@ -265,7 +312,7 @@ pub fn mention_menu(draft: &str, members: &[Member], issues: &[(String, String)]
                 .filter_map(|index| catalog.get(index))
                 .map(|emoji| {
                     let code = emoji.shortcodes.first().cloned().unwrap_or_else(|| emoji.label.clone());
-                    serde_json::json!({"key": format!("emoji:{code}"), "command": "", "description": format!("{} :{code}:", emoji.unicode), "hint": emoji.label, "icon": null, "insert": format!("{head}{}", emoji.unicode), "prompt": ""})
+                    row_leading(serde_json::json!({"key": format!("emoji:{code}"), "command": "", "description": format!(":{code}:"), "hint": emoji.label, "icon": null, "insert": format!("{head}{}", emoji.unicode), "prompt": ""}), None, &emoji.unicode, ("", ""))
                 })
                 .collect()
         }
@@ -321,12 +368,94 @@ pub fn highlight(menu: &mut serde_json::Value, previous: usize, keep: bool) -> u
     selected
 }
 
+/// #EDE-65 lane O: composer-menu.json's row ids the chat document's "+"
+/// Menu picks (`ede_chat plus {value}`, `uicore_model::chat::plus_pick`).
+pub const PLUS_ADD_FILE: &str = "add-file";
+pub const PLUS_PROMPTS: &str = "prompts";
+pub const PLUS_ISSUE: &str = "implement-issue";
+pub const PLUS_TEAMS: &str = "teams";
+pub const PLUS_DEVICE: &str = "device";
+pub const PLUS_ACCOUNT: &str = "account";
+pub const PLUS_MODEL: &str = "model";
+
+/// composer-menu.json `rows[id].label` / `.icon` (byte-identical ×4).
+pub fn plus_row(id: &str) -> uicore_model::chat::ChatPlusRow {
+    let (label, icon) = match id {
+        PLUS_ADD_FILE => ("Photo or file", "ui-attach"),
+        PLUS_ISSUE => ("Issue", "editor-issue-ref"),
+        PLUS_PROMPTS => ("Prompts", "coding-command"),
+        PLUS_TEAMS => ("Teams", "ui-team"),
+        PLUS_DEVICE => ("Device", "nav-devices"),
+        PLUS_ACCOUNT => ("Account", "settings-account"),
+        PLUS_MODEL => ("Model", "coding-assistant"),
+        _ => ("", ""),
+    };
+    uicore_model::chat::ChatPlusRow { id: id.to_string(), label: label.into(), icon: icon.into(), ..Default::default() }
+}
+
+/// The team's prompts as the Prompts › entries (the `/` menu's order and
+/// glyphs; a pick loads the body like the `/` menu's).
+pub fn plus_prompt_items(prompts: &[crate::rows::PromptRow]) -> Vec<uicore_model::chat::ChatPlusItem> {
+    prompts
+        .iter()
+        .filter_map(|p| {
+            let name = p.name.as_deref().filter(|n| !n.trim().is_empty())?;
+            Some(uicore_model::chat::ChatPlusItem {
+                label: name.to_string(),
+                value: p.id.clone(),
+                icon: Some(p.icon.clone().filter(|i| !i.is_empty()).unwrap_or_else(|| PROMPT_ICON.into())),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+/// The "+" rows a composer that can attach and load prompts serves (eDE's):
+/// Photo or file, then Prompts › while the team has one.
+pub fn plus_rows(prompts: &[crate::rows::PromptRow]) -> Vec<uicore_model::chat::ChatPlusRow> {
+    let mut rows = vec![plus_row(PLUS_ADD_FILE)];
+    let items = plus_prompt_items(prompts);
+    if !items.is_empty() {
+        rows.push(uicore_model::chat::ChatPlusRow { items: Some(items), searchable: true, ..plus_row(PLUS_PROMPTS) });
+    }
+    rows
+}
+
 /// A prompt without a curated icon (the IDE's generic prompt glyph).
-const PROMPT_ICON: &str = "action-default";
+pub const PROMPT_ICON: &str = "action-default";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// composer-menu.json: every "+" row's label and icon, byte-identical.
+    #[test]
+    fn the_plus_rows_are_the_composer_menus() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/composer-menu.json")).unwrap();
+        for id in [PLUS_ADD_FILE, PLUS_ISSUE, PLUS_PROMPTS, PLUS_TEAMS, PLUS_DEVICE, PLUS_ACCOUNT, PLUS_MODEL] {
+            let spec = fixture["rows"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id}"));
+            let row = plus_row(id);
+            assert_eq!(row.label, spec["label"].as_str().unwrap(), "{id}");
+            assert_eq!(row.icon, spec["icon"].as_str().unwrap(), "{id}");
+        }
+    }
+
+    /// eDE's "+": Photo or file always, Prompts › (searchable, the named
+    /// prompts with their glyphs) only while there is one.
+    #[test]
+    fn edes_plus_serves_the_file_chooser_and_the_prompts() {
+        let prompt = |id: &str, name: Option<&str>, icon: Option<&str>| -> crate::rows::PromptRow { serde_json::from_value(serde_json::json!({"id": id, "name": name, "icon": icon})).unwrap() };
+        let rows = plus_rows(&[]);
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), [PLUS_ADD_FILE]);
+        assert!(rows[0].items.is_none(), "an action row");
+        let rows = plus_rows(&[prompt("p1", Some("Triage"), None), prompt("p2", Some("  "), None), prompt("p3", Some("Ship"), Some("ui-rocket"))]);
+        assert_eq!(rows[1].id, PLUS_PROMPTS);
+        assert!(rows[1].searchable);
+        let items = rows[1].items.as_ref().unwrap();
+        assert_eq!(items.iter().map(|i| (i.label.as_str(), i.value.as_str(), i.icon.as_deref())).collect::<Vec<_>>(), [("Triage", "p1", Some(PROMPT_ICON)), ("Ship", "p3", Some("ui-rocket"))]);
+        let menu = uicore_model::chat::plus_menu(&rows);
+        assert_eq!(menu[1]["items"][1]["value"], "prompts:p3");
+    }
 
     #[test]
     fn the_arrows_wrap_the_highlight_and_enter_tab_pick_escape_dismisses() {
@@ -358,7 +487,8 @@ mod tests {
     #[test]
     fn colon_lists_emoji_and_a_closed_shortcode_commits() {
         let menu = mention_menu("nice :tad", &[], &[]).expect(":");
-        assert_eq!(menu["rows"][0]["description"], "🎉 :tada:");
+        assert_eq!(menu["rows"][0]["description"], ":tada:");
+        assert_eq!(menu["rows"][0]["emoji"], "🎉");
         assert_eq!(menu["rows"][0]["insert"], "nice 🎉");
         assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
         assert_eq!(commit_emoji("nice :tad"), None);
@@ -367,13 +497,28 @@ mod tests {
 
     #[test]
     fn at_lists_members_and_hash_the_ranked_issues_replacing_the_last_token() {
-        let members = vec![Member { name: "Dana Reyes".into(), email: "dana@x.com".into() }, Member { name: "Alex".into(), email: "alex@x.com".into() }];
+        let members = vec![Member { name: "Dana Reyes".into(), email: "dana@x.com".into(), image: Some("https://x/d.png".into()) }, Member { name: "Alex".into(), email: "alex@x.com".into(), image: None }];
         let menu = mention_menu("ping @da", &members, &[]).expect("@");
         assert_eq!(menu["rows"].as_array().unwrap().len(), 1);
         assert_eq!(menu["rows"][0]["insert"], "ping @dana@x.com ");
-        let issues = vec![("EXP-12".to_string(), "Fix the tray".to_string())];
+        let issues = vec![MentionIssue { identifier: "EXP-12".into(), title: "Fix the tray".into(), icon: "status-in-progress".into(), tone: "warning".into() }];
         let hash = mention_menu("see #EX", &members, &issues).expect("#");
         assert_eq!((hash["rows"][0]["command"].as_str(), hash["rows"][0]["insert"].as_str()), (Some("EXP-12"), Some("see #EXP-12 ")));
+        // #EDE-65 lane T: the leading slot's fields, every row carrying them.
+        assert_eq!((hash["rows"][0]["statusIcon"].as_str(), hash["rows"][0]["statusTone"].as_str(), hash["rows"][0]["hasLeading"].as_bool()), (Some("status-in-progress"), Some("warning"), Some(true)));
+        assert_eq!((menu["rows"][0]["avatarName"].as_str(), menu["rows"][0]["avatarSrc"].as_str(), menu["rows"][0]["icon"].is_null()), (Some("Dana Reyes"), Some("https://x/d.png"), true));
+        let emoji = mention_menu("nice :tada", &[], &[]).expect(":");
+        assert_eq!((emoji["rows"][0]["emoji"].as_str(), emoji["rows"][0]["hasLeading"].as_bool()), (Some("🎉"), Some(true)));
+        assert!(emoji["rows"][0]["description"].as_str().unwrap().starts_with(':'));
+        let slash = slash_menu("/", Some("claude"), &[]);
+        assert_eq!((slash["rows"][0]["hasLeading"].as_bool(), slash["rows"][0]["emoji"].as_str()), (Some(false), Some("")));
+        // A command's argument is the mono `<arg>` at the row's end, never `hint`.
+        for row in slash["rows"].as_array().unwrap().iter().filter(|r| r["command"].as_str().is_some_and(|c| c.starts_with('/'))) {
+            assert_eq!(row["hint"], "");
+            let arg = row["argHint"].as_str().unwrap();
+            assert!(arg.is_empty() || (arg.starts_with('<') && arg.ends_with('>')), "{arg}");
+        }
+        assert!(slash["rows"].as_array().unwrap().iter().any(|r| r["argHint"].as_str().is_some_and(|a| !a.is_empty())), "some command takes an argument");
         assert!(mention_menu("plain text", &members, &issues).is_none());
         assert_eq!(mention_menu("@zzz", &members, &[]).unwrap()["open"], false);
     }

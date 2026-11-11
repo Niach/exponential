@@ -51,7 +51,7 @@ pub fn demo_group(rows: &mut [uicore_model::chat::ChatRowInput], avatar: &str, a
 
 /// The goldens' people.
 pub fn demo_members() -> Vec<Member> {
-    [("Dana Reyes", "dana@example.com"), ("Alex Kim", "alex@example.com"), ("Danny", "danny@example.com")].into_iter().map(|(name, email)| Member { name: name.into(), email: email.into() }).collect()
+    [("Dana Reyes", "dana@example.com"), ("Alex Kim", "alex@example.com"), ("Danny", "danny@example.com")].into_iter().map(|(name, email)| Member { name: name.into(), email: email.into(), image: None }).collect()
 }
 
 /// The goldens' ranked issues.

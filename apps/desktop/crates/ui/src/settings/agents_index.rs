@@ -595,6 +595,8 @@ fn document(ink: &Ink, list_hover: &str, skeleton_fill: &str) -> Value {
     emitter["style"]["flexBasis"] = json!(0);
     let mut at = ink.text("event_at", path("at"), SM, &ink.muted);
     at["style"]["flexShrink"] = json!(0);
+    // Web `tabular-nums`: the times line up.
+    at["style"]["fontVariantNumeric"] = json!("tabular-nums");
     let event_row = json!({"id": "event_row", "component": "Box", "style": row_style(ink),
         "children": [
             {"id": "event_icon", "component": "Icon", "props": {"name": "trigger-event"}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},

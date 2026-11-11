@@ -289,6 +289,8 @@ mod settings_bench;
 mod accessible_names;
 #[cfg(test)]
 mod picker_bench;
+#[cfg(test)]
+mod composer_bench;
 
 pub use actions::*;
 pub use icons::ExpIcon;

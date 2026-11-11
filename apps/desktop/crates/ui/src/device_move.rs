@@ -388,7 +388,7 @@ pub(crate) struct EditorDevice {
 
 impl EditorDevice {
     /// The row's value: the device's picker line.
-    fn value(&self) -> Option<String> {
+    pub(crate) fn value(&self) -> Option<String> {
         let picked = self.device_id.as_deref()?;
         self.rows.iter().find(|(id, _)| id == picked).map(|(_, label)| label.clone())
     }

@@ -38,8 +38,9 @@ final class Round1ModelTests: XCTestCase {
         try model(JSONValue(any: tree), host: host, settings: settings, width: width)
     }
 
-    private func model(_ tree: JSONValue, host: HostPlugin? = nil, settings: SurfaceSettings? = nil, width: CGFloat = 400) throws -> SurfaceModel {
+    private func model(_ tree: JSONValue, host: HostPlugin? = nil, settings: SurfaceSettings? = nil, width: CGFloat = 400, theme: String? = nil) throws -> SurfaceModel {
         var options = SurfaceOptions()
+        if let theme { options.theme = ThemeHandle.builtin(theme) }
         options.mode = .light
         options.settings = settings
         let m = try SurfaceModel(id: "r1", options: options, host: host)
@@ -903,7 +904,9 @@ final class Round1ModelTests: XCTestCase {
             if !slots.isEmpty { composer["slots"] = .object(slots) }
             let tree: JSONValue = .object(["id": .string("root"), "component": .string("Box"), "style": .object(["display": .string("flex"), "flexDirection": .string("column"), "direction": .string(rtl ? "rtl" : "ltr")]), "children": .array([.object(composer)])])
             let host = Round1Host()
-            let m = try model(tree, host: host)
+            // #EDE-65: neutral pads the card evenly; the exponential flat
+            // recipe pads the top deeper than the sides (the IDE's card).
+            let m = try model(tree, host: host, theme: "neutral")
             let frame = { (id: String) in m.index(of: id).map { m.frame($0) } }
             let cf = try XCTUnwrap(frame("c"), "\(name): composer")
             guard !slots.isEmpty else {
