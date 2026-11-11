@@ -303,12 +303,13 @@ fn composer_bench_menu_keeps_the_field_focused() {
     std::mem::forget(cx);
 }
 
-/// #EDE-65 lane T: a draft's round trip into the hidden draft state
-/// (`chat_tab_composer::mirror_draft`) leaves the drawn field focused, where
-/// gpui-base's `set_cursor_position` alone moves the focus to that state.
+/// #EDE-65 lane T: the keystroke path and the host's round trip (the draft
+/// mirrored into the hidden draft state, `chat_tab_composer::mirror_draft`;
+/// the draft written back; the `/` menu opened) never blur the drawn field:
+/// no blur event at all, not just the focus back at the end.
 #[test]
 #[ignore]
-fn composer_bench_a_draft_round_trip_keeps_the_field_focused() {
+fn composer_bench_a_draft_round_trip_never_blurs_the_field() {
     let mut cx = headless();
     cx.update(|cx| {
         crate::init(cx);
@@ -334,25 +335,27 @@ fn composer_bench_a_draft_round_trip_keeps_the_field_focused() {
         cx.run_until_parked();
     }
     let field = cx.update(|cx| surface.read(cx).field_focus_handle("chat_composer", cx)).expect("the field");
-    let focused = |cx: &mut gpui::HeadlessAppContext| cx.update_window(window, |_, window, _| field.is_focused(window)).expect("the window");
-    // The keystroke path: the field focused, `/` typed into it, flushed.
+    cx.update_window(window, |_, window, cx| surface.update(cx, |view, cx| assert!(view.focus_field("chat_composer", window, cx)))).expect("focus");
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    // Every blur of the drawn field from here on.
+    let blurs = std::rc::Rc::new(std::cell::Cell::new(0u32));
+    let counted = blurs.clone();
+    let _blur = cx
+        .update_window(window, |_, window, cx| surface.update(cx, |_, cx| cx.on_blur(&field, window, move |_, _, _| counted.set(counted.get() + 1))))
+        .expect("the blur listener");
+    // The keystroke path: `/` typed into the field, flushed.
     cx.update_window(window, |_, window, cx| {
         surface.update(cx, |view, cx| {
-            assert!(view.focus_field("chat_composer", window, cx));
             assert!(view.type_into("chat_composer", "/", window, cx));
             view.flush_field("chat_composer", None, window, cx);
         })
     })
     .expect("typed");
-    for _ in 0..3 {
-        draw(window, &mut cx);
-        cx.run_until_parked();
-    }
-    assert!(focused(&mut cx), "focused after the keystroke");
-    // The host's round trip: the draft mirrored into its state, then the
-    // menu opened and the draft written back.
-    let keep = Some(field.clone());
-    cx.update_window(window, |_, window, cx| crate::steer_viewer::chat_tab_composer::mirror_draft(&hidden, "/".into(), keep, window, cx)).expect("mirrored");
+    // The host's round trip.
+    cx.update_window(window, |_, window, cx| crate::steer_viewer::chat_tab_composer::mirror_draft(&hidden, "/".into(), window, cx)).expect("mirrored");
     let row = |key: &str| domain::chat_document::plain_row(json!({"key": key, "command": format!("/{key}"), "description": key, "hint": "", "icon": null, "insert": format!("/{key}"), "prompt": "", "selected": false}));
     cx.update(|cx| {
         surface.update(cx, |view, cx| {
@@ -364,9 +367,7 @@ fn composer_bench_a_draft_round_trip_keeps_the_field_focused() {
         draw(window, &mut cx);
         cx.run_until_parked();
     }
-    assert!(focused(&mut cx), "the field keeps the focus through the host's round trip");
-    // Without the restore, gpui-base's cursor move takes it (the bug).
-    cx.update_window(window, |_, window, cx| crate::steer_viewer::chat_tab_composer::mirror_draft(&hidden, "/c".into(), None, window, cx)).expect("mirrored");
-    assert!(!focused(&mut cx), "set_cursor_position alone moves the focus");
+    assert_eq!(blurs.get(), 0, "the drawn field never blurred");
+    assert!(cx.update_window(window, |_, window, _| field.is_focused(window)).expect("the window"), "and holds the focus");
     std::mem::forget(cx);
 }

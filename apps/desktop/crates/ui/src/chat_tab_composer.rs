@@ -157,20 +157,13 @@ fn limits_preview(limits: &coding::AccountLimits) -> Value {
 }
 
 /// #EDE-65 lane T: the draft state behind the drawn Composer takes `text`
-/// with its cursor at the end. gpui-base's `set_cursor_position` FOCUSES the
-/// state, which is drawn nowhere since the swap, so a `keep` field that held
-/// the focus gets it back: the user's caret stays in the drawn field through
-/// every draft round trip (a keystroke, a `/` insertion, a prompt's body).
-pub(crate) fn mirror_draft(input: &Entity<gpui_component::input::TextareaState>, text: String, keep: Option<gpui::FocusHandle>, window: &mut Window, cx: &mut App) {
-    let keep = keep.filter(|field| field.is_focused(window));
-    let position = crate::markdown::byte_offset_to_position(&text, text.len());
-    input.update(cx, |state, cx| {
-        state.set_value(text, window, cx);
-        state.set_cursor_position(position, window, cx);
-    });
-    if let Some(field) = keep {
-        field.focus(window, cx);
-    }
+/// as its VALUE only. Its readers (send, Stop's restore, the `/` and `@`
+/// menus) read the text, nothing reads its cursor; and gpui-base's
+/// `set_cursor_position` FOCUSES the state, which is drawn nowhere since the
+/// swap, so a cursor move would pull the focus (and the caret) out of the
+/// drawn field mid-keystroke. `set_value` never touches the focus.
+pub(crate) fn mirror_draft(input: &Entity<gpui_component::input::TextareaState>, text: String, window: &mut Window, cx: &mut App) {
+    input.update(cx, |state, cx| state.set_value(text, window, cx));
 }
 
 /// What the document's composer asked for (`ede_chat` {action, …}: a
@@ -899,8 +892,7 @@ impl SteerSessionView {
     /// reports text, not a caret), and the menus follow it.
     fn set_draft(&mut self, text: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.input.read(cx).value() != text.as_str() {
-            let keep = self.composer_doc.field_focus(cx);
-            mirror_draft(&self.input, text, keep, window, cx);
+            mirror_draft(&self.input, text, window, cx);
         }
         self.refresh_slash(cx);
         cx.notify();

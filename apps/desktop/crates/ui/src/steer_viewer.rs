@@ -3786,8 +3786,7 @@ impl SteerSessionView {
                         return;
                     }
                     this.slash = None;
-                    let keep = this.composer_doc.field_focus(cx);
-                    chat_tab_composer::mirror_draft(&this.input, full.body, keep, window, cx);
+                    chat_tab_composer::mirror_draft(&this.input, full.body, window, cx);
                     cx.notify();
                 }
                 Err(err) => crate::action_error::failed_action_err("load", &prompt.name, &err, cx),
