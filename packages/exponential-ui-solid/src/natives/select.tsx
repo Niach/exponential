@@ -26,7 +26,7 @@
 // before its value.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
-import { boundPath, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
+import { boundPath, propColor, firstEnabledIndex, listMoreBelow, openingCursorIndex, revealOption, selectClearSize, selectItemJoins, selectLoadingNode, selectOpensWithoutCursor, selectPopupGeometry } from "@exponential_app/eui/web"
 import { nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
 import { DEBOUNCE_MS } from "../inputs"
@@ -48,6 +48,8 @@ export interface SelectOption {
   mono?: boolean
   /** #EXP-1629: a muted second line under the label (the IDE picker's `Offline`). */
   description?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -218,7 +220,7 @@ export function SelectNative(props: NativeProps): JSX.Element {
   const chosenIcon = () => (row() && bool(props.props.triggerIcon) && !multiple() ? str(options().find((o) => o.value === str(value()))?.icon) : ``)
   const ValueIcon = () => (
     <Show when={chosenIcon()} keyed>
-      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} />}
+      {(name) => <IconGlyph icons={ctx.host.icons} name={name} {...part(`valueIcon`, inButton())} style={propColor(options().find((o) => o.value === str(value()))?.iconColor) ? { color: propColor(options().find((o) => o.value === str(value()))?.iconColor) } : undefined} />}
     </Show>
   )
   const [valueEl, setValueEl] = createSignal<HTMLElement>()
@@ -522,7 +524,7 @@ function PlainSelectContent(props: { s: SelectState; contentId: string; current:
                     if (e.key === ` `) e.preventDefault()
                   }}
                 >
-                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {o.icon ? <span {...part(`itemIcon`)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                   {str(o.description) ? (
                     <span {...part(`itemText`)}>
                       <span {...part(`itemLabel`)}><span id={textId}>{str(o.label)}</span>{trailingText(o)}</span>
@@ -793,7 +795,7 @@ function ComboboxContent(props: {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => props.pick(i())}
                 >
-                  {o.icon ? <span {...part(`itemIcon`)}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
+                  {o.icon ? <span {...part(`itemIcon`)} style={propColor(o.iconColor) ? { color: propColor(o.iconColor) } : undefined}><IconGlyph icons={ctx.host.icons} name={o.icon} /></span> : null}
                   {str(o.description) ? (
                     <span {...part(`itemText`)}>
                       <span {...part(`itemLabel`)}>{str(o.label)}{trailingText(o)}</span>

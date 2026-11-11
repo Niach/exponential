@@ -3524,6 +3524,9 @@
         "icon": {
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "description": "Shows the option but refuses it."
         },
