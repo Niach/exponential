@@ -879,9 +879,9 @@ fn menu_items(is_self: bool, is_owner_row: bool, i_am_owner: bool, placeholder: 
     }
     if is_self || i_am_owner {
         // EXP-687: leaving is a sign-out, removing someone is a user-minus —
-        // the web draws the same two concepts.
+        // the web draws the same two concepts, as destructive items.
         let (label, icon) = if is_self { ("Leave team", "nav-sign-out") } else { ("Remove member", "ui-remove-member") };
-        items.push(json!({"label": label, "value": "remove", "icon": icon}));
+        items.push(json!({"label": label, "value": "remove", "icon": icon, "destructive": true}));
     }
     items
 }
@@ -1039,6 +1039,7 @@ impl Tints {
             outline_stroke_dim: c("#ffffff13"),
             ghost_fg: c("#fafafaff"),
             ghost_hover: c("#ffffff0a"),
+            list_hover: c("#ffffff0f"),
             hues: Vec::new(),
         }
     }

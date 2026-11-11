@@ -15,14 +15,13 @@
 
 use std::collections::HashMap;
 
-use eui_gpui::controls::CTL_MD_H;
 use gpui::{div, px, App, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{button::Button, ActiveTheme as _, Disableable as _, Icon};
 use serde_json::{json, Value};
 
 use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
-use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, AppDetailPane, Paint, Tints};
+use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, Paint, Tints};
 use super::doc::{path, Ink, SM, XS};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;

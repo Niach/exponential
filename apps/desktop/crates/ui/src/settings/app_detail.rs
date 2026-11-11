@@ -19,11 +19,10 @@
 //! stay native.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
-use gpui::{div, AnyElement, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
+use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
 use gpui_component::ActiveTheme as _;
 use serde_json::{json, Value};
 use sync::Store;
