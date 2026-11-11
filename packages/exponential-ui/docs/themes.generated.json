@@ -4222,7 +4222,8 @@
         "field",
         "placeholder",
         "attachment",
-        "send"
+        "send",
+        "sendIcon"
       ],
       "props": [
         "attachments",

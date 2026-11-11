@@ -13,7 +13,7 @@ fn entry(id: &str, name: &str, url: Option<&str>, auth: &str, status: &str) -> M
     }
 }
 
-fn rows() -> Vec<McpServerListEntry> {
+pub(super) fn rows() -> Vec<McpServerListEntry> {
     let mut linear = entry("s1", "Linear", Some("https://mcp.linear.app/mcp"), "oauth", "connected");
     linear.config.enabled_by_default = true;
     linear.shared = true;

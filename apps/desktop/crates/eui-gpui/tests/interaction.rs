@@ -1677,6 +1677,16 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             draw(vcx);
             view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
         });
+        // #EDE-65 `hiddenAbove`: the composer's height without the slot.
+        let hidden = c.get("hiddenAbove");
+        let no_above_h = hidden.map(|_| {
+            let mut plain = composer.clone();
+            plain["slots"].as_object_mut().unwrap().remove("above");
+            let (view, _, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [plain]}), rtl);
+            view.update(vcx, |v, _| v.record_bounds(true));
+            draw(vcx);
+            view.read_with(vcx, |v, _| v.painted_bounds("c")).map(|b| f32::from(b.size.height)).unwrap()
+        });
         let (view, log, vcx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"padding": 40, "width": 480}, "children": [composer]}), rtl);
         view.update(vcx, |v, cx| {
             v.record_bounds(true);
@@ -1706,7 +1716,7 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
             assert!(b.0 >= cb.0 && b.0 + b.2 <= cb.0 + cb.2 + 0.5 && b.1 >= cb.1 && b.1 + b.3 <= cb.1 + cb.3 + 0.5, "{name}: {slot} inside the composer");
             // #EXP-1762: a one-line flat composer IS its bottom row (the
             // disc's height): its slots sit on its centre line.
-            if c["props"]["layout"] == "flat" && !slots.contains_key("above") {
+            if c["props"]["layout"] == "flat" && (!slots.contains_key("above") || hidden.is_some()) {
                 assert!((b.1 + b.3 / 2.0 - (cb.1 + cb.3 / 2.0)).abs() < 0.5, "{name}: {slot} centred in the one row");
             } else {
                 assert!(b.1 + b.3 / 2.0 > cb.1 + cb.3 / 2.0, "{name}: {slot} in the bottom row");
@@ -1715,7 +1725,21 @@ fn a_composer_paints_its_slots_in_the_controls_row_like_the_fixture(cx: &mut Tes
         }
         // #EXP-1762: `above` paints inside the card at its top, the content
         // width (the same inset either side), over the row's slots.
-        if slots.contains_key("above") {
+        if let (Some(h), Some(no_above_h)) = (hidden, no_above_h) {
+            assert!(bounds(vcx, "strip").is_none(), "{name}: a hidden above paints nothing");
+            assert!((cb.3 - no_above_h).abs() < 0.5, "{name}: as if the slot were absent ({} vs {no_above_h})", cb.3);
+            let path = format!("/{}", h["path"].as_str().unwrap());
+            view.update(vcx, |v, cx| v.set_data(&path, Some(h["value"].clone()), cx).unwrap());
+            draw(vcx);
+            let grown = bounds(vcx, "c").unwrap();
+            let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: shown above painted"));
+            assert!(grown.3 >= no_above_h + s.3, "{name}: the shown above grows the composer ({} vs {no_above_h} + {})", grown.3, s.3);
+            view.update(vcx, |v, cx| v.set_data(&path, Some(json!(false)), cx).unwrap());
+            draw(vcx);
+            let back = bounds(vcx, "c").unwrap();
+            assert!((back.3 - no_above_h).abs() < 0.5, "{name}: hidden again ({} vs {no_above_h})", back.3);
+        }
+        if slots.contains_key("above") && hidden.is_none() {
             let s = bounds(vcx, "strip").unwrap_or_else(|| panic!("{name}: above painted"));
             let (l, r) = (s.0 - cb.0, cb.0 + cb.2 - (s.0 + s.2));
             assert!(l > 0.0 && (l - r).abs() < 0.5 && s.1 > cb.1 && s.1 - cb.1 <= l + 0.5, "{name}: above at the content top, full width: {s:?} in {cb:?}");

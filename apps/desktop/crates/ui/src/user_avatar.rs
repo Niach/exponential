@@ -260,7 +260,7 @@ pub fn avatar_element(
 
 /// The fallback's (fill, initials) colours: the key's contract hue at 20% and
 /// full, or the muted pair when there is no key (#EXP-1754).
-fn fallback_colors(hue_key: &str) -> (gpui::Hsla, gpui::Hsla) {
+pub(crate) fn fallback_colors(hue_key: &str) -> (gpui::Hsla, gpui::Hsla) {
     match avatar_hue_key(Some(hue_key), None, None) {
         Some(key) => {
             let hue = theme::tokens::avatar::HUES[avatar_hue_index(key)].to_hsla();

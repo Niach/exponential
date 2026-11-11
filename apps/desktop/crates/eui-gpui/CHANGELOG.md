@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Style key `fontVariantNumeric: tabular-nums`: `Fonts::for_style` adds `tnum` (`with_tabular_nums`), the font both the measurer and the painter shape with. The Carousel counter and Progress/Meter `value` keep their own part rule (`tabular_text`), the same feature.
+- Composer (#EDE-65): the send/stop glyph takes the `sendIcon` recipe part's size; a disabled send dims by the `send` part's `state: disabled` opacity (0.5 without one); a hidden `above` paints as no slot.
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
 - Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
