@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `accessibility.selected` / `.expanded` (#EXP-1629): through the Solid painter.
 - Input / Textarea `style.color` colours the typed text (#EXP-1787): through the React renderer.
 - Style key `fontVariantNumeric: tabular-nums` (the Solid painter's).
 - Select `triggerVariant: "inline"` (#EXP-1629): through the React renderer.

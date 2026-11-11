@@ -38,7 +38,10 @@ export const RESERVED_KEYS: readonly string[] = [`id`, `component`, `catalogId`,
 /** The declared props the reducer lifts out of `props` into the node. */
 const STRUCTURAL = new Set([...RESERVED_KEYS, `children`, `slots`, `on`, `style`, `visible`])
 /** Round 9 §5.1: the closed `accessibility` object. */
-export const ACCESSIBILITY_KEYS: readonly string[] = [`label`, `description`, `live`, `hidden`]
+export const ACCESSIBILITY_KEYS: readonly string[] = [`label`, `description`, `live`, `hidden`, `selected`, `expanded`]
+
+/** #EXP-1629: the state keys (DynamicBoolean: a boolean or a binding). */
+export const ACCESSIBILITY_STATES: readonly string[] = [`selected`, `expanded`]
 const LIVE_VALUES: readonly string[] = [`off`, `polite`, `assertive`]
 
 /** Round 9 §5.2: a reducer issue with its code and path
@@ -348,6 +351,10 @@ function accessibilityOf(value: unknown, id: string, issues: ReduceIssue[]): Rec
     }
     if (k === `live` && !LIVE_VALUES.includes(v as string)) {
       issues.push(reduceIssue(id, `accessibility.live: expected one of ${LIVE_VALUES.join(`|`)}`, `/accessibility/live`))
+      continue
+    }
+    if (ACCESSIBILITY_STATES.includes(k) && typeof v !== `boolean` && !isDynamic(v)) {
+      issues.push(reduceIssue(id, `accessibility.${k}: expected a boolean`, `/accessibility/${k}`))
       continue
     }
     out[k] = v

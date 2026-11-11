@@ -1153,7 +1153,7 @@ impl DeleteStatusContent {
                     "glyph": status.glyph.file_name(),
                     "tint": hex(crate::icons::status_tint_color(&status.tint, cx)),
                     "fill": if selected { accent.as_str() } else { "#00000000" },
-                    "state": if selected { "Selected" } else { "" },
+                    "selected": selected,
                 })
             })
             .collect();
@@ -1211,7 +1211,7 @@ fn delete_document(ink: &Ink, chrome: &DeleteChrome) -> Value {
     name["style"]["flexGrow"] = json!(1);
     name["style"]["flexShrink"] = json!(1);
     name["style"]["minWidth"] = json!(0);
-    let row = json!({"id": "target_row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "description": path("state")},
+    let row = json!({"id": "target_row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "selected": path("selected")},
         "on": {"press": {"event": {"name": "target", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "backgroundColor": path("fill"), "cursor": "pointer", ":hover": {"backgroundColor": chrome.accent}},
         "children": [glyph, name]});

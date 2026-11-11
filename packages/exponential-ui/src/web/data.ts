@@ -328,6 +328,9 @@ export function resolveAccessibility(accessibility: unknown, ctx: ResolveContext
   return Object.keys(out).length ? out : null
 }
 
+/** The roles whose `aria-selected` is their own selection state. */
+const SELECTION_ROLES: readonly string[] = [`tab`, `option`, `row`, `gridcell`, `treeitem`, `columnheader`, `rowheader`]
+
 /** The ARIA attributes of a RESOLVED `accessibility` (contract §6): `role`
  *  (`text` = none of its own, `hidden` = aria-hidden), label/description,
  *  `level`, `expanded`, `current` (page|step; false = absent), `selected`,
@@ -347,6 +350,9 @@ export function ariaAttributes(a11y: Record<string, unknown> | null): Record<str
     if (typeof v === `boolean` || v === `mixed`) out[attr] = String(v)
   }
   if (a11y.current !== undefined && a11y.current !== null && a11y.current !== false && a11y.current !== ``) out[`aria-current`] = a11y.current === true ? `true` : String(a11y.current)
+  // #EXP-1629: a selected node with no selection role of its own (a lit nav
+  // row: a button or link) is the CURRENT one (fixtures/a11y-states.json).
+  else if (a11y.selected === true && !SELECTION_ROLES.includes(String(role ?? ``))) out[`aria-current`] = `true`
   for (const [key, attr] of [[`valueNow`, `aria-valuenow`], [`valueMin`, `aria-valuemin`], [`valueMax`, `aria-valuemax`]] as const) {
     const v = a11y[key]
     if (typeof v === `number` && Number.isFinite(v)) out[attr] = String(v)

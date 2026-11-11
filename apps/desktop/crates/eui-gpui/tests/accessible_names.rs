@@ -222,6 +222,130 @@ fn roleless(name: &str, text: &str) -> Vec<String> {
     found
 }
 
+/// #EXP-1629: a nav row's role, the ones whose lit state is `selected`.
+const ROW_ROLES: &[&str] = &["Role::ListItem", "Role::Tab)", "Role::TreeItem"];
+
+/// What names a disclosure (its accessible name says what it does).
+const DISCLOSURE: &[&str] = &["Collapse", "Expand", "foldLabel"];
+
+/// The text of `object` (a `{…}` JSON literal) without its `children` and
+/// `slots`: what the node itself is.
+fn own_object(object: &str) -> String {
+    let mut own = object.to_string();
+    for key in ["\"children\": ", "\"slots\": "] {
+        while let Some(at) = own.find(key) {
+            let open = at + key.len();
+            if !matches!(own.as_bytes().get(open), Some(b'[' | b'{')) {
+                break;
+            }
+            let end = close(&own, open);
+            own.replace_range(at..=end.min(own.len() - 1), "");
+        }
+    }
+    own
+}
+
+/// `file:line` of every nav row or disclosure in `text` that leaves its
+/// state UNSET (#EXP-1629, fixtures/a11y-states.json): a gpui row with a
+/// row role that paints a selection fill without `.aria_selected(`, a gpui
+/// control named Expand/Collapse without `.aria_expanded(`; a document's
+/// pressable node with a bound fill without `accessibility.selected`, a
+/// document node named Expand/Collapse without `accessibility.expanded`.
+fn stateless(name: &str, text: &str) -> Vec<String> {
+    let line_of = |at: usize| format!("{name}:{}", text[..at].matches('\n').count() + 1);
+    let mut found = Vec::new();
+    for needle in CONTAINERS {
+        for (at, _) in text.match_indices(needle) {
+            let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+            let before = &text[line_start..at];
+            if before.trim_start().starts_with("//") || before.matches('"').count() % 2 == 1 || before.ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let own = own_chain(text, at);
+            if !own.contains(".on_click(") {
+                continue;
+            }
+            let row = ROW_ROLES.iter().any(|role| own.contains(role)) && own.contains(".when(") && own.contains(".bg(");
+            let disclosure = own.split(".aria_label(").skip(1).any(|label| DISCLOSURE.iter().any(|word| label.split(')').next().is_some_and(|arg| arg.contains(word))));
+            if (row && !own.contains(".aria_selected(")) || (disclosure && !own.contains(".aria_expanded(")) {
+                found.push(line_of(at));
+            }
+        }
+    }
+    let key = "\"accessibility\": {";
+    for (at, _) in text.match_indices(key) {
+        // The node object holding it: the nearest unclosed `{` before it.
+        let bytes = text.as_bytes();
+        let (mut depth, mut open) = (0i32, None);
+        for i in (0..at).rev() {
+            match bytes[i] {
+                b'}' | b']' | b')' => depth += 1,
+                b'{' | b'[' | b'(' if depth > 0 => depth -= 1,
+                b'{' => {
+                    open = Some(i);
+                    break;
+                }
+                b'[' | b'(' => break,
+                _ => {}
+            }
+        }
+        let Some(open) = open else { continue };
+        let node = own_object(&text[open..=close(text, open).min(text.len() - 1)]);
+        let a11y_open = at + key.len() - 1;
+        let a11y = &text[a11y_open..=close(text, a11y_open).min(text.len() - 1)];
+        let row = node.contains("\"pressable\": true") && node.contains("\"backgroundColor\": path(");
+        let disclosure = DISCLOSURE.iter().any(|word| a11y.contains(word));
+        if (row && !a11y.contains("\"selected\"")) || (disclosure && !a11y.contains("\"expanded\"")) {
+            found.push(line_of(at));
+        }
+    }
+    found
+}
+
+#[test]
+fn every_nav_row_and_disclosure_sets_its_state() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let crates = manifest.parent().expect("crates/");
+    let mut offenders = Vec::new();
+    for root in [crates.join("eui-gpui").join("src"), crates.join("ui").join("src")] {
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        for path in files {
+            let text = std::fs::read_to_string(&path).expect("a readable source file");
+            let name = path.strip_prefix(crates).unwrap_or(&path).to_string_lossy().to_string();
+            offenders.extend(stateless(&name, &text));
+        }
+    }
+    offenders.sort();
+    assert!(
+        offenders.is_empty(),
+        "#EXP-1629: {} nav row(s) / disclosure(s) leave their state unset; a lit row \
+         chains `.aria_selected(…)` (a document: `accessibility.selected`), an \
+         Expand/Collapse control `.aria_expanded(…)` (`accessibility.expanded`):\n  {}",
+        offenders.len(),
+        offenders.join("\n  ")
+    );
+}
+
+#[test]
+fn the_scan_sees_an_unset_state() {
+    let lit = r#"div().id("r").role(gpui::Role::ListItem).aria_label(t).when(on, |r| r.bg(c)).on_click(f)"#;
+    let lit_ok = r#"div().id("r").role(gpui::Role::ListItem).aria_label(t).aria_selected(on).when(on, |r| r.bg(c)).on_click(f)"#;
+    let fold = r#"div().id("f").role(gpui::Role::Button).aria_label(if open { "Collapse" } else { "Expand" }).on_click(f)"#;
+    let fold_ok = r#"div().id("f").role(gpui::Role::Button).aria_label(if open { "Collapse" } else { "Expand" }).aria_expanded(open).on_click(f)"#;
+    let doc_row = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label")}, "style": {"backgroundColor": path("fill")}})"#;
+    let doc_row_ok = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "selected": path("lit")}, "style": {"backgroundColor": path("fill")}})"#;
+    let doc_fold = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("foldLabel")}})"#;
+    let doc_fold_ok = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("foldLabel"), "expanded": path("open")}})"#;
+    let child_fill = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "x"}, "children": [{"id": "c", "component": "Box", "style": {"backgroundColor": path("fill")}}]})"#;
+    for unset in [lit, fold, doc_row, doc_fold] {
+        assert_eq!(stateless("t", unset), vec!["t:1".to_string()], "{unset}");
+    }
+    for set in [lit_ok, fold_ok, doc_row_ok, doc_fold_ok, child_fill] {
+        assert!(stateless("t", set).is_empty(), "{set}");
+    }
+}
+
 fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("a readable source dir") {
         let path = entry.expect("a readable dir entry").path();

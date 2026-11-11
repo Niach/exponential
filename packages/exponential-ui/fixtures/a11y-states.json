@@ -1,0 +1,38 @@
+{
+  "$comment": "#EXP-1629 (a11y.json rules, round-9 contract §5.1): the author's `accessibility.selected` and `accessibility.expanded` (DynamicBoolean; a bound value resolves per template instance) as every renderer reports them. Each case: a tree + its data, `expect` = per node id the states the platform's accessibility node carries (`selected`: aria-selected, plus aria-current=true on a node with no selection role, SwiftUI `.isSelected`, Compose `selected`, AccessKit `selected`; `expanded`: aria-expanded, SwiftUI value expanded/collapsed, Compose expand/collapse, AccessKit `expanded`), `unset` = node ids that carry neither state (the key absent: no state reported, never `false`). The reducer raises no issue on any case; a non-boolean value is the `invalid` list's (a VALIDATION_FAILED issue at its path, the key dropped).",
+  "cases": [
+    {
+      "name": "a settings nav: a lit row, an unlit row, an open and a closed disclosure",
+      "data": {},
+      "tree": {
+        "id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"},
+        "children": [
+          {"id": "general", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "General", "selected": true}, "on": {"press": {"event": {"name": "pick"}}}, "children": [{"id": "general_label", "component": "Text", "props": {"text": "General"}}]},
+          {"id": "members", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Members", "selected": false}, "on": {"press": {"event": {"name": "pick"}}}, "children": [{"id": "members_label", "component": "Text", "props": {"text": "Members"}}]},
+          {"id": "issues_fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Collapse Issues", "expanded": true}, "on": {"press": {"event": {"name": "fold"}}}, "children": [{"id": "issues_fold_icon", "component": "Icon", "props": {"name": "ui-chevron-down"}}]},
+          {"id": "labels_fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Expand Labels", "expanded": false}, "on": {"press": {"event": {"name": "fold"}}}, "children": [{"id": "labels_fold_icon", "component": "Icon", "props": {"name": "ui-chevron-right"}}]},
+          {"id": "about", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "About"}, "on": {"press": {"event": {"name": "pick"}}}, "children": [{"id": "about_label", "component": "Text", "props": {"text": "About"}}]}
+        ]
+      },
+      "expect": {"general": {"selected": true}, "members": {"selected": false}, "issues_fold": {"expanded": true}, "labels_fold": {"expanded": false}},
+      "unset": ["about"]
+    },
+    {
+      "name": "bound per template instance",
+      "data": {"rows": [{"key": "a", "label": "Alpha", "lit": true, "open": false}, {"key": "b", "label": "Beta", "lit": false, "open": true}]},
+      "tree": {
+        "id": "root", "component": "List", "props": {"gap": "none"},
+        "template": {"component": "row", "path": "/rows", "key": "key"},
+        "children": [
+          {"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": {"@path": "label"}, "selected": {"@path": "lit"}, "expanded": {"@path": "open"}}, "on": {"press": {"event": {"name": "pick"}}}, "children": [{"id": "row_label", "component": "Text", "props": {"text": {"@path": "label"}}}]}
+        ]
+      },
+      "expect": {"row.a": {"selected": true, "expanded": false}, "row.b": {"selected": false, "expanded": true}},
+      "unset": []
+    }
+  ],
+  "invalid": [
+    {"node": {"id": "x", "component": "Box", "accessibility": {"selected": "yes"}}, "path": "/accessibility/selected"},
+    {"node": {"id": "y", "component": "Box", "accessibility": {"expanded": 1}}, "path": "/accessibility/expanded"}
+  ]
+}
