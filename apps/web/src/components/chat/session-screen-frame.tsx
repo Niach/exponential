@@ -273,7 +273,7 @@ export function SessionScreenFrame({
         <div className="flex items-center gap-3">
           <BackStackButton onPop={onPop} className="-ml-2" />
           {avatar}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-40 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <h1 data-testid="chat-title" className="min-w-0 truncate text-lg font-semibold tracking-tight">
                 {title}
