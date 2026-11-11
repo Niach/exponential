@@ -1567,6 +1567,20 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `invite-md`, component: `Input`, props: { label: `Email`, name: `email-md`, variant: `box`, placeholder: `teammate@example.com` } },
       ],
     },
+  }, {
+    // #EXP-1787: the node's `style.color` colours the TYPED text (the IDE's
+    // Add repository lookup: a muted value); the placeholder and the caret
+    // keep their own.
+    label: `style · color (a muted value)`,
+    node: {
+      id: `lookup`,
+      component: `Box`,
+      style: { display: `flex`, flexDirection: `column`, gap: `$spacing.sm` },
+      children: [
+        { id: `lookup-value`, component: `Input`, props: { label: `Repository`, name: `lookup`, variant: `box`, value: `acme/web` }, style: { color: `$color.mutedForeground` } },
+        { id: `lookup-empty`, component: `Input`, props: { label: `Repository`, name: `lookup-empty`, variant: `box`, placeholder: `owner/name` }, style: { color: `$color.mutedForeground` } },
+      ],
+    },
   }],
   Textarea: [{
     // #EXP-1629: the settings pages' text bodies inside a Group: `row`

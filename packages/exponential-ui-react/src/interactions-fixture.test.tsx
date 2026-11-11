@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, builtinTheme, nativeRecipeProps, reduceNested, resolveRecipe } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
 import stripFixture from "@exponential_app/eui/fixtures/tabs-strip.json"
@@ -1139,6 +1139,57 @@ describe(`fixtures/interactions-round1.json typeaheadFocus`, () => {
         expect(popover() !== null, `${c.name}: ${s.do} open`).toBe(s.open)
         expect(where(), `${c.name}: ${s.do} focus`).toBe(s.focus)
       }
+    })
+  }
+})
+
+// #EXP-1787 fieldInk: an Input/Textarea node's own `style.color` colours its
+// TYPED text; the placeholder and the caret keep the recipe's colours.
+interface FieldInkCase {
+  name: string
+  node: NestedNode & { style?: Record<string, unknown> }
+  value: string
+  valueOpacity?: number
+  placeholder: string
+  caret: string
+}
+const fieldInkFixture = (fixture as unknown as { fieldInk: { theme: string; mode: `light` | `dark`; cases: FieldInkCase[] } }).fieldInk
+
+describe(`fixtures/interactions-round1.json fieldInk`, () => {
+  const theme = builtinTheme(fieldInkFixture.theme)!
+  const palette = theme.modes[fieldInkFixture.mode].color as Record<string, string>
+  // A painted CSS colour as the fixture's hex: a theme variable resolved in the case's mode.
+  const hex = (css: string): string => {
+    const m = /^var\(--xui-color-([A-Za-z0-9]+)\)$/.exec(css)
+    if (m) return palette[m[1]!]!
+    const rgb = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(css)
+    return rgb ? `#${rgb.slice(1).map((n) => Number(n).toString(16).padStart(2, `0`)).join(``)}` : css
+  }
+  for (const c of fieldInkFixture.cases) {
+    it(`fieldInk: ${c.name}`, () => {
+      const root = { id: `root`, component: `Stack`, children: [c.node] } as NestedNode
+      const { container } = render(<NestedSurface tree={root} host={{}} />)
+      const input = container.querySelector<HTMLElement>(`[data-xui-id="f"] input, [data-xui-id="f"] textarea`)!
+      expect(input, c.name).toBeTruthy()
+      const row = input.classList.contains(`xui-Input-rowfield`)
+      // The field element: the input itself, a row's <label> around its value.
+      const field = row ? input.closest<HTMLElement>(`.xui-Input-field`)! : input
+      const props = nativeRecipeProps(c.node.component, (c.node.props ?? {}) as Record<string, unknown>)
+      const recipe = resolveRecipe(theme, { component: c.node.component, part: `field`, props }, fieldInkFixture.mode)
+      const painted = cascaded(field, `color`)
+      expect(painted ? hex(painted) : String(recipe.color), `${c.name}: value`).toBe(c.value)
+      if (row) expect(cascaded(input, `color`), `${c.name}: the row's value tone`).toBe(`color-mix(in srgb, currentcolor ${Math.round((c.valueOpacity ?? 1) * 100)}%, transparent)`)
+      else expect(c.valueOpacity ?? 1).toBe(1)
+      // The caret: the recipe's colour (pinned once the text takes another).
+      const authored = c.node.style?.color !== undefined
+      const pinned = row ? `color-mix(in srgb, var(--xui-color-foreground) 70%, transparent)` : `var(--xui-color-foreground)`
+      expect(cascaded(input, `caret-color`), `${c.name}: caret`).toBe(authored ? pinned : ``)
+      expect(String(recipe.color), `${c.name}: caret ink`).toBe(c.caret)
+      // The placeholder: its own part's colour; no node rule reaches it.
+      const placeholder = resolveRecipe(theme, { component: c.node.component, part: `placeholder`, props }, fieldInkFixture.mode)
+      expect(String(placeholder.color), `${c.name}: placeholder`).toBe(c.placeholder)
+      const sheets = Array.from(document.querySelectorAll(`style`)).map((s) => s.textContent ?? ``).join(``)
+      expect(/xui-n-f [^{]*::placeholder/.test(sheets), `${c.name}: no node rule on the placeholder`).toBe(false)
     })
   }
 })

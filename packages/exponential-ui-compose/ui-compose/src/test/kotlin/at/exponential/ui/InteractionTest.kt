@@ -1,6 +1,9 @@
 package at.exponential.ui
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import at.exponential.ui.compose.fieldCaretInk
 import at.exponential.ui.compose.flatComposerField
 import at.exponential.ui.compose.handleKey
 import at.exponential.ui.compose.keyRecorderKeyName
@@ -1241,5 +1244,35 @@ class InteractionTest {
         advanceTimeBy(500)
         assertEquals("no late change", sent, host.inputs.size)
         assertEquals(JsonValue.Str("x"), m.data["draft"])
+    }
+
+    /**
+     * #EXP-1787 `fieldInk`: an Input/Textarea node's own `color` is its
+     * field's ink (the core lands it on the `field` part as an authored key),
+     * the colour [at.exponential.ui.compose.OwnedTextField] draws the TYPED
+     * text in (a `row` at its 70%); the placeholder keeps its part's colour
+     * and the caret the `field` recipe's ([fieldCaretInk]).
+     */
+    @Test
+    fun fieldInkColoursOnlyTheTypedText() {
+        val fx = Fixtures.json("interactions-round1.json")["fieldInk"]!!
+        assertEquals("neutral", fx["theme"]!!.string)
+        val cases = fx["cases"]?.array.orEmpty()
+        assertTrue(cases.size >= 5)
+        fun hex(s: String): Int = Color(0xFF000000L or s.removePrefix("#").toLong(16)).toArgb()
+        for (c in cases) {
+            val name = c["name"]!!.string!!
+            val m = SurfaceModel("field-ink", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Stack","children":[${c["node"]!!.json}]}""")
+            m.setViewport(390f, 800f)
+            val field = m.idx("f.field")
+            val component = c["node"]!!["component"]!!.string!!
+            val ink = m.ink(field)
+            assertEquals("$name: the typed text", hex(c["value"]!!.string!!), ink.toArgb())
+            val owner = m.ownerProps(field)
+            assertEquals("$name: caret", hex(c["caret"]!!.string!!), fieldCaretInk(m.part(component, "field", owner).color, ink).toArgb())
+            assertEquals("$name: placeholder", hex(c["placeholder"]!!.string!!), m.part(component, "placeholder", owner).color!!.toArgb())
+        }
     }
 }

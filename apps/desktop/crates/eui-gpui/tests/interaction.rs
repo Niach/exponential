@@ -2053,3 +2053,22 @@ fn a_field_anchored_popover_never_takes_the_focus_like_the_fixture(cx: &mut Test
         }
     }
 }
+
+/// #EXP-1787 (interactions-round1.json fieldInk) through the painter: an
+/// Input/Textarea node's own `color` is its field's ink, the colour
+/// `field_element` hands the gpui-component input as `text_color` (a `row`
+/// draws its 70% of it); the placeholder and the caret are the input's own
+/// editor colours (`muted_foreground`, `caret`), never the ink.
+#[gpui::test]
+fn an_authored_field_color_is_the_typed_text_ink_like_the_fixture(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fx = &f["fieldInk"];
+    assert_eq!(fx["theme"], "neutral");
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let (view, _log, vcx) = surface(cx, json!({"id": "root", "component": "Stack", "children": [c["node"].clone()]}), false);
+        let ink = view.read_with(vcx, |v, _| v.painted_colors("f.field")).unwrap_or_else(|| panic!("{name}: f.field not painted")).1;
+        let want = eui_gpui::paint::color::color_of(c["value"].as_str()).unwrap();
+        assert_eq!(format!("{ink:?}"), format!("{want:?}"), "{name}: the typed text's ink");
+    }
+}

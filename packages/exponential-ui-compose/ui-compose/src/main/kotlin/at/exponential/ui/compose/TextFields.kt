@@ -120,6 +120,8 @@ fun OwnedTextField(
     keyboardType: KeyboardType = keyboardTypeOf(inputType),
     /** #EXP-1629: a `row` Input's value (and placeholder) sits at the end. */
     endAligned: Boolean = false,
+    /** #EXP-1787: the caret's colour when it is not the typed text's (an authored `color`); null = the text's. */
+    cursorColor: Color? = null,
 ) {
     val secure = inputType == "password"
     val state = model.field(index)
@@ -256,7 +258,7 @@ fun OwnedTextField(
                 onSend = { if (!model.composerKey(index, "Enter")) model.composerSubmit(index) },
             ),
             visualTransformation = if (secure) PasswordVisualTransformation() else VisualTransformation.None,
-            cursorBrush = SolidColor(textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
+            cursorBrush = SolidColor(cursorColor ?: textStyle.color.takeIf { it != Color.Unspecified } ?: Color.Black),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxSize(), contentAlignment = when {
                     multiline -> Alignment.TopStart
@@ -352,6 +354,7 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
             modifier = Modifier.fillMaxSize(),
             inputType = type,
+            cursorColor = fieldCaretInk(cx.part(cx.node.recipeComponent, "field").color, cx.ink),
         )
     }
 }
@@ -390,6 +393,7 @@ private fun InputRowFieldLeaf(cx: LeafContext, placeholderColor: Color?) {
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 inputType = type,
                 endAligned = true,
+                cursorColor = inputRowValueInk(fieldCaretInk(cx.part("Input", "field").color, cx.ink)),
             )
         }
     }
@@ -412,6 +416,14 @@ internal fun inputRowGap(recipeGap: Float, md: Float): Float = if (recipeGap > 0
 
 /** #EXP-1629: a row's typed text: the field colour at 70 % (the Group row's value tone). */
 internal fun inputRowValueInk(ink: Color): Color = ink.copy(alpha = ink.alpha * INPUT_ROW_VALUE_OPACITY)
+
+/**
+ * #EXP-1787 (interactions-round1 `fieldInk`): the caret of an Input/Textarea
+ * field: the `field` recipe's colour, whatever ink the node's own `color`
+ * gives the typed text (the core lands that on the field's visual), else the
+ * ink. No authored colour = the text's colour, as before.
+ */
+internal fun fieldCaretInk(recipe: Color?, ink: Color): Color = recipe ?: ink
 
 /** #EXP-1629: the opacity of a `row` Input's typed text. */
 internal const val INPUT_ROW_VALUE_OPACITY = 0.7f

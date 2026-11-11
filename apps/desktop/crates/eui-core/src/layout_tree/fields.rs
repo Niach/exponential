@@ -360,6 +360,15 @@ impl Builder<'_, '_> {
         }
         let f = self.part(&owner, "field", &owner.component, NodeKind::Leaf, json!({"alignSelf": "stretch"}), props);
         self.nodes[f as usize].pressable = !bool_prop(&owner.props, "disabled");
+        // #EXP-1787 (interactions-round1 `fieldInk`): the node's own `color`
+        // colours the TYPED text: it lands on the field part as an AUTHORED
+        // key (VAPP-163), so it wins over the `field` recipe and becomes the
+        // field's ink; the placeholder and caret inks are the painters' own.
+        if let Some(color) = owner.base_style.get("color").filter(|c| !c.is_object()).cloned() {
+            let n = &mut self.nodes[f as usize];
+            n.base_style.insert("color".into(), color);
+            n.authored_keys.push("color".into());
+        }
         if let Some(label) = str_prop(&owner.props, "label").filter(|l| unlabelled && !l.is_empty()) {
             self.default_a11y(f, "label", json!(label));
         }

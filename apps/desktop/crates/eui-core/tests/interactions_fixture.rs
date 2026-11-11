@@ -1306,3 +1306,41 @@ fn typeahead_focus_cases_name_the_field_anchored_popovers_like_the_reference() {
     assert!(eui_core::overlay::is_field_anchor("Input", Some("field")) && eui_core::overlay::is_field_anchor("Textarea", None));
     assert!(!eui_core::overlay::is_field_anchor("Input", Some("label")) && !eui_core::overlay::is_field_anchor("Select", Some("search")));
 }
+
+/// #EXP-1787 fieldInk at the core: an Input/Textarea node's own `color`
+/// lands on its `field` part as an authored key, so the field's visual
+/// colour (the ink gpui, SwiftUI and Compose draw the TYPED text in) is the
+/// author's, every variant; the `placeholder` part and the `field` recipe
+/// (the caret's ink) keep the theme's. No `color` = the recipe's.
+#[test]
+fn field_ink_an_authored_color_reaches_the_typed_text_only() {
+    use eui_core::recipes::native_recipe_props;
+    use eui_core::theme::{resolve_recipe, Mode, RecipeQuery};
+    let f = fixture();
+    let k = &f["fieldInk"];
+    assert_eq!(k["theme"], "neutral");
+    assert_eq!(k["mode"], "light");
+    let theme = eui_core::themes::builtin_theme("neutral").unwrap();
+    let cases = k["cases"].as_array().unwrap();
+    assert!(cases.len() >= 5);
+    for c in cases {
+        let name = c["name"].as_str().unwrap();
+        let node = c["node"].clone();
+        let component = node["component"].as_str().unwrap().to_string();
+        let mut s = surface(json!({"id": "root", "component": "Stack", "children": [node.clone()]}));
+        s.set_theme(Some(theme.clone()));
+        s.set_mode(Mode::Light);
+        s.layout(&mut fixed());
+        let field = s.index_of("f.field").unwrap_or_else(|| panic!("{name}: no f.field"));
+        let ink = s.visual(field).and_then(|v| v.color.clone()).unwrap_or_default();
+        assert_eq!(ink.to_lowercase(), c["value"].as_str().unwrap(), "{name}: the typed text's ink");
+        let props = native_recipe_props(&component, node["props"].as_object().unwrap());
+        let recipe = |part: &str| resolve_recipe(&theme, &RecipeQuery::new(component.clone(), part, props.clone(), vec![]), Mode::Light).get("color").and_then(|v| v.as_str()).unwrap_or_default().to_lowercase();
+        assert_eq!(recipe("placeholder"), c["placeholder"].as_str().unwrap(), "{name}: placeholder");
+        assert_eq!(recipe("field"), c["caret"].as_str().unwrap(), "{name}: caret (the field recipe)");
+        // The label part keeps its own colour (only the typed text moves).
+        if let Some(label) = s.index_of("f.label") {
+            assert_eq!(s.visual(label).and_then(|v| v.color.clone()).unwrap_or_default().to_lowercase(), "#0a0a0a", "{name}: label");
+        }
+    }
+}

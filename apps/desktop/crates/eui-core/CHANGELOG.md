@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Input / Textarea `style.color` (#EXP-1787): the node's own top-level `color` lands on its `field` part as an authored key, so the field's visual colour (the typed text's ink) is the author's over the `field` recipe; `tests/interactions_fixture.rs` replays `fieldInk`.
 - Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. Core: `overlay::is_field_anchor` and `Surface::is_typeahead(owner)` name it for every painter.
 - Select `triggerVariant: "inline"` (#EXP-1629): content-sized (`alignSelf: flex-start`), no `label` part (the label is its accessible name), the `Select.dropdown` glyph; the field's popup (`tests/select_inline.rs`); regenerated catalog + themes.
 - Composer (#EDE-65): a hidden `above` child lays out no `above` column (no gap, no extra height); regenerated themes (`sendIcon`).
