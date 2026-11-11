@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Style key `fontVariantNumeric: "tabular-nums"` (#EXP-1629): the core's resolved text style (inherited like CSS) sets `TextStyle.tabular`; the measurer and the painter shape that text with the OpenType `tnum` feature.
 - Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensCursorless` is `pill` only.
 - Select `button` popup matches web's picker (#EXP-1629): the regenerated theme and layout values.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer; the glyph takes the `icon` part's 10.5, the ink the recipe's muted colour. Snapshot `components.json` gains the Button `size=icon-xs`, `tone=default|muted` cases (copied from the Compose record; re-check on a Mac).
