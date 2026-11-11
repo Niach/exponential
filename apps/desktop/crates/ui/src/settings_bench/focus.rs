@@ -2,7 +2,7 @@
 use super::*;
 
 /// The node holding the focus once a freshly opened pane has drawn.
-fn focus_after_open<P: Render + 'static>(build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, surface: impl Fn(&P) -> gpui::Entity<eui_gpui::view::SurfaceView>) -> (Option<u32>, Option<u32>) {
+pub(super) fn focus_after_open<P: Render + 'static>(field: &str, build: impl FnOnce(&mut Window, &mut gpui::Context<P>) -> P + 'static, surface: impl Fn(&P) -> gpui::Entity<eui_gpui::view::SurfaceView>) -> (Option<u32>, Option<u32>) {
     let mut cx = headless();
     cx.update(|cx| {
         crate::init(cx);
@@ -30,7 +30,7 @@ fn focus_after_open<P: Render + 'static>(build: impl FnOnce(&mut Window, &mut gp
     cx.update(|cx| {
         let view = surface(pane.read(cx));
         let view = view.read(cx);
-        (view.focused(), view.index_of("name.field"))
+        (view.focused(), view.index_of(field))
     })
 }
 
@@ -39,7 +39,7 @@ fn focus_after_open<P: Render + 'static>(build: impl FnOnce(&mut Window, &mut gp
 #[test]
 #[ignore]
 fn a_new_prompt_page_focuses_its_name() {
-    let (focused, field) = focus_after_open(|window, cx| PromptPage::new("team-focus".into(), None, window, cx), |page| page.surface());
+    let (focused, field) = focus_after_open("name.field", |window, cx| PromptPage::new("team-focus".into(), None, window, cx), |page| page.surface());
     assert!(field.is_some(), "the page has a name field");
     assert_eq!(focused, field);
 }
@@ -48,7 +48,7 @@ fn a_new_prompt_page_focuses_its_name() {
 #[test]
 #[ignore]
 fn a_new_skill_page_focuses_its_name() {
-    let (focused, field) = focus_after_open(|window, cx| SkillPage::new("team-focus".into(), None, window, cx), |page| page.surface());
+    let (focused, field) = focus_after_open("name.field", |window, cx| SkillPage::new("team-focus".into(), None, window, cx), |page| page.surface());
     assert!(field.is_some(), "the page has a name field");
     assert_eq!(focused, field);
 }

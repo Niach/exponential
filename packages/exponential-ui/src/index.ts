@@ -102,6 +102,7 @@ export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, 
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { partitionTabs, tabDropSlot, tabKeySlot, tabReorder, moveTab } from "./tabs-strip"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
+export { middleTruncateWidth } from "./text-truncate"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
 export type { Direction, PhysicalAlign } from "./direction"
 export { LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, LIMIT_ISSUES } from "./limits"
@@ -198,3 +199,6 @@ export { isIdentifier, mangle } from "./ids"
 // #EDE-65: Embed, a sandboxed nested surface (fixtures/embed.json).
 export { EMBED_ERROR_ROOT, EMBED_EVENT, embedCard, embedMount, embedPayload, embedSurfaceId } from "./embed"
 export type { EmbedCard } from "./embed"
+// #EXP-1629: a Menu item's side preview (interactions-round1.json `menuPreview`).
+export { MENU_PREVIEW_CLOSE_MS, MENU_PREVIEW_IDLE, MENU_PREVIEW_OFFSET, MENU_PREVIEW_OPEN_MS, menuPreviewId, menuPreviewInput, menuPreviewTick, menuPreviewWanted } from "./menu-preview"
+export type { MenuPreviewInput, MenuPreviewState } from "./menu-preview"

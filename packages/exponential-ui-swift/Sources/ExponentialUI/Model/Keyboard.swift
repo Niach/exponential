@@ -20,8 +20,17 @@ extension SurfaceModel {
     /// The Tab order in force: the top interactive layer's (the focus trap),
     /// else the main tree's.
     public func focusOrder() -> [Int] {
-        if let top = layers.last(where: \.isInteractive) { return focusOrder(in: top) }
+        if let top = layers.last(where: takesFocus) { return focusOrder(in: top) }
         return Self.focusOrder(nodes: nodes, paintOrder: order, layer: 0)
+    }
+
+    /// An interactive layer that takes the focus, the Tab order and Escape:
+    /// #EXP-1629 never a Menu item's `preview` (beside its row while hovered
+    /// or highlighted; the menu under it keeps them, gpui `passive_layer`).
+    func takesFocus(_ layer: LayerInfo) -> Bool {
+        guard layer.isInteractive else { return false }
+        guard let root = node(layer.root) else { return true }
+        return !(root.ownerComponent == "Menu" && root.part == "preview")
     }
 
     func focusOrder(in layer: LayerInfo) -> [Int] {
@@ -529,9 +538,9 @@ extension SurfaceModel {
     }
 
     /// #EXP-1765: does Select `owner`'s popup open without a cursor (a
-    /// `pill`, opened by the pointer)?
+    /// `pill`, #EXP-1778: or a `button`, opened by the pointer)?
     func selectOpensCursorless(_ owner: String) -> Bool {
-        !keyboardFocus && SelectTrigger.isPill(node(id: owner)?.props ?? [:])
+        !keyboardFocus && SelectTrigger.isPillLike(node(id: owner)?.props ?? [:])
     }
 
     /// #EXP-1765: a key went while `n` (a Select's trigger, search or

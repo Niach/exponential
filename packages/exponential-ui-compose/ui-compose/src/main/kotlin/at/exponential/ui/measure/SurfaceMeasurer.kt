@@ -518,7 +518,11 @@ class SurfaceMeasurer(
         // slots' width off `wrap`), the row is the taller of field and disc.
         if (props.str("layout") == "flat") {
             val att = if (props.flag("attachments")) at.exponential.ui.compose.COMPOSER_ATTACH_W + gap else 0f
-            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            val pad = (field.px("paddingTop") ?: 0f) + (field.px("paddingBottom") ?: 0f)
+            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height + pad
             return Size(w, max(min(max(fh, minH), 200f), send))
         }
         val th = shaper.measure(text, fieldTs, max(w, 1f), null).height
@@ -609,7 +613,9 @@ class SurfaceMeasurer(
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
         // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).let { it.width ?: it.height } ?: 16f
-        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
+        // #EXP-1629: a `button`'s picked-option glyph.
+        val picked = if (leaf.props.str("valueIcon").isEmpty()) 0f else (part("Select", "valueIcon", leaf.props).let { it.width ?: it.height } ?: 16f) + gap
+        return Content(line(shown(text, leaf), ts) + gap + glyph + picked, ts.lineHeight, baseline(ts))
     }
 
     /**

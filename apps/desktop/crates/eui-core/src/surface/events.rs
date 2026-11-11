@@ -171,6 +171,7 @@ impl Surface {
         self.local.open.insert(id.to_string(), open);
         if !open {
             self.local.submenu.remove(id);
+            self.local.menu_preview.remove(id);
             self.local.query.remove(id);
             self.local.range_anchor.remove(id);
         }

@@ -378,7 +378,8 @@
     "selectTrigger": [
       "field",
       "row",
-      "pill"
+      "pill",
+      "button"
     ],
     "inputVariant": [
       "field",
@@ -412,6 +413,10 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "disabled": {
           "type": "boolean"
         },
@@ -419,6 +424,9 @@
           "type": "string"
         },
         "trailing": {
+          "type": "string"
+        },
+        "hint": {
           "type": "string"
         },
         "mono": {
@@ -479,8 +487,22 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "shortcut": {
           "type": "string"
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "object",
+          "bindable": true
         },
         "checked": {
           "type": "boolean",
@@ -1250,7 +1272,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",
@@ -1753,6 +1775,13 @@
         },
         "lines": {
           "type": "number"
+        },
+        "truncate": {
+          "type": "enum",
+          "values": [
+            "end",
+            "middle"
+          ]
         },
         "tone": {
           "type": "enum",
@@ -2808,7 +2837,8 @@
         }
       },
       "events": [
-        "select"
+        "select",
+        "action"
       ]
     },
     "Toast": {
@@ -4587,7 +4617,8 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "props": {
         "placeholder": {

@@ -1057,6 +1057,14 @@
           "description": "Truncates to this many lines with an ellipsis."
         },
         {
+          "name": "truncate",
+          "type": "end | middle",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "One line; `middle` keeps the start and end (start…end)."
+        },
+        {
           "name": "tone",
           "type": "neutral | primary | success | warning | danger | info",
           "required": false,
@@ -3433,11 +3441,12 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "children": "one",
       "slots": [],
       "events": [
-        "select"
+        "select",
+        "action"
       ],
       "basic": [],
       "props": [
@@ -3513,7 +3522,8 @@
           "ArrowRight on a submenu: open it; ArrowLeft or Escape inside: close it",
           "A searchable submenu opens with its filter input focused: typing filters, ArrowDown/ArrowUp move the active row, Enter picks it, ArrowLeft with the caret at the start or Escape closes it",
           "Escape: close and return focus to the trigger",
-          "Typing a letter: the next item starting with it"
+          "Typing a letter: the next item starting with it",
+          "An item's `preview` shows beside it while it is highlighted (at once) or hovered (after 150 ms) and hides 80 ms after both leave; it is not a focus stop"
         ]
       },
       "example": {
@@ -6461,12 +6471,12 @@
         },
         {
           "name": "triggerVariant",
-          "type": "field | row | pill",
+          "type": "field | row | pill | button",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "field",
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon."
         },
         {
           "name": "triggerIcon",
@@ -7495,11 +7505,12 @@
       "group": "input",
       "lite": true,
       "specimenId": "exponential-ui-composer",
-      "description": "Chat input: growing field + submit; slots join its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "events": [
         "submit",

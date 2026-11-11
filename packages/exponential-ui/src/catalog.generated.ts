@@ -87,7 +87,7 @@ export const ENUMS = {
   motionFit: ["contain","cover","fill"],
   calendarView: ["month","week"],
   stepperCollapse: ["never","auto","always"],
-  selectTrigger: ["field","row","pill"],
+  selectTrigger: ["field","row","pill","button"],
   inputVariant: ["field","row","bare","code","box"],
   inputSize: ["default","sm"],
   textareaVariant: ["field","row","code"],
@@ -198,10 +198,10 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; mono?: boolean; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; iconColor?: string | Dynamic; disabled?: boolean; description?: string; trailing?: string; hint?: string; mono?: boolean; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
-  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
+  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; iconColor?: string | Dynamic; shortcut?: string; identifier?: string; detail?: string; preview?: Record<string, unknown> | Dynamic; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
   searchItem: { label: string | Dynamic; value: string; icon?: IconName; identifier?: string; disabled?: boolean }
   accordionItem: { title: string | Dynamic; value: string; count?: number }
   segment: { value: number; tone?: ToneValue; label?: string }
@@ -237,7 +237,7 @@ export interface ComponentProps {
   Toolbar: { gap?: GapValue }
   Section: { title?: string | Dynamic; caption?: string | Dynamic; count?: number | Dynamic; icon?: IconName; collapsible?: boolean; open?: boolean | Dynamic; tint?: ToneValue; tree?: boolean; loading?: boolean | Dynamic; style?: Style }
   Group: { title?: string; footer?: string }
-  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
+  Text: { text: string | Dynamic; variant?: TextVariantValue; align?: "start" | "center" | "end"; lines?: number; truncate?: "end" | "middle"; tone?: ToneValue; shimmer?: boolean; live?: LiveValue; style?: Style }
   Heading: { text: string | Dynamic; level?: HeadingLevelValue }
   Markdown: { text: string | Dynamic; profile?: "document" | "inline"; variant?: "body" | "caption"; lines?: number; style?: Style }
   CodeBlock: { code: string | Dynamic; language?: CodeLanguageValue; title?: string; lineNumbers?: boolean; wrap?: boolean; copyable?: boolean; highlight?: number[]; maxLines?: number; variant?: CodeBlockVariantValue | Dynamic; size?: CodeBlockSizeValue }

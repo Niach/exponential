@@ -130,6 +130,15 @@ impl LeafCx<'_> {
         theme_color(self.theme, self.mode, name)
     }
 
+    /// A colour-typed prop: a `$color.<name>` token of the theme, else the
+    /// host's resolved colour (`#rrggbb[aa]`, bound data).
+    pub fn prop_color(&self, value: &str) -> Option<Hsla> {
+        match value.strip_prefix("$color.") {
+            Some(name) => self.theme_color(name),
+            None => crate::paint::color::parse_hex(value),
+        }
+    }
+
     /// The physical text alignment: the style's, else the `align` prop
     /// (start/end by the direction), else the direction's start.
     pub fn align(&self) -> &'static str {
@@ -427,6 +436,12 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
     match clamp {
         // One ellipsized line: 1 px of slack on the trailing side, so a line
         // the measurer fitted exactly (sub-pixel float noise) never ellipsizes.
+        // #EXP-1778: `truncate: middle` = gpui's own middle ellipsis over
+        // exactly the content box (the IDE's `text_ellipsis_middle`).
+        Some(1) if cx.str("truncate") == "middle" => {
+            let (x, y, w, h) = cx.inner();
+            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(SharedString::from(lines.join(" "))).into_any_element()
+        }
         Some(1) => {
             let (x, y, w, h) = cx.inner();
             let x = match a {
@@ -1507,6 +1522,14 @@ pub fn select_trigger(cx: &LeafCx, text: &str, is_placeholder: bool, icon: &str)
             let lh = px_prop(&lp, "lineHeight").map(|f| f * cx.scale).unwrap_or(cx.text_style.line_height);
             out = out.child(div().flex_none().whitespace_nowrap().font(font).text_size(px(size_px)).line_height(px(lh)).text_color(ls.color.unwrap_or(cx.ink)).when_some(ls.opacity, |d, o| d.opacity(o)).child(SharedString::from(label.to_string())));
         }
+    }
+    // #EXP-1629: a `button` leads with the picked option's glyph, in its tint.
+    let picked = cx.str("valueIcon");
+    if !picked.is_empty() {
+        let part = cx.part_props("Select", "valueIcon", &[]);
+        let picked_size = px_prop(&part, "width").or_else(|| px_prop(&part, "height")).unwrap_or(16.0) * cx.scale;
+        let ink = Some(cx.str("iconColor")).filter(|c| !c.is_empty()).and_then(|c| cx.prop_color(c)).unwrap_or(color);
+        out = out.child(div().flex_none().child(icons::concept(cx.host, picked, picked_size, ink)));
     }
     out.child(text_el).child(div().flex_none().opacity(glyph_fade).child(icons::concept(cx.host, icon, size, glyph_ink))).into_any_element()
 }

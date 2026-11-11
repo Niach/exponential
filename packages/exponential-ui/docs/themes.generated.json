@@ -3498,7 +3498,10 @@
         "count",
         "list",
         "empty",
-        "fade"
+        "fade",
+        "identifier",
+        "detail",
+        "preview"
       ],
       "props": [
         "openOn"
@@ -4015,7 +4018,8 @@
         "itemIcon",
         "itemText",
         "itemLabel",
-        "itemDescription"
+        "itemDescription",
+        "itemHint"
       ],
       "props": [
         "multiple",

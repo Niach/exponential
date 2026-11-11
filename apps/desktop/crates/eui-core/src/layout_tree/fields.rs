@@ -401,7 +401,11 @@ impl Builder<'_, '_> {
         // #EXP-1765: a `pill` trigger is a capsule (the field trigger's parts,
         // the `Select.dropdown` glyph); its label stays the accessible name.
         let pill = variant == "pill";
-        let owner = self.field_open_with(index, !row && !pill);
+        // #EXP-1778: a `button` trigger is the outline small Button (the
+        // field trigger's parts, the `Select.dropdown` glyph, the label the
+        // accessible name), its popup the IDE's pointer menu.
+        let button = variant == "button";
+        let owner = self.field_open_with(index, !row && !pill && !button);
         // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
         let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
@@ -418,8 +422,29 @@ impl Builder<'_, '_> {
         let value_icon = (row && bool_prop(&owner.props, "triggerIcon") && chosen.len() == 1)
             .then(|| options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("icon")).and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string))
             .flatten();
-        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill { "Select.dropdown" } else { "Select.trigger" }), None) };
-        if let Some(label) = str_prop(&owner.props, "label").filter(|l| pill && !l.is_empty()) {
+        let (trigger, value_node) = if row { self.row_trigger(&owner, &text, is_placeholder, value_icon.as_deref()) } else { (self.trigger(&owner, &text, is_placeholder, if pill || button { "Select.dropdown" } else { "Select.trigger" }), None) };
+        // #EXP-1629: the chosen option's `iconColor` tints its `valueIcon`.
+        if value_icon.is_some() {
+            let color = options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())).and_then(|o| o.get("iconColor")).cloned();
+            if let Some(index) = self.slot_of_id(&format!("{}.valueIcon", owner.id)) {
+                self.tint(index, color.as_ref());
+            }
+        }
+        // #EXP-1629: a `button` trigger leads with the picked option's own
+        // glyph (web's PR trigger): the one source is the option, no prop.
+        if button && chosen.len() == 1 {
+            if let Some(option) = options.iter().find(|o| o.get("value").map(js).as_deref() == Some(chosen[0].as_str())) {
+                if let Some(icon) = option.get("icon").filter(|i| i.as_str().is_some_and(|i| !i.is_empty())).cloned() {
+                    let color = option.get("iconColor").filter(|c| c.is_string()).cloned();
+                    let props = &mut self.nodes[trigger as usize].props;
+                    props.insert("valueIcon".to_string(), icon);
+                    if let Some(color) = color {
+                        props.insert("iconColor".to_string(), color);
+                    }
+                }
+            }
+        }
+        if let Some(label) = str_prop(&owner.props, "label").filter(|l| (pill || button) && !l.is_empty()) {
             self.default_a11y(trigger, "label", json!(label));
         }
         self.field_close(&owner, Some(trigger));
@@ -432,6 +457,9 @@ impl Builder<'_, '_> {
         // `popupMinWidth`: the popup fits its options, at least that wide
         // (the IDE's non-searchable picker: content-fit, 168 px minimum).
         let min_width = owner.props.get("popupMinWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0);
+        // #EXP-1778: a `button`'s pointer menu fits its options, at least the
+        // layout's `selectButtonPopupMinWidth`.
+        let min_width = min_width.or_else(|| button.then_some(crate::layout::SELECT_BUTTON_POPUP_MIN_WIDTH as f64));
         let width = owner.props.get("popupWidth").and_then(Value::as_f64).filter(|w| w.is_finite() && *w > 0.0).or_else(|| ((row || pill) && min_width.is_none()).then_some(crate::layout::SELECT_ROW_POPUP_WIDTH as f64));
         // The IDE picker: 4 under the search field, eight rows before the list scrolls.
         let mut style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "borderRadius": "$radius.md", "maxHeight": 320});
@@ -452,7 +480,7 @@ impl Builder<'_, '_> {
         // bottom `fade` while more options sit below (SearchList's).
         let body = self.part_in(root, &owner, "body", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "position": "relative", "flexShrink": 1, "minHeight": 0}), json!({}), "");
         self.nodes[body as usize].part_query = None;
-        let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256}), json!({}), "");
+        let list = self.part_in(body, &owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexShrink": 1, "minHeight": 0, "overflowY": "scroll", "maxHeight": 256, "gap": if button { crate::layout::SELECT_BUTTON_ITEM_GAP } else { 0.0 }}), json!({}), "");
         self.nodes[list as usize].part_query = None;
         // #EXP-1765: while `loading` the list holds the Skeleton's rows (its
         // own recipe, the item row's height) in place of the options.
@@ -460,7 +488,7 @@ impl Builder<'_, '_> {
             let skeleton = self.part_in(list, &owner, "skeleton", "Skeleton", NodeKind::Leaf, json!({"alignSelf": "stretch", "flexShrink": 0}), json!({"rows": crate::layout::SELECT_LOADING_ROWS}), "");
             self.skeleton_rows(skeleton);
             self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
-            self.place_select_popup(pill, value_node.is_some());
+            self.place_select_popup(pill, button, value_node.is_some());
             return;
         }
         let needle = query.to_lowercase();
@@ -493,7 +521,8 @@ impl Builder<'_, '_> {
             let suffix = format!(".{i}");
             let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
             let description = option.get("description").map(js).filter(|d| !d.is_empty());
-            let item = if icon.is_some() || description.is_some() {
+            let hint = option.get("hint").map(js).filter(|h| !h.is_empty());
+            let item = if icon.is_some() || description.is_some() || hint.is_some() {
                 // #EXP-1629: an option with a glyph or a `description` is a
                 // row of parts (the IDE picker's row): the `itemIcon`, the
                 // `itemText` column (`itemLabel` over the muted
@@ -504,12 +533,17 @@ impl Builder<'_, '_> {
                 }
                 let item = self.part_in(list, &owner, "item", "Box", NodeKind::Container, style, json!({"text": text, "value": v, "selected": selected, "disabled": disabled}), &suffix);
                 if let Some(icon) = icon {
-                    self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                    let glyph = self.part_in(item, &owner, "itemIcon", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": icon}), &suffix);
+                    self.tint(glyph, option.get("iconColor"));
                 }
                 let column = self.part_in(item, &owner, "itemText", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({}), &suffix);
                 self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
                 if let Some(description) = description {
                     self.part_in(column, &owner, "itemDescription", "Text", NodeKind::Leaf, json!({}), json!({"text": description, "lines": 1}), &suffix);
+                }
+                // #EXP-1629: web's picker hint: a small muted run at the row's end.
+                if let Some(hint) = hint {
+                    self.part_in(item, &owner, "itemHint", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": hint, "lines": 1}), &suffix);
                 }
                 if selected {
                     self.part_in(item, &owner, "check", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.check")}), &suffix);
@@ -528,6 +562,11 @@ impl Builder<'_, '_> {
                 }
                 if selected {
                     props["check"] = json!(super::builtin_icon("Select.check"));
+                }
+                // #EXP-1778: a `button`'s menu row holds the check on the
+                // chosen row only (no slot on the others: the IDE menu).
+                if button {
+                    props["checkSlot"] = json!("chosen");
                 }
                 let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center"});
                 if mono {
@@ -559,14 +598,19 @@ impl Builder<'_, '_> {
         // #EXP-1629: a row's popup hangs off its VALUE (the IDE's picker
         // popover: under the value, starting with it, fitted to the view).
         self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: value_node.unwrap_or(trigger), side: OverlaySide::Bottom, align }, false, true, width.is_none() && min_width.is_none(), Some(list));
-        self.place_select_popup(pill, value_node.is_some());
+        self.place_select_popup(pill, button, value_node.is_some());
     }
 
     /// The just-pushed Select popup's placement: a `row`'s hangs off its
     /// value (#EXP-1629), a `pill`'s a hairline outside the pill (#EXP-1765).
-    fn place_select_popup(&mut self, pill: bool, row: bool) {
+    fn place_select_popup(&mut self, pill: bool, button: bool, row: bool) {
         let Some(spec) = self.layers.last_mut() else { return };
-        if row {
+        if button {
+            // #EXP-1778: the IDE pointer menu's popover, its ring outside.
+            spec.offset = Some(crate::layout::SELECT_BUTTON_POPUP_OFFSET);
+            spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
+            spec.inset = Some(crate::layout::SELECT_PILL_POPUP_INSET);
+        } else if row {
             spec.offset = Some(crate::layout::SELECT_ROW_POPUP_OFFSET);
             spec.margin = Some(crate::layout::SELECT_ROW_POPUP_MARGIN);
         } else if pill {
@@ -607,6 +651,16 @@ impl Builder<'_, '_> {
         self.nodes[d as usize].lines = None;
         let control = self.part_in(t, owner, "control", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "flexGrow": 1, "flexShrink": 1, "flexBasis": 0}), json!({}), "");
         (t, Some(self.row_value(control, owner, text, placeholder, icon)))
+    }
+
+    /// #EXP-1629: an option's `iconColor` (`$color.<name>`, or the host's
+    /// resolved colour bound from data) as its glyph's own colour, over any
+    /// recipe (a status picker's tinted glyphs).
+    fn tint(&mut self, index: u32, color: Option<&Value>) {
+        let Some(color) = color.and_then(Value::as_str).filter(|c| !c.is_empty()) else { return };
+        let n = &mut self.nodes[index as usize];
+        n.base_style.insert("color".to_string(), json!(color));
+        n.authored_keys.push("color".to_string());
     }
 
     /// A `row` trigger's `button` (the IDE picker's ghost value button: the
@@ -1175,10 +1229,23 @@ impl Builder<'_, '_> {
     /// before `trailing` (its frame's width + the bar's gap further from
     /// send). A leaf with children lays them out at its measured size
     /// (`engine.rs`).
+    ///
+    /// #EXP-1762: `above` = ONE child over the field, inside the card: an
+    /// `above` column FIRST (the content box's full width, at its top), the
+    /// bar last (`space-between` keeps it at the bottom). Unlike the row's
+    /// slots it SIZES the composer: the engine adds its height + the root's
+    /// gap to the measure (`View::above_extra`); a painter puts the field
+    /// below it.
     pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
         let Some(slots) = &node.slots else { return };
         let owner = self.nodes[index as usize].clone();
-        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!("flex-end"))]);
+        let above = slots.get("above");
+        let justify = if above.is_some() { "space-between" } else { "flex-end" };
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!(justify))]);
+        if let Some(slot) = above {
+            let wrap = self.part(&owner, "above", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "alignItems": "stretch", "alignSelf": "stretch", "flexShrink": 0, "minWidth": 0}), json!({}));
+            self.add(slot, Some(wrap), layer, scope, false);
+        }
         let bar = self.part(&owner, "bar", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.buttonIcon", "flexShrink": 0, "alignSelf": "stretch"}), json!({}));
         for (name, grow) in [("leading", false), ("trailing", true)] {
             if grow {

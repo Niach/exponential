@@ -2311,6 +2311,30 @@
       }
     },
     {
+      "name": "Text/truncate=end",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "truncate": "end"
+        }
+      }
+    },
+    {
+      "name": "Text/truncate=middle",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "truncate": "middle"
+        }
+      }
+    },
+    {
       "name": "Text/tone=neutral",
       "node": {
         "id": "text",
@@ -11325,6 +11349,29 @@
       }
     },
     {
+      "name": "Select/triggerVariant=button",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "Backlog",
+              "value": "backlog"
+            },
+            {
+              "label": "Sprint",
+              "value": "sprint"
+            }
+          ],
+          "value": "sprint",
+          "triggerVariant": "button"
+        }
+      }
+    },
+    {
       "name": "Select/triggerIcon=true",
       "node": {
         "id": "select",
@@ -11597,6 +11644,31 @@
           ],
           "value": "sprint",
           "validateOn": "submit"
+        }
+      }
+    },
+    {
+      "name": "Select/triggerVariant=button+icon",
+      "node": {
+        "id": "select",
+        "component": "Select",
+        "props": {
+          "label": "Board",
+          "name": "board",
+          "options": [
+            {
+              "label": "In Review",
+              "value": "review",
+              "icon": "status-in-review",
+              "iconColor": "$color.success"
+            },
+            {
+              "label": "Do nothing",
+              "value": "none"
+            }
+          ],
+          "value": "review",
+          "triggerVariant": "button"
         }
       }
     },

@@ -4568,8 +4568,8 @@
         "file": "shots/exponential-ui-select/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 43186,
-        "sha256": "72162350b3092b51b0534c10ed91abc538cae3bfd5e2a1873c7c9bdb4c3af24d"
+        "bytes": 38764,
+        "sha256": "8183d538c24f32ab80c6362df616dac150e9a048c79f215bdfe4a7b06cd78edf"
       },
       "web": {
         "file": "shots/exponential-ui-select/web.webp",
@@ -5039,8 +5039,8 @@
         "file": "shots/exponential-ui-text/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 24364,
-        "sha256": "f3ecb50dd3a1e0bada2684ab88cd1c916f1ee011981e4e57855fb96da14ad77c"
+        "bytes": 34158,
+        "sha256": "6d8e8c44ae3337ec2547b02fb466c805e3c9afc8fdbcc5541a3969937d95a135"
       },
       "web": {
         "file": "shots/exponential-ui-text/web.webp",

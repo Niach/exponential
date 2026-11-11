@@ -267,7 +267,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-search{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;flex-shrink:0;margin:0;padding:var(--xui-spacing-xs) var(--xui-spacing-sm);gap:var(--xui-spacing-xs);border:0;border-bottom:1px solid var(--xui-color-border);background:transparent;color:inherit;font:inherit}
 .xui-Select-check{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
 .xui-Select-trigger[data-r-trigger-variant="pill"]{width:auto;max-width:100%;align-self:flex-start;justify-content:flex-start}
-.xui-Select-trigger[data-r-trigger-variant="pill"]>svg{opacity:1}
+.xui-Select-trigger[data-r-trigger-variant="pill"]>svg,.xui-Select-trigger[data-r-trigger-variant="button"]>svg{opacity:1}
 .xui-Select-item[data-mono]{font-family:var(--xui-font-mono)}
 .xui-Select-clear{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;margin:0;padding:0;border:0;background:transparent;cursor:pointer;color:var(--xui-color-mutedForeground)}
 .xui-Select-clear>svg{flex-shrink:0}
@@ -276,6 +276,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Select-itemIcon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Select-itemIcon>svg{width:100%;height:100%}
 .xui-Select-item>.xui-Select-itemText{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+.xui-Select-itemHint{margin-inline-start:auto;flex-shrink:0;white-space:nowrap}
+.xui-Select-itemHint+.xui-Select-check{margin-inline-start:0}
 .xui-Select-itemLabel,.xui-Select-itemDescription{display:block;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap}
 .xui-Checkbox-box{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;cursor:pointer}
 .xui-Checkbox-check{display:inline-flex;align-items:center;justify-content:center}
@@ -326,8 +328,11 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Composer-send>svg,.xui-Composer-attachment>svg{width:16px;height:16px}
 .xui-Composer-send:disabled{opacity:.5;pointer-events:none}
 [data-xui-c="Composer"][data-r-layout="flat"].xui-el{flex-direction:row;align-items:flex-end}
-[data-r-layout="flat"]>.xui-Composer-field{flex:1 1 0;width:auto;align-self:center}
+[data-r-layout="flat"]>.xui-Composer-field{flex:1 1 0;width:auto;align-self:stretch}
 [data-r-layout="flat"]>.xui-composer-bar{flex-shrink:0;min-height:var(--xui-control-buttonIcon)}
+.xui-composer-above{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;min-width:0}
+[data-xui-c="Composer"][data-r-layout="flat"][data-above].xui-el{flex-wrap:wrap}
+[data-r-layout="flat"]>.xui-composer-above{flex:0 0 100%}
 [data-xui-c="Ring"].xui-el,[data-xui-c="Spinner"].xui-el{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 [data-xui-c="Ring"].xui-el>svg,[data-xui-c="Spinner"].xui-el>svg{width:100%;height:100%;display:block}
 .xui-Ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
@@ -534,12 +539,16 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
+.xui-Menu-identifier,.xui-Menu-detail{flex-shrink:0;white-space:nowrap}
+.xui-Menu-preview{z-index:53;display:flex;flex-direction:column;box-sizing:border-box;outline:none}
+.xui-Menu-preview>.xui-menu-preview-surface{align-self:stretch;min-width:0}
 .xui-Select-searchbox>svg{width:16px;height:16px;flex-shrink:0;color:var(--xui-color-mutedForeground)}
 .xui-Select-listbox>.xui-Select-item{flex-shrink:0}
 .xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}
 .xui-Select-listbox,.xui-TimePicker-listbox{display:flex;flex-direction:column;outline:none;overflow:auto;max-height:280px}
 .xui-Select-content{gap:var(--xui-spacing-xs)}
 .xui-Select-listbox{max-height:256px}
+.xui-Select-content[data-r-trigger-variant="button"] :is(.xui-Select-listbox,[data-radix-select-viewport]){display:flex;flex-direction:column;gap:${LAYOUT_CONSTANTS.selectButtonItemGap}px}
 .xui-Select-empty{display:block}
 .xui-TimePicker-list{min-width:var(--radix-popover-trigger-width)}
 [data-xui-c="Toast"].xui-el{flex-direction:row;align-items:flex-start;width:min(360px,calc(100vw - 32px));pointer-events:auto}

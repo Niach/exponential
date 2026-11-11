@@ -5,6 +5,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `hint` (#EXP-1629): through the React renderer.
+- Select `button` trigger glyph (#EXP-1629): through the React renderer.
+- Select `row` disabled (#EXP-1629): through the React renderer.
+- Select option `iconColor` (#EXP-1629): through the React renderer.
+- Menu item `iconColor` (#EXP-1629): through the React renderer.
 - Skeleton `rows` (#EXP-1629): no hairline between rows, through the React renderer.
 - Select `multiple` joined rows (#EXP-1629): through the React renderer.
 - Popover `matchAnchorWidth` (through the Solid renderer); the harness's overlay view passes the fixture's `matchAnchorWidth` / `contentWidth`.

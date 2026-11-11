@@ -9,7 +9,7 @@
 // `data-xui-part` / `data-r-*` / `data-m-*` / `data-xs` attributes,
 // `xui-<Component>-<part>` classes, the `LAYERS` cascade order.
 
-export { compileTheme, compiledTheme, globalsCss, themeScope, partClass, propAttribute, tokenVar, tokenVarName, cssValue, declarations, animationDeclarations, shimmerRule, rule, ruleSelectors, isMacroComponent, STATE_SELECTORS, LAYERS } from "./theme-css"
+export { compileTheme, compiledTheme, globalsCss, themeScope, partClass, propAttribute, tokenVar, tokenVarName, propColor, cssValue, declarations, animationDeclarations, shimmerRule, rule, ruleSelectors, isMacroComponent, STATE_SELECTORS, LAYERS } from "./theme-css"
 export type { CompiledTheme } from "./theme-css"
 export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, queryToken, nodeClass, surfaceClass, walkNodes, cssEscape, resolvedMediaKey, styleDirection } from "./box-css"
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
@@ -78,4 +78,5 @@ export { embedHost, embedDenied, embedBoxStyle } from "./embed-host"
 export { composerMenuKey } from "./composer-keys"
 export type { ComposerMenuKey, ComposerKeyEvent } from "./composer-keys"
 export { composerPaste } from "./composer-paste"
+export { fitMiddle, watchMiddleTruncate } from "./text-truncate"
 export type { ComposerFileMeta, ComposerPaste } from "./composer-paste"
