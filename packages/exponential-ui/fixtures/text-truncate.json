@@ -1,6 +1,7 @@
 {
-  "$comment": "#EXP-1778: a Text `truncate: \"middle\"` line (start…end), HAND-AUTHORED and replayed by packages/exponential-ui/src/text-truncate.test.ts (`middleTruncateWidth`, the TS reference the web renderers measure with), apps/desktop/crates/eui-core/tests/text_truncate.rs (`middle_truncate_width`; gpui paints its own `text_ellipsis_middle`, the same rule) and the Swift + Compose renderers' tests. The rule = gpui's `TruncateMiddle`: per-character widths are SUMMED (no kerning across the cut); a line whose total fits `width` shows whole; else `budget` = `width` − the affix `…`'s width; `budget` ≤ 0 shows the `…` alone; else the longest START whose width ≤ budget × 2/3, the `…`, the longest END whose width ≤ the rest; the two meeting shows the `…` alone. Characters are user-perceived code points (an astral emoji is one). A case's `widths` = `default` per character plus `chars` overrides (the `…` included). `truncate: \"end\"` is the existing one-line ellipsis (Text `lines: 1`); both keep ONE line whatever `lines` says.",
+  "$comment": "#EXP-1778: a Text `truncate: \"middle\"` line (start…end), HAND-AUTHORED and replayed by packages/exponential-ui/src/text-truncate.test.ts (`middleTruncateWidth`, the TS reference the web renderers measure with), apps/desktop/crates/eui-core/tests/text_truncate.rs (`middle_truncate_width`; gpui paints its own `text_ellipsis_middle`, the same rule) and the Swift + Compose renderers' tests. The rule = gpui's `TruncateMiddle`: per-character widths are SUMMED (no kerning across the cut); a line whose total fits `width` shows whole; else `budget` = `width` − the affix `…`'s width; `budget` ≤ 0 shows the `…` alone; else the longest START whose width ≤ budget × 2/3, the `…`, the longest END whose width ≤ the rest; the two meeting shows the `…` alone. #EXP-1789: a cut keeping FEWER THAN 4 characters (start + end together, `minKept`) shows the `…` alone too, so a nearly-gone run never reads as stray glyphs (`/h…/`); every renderer, the IDE's own path rows included, cuts by this rule rather than a platform ellipsis. Characters are user-perceived code points (an astral emoji is one). A case's `widths` = `default` per character plus `chars` overrides (the `…` included). `truncate: \"end\"` is the existing one-line ellipsis (Text `lines: 1`); both keep ONE line whatever `lines` says.",
   "affix": "…",
+  "minKept": 4,
   "cases": [
     { "name": "fits whole", "text": "abcdef", "width": 6, "widths": { "default": 1 }, "shown": "abcdef" },
     { "name": "empty", "text": "", "width": 0, "widths": { "default": 1 }, "shown": "" },
@@ -9,10 +10,13 @@
     { "name": "a wider budget", "text": "abcdefghijklmnopqrstuvwxyz", "width": 13, "widths": { "default": 1 }, "shown": "abcdefgh…wxyz" },
     { "name": "no room past the affix: the affix alone", "text": "abcdef", "width": 1, "widths": { "default": 1 }, "shown": "…" },
     { "name": "narrower than the affix: the affix alone", "text": "abcdef", "width": 0.5, "widths": { "default": 1 }, "shown": "…" },
-    { "name": "a start too wide for its two thirds keeps none", "text": "WWiiii", "width": 2.5, "widths": { "default": 1, "chars": { "W": 2, "i": 0.5, "…": 1 } }, "shown": "…i" },
-    { "name": "mixed widths", "text": "WWiiii", "width": 4, "widths": { "default": 1, "chars": { "W": 2, "i": 0.5, "…": 1 } }, "shown": "W…ii" },
+    { "name": "a start too wide for its two thirds keeps none", "text": "Wiiiiiiiii", "width": 7, "widths": { "default": 1, "chars": { "W": 5, "i": 0.5, "…": 1 } }, "shown": "…iiii" },
+    { "name": "mixed widths", "text": "WWiiii", "width": 5.5, "widths": { "default": 1, "chars": { "W": 2, "i": 0.5, "…": 1 } }, "shown": "W…iii" },
+    { "name": "mixed widths keeping three: the affix alone", "text": "WWiiii", "width": 5, "widths": { "default": 1, "chars": { "W": 2, "i": 0.5, "…": 1 } }, "shown": "…" },
     { "name": "a wide affix", "text": "abcdefghij", "width": 9, "widths": { "default": 1, "chars": { "…": 3 } }, "shown": "abcd…ij" },
-    { "name": "astral characters stay whole", "text": "😀😀😀😀😀😀", "width": 4, "widths": { "default": 1 }, "shown": "😀😀…😀" },
+    { "name": "astral characters stay whole", "text": "😀😀😀😀😀😀😀😀", "width": 6, "widths": { "default": 1 }, "shown": "😀😀😀…😀" },
+    { "name": "three kept characters: the affix alone", "text": "/home/niach/.local/", "width": 5, "widths": { "default": 1 }, "shown": "…" },
+    { "name": "four kept characters stay cut", "text": "/home/niach/.local/", "width": 6, "widths": { "default": 1 }, "shown": "/ho…/" },
     { "name": "a webhook URL keeps its host and its hook", "text": "https://app.exponential.at/api/apps/hooks/0f6a3c1e/github-push", "width": 30, "widths": { "default": 1 }, "shown": "https://app.exponen…thub-push" }
   ]
 }
