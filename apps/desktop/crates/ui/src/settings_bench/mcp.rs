@@ -139,7 +139,9 @@ fn settings_mcp_no_match() {
 #[test]
 #[ignore]
 fn settings_mcp_servers_failed_page() {
-    page("mcp-servers-failed", McpShot { servers: Some(Err("connection refused".into())), clients: Some(McpClientsOut::default()), access: None, ..base() });
+    // Its own picture name: Settings → MCP servers' pane bench saves
+    // `mcp-servers-failed` too, and the later run overwrote the other.
+    page("mcp-page-servers-failed", McpShot { servers: Some(Err("connection refused".into())), clients: Some(McpClientsOut::default()), access: None, ..base() });
 }
 
 #[test]
