@@ -111,3 +111,28 @@ fn at_the_view_edge_the_inset_never_crosses_the_margin() {
     let c = frame(&s, &out, "sel.content");
     assert!((c.x - eui_core::layout::SELECT_ROW_POPUP_MARGIN).abs() < 0.01, "{c:?}");
 }
+
+/// The exponential theme's pill popup rows are the IDE repo branch picker's
+/// 24 px: the pill item's `minHeight` beats the base `$control.row`
+/// minimum (#2559 made that base a `minHeight`; the pill rows grew to 32).
+/// The `row` Select keeps its 32.
+#[test]
+fn exponential_pill_rows_are_24_high_and_row_rows_32() {
+    let themed = |field: Value| {
+        let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "padding": 16}, "children": [field]})).expect("tree");
+        let mut s = Surface::new("t", SurfaceOptions { theme: Some(eui_core::themes::builtin_theme("exponential").expect("theme")), ..SurfaceOptions::default() });
+        assert!(s.set_nested(tree).issues.is_empty());
+        s.set_viewport(760.0, 900.0, None);
+        s
+    };
+    let mut s = themed(pill(json!({})));
+    let out = open(&mut s);
+    for i in 0..3 {
+        assert_eq!(frame(&s, &out, &format!("sel.item.{i}")).h, 24.0, "pill row {i}");
+    }
+    let mut row = pill(json!({"triggerVariant": "row"}));
+    row["props"]["options"] = json!([{"label": "main", "value": "main"}, {"label": "develop", "value": "develop"}]);
+    let mut s = themed(row);
+    let out = open(&mut s);
+    assert_eq!(frame(&s, &out, "sel.item.0").h, 32.0, "row rows keep the base minimum");
+}
