@@ -1024,6 +1024,32 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { label: `Done`, value: `done`, kind: `checkbox`, icon: `status-done`, iconColor: `$color.success` },
       { label: `Cancelled`, value: `cancelled`, kind: `checkbox`, icon: `status-cancelled`, iconColor: `$color.destructive` },
     ] }, children: [{ id: `status_trigger`, component: `Button`, props: { label: `In Progress`, icon: `status-in-progress`, variant: `outline` } }] } },
+    // #EXP-1629: the IDE session composer's "+" menu: Model › with its
+    // current value (`detail`), the Account row's health badge and usage card
+    // (`preview`, beside the row while hovered or highlighted), Issue › rows
+    // led by a status glyph and their mono `identifier`.
+    {
+      label: `items · detail + identifier + preview`,
+      node: {
+        id: `composer_menu`,
+        component: `Menu`,
+        props: {
+          label: `Options`,
+          items: [
+            { label: `Model`, kind: `submenu`, detail: `Opus`, items: [{ label: `Opus`, value: `opus`, kind: `checkbox`, checked: true }, { label: `Sonnet`, value: `sonnet`, kind: `checkbox` }] },
+            {
+              label: `ada@example.com`,
+              value: `account`,
+              icon: `brand-claude`,
+              detail: `Healthy`,
+              preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
+            },
+            { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
+          ],
+        },
+        children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],
+      },
+    },
   ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
@@ -1080,32 +1106,6 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         },
         leading: { id: `above_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } },
       },
-    },
-  }],
-  // #EXP-1629: the IDE session composer's "+" menu: Model › with its
-  // current value (`detail`), the Account row's health badge and usage card
-  // (`preview`, beside the row while hovered or highlighted), Issue › rows
-  // led by a status glyph and their mono `identifier`.
-  Menu: [{
-    label: `items · detail + identifier + preview`,
-    node: {
-      id: `composer_menu`,
-      component: `Menu`,
-      props: {
-        label: `Options`,
-        items: [
-          { label: `Model`, kind: `submenu`, detail: `Opus`, items: [{ label: `Opus`, value: `opus`, kind: `checkbox`, checked: true }, { label: `Sonnet`, value: `sonnet`, kind: `checkbox` }] },
-          {
-            label: `ada@example.com`,
-            value: `account`,
-            icon: `brand-claude`,
-            detail: `Healthy`,
-            preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
-          },
-          { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
-        ],
-      },
-      children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],
     },
   }],
   // FEED-205: income vs expenses per month in EUR (ticks, values, tooltip),

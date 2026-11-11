@@ -44,7 +44,7 @@ describe(`menuPreview`, () => {
   test(`a preview is DATA: the bind pass never reads inside it`, () => {
     const inner = { root: { id: `leak`, component: `Text`, props: { text: { "@path": `/secret` } } } }
     const root = reduceNested({ id: `m`, component: `Menu`, props: { label: `More`, items: [{ label: `A`, preview: inner }] } }, { catalogId: CORE_CATALOG_ID }).root
-    const bound = bindTree(root, { secret: `Host secret` }) as { props: { items: Array<{ preview: unknown }> } }
+    const bound = bindTree(root, { secret: `Host secret` }) as unknown as { props: { items: Array<{ preview: unknown }> } }
     expect(bound.props.items[0]!.preview).toEqual(inner)
   })
   test(`the catalog: three optional item fields, the Menu's action event`, () => {
@@ -53,7 +53,7 @@ describe(`menuPreview`, () => {
     expect(shape.detail).toMatchObject({ type: `string` })
     expect(shape.preview).toMatchObject({ type: `object` })
     expect(shape.preview!.shape).toBeUndefined()
-    expect((coreCatalog.components.Menu as { events: string[] }).events).toEqual([`select`, `action`])
+    expect((coreCatalog.components.Menu as unknown as { events: string[] }).events).toEqual([`select`, `action`])
   })
   for (const c of fixture.menuPreview.cases) {
     test(c.name, () => {
