@@ -577,6 +577,14 @@ impl SurfaceView {
             gpui::Role::Button if n.part.as_deref() == Some("trigger") => el = el.aria_expanded(flags.open),
             _ => {}
         }
+        // #EXP-1629: the author's `accessibility.selected` / `.expanded`
+        // (fixtures/a11y-states.json) win over the role's own.
+        if let Some(selected) = super::state::a11y_state(n, "selected") {
+            el = el.aria_selected(selected);
+        }
+        if let Some(expanded) = super::state::a11y_state(n, "expanded") {
+            el = el.aria_expanded(expanded);
+        }
         // EXP-1495: `current` (the active Outline row, the current Carousel
         // thumbnail) reads as selected; AccessKit has no aria-current.
         if a11y_current(n) && !matches!(role, gpui::Role::Tab | gpui::Role::ListBoxOption | gpui::Role::GridCell | gpui::Role::Row) {

@@ -42,6 +42,7 @@
   "rules": [
     "`accessibility.live` (off | polite | assertive, default off) announces a change of the node's text: aria-live, a SwiftUI announcement on change, Compose `liveRegion`, AccessKit `Live`; it wins over `Text.live` when both are set.",
     "`accessibility.hidden` hides the node and its subtree from assistive technology; it still paints.",
+    "`accessibility.selected` (DynamicBoolean) is the node's selected state, a lit nav row's: aria-selected (plus aria-current on a node with no selection role of its own), SwiftUI `.isSelected`, Compose `selected`, AccessKit `selected`; unset = no state. `accessibility.expanded` (DynamicBoolean) is a disclosure's open state: aria-expanded, a SwiftUI value expanded/collapsed, Compose expand/collapse, AccessKit `expanded`; unset = no state (fixtures/a11y-states.json).",
     "Every interactive node is reachable by Tab in reading order (tree order; a node's resolved `direction` flips its rows) and shows a focus ring only for keyboard focus (`:focus-visible`, recipe state `focus`).",
     "A field's label, description and every error are linked to it (aria-labelledby / aria-describedby, contentDescription, accessibilityLabel/Hint); an error has the id `<node id>.error`.",
     "`visible: false` removes the node from the accessibility tree; `visibility: hidden` hides it too; `display: none` likewise.",
