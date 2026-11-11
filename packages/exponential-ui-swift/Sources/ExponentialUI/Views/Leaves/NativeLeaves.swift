@@ -251,7 +251,8 @@ struct MenuItemLabelLeaf: View {
     var body: some View {
         HStack(spacing: max(cx.style.gap, 4)) {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
-                ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
+                // #EXP-1629: the item's `iconColor` tints its glyph.
+                ConceptIcon(name: icon, size: 16, color: cx.props["iconColor"]?.string.flatMap(cx.propColor) ?? cx.ink, model: cx.model)
             }
             TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
                 .frame(maxWidth: .infinity, alignment: .leading)

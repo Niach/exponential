@@ -39,10 +39,11 @@ final class TranscriptGroupingTests: XCTestCase {
         XCTAssertEqual(try number(maxWidth["wide"]), TranscriptGrouping.Layout.maxWidthWide)
         XCTAssertEqual(try number(layout["radius"]), TranscriptGrouping.Layout.radius)
         XCTAssertEqual(try number(layout["nameSize"]), TranscriptGrouping.Layout.nameSize)
-        XCTAssertEqual(fixture["copy"] as? [String: String], [
-            "formerMember": TranscriptGrouping.Copy.formerMember,
-            "linkChevron": TranscriptGrouping.Copy.linkChevron,
-        ])
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(Set(copy.keys), ["formerMember", "linkChevron", "markers"])
+        XCTAssertEqual(copy["formerMember"] as? String, TranscriptGrouping.Copy.formerMember)
+        XCTAssertEqual(copy["linkChevron"] as? String, TranscriptGrouping.Copy.linkChevron)
+        XCTAssertEqual(copy["markers"] as? [String: String], TranscriptGrouping.Copy.markers)
     }
 
     private func named(_ rows: Any?) throws -> [TranscriptGrouping.Named] {
@@ -130,6 +131,43 @@ final class TranscriptGroupingTests: XCTestCase {
                 )
             }
             XCTAssertEqual(TranscriptGrouping.crossSessionInput(text), want, name)
+        }
+    }
+
+    func testReplaysEveryFeedInputCase() throws {
+        let cases = try XCTUnwrap(try fixture()["feedInputCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let text = try XCTUnwrap(string(testCase["text"]))
+            let want: TranscriptGrouping.FeedInput? = try (testCase["expected"] as? [String: Any]).map { row in
+                switch try XCTUnwrap(string(row["kind"])) {
+                case "marker":
+                    XCTAssertEqual(Set(row.keys), ["kind", "key", "label"], name)
+                    return .marker(key: try XCTUnwrap(string(row["key"])), label: try XCTUnwrap(string(row["label"])))
+                default:
+                    XCTAssertEqual(Set(row.keys), ["kind", "name", "sessionId", "body", "report"], name)
+                    return .relay(
+                        name: try XCTUnwrap(string(row["name"])),
+                        sessionId: try XCTUnwrap(string(row["sessionId"])),
+                        body: try XCTUnwrap(string(row["body"])),
+                        report: try XCTUnwrap(row["report"] as? Bool)
+                    )
+                }
+            }
+            XCTAssertEqual(TranscriptGrouping.feedInput(text), want, name)
+        }
+    }
+
+    func testReplaysEveryMarkerCase() throws {
+        let cases = try XCTUnwrap(try fixture()["markerCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let kinds = try XCTUnwrap(testCase["kinds"] as? [String]).map { kind in
+                try XCTUnwrap(TranscriptGrouping.FeedRowKind(rawValue: kind))
+            }
+            XCTAssertEqual(TranscriptGrouping.markersShown(kinds), try XCTUnwrap(testCase["expected"] as? [Bool]), name)
         }
     }
 }

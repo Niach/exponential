@@ -772,8 +772,12 @@ class SessionTreeTest {
         assertEquals(copy.str("conversation"), SessionTree.ChatCopy.CONVERSATION)
         assertEquals(copy.str("guide"), SessionTree.ChatCopy.GUIDE)
         val events = copy.getValue("events").jsonObject
-        assertEquals(events.keys, SessionTree.ChatCopy.EVENTS.keys)
-        for ((key, value) in events) assertEquals(value.jsonPrimitive.content, SessionTree.ChatCopy.EVENTS[key])
+        // #EXP-1772: `trigger_schedule` is a schedule firing's marker, no event kind.
+        assertEquals(events.str("trigger_schedule"), SessionTree.ChatCopy.TRIGGER_SCHEDULE)
+        assertEquals(events.keys - "trigger_schedule", SessionTree.ChatCopy.EVENTS.keys)
+        for ((key, value) in events) {
+            if (key != "trigger_schedule") assertEquals(value.jsonPrimitive.content, SessionTree.ChatCopy.EVENTS[key])
+        }
         // S-3: device_offline and session_interrupted draw nothing.
         assertEquals(
             DomainContract.messageEventKindValues.toSet() - setOf("device_offline", "session_interrupted"),

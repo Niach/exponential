@@ -5,9 +5,9 @@ import SwiftUI
 /// session view. Collapsed, it is the floating bar's capsule reading the
 /// placeholder (`Reply…`), nothing beside it (EXP-1676: the usage ring lives
 /// IN the card, next to send, ×4); a tap expands it into THE composer card the
-/// host hands in (text, `+` images/files, send, Stop while busy). It floats over the
-/// content above the bottom edge fade and never pushes the content: the
-/// host mounts it as a bottom overlay / safe-area inset.
+/// host hands in (text, `+` images/files, send, Stop while busy). #EXP-1782:
+/// the host stacks it UNDER the content (the transcript's scroll area ends at
+/// its top edge, clipped there): nothing renders behind it, no edge fade.
 ///
 /// The fold rule is the host's (its draft knows when nothing would be lost):
 /// `open` = expanded OR a draft/pick keeps it open; the host flips its

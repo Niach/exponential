@@ -89,10 +89,13 @@ pub const FONT_SIZE_PX: f32 = t::typography::size::SM;
 /// palette, and this is somebody else's mark, carried literally (the desktop
 /// brand assets in `assets/icons/claude.svg` are hand-maintained for the same
 /// reason). Codex has no counterpart — its mark rides the current text colour.
+/// #EXP-1764: EXACTLY `#D97757` (icons.json `brand-claude`'s fill, what
+/// genUI parses), not the rounded hsl(14.8, 63.1 %, 59.6 %), which drew a
+/// level of green apart on the mark's antialiased edge.
 pub const CLAUDE_BRAND: Hsla = Hsla {
-    h: 14.8 / 360.,
-    s: 0.631,
-    l: 0.596,
+    h: 32. / 780.,
+    s: 130. / 206.,
+    l: 152. / 255.,
     a: 1.,
 };
 

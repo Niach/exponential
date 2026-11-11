@@ -12,8 +12,9 @@
 //! - A searchable Menu submenu: the same head + list + fade around the
 //!   submenu's entries (`menuItem.searchable`).
 //! - `Skeleton` rows (feedback-states.json `placeholder`): `rows` × a `row`
-//!   (the row height) of a `dot` and two `bar`s, hairline-divided; the dot
-//!   and bars are `Skeleton` leaves, so every painter's pulse applies.
+//!   (the row height) of a `dot` and two `bar`s, borderless (the web app's
+//!   flat rows, fixtures/skeleton-rows.json); the dot and bars are
+//!   `Skeleton` leaves, so every painter's pulse applies.
 
 use serde_json::{json, Value};
 
@@ -251,11 +252,8 @@ impl Builder<'_, '_> {
         for r in 0..rows {
             let suffix = format!(".{r}");
             // The ROW height (the recipe only spaces the row): `rowHeight`, else `$control.row`.
-            let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "height": height.map(|h| json!(h)).unwrap_or_else(|| json!("$control.row"))});
-            if r > 0 {
-                style["borderTopWidth"] = json!("$border.hairline");
-                style["borderColor"] = json!("$color.border");
-            }
+            // Borderless: no rule between rows (fixtures/skeleton-rows.json `row.hairline`).
+            let style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "height": height.map(|h| json!(h)).unwrap_or_else(|| json!("$control.row"))});
             let row = self.part_in(index, &owner, "row", "Box", NodeKind::Container, style, json!({}), &suffix);
             let leaf = |b: &mut Self, part: &str, style: Value, suffix: &str| b.part_in(row, &owner, part, "Skeleton", NodeKind::Leaf, style, json!({}), suffix);
             if dot {

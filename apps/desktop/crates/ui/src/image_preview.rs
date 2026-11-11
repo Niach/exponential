@@ -947,7 +947,7 @@ mod tests {
         let images = cx.new(|_| {
             let mut cache = ImageCache::new(None);
             for (id, from, to) in [("a", [0x3f, 0x3f, 0x46], [0x52, 0x52, 0x5b]), ("b", [0x1e, 0x3a, 0x5f], [0x3b, 0x82, 0xf6])] {
-                let png = crate::styleguide::entries::plan_card::picture_png(from, to, 800, 500);
+                let png = crate::specimen_pictures::picture_png(from, to, 800, 500);
                 cache.insert_bytes(attachment_url(id), "image/png", png);
             }
             cache

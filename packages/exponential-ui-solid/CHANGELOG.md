@@ -6,6 +6,16 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
+- Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
+- Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
+- Skeleton `rows` (#EXP-1629): no hairline between rows (the shared base CSS), React's.
+- Select `multiple` (#EXP-1629), React's: `joinTop` / `joinBottom` on a picked item next to another shown pick. A parity case (with and without search).
+- Popover `matchAnchorWidth` (parity with React): the content's `width` = `var(--radix-popover-trigger-width)` (the popper's anchor width, re-measured by `autoUpdate`). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases.
+- Select `pill` popup EXACTLY where `placeInsetOverlay` puts it (#EXP-1629): `popperWrapper` gains `inset`, a middleware after the shift and flip moving the box to whole px from the pill (`snapInset`, half away from zero), its translate then not rounded to device px; lands where React's nudge does. The browser overlay suite replays the `overlay-geometry.json` `inset` cases with no tolerance, plain and searchable (harness `?view=inset`).
+- Composer slot `above` (#EXP-1762), like React: `.xui-composer-above` first in the root, its own line in a flat one.
+- Composer `layout: "flat"` (#EXP-1762), like React: the leading slot in its own bar before the field, one row.
+- `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only (parity with React).
+- Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.
 - `IconPicker` + `ColorPicker` (#EXP-1760), React's: a pick closes the picker's Popover (`ClosePickerContext`); `pickerPick` replays here.
 - Select `pill` trigger, `loading`, option `mono`, `searchPlaceholder`, the `searchIcon` part (#EXP-1765), React's (the mono `trailing` run aria-hidden; the pill search's clear button; `textAlign` on `empty`; `popperWrapper` gains `alignOffset`). Parity cases: the pill variants, its popup, pointer-open with no cursor, loading, mono + searchPlaceholder.
 - Select option `description` (#EXP-1629), React's: the `itemIcon` glyph, `itemText` with `itemLabel` and the muted `itemDescription`. Parity cases for both popups.

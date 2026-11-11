@@ -25,6 +25,8 @@ pub enum Glyph {
     Calendar,
     Clock,
     Send,
+    /// The app Composer's submit (`ui-submit`, Lucide `circle-arrow-up`).
+    Submit,
     Attach,
     Spinner,
     Play,
@@ -74,7 +76,7 @@ impl Glyph {
             Glyph::Back => IconName::ArrowLeft,
             Glyph::Star => IconName::Star,
             Glyph::Fullscreen => IconName::Maximize,
-            Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Placeholder => return None,
+            Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Submit | Glyph::Placeholder => return None,
         })
     }
 
@@ -93,6 +95,7 @@ impl Glyph {
             "calendar" | "ui-calendar" => Glyph::Calendar,
             "ui-clock" => Glyph::Clock,
             "ui-send" => Glyph::Send,
+            "ui-submit" => Glyph::Submit,
             "ui-attach" => Glyph::Attach,
             "ui-stop" => Glyph::Stop,
             "ui-copy" => Glyph::Copy,
@@ -130,6 +133,7 @@ pub fn glyph(g: Glyph, size: f32, color: Hsla) -> AnyElement {
         None if g == Glyph::Stop => div().size(px(size)).flex().items_center().justify_center().child(div().size(px(size * 0.6)).rounded(px(2.0)).bg(color)).into_any_element(),
         None if g == Glyph::Clock => clock(size, color),
         None if g == Glyph::Play => play(size, color),
+        None if g == Glyph::Submit => submit(size, color),
         None => placeholder(size, color),
     }
 }
@@ -162,6 +166,33 @@ fn play(size: f32, color: Hsla) -> AnyElement {
             b.line_to(at(8.0, 19.0));
             b.line_to(at(19.0, 12.0));
             b.close();
+            if let Ok(path) = b.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
+    .into_any_element()
+}
+
+/// Lucide `circle-arrow-up` (no `IconName` for it; the app Composer's
+/// submit): `circle r10`, `m16 12-4-4-4 4`, `M12 16V8` in a 24 px box,
+/// stroke 2.
+fn submit(size: f32, color: Hsla) -> AnyElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let u = f32::from(bounds.size.width.min(bounds.size.height)) / 24.0;
+            let (x0, y0) = (bounds.origin.x, bounds.origin.y);
+            let at = |x: f32, y: f32| gpui::point(x0 + px(x * u), y0 + px(y * u));
+            super::natives::stroke_arc(window, at(12.0, 12.0), 10.0 * u, 0.0, 2.0 * std::f32::consts::PI, 2.0 * u, color);
+            let mut b = gpui::PathBuilder::stroke(px(2.0 * u));
+            b.move_to(at(16.0, 12.0));
+            b.line_to(at(12.0, 8.0));
+            b.line_to(at(8.0, 12.0));
+            b.move_to(at(12.0, 16.0));
+            b.line_to(at(12.0, 8.0));
             if let Ok(path) = b.build() {
                 window.paint_path(path, color);
             }

@@ -254,7 +254,9 @@ internal fun AccordionTriggerLeaf(cx: LeafContext) {
 internal fun MenuItemLeaf(cx: LeafContext) {
     InnerBox(cx) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(max(cx.style.gap, 4f).dp), verticalAlignment = Alignment.CenterVertically) {
-            cx.props["icon"]?.string?.let { IconView(it, 16f, cx.ink, cx.model, rtl = cx.rtl) }
+            // #EXP-1629: the item's `iconColor` tints its glyph.
+            val ink = cx.props["iconColor"]?.string?.let(cx::propColor) ?: cx.ink
+            cx.props["icon"]?.string?.let { IconView(it, 16f, ink, cx.model, rtl = cx.rtl) }
             LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f))
         }
     }

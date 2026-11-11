@@ -17,7 +17,7 @@ enum BuiltinIcons {
     static let slots: [String: String] = [
         "Accordion.trigger": "ui-chevron-down", "Carousel.previous": "ui-chevron-left", "Carousel.next": "ui-chevron-right",
         "Checkbox.check": "ui-check", "Checkbox.check.indeterminate": "ui-minus", "ChipInput.remove": "ui-close", "CodeBlock.copy": "ui-copy", "CodeBlock.copied": "ui-check",
-        "Composer.attachment": "ui-attach", "Composer.send": "ui-send", "Composer.stop": "ui-stop",
+        "Composer.attachment": "ui-attach", "Composer.send": "ui-submit", "Composer.stop": "ui-stop",
         "DatePicker.trigger": "calendar", "DatePicker.previousMonth": "ui-chevron-left", "DatePicker.nextMonth": "ui-chevron-right",
         "DateRangePicker.trigger": "calendar", "Dialog.close": "ui-close",
         "Menu.check": "ui-check", "Menu.submenuIndicator": "ui-chevron-right",
@@ -31,6 +31,14 @@ enum BuiltinIcons {
         "Toast.icon.warning": "ui-warning", "Toast.icon.error": "ui-error", "Unknown.root": "ui-warning",
         "ZoomableImage.zoomOut": "ui-minus", "ZoomableImage.zoomIn": "ui-add", "ZoomableImage.fit": "ui-fullscreen",
     ]
+
+    /// #EXP-1764: `iconFillNames` → `iconFillColors` (generated, mirrored
+    /// like `slots`): the marks painted in their OWN colour (`brand-claude` =
+    /// Anthropic's orange), never in the ink.
+    static let fills: [String: String] = ["brand-claude": "#D97757"]
+
+    /// The colour a name paints in: its own fill, else `ink`.
+    static func color(_ name: String, ink: Color) -> Color { fills[name].flatMap { Color(hex: $0) } ?? ink }
 
     /// The icon name of a built-in slot (`Table.sortIcon.asc`).
     static func name(_ slot: String) -> String { slots[slot] ?? "ui-icon-placeholder" }
@@ -53,6 +61,7 @@ enum BuiltinIcons {
         case "calendar", "ui-calendar": "calendar"
         case "ui-clock", "clock": "clock"
         case "ui-send", "send": "send"
+        case "ui-submit", "circle-arrow-up": "circle-arrow-up"
         case "ui-attach", "paperclip": "paperclip"
         case "ui-stop", "circle-stop": "circle-stop"
         case "ui-copy", "copy": "copy"
@@ -139,12 +148,12 @@ struct ConceptIcon: View {
     var body: some View {
         Group {
             if let view = model.host.icon(name, size: size) {
-                view.frame(width: size, height: size).foregroundStyle(color)
+                view.frame(width: size, height: size).foregroundStyle(BuiltinIcons.color(name, ink: color))
             } else {
                 // The built-in Lucide glyph, else the `circle-dashed`
                 // placeholder (web's `IconGlyph` fallback), full colour.
                 LucideGlyph(paths: BuiltinIcons.paths(name), size: size)
-                    .foregroundStyle(color)
+                    .foregroundStyle(BuiltinIcons.color(name, ink: color))
             }
         }
         .mirroredForRTL(!mirroredOutside && RTLGlyphs.mirrors(name, rtl: rtl))

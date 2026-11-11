@@ -667,9 +667,25 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case .some(let x) where x <= 0: w = 120
         case .some(let x): w = x
         }
+        // #EXP-1762: `flat` = one row; the field wraps at the width the send
+        // disc (and the attach control) leave (the core already took the
+        // slots' width off `wrap`), the row is the taller of field and disc.
+        if props.str("layout") == "flat" {
+            let att = props.flag("attachments") ? Self.composerAttachWidth + gap : 0
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = (field.px("paddingTop") ?? 0) + (field.px("paddingBottom") ?? 0)
+            let fh = TextShaper.measure(text, fieldTs, wrap: max(w - send - gap - att, 1), lines: nil).height + pad
+            return CGSize(width: w, height: max(min(max(fh, minH), 200), send))
+        }
         let th = TextShaper.measure(text, fieldTs, wrap: max(w, 1), lines: nil).height
         return CGSize(width: w, height: min(max(th, minH), 200) + gap + send)
     }
+
+    /// #EXP-1762: the attach control's width (its 16 pt glyph + 8 pt either
+    /// side; `ComposerLeaf`), what a flat Composer's field leaves for it.
+    static let composerAttachWidth: CGFloat = 32
 
     /// A Textarea field: `rows` lines, or (`autosize`) its text's wrapped
     /// lines clamped to `rows ... maxRows`.

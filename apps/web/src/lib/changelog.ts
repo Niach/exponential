@@ -25,6 +25,32 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-10-chat-ends-at-composer`,
+    date: `2026-11-10`,
+    title: `The chat ends at the composer`,
+    summary: `No more shadow over the composer: the conversation scrolls up to the composer's top edge and stops there, and the newest message sits fully visible just above it.`,
+    body: `- **No shadow**: the dark fade over the bottom of a chat is gone, on every platform.
+- **A clean edge**: the conversation ends at the top of the composer (or the cards above it), so nothing scrolls behind the composer.`,
+  },
+  {
+    id: `2026-11-10-no-more-freezes`,
+    date: `2026-11-10`,
+    title: `No more freezes with many sessions`,
+    summary: `The desktop app no longer freezes for seconds when you have many sessions: the sidebar and a chat that streams elsewhere update only what changed.`,
+    body: `- **No more freezes**: with thousands of sessions the desktop app's sidebar and session list update only what changed, so another chat streaming or a new event no longer freezes the window.
+- **Live replies in long chats**: an agent's streamed reply now just adds to the open chat, so even a very long chat keeps up while it writes.
+- **Exponential Desktop 0.2.15**: the same fix, plus the chat and genUI changes since 0.2.14.`,
+  },
+  {
+    id: `2026-11-10-quieter-agent-chats`,
+    date: `2026-11-10`,
+    title: `Quieter agent chats`,
+    summary: `Only your messages and the agent's real replies are bubbles: schedule ticks and PR or session updates are small centred markers, and a relayed message names its session above the bubble.`,
+    body: `- **Relayed messages**: a message from another session shows that session's name above the bubble; tap the name to open the session. The whole message shows, never folded.
+- **Small markers**: schedule ticks, merged or opened pull requests, CI and session updates are a small centred line instead of a bubble. A schedule tick only shows when the agent answered it.
+- **No empty replies**: an agent turn with nothing to say shows nothing.`,
+  },
+  {
     id: `2026-11-10-smoother-scrolling`,
     date: `2026-11-10`,
     title: `Smoother scrolling through chats and lists`,

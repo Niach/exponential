@@ -8,16 +8,24 @@
 //! (`upstreamPickerCases`): an Accounts row's title is the DECLARED name, a
 //! muted second line names the real server when it differs, and an owner picks
 //! the server with [`upstream_select`] (the import step's Select too).
+//!
+//! #EXP-1629: the groups are parts of the Settings tab's document
+//! (`app_detail`): each a builder of its rows' template and a projection of
+//! its rows; the share rows' ⋯ menus, the Accounts rows' Selects and the
+//! webhook rows' middle-truncated runs stay the IDE's own (`host_leaf`
+//! Embeds).
 
-use gpui::{div, px, App, FontWeight, IntoElement, ParentElement, SharedString, Styled};
-use gpui_component::{
-    button::Button,
-    v_flex, ActiveTheme as _, Disableable as _, Icon,
-};
+use std::collections::HashMap;
+
+use eui_gpui::controls::CTL_MD_H;
+use gpui::{div, px, App, IntoElement, ParentElement, SharedString, Styled};
+use gpui_component::{button::Button, ActiveTheme as _, Disableable as _, Icon};
+use serde_json::{json, Value};
 
 use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
-use super::app_detail::AppDetailPane;
+use super::app_detail::{button, row_shell, switch, text_line, titled, titled_item, two_lines, visible, AppDetailPane, Paint, Tints};
+use super::doc::{path, Ink, LINE, SM, XS};
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;
 
@@ -144,178 +152,162 @@ pub(crate) fn with_tool_enabled(data: &AppToolsOut, tool: &str, enabled: bool) -
     next
 }
 
-/// A group's heading over its rows (the Tools group's look).
-fn titled(id: &'static str, title: &'static str, rows: Vec<gpui::Div>) -> gpui::Stateful<gpui::Div> {
-    use gpui::InteractiveElement as _;
-    v_flex()
-        .id(id)
-        .gap_1()
-        .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(title))
-        .child(crate::surface::glass_group_rows(rows))
+/// What the Settings tab's ⋯ on a share row needs (the IDE's own menu,
+/// `share_menu`).
+pub(super) struct ShareMenu {
+    pub name: String,
+    pub url: String,
+    pub disabled: bool,
 }
 
-/// The Accounts group (`app-settings-accounts`), `None` when the app declares
-/// no upstreams.
-pub(crate) fn accounts_group(
-    data: &AppToolsOut,
-    busy: Option<&str>,
-    picking: Option<&str>,
-    cx: &mut gpui::Context<AppDetailPane>,
-) -> Option<gpui::Stateful<gpui::Div>> {
-    use gpui::prelude::FluentBuilder as _;
-    use gpui::InteractiveElement as _;
-    if data.upstreams.is_empty() {
-        return None;
-    }
-    let muted = cx.theme().muted_foreground;
+/// VAPP-241 / VAPP-247: a live share row's `…` (an owner's): Copy link, New
+/// link, then the expiry items.
+// drop with EXP-1629-group4: the per-row menu stays the IDE's own (a
+// `host_leaf` Embed) until the catalog Menu carries it.
+pub(super) fn share_menu(menu: &ShareMenu, view: gpui::WeakEntity<AppDetailPane>, cx: &App) -> gpui::AnyElement {
+    use domain::app_share::APP_SHARE;
+    let (url, name) = (menu.url.clone(), menu.name.clone());
+    crate::controls::ghost_icon_button(SharedString::from(format!("app-share-menu-{}", menu.name)), Icon::new(registry::UI_MORE), cx)
+        .accessibility_label(menu.name.clone())
+        .disabled(menu.disabled)
+        .pointer_menu(move |menu, _, _| {
+            let (url, name, view) = (url.clone(), name.clone(), view.clone());
+            let (rotate_name, rotate_view) = (name.clone(), view.clone());
+            let mut menu = menu
+                .item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                    crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
+                }))
+                .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
+                    let name = rotate_name.clone();
+                    let _ = rotate_view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
+                }));
+            for choice in &APP_SHARE.expiry_choices {
+                let (name, view, days) = (name.clone(), view.clone(), choice.days);
+                menu = menu.item(crate::controls::pointer_label_item(choice.label.clone(), false).on_click(move |_, _, cx| {
+                    let name = name.clone();
+                    let _ = view.update(cx, |this, cx| this.set_share_expiry(name, days, cx));
+                }));
+            }
+            menu
+        })
+        .into_any_element()
+}
+
+/// What an Accounts row's server Select needs ([`upstream_select`]).
+pub(super) struct AccountSelect {
+    pub name: String,
+    pub picker: domain::apps::UpstreamPicker,
+    pub disabled: bool,
+}
+
+/// #VAPP-254: an owner's server Select on an Accounts row.
+// drop with EXP-1778: the outline trigger and its scrollable
+// single-select menu stay the IDE's own (a `host_leaf` Embed): no genUI
+// Select trigger draws the 32 px outline Button.
+pub(super) fn account_select(select: &AccountSelect, view: gpui::WeakEntity<AppDetailPane>, cx: &App) -> gpui::AnyElement {
     let account_row = &domain::apps::APPS.test_ids.account_row;
+    let name = select.name.clone();
+    upstream_select(
+        SharedString::from(format!("{account_row}-{}-picker", select.name)),
+        SharedString::from(select.name.clone()),
+        select.picker.clone(),
+        select.disabled,
+        move |value, cx| {
+            let name = name.clone();
+            let _ = view.update(cx, |this, cx| this.pick_upstream_server(name, value, cx));
+        },
+        cx,
+    )
+    .into_any_element()
+}
+
+/// The `Embed` surface of a host-drawn leaf: its `data` changes whenever
+/// the leaf must draw again.
+fn leaf_surface(data: Value) -> Value {
+    json!({"root": {"id": "leaf", "component": "Box"}, "data": data})
+}
+
+/// The Accounts rows (`app-settings-accounts`) as the document binds them;
+/// `busy` = the server whose Connect waits, `picking` = the upstream whose
+/// Select writes. Fills `selects` with the rows' Selects.
+pub(super) fn accounts_rows(data: &AppToolsOut, busy: Option<&str>, picking: Option<&str>, selects: &mut HashMap<String, AccountSelect>) -> Value {
     let servers = server_options(&data.servers);
-    let view = cx.entity().downgrade();
-    let rows = data
+    let rows: Vec<Value> = data
         .upstreams
         .iter()
-        .map(|upstream| {
-            let trailing = match account_trailing(upstream) {
-                // #VAPP-243: an owner adds the team server of that exact name.
-                AccountTrailing::NotSetUp if data.can_toggle => {
-                    let name = upstream.name.clone();
-                    Button::new(SharedString::from(format!("app-account-{}-add", upstream.name)))
-                        .outline()
-                        .cursor_pointer()
-                        .web_sm()
-                        .label(APP_MCP_COPY.add_server)
-                        .on_click(cx.listener(move |this, _, window, cx| this.add_upstream_server(name.clone(), window, cx)))
-                        .into_any_element()
-                }
-                AccountTrailing::NotSetUp | AccountTrailing::Connected => div()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .text_color(muted)
-                    .child(if account_trailing(upstream) == AccountTrailing::NotSetUp {
-                        APP_MCP_COPY.no_server
-                    } else {
-                        APP_MCP_COPY.connected
-                    })
-                    .into_any_element(),
-                kind => {
-                    let target = upstream.clone();
-                    Button::new(SharedString::from(format!("app-account-connect-{}", upstream.name)))
-                        .outline()
-                        .cursor_pointer()
-                        .web_sm()
-                        .label(if kind == AccountTrailing::Reconnect { APP_MCP_COPY.reconnect } else { APP_MCP_COPY.connect })
-                        .loading(busy.is_some() && busy == upstream.server_id.as_deref())
-                        .disabled(busy.is_some())
-                        .on_click(cx.listener(move |this, _, window, cx| this.connect_upstream(&target, window, cx)))
-                        .into_any_element()
-                }
-            };
+        .enumerate()
+        .map(|(ix, upstream)| {
+            let trailing = account_trailing(upstream);
             let caption = domain::apps::account_caption(&upstream.name, upstream.server_name.as_deref(), APP_MCP_COPY.uses_server);
-            // #VAPP-254: an owner's Select (no servers = none, the row as before).
-            let select = domain::apps::upstream_picker(&upstream.name, upstream.server_id.as_deref(), &servers, APP_MCP_COPY.no_server).map(|picker| {
-                let (view, name) = (view.clone(), upstream.name.clone());
-                upstream_select(
-                    SharedString::from(format!("{account_row}-{}-picker", upstream.name)),
-                    SharedString::from(upstream.name.clone()),
-                    picker,
-                    picking.is_some(),
-                    move |value, cx| {
-                        let name = name.clone();
-                        let _ = view.update(cx, |this, cx| this.pick_upstream_server(name, value, cx));
-                    },
-                    cx,
-                )
-            });
-            crate::surface::glass_row_shell()
-                .justify_between()
-                .gap_3()
-                .child(
-                    v_flex()
-                        .id(SharedString::from(format!("{account_row}-{}", upstream.name)))
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().text_sm().truncate().child(upstream.name.clone()))
-                        .when_some(caption, |col, caption| col.child(div().text_xs().text_color(muted).truncate().child(caption))),
-                )
-                .children(select)
-                .child(trailing)
+            let picker = domain::apps::upstream_picker(&upstream.name, upstream.server_id.as_deref(), &servers, APP_MCP_COPY.no_server);
+            let select = picker.is_some();
+            if let Some(picker) = picker {
+                selects.insert(upstream.name.clone(), AccountSelect { name: upstream.name.clone(), picker, disabled: picking.is_some() });
+            }
+            let add = trailing == AccountTrailing::NotSetUp && data.can_toggle;
+            let text = match trailing {
+                AccountTrailing::NotSetUp if !data.can_toggle => Some(APP_MCP_COPY.no_server),
+                AccountTrailing::Connected => Some(APP_MCP_COPY.connected),
+                _ => None,
+            };
+            let connect = matches!(trailing, AccountTrailing::Connect | AccountTrailing::Reconnect);
+            json!({
+                "key": upstream.name,
+                "divided": ix > 0,
+                "name": upstream.name,
+                "hasCaption": caption.is_some(),
+                "caption": caption.unwrap_or_default(),
+                "select": select,
+                "selectSurface": leaf_surface(json!({"disabled": picking.is_some(), "value": upstream.server_id, "servers": servers.len()})),
+                "add": add,
+                "hasText": text.is_some(),
+                "text": text.unwrap_or_default(),
+                "connect": connect,
+                "connectLabel": if trailing == AccountTrailing::Reconnect { APP_MCP_COPY.reconnect } else { APP_MCP_COPY.connect },
+                "connectDisabled": busy.is_some(),
+            })
         })
         .collect();
-    Some(titled("app-settings-accounts", APP_MCP_COPY.accounts, rows))
+    json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// The MCP tools group (`app-settings-mcp-tools`), `None` when the app
-/// exposes no tools.
-pub(crate) fn tools_group(
-    data: &AppToolsOut,
-    busy: Option<&str>,
-    cx: &mut gpui::Context<AppDetailPane>,
-) -> Option<gpui::Stateful<gpui::Div>> {
-    if data.tools.is_empty() {
-        return None;
-    }
-    let muted = cx.theme().muted_foreground;
-    let mono = cx.theme().mono_font_family.clone();
-    let rows = data
+/// The MCP tools rows (`app-settings-mcp-tools`); `busy` = the tool whose
+/// switch writes.
+pub(super) fn tools_rows(data: &AppToolsOut, busy: Option<&str>) -> Value {
+    let rows: Vec<Value> = data
         .tools
         .iter()
-        .map(|tool| {
-            let name = tool.name.clone();
-            crate::surface::glass_row_shell()
-                .justify_between()
-                .gap_3()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().text_sm().truncate().child(tool.title.clone()))
-                        .child(div().text_xs().font_family(mono.clone()).text_color(muted).truncate().child(tool.name.clone())),
-                )
-                .child(
-                    crate::surface::glass_pill(
-                        SharedString::from(format!("app-mcp-tool-access-{}", tool.name)),
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
-                    )
-                    .flex_shrink_0()
-                    .child(access_label(&tool.access)),
-                )
-                .child(
-                    crate::controls::web_switch(SharedString::from(format!("app-mcp-tool-switch-{}", tool.name)))
-                        .checked(tool.enabled)
-                        .disabled(!data.can_toggle || busy == Some(tool.name.as_str()))
-                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                            this.toggle_mcp_tool(name.clone(), *checked, cx)
-                        })),
-                )
+        .enumerate()
+        .map(|(ix, tool)| {
+            json!({
+                "key": tool.name,
+                "divided": ix > 0,
+                "title": tool.title,
+                "name": tool.name,
+                "access": access_label(&tool.access),
+                "checked": tool.enabled,
+                "disabled": !data.can_toggle || busy == Some(tool.name.as_str()),
+            })
         })
         .collect();
-    Some(titled("app-settings-mcp-tools", APP_MCP_COPY.tools, rows))
+    json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// #VAPP-220: the Automations group (`app-settings-automations`), `None`
-/// when the published package declares none: one row per automation = its
-/// name over the trigger (muted), the status as a read-only Pill (the MCP
-/// tools' Read/Write look). Nothing to switch.
-pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDetailPane>) -> Option<gpui::Stateful<gpui::Div>> {
-    use gpui::prelude::FluentBuilder as _;
-    use gpui::InteractiveElement as _;
-    if data.automations.is_empty() {
-        return None;
-    }
-    let apps = &*domain::apps::APPS;
-    let muted = cx.theme().muted_foreground;
-    let rows = data
+/// #VAPP-220: the Automations rows (`app-settings-automations`): the name
+/// over the trigger (who it runs as or why it paused, the dropped runs),
+/// the status Pill.
+pub(super) fn automations_rows(data: &AppToolsOut) -> Value {
+    let rows: Vec<Value> = data
         .automations
         .iter()
-        .map(|automation| {
+        .enumerate()
+        .map(|(ix, automation)| {
             // A trigger kind this build does not know: no trigger line, the
             // status from the paused/last-run fields alone.
             let on = automation.trigger();
             let unknown = domain::apps::AutomationOn::Event(String::new());
-            let view =
-                domain::apps::automation_row(on.as_ref().unwrap_or(&unknown), automation.paused.as_deref(), automation.last_status.as_deref());
+            let view = domain::apps::automation_row(on.as_ref().unwrap_or(&unknown), automation.paused.as_deref(), automation.last_status.as_deref());
             let (trigger, label) = (if on.is_some() { view.trigger } else { String::new() }, view.label);
             // #VAPP-243: who it runs as, or why it is paused.
             let trigger = match domain::apps::automation_sponsor(automation.paused.as_deref(), automation.sponsor_name.as_deref()) {
@@ -329,236 +321,193 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
                 Some(dropped) => format!("{trigger} · {dropped}"),
                 None => trigger,
             };
-            crate::surface::glass_row_shell()
-                .justify_between()
-                .gap_3()
-                .child(
-                    v_flex()
-                        .id(SharedString::from(format!("{}-{}", apps.test_ids.automation_row, automation.name)))
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().text_sm().truncate().child(automation.name.clone()))
-                        .when(!trigger.is_empty(), |col| col.child(div().text_xs().text_color(muted).line_clamp(2).child(trigger))),
-                )
-                .child(
-                    crate::surface::glass_pill(
-                        SharedString::from(format!("app-automation-status-{}", automation.name)),
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
-                    )
-                    .flex_shrink_0()
-                    .child(label),
-                )
+            json!({"key": automation.name, "divided": ix > 0, "name": automation.name, "hasTrigger": !trigger.is_empty(), "trigger": trigger, "label": label})
         })
         .collect();
-    Some(
-        v_flex()
-            .id(SharedString::from(apps.test_ids.automations.clone()))
-            .gap_1()
-            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(apps.copy.automations.title.clone()))
-            .child(crate::surface::glass_group_rows(rows)),
-    )
+    json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// VAPP-241 (app-share.json SETTINGS, `rowCases`): the Public links group
-/// (`app-settings-share-links`), `None` when the published package declares
-/// no shares. Everyone reads it: one row per share = the name over its
-/// subtitle; an owner's Switch (on = enable, off = revoke) and, while on, the
-/// `…` menu Copy link / New link, then the expiry items (VAPP-247).
-pub(crate) fn shares_group(
-    data: &AppToolsOut,
-    busy: Option<&str>,
-    cx: &mut gpui::Context<AppDetailPane>,
-) -> Option<gpui::Stateful<gpui::Div>> {
-    use domain::app_share::{share_row_subtitle, share_switch_on, ShareLinkState, ShareMode, APP_SHARE};
-    use gpui::InteractiveElement as _;
-    if data.shares.is_empty() {
-        return None;
-    }
-    let muted = cx.theme().muted_foreground;
-    let view = cx.entity().downgrade();
-    let mut rows = Vec::new();
-    for share in &data.shares {
-        // A newer server's value reads as a link that is not on.
-        let state = ShareLinkState::parse(&share.state).unwrap_or(ShareLinkState::Off);
-        let mode = ShareMode::parse(&share.mode).unwrap_or(ShareMode::Submit);
-        let on = state == ShareLinkState::On;
-        let mut row = crate::surface::glass_row_shell().justify_between().gap_3().child(
-            v_flex()
-                .id(SharedString::from(format!("{}-{}", APP_SHARE.test_ids.share_row, share.name)))
-                .flex_1()
-                .min_w_0()
-                .child(div().text_sm().truncate().child(share.name.clone()))
-                .child(div().text_xs().text_color(muted).truncate().child(share_row_subtitle(mode, state, share.expires_at.as_deref()))),
-        );
-        if let Some(url) = share.url.clone().filter(|_| data.can_toggle && on) {
-            let (name, view) = (share.name.clone(), view.clone());
-            row = row.child(
-                crate::controls::ghost_icon_button(SharedString::from(format!("app-share-menu-{}", share.name)), Icon::new(registry::UI_MORE), cx)
-                    .accessibility_label(share.name.clone())
-                    .disabled(busy.is_some())
-                    .pointer_menu(move |menu, _, _| {
-                        let (url, name, view) = (url.clone(), name.clone(), view.clone());
-                        let (rotate_name, rotate_view) = (name.clone(), view.clone());
-                        let mut menu = menu
-                            .item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
-                                crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
-                            }))
-                            .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
-                                let name = rotate_name.clone();
-                                let _ = rotate_view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
-                            }));
-                        for choice in &APP_SHARE.expiry_choices {
-                            let (name, view, days) = (name.clone(), view.clone(), choice.days);
-                            menu = menu.item(crate::controls::pointer_label_item(choice.label.clone(), false).on_click(move |_, _, cx| {
-                                let name = name.clone();
-                                let _ = view.update(cx, |this, cx| this.set_share_expiry(name, days, cx));
-                            }));
-                        }
-                        menu
-                    }),
-            );
-        }
-        if data.can_toggle {
-            let name = share.name.clone();
-            row = row.child(
-                crate::controls::web_switch(SharedString::from(format!("app-share-switch-{}", share.name)))
-                    .checked(share_switch_on(state))
-                    .disabled(busy.is_some())
-                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                        this.set_share(name.clone(), if *checked { "enable" } else { "revoke" }, cx)
-                    })),
-            );
-        }
-        rows.push(row);
-    }
-    Some(
-        v_flex()
-            .id(SharedString::from(APP_SHARE.test_ids.share_links.clone()))
-            .gap_1()
-            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(APP_SHARE.copy.title.clone()))
-            .child(crate::surface::glass_group_rows(rows)),
-    )
+/// What a middle-truncated run needs (the IDE's own text, `mid_text`).
+pub(crate) struct MidText {
+    pub text: String,
+    /// `text_sm` (else `text_xs`).
+    pub sm: bool,
+    pub muted: bool,
 }
 
-/// The copy pill of a URL or secret (Settings › MCP's endpoint row: the
-/// clipboard, then the success toast).
-fn copy_pill(id: SharedString, label: String, text: String, copied: String) -> Button {
-    Button::new(id)
-        .outline()
-        .cursor_pointer()
-        .web_sm()
-        .label(label)
-        .on_click(move |_, window, cx| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-            crate::toast::show(crate::toast::Toast::success(copied.clone()), window, cx);
+/// A run of mono text cut in its MIDDLE (`text_ellipsis_middle`: a URL or
+/// secret keeps its both ends).
+// drop with EXP-1778: the text stays the IDE's own (a `host_leaf`
+// Embed) until genUI's Text truncates in the middle.
+pub(crate) fn mid_text(text: &MidText, cx: &App) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let run = div()
+        .font_family(theme.mono_font_family.clone())
+        .text_color(if text.muted { theme.muted_foreground } else { theme.foreground })
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis_middle()
+        .child(text.text.clone());
+    let run = if text.sm { run.text_sm() } else { run.text_xs() };
+    div().w_full().line_height(gpui::phi()).child(run).into_any_element()
+}
+
+/// #VAPP-238: the Webhooks rows (`app-settings-webhooks`): the name over
+/// its URL and the status Pill, under them Copy URL and an owner's Create /
+/// Rotate secret; a secret this pane minted shows ONCE in a row right under
+/// its hook. Fills `texts` with the middle-truncated runs.
+pub(super) fn hooks_rows(data: &AppToolsOut, secrets: &HashMap<String, String>, busy: Option<&str>, texts: &mut HashMap<String, MidText>) -> Value {
+    let rows: Vec<Value> = data
+        .hooks
+        .iter()
+        .enumerate()
+        .map(|(ix, hook)| {
+            let view = domain::apps::webhook_row(hook.has_secret, data.can_toggle);
+            let secret = secrets.get(&hook.name);
+            texts.insert(format!("{HOOK_URL}.{}", hook.name), MidText { text: hook.url.clone(), sm: false, muted: true });
+            if let Some(secret) = secret {
+                texts.insert(format!("{HOOK_SECRET}.{}", hook.name), MidText { text: secret.clone(), sm: true, muted: false });
+            }
+            json!({
+                "key": hook.name,
+                "divided": ix > 0,
+                "name": hook.name,
+                "url": hook.url,
+                "urlSurface": leaf_surface(json!({"text": hook.url})),
+                "status": view.label,
+                "hasAction": view.action.is_some(),
+                "action": view.action.map(|a| a.as_str()).unwrap_or_default(),
+                "actionLabel": view.action_label.unwrap_or_default(),
+                "actionDisabled": busy.is_some(),
+                "hasSecret": secret.is_some(),
+                "secret": secret.cloned().unwrap_or_default(),
+                "secretSurface": leaf_surface(json!({"text": secret})),
+            })
         })
+        .collect();
+    json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// One mono line, middle-truncated (start…end): a hook's URL and the
-/// shown-once secret (#EXP-1778: genUI Text `truncate: "middle"`).
-pub(crate) fn mid_text(text: impl Into<SharedString>, mono: SharedString) -> gpui::Div {
-    div().font_family(mono).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(text.into())
+/// VAPP-241 (app-share.json SETTINGS, `rowCases`): the Public links rows
+/// (`app-settings-share-links`): the name over its subtitle; an owner's
+/// Switch (on = enable, off = revoke) and, while on, the `…` menu. Fills
+/// `menus` with the rows' menus.
+pub(super) fn shares_rows(data: &AppToolsOut, busy: Option<&str>, menus: &mut HashMap<String, ShareMenu>) -> Value {
+    use domain::app_share::{share_row_subtitle, share_switch_on, ShareLinkState, ShareMode};
+    let rows: Vec<Value> = data
+        .shares
+        .iter()
+        .enumerate()
+        .map(|(ix, share)| {
+            // A newer server's value reads as a link that is not on.
+            let state = ShareLinkState::parse(&share.state).unwrap_or(ShareLinkState::Off);
+            let mode = ShareMode::parse(&share.mode).unwrap_or(ShareMode::Submit);
+            let on = state == ShareLinkState::On;
+            let menu = share.url.clone().filter(|_| data.can_toggle && on);
+            if let Some(url) = &menu {
+                menus.insert(share.name.clone(), ShareMenu { name: share.name.clone(), url: url.clone(), disabled: busy.is_some() });
+            }
+            json!({
+                "key": share.name,
+                "divided": ix > 0,
+                "name": share.name,
+                "subtitle": share_row_subtitle(mode, state, share.expires_at.as_deref()),
+                "menu": menu.is_some(),
+                "menuSurface": leaf_surface(json!({"url": menu, "disabled": busy.is_some()})),
+                "switch": data.can_toggle,
+                "checked": share_switch_on(state),
+                "disabled": busy.is_some(),
+            })
+        })
+        .collect();
+    json!({"show": !rows.is_empty(), "rows": rows})
 }
 
-/// #VAPP-238: the Webhooks group (`app-settings-webhooks`), under
-/// Automations, `None` when the published package listens on none: one row
-/// per hook = the name (mono) over its URL (mono, muted, middle-truncated)
-/// and the status Pill; under them Copy URL and an owner's Create secret /
-/// Rotate secret. A secret this pane minted shows
-/// ONCE in a row right under its hook (`app-webhook-secret`).
-pub(crate) fn webhooks_group(
-    data: &AppToolsOut,
-    secrets: &std::collections::HashMap<String, String>,
-    busy: Option<&str>,
-    cx: &mut gpui::Context<AppDetailPane>,
-) -> Option<gpui::Stateful<gpui::Div>> {
-    use gpui::InteractiveElement as _;
-    if data.hooks.is_empty() {
-        return None;
-    }
+/// The share row's ⋯, the Accounts row's Select and the webhook rows'
+/// middle-truncated runs (`<node>.<row key>` once painted).
+pub(super) const SHARE_MENU: &str = "share_menu";
+pub(super) const ACCOUNT_SELECT: &str = "account_select";
+pub(super) const HOOK_URL: &str = "hook_url";
+pub(super) const HOOK_SECRET: &str = "hook_secret";
+
+/// The width of an Accounts row's Select leaf.
+pub(super) const ACCOUNT_SELECT_W: f32 = UPSTREAM_SELECT_WIDTH;
+
+/// The Public links group.
+pub(super) fn shares_group(ink: &Ink, tints: &Tints) -> Value {
+    use domain::app_share::APP_SHARE;
+    let menu = json!({"id": SHARE_MENU, "component": "Embed", "visible": path("menu"), "props": {"surface": path("menuSurface")}, "style": {"width": CTL_MD_H, "height": CTL_MD_H, "flexShrink": 0}});
+    let switch = visible(switch("share_switch", "share", "share"), path("switch"));
+    let row = row_shell(ink, "share", vec![two_lines(ink, "share", text_line(ink, "share_name", path("name"), SM, &ink.foreground, false), text_line(ink, "share_subtitle", path("subtitle"), XS, &ink.muted, false), None), menu, switch]);
+    titled(ink, &APP_SHARE.test_ids.share_links, &APP_SHARE.copy.title, "/pane/shares", row, tints)
+}
+
+/// The Accounts group.
+pub(super) fn accounts_group(ink: &Ink, tints: &Tints) -> Value {
+    let mut caption = text_line(ink, "account_caption", path("caption"), XS, &ink.muted, false);
+    caption["visible"] = path("hasCaption");
+    let select = json!({"id": ACCOUNT_SELECT, "component": "Embed", "visible": path("select"), "props": {"surface": path("selectSurface")}, "style": {"width": ACCOUNT_SELECT_W, "height": CTL_MD_H, "flexShrink": 0}});
+    let add = button(ink, tints, "account_add", Paint::Outline, None, json!(APP_MCP_COPY.add_server), json!(false), json!({"name": "addServer", "context": {"key": path("key")}}));
+    let add = visible(add, path("add"));
+    let mut text = text_line(ink, "account_text", path("text"), SM, &ink.muted, false);
+    text["visible"] = path("hasText");
+    text["style"]["flexShrink"] = json!(0);
+    let connect = button(ink, tints, "account_connect", Paint::Outline, None, path("connectLabel"), path("connectDisabled"), json!({"name": "connect", "context": {"key": path("key")}}));
+    let connect = visible(connect, path("connect"));
+    let row = row_shell(ink, "account", vec![two_lines(ink, "account", text_line(ink, "account_name", path("name"), SM, &ink.foreground, false), caption, None), select, add, text, connect]);
+    titled(ink, "app-settings-accounts", APP_MCP_COPY.accounts, "/pane/accounts", row, tints)
+}
+
+/// The MCP tools group.
+pub(super) fn tools_group(ink: &Ink, tints: &Tints) -> Value {
+    let switch = switch("mcp_tool_switch", "mcpTool", "mcpTool");
+    let row = row_shell(ink, "mcp_tool", vec![
+        two_lines(ink, "mcp_tool", text_line(ink, "mcp_tool_title", path("title"), SM, &ink.foreground, false), text_line(ink, "mcp_tool_name", path("name"), XS, &ink.muted, true), None),
+        ink.pill("mcp_tool_access", path("access"), false, None),
+        switch,
+    ]);
+    titled(ink, "app-settings-mcp-tools", APP_MCP_COPY.tools, "/pane/mcpTools", row, tints)
+}
+
+/// #VAPP-220: the Automations group: nothing to switch.
+pub(super) fn automations_group(ink: &Ink, tints: &Tints) -> Value {
+    let apps = &*domain::apps::APPS;
+    let mut trigger = ink.text("automation_trigger", path("trigger"), XS, &ink.muted);
+    trigger["props"]["lines"] = json!(2);
+    trigger["visible"] = path("hasTrigger");
+    let row = row_shell(ink, "automation", vec![
+        two_lines(ink, "automation", text_line(ink, "automation_name", path("name"), SM, &ink.foreground, false), trigger, None),
+        ink.pill("automation_status", path("label"), false, None),
+    ]);
+    titled(ink, &apps.test_ids.automations, &apps.copy.automations.title, "/pane/automations", row, tints)
+}
+
+/// #VAPP-238: the Webhooks group.
+pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let apps = &*domain::apps::APPS;
     let copy = &apps.copy.webhooks;
-    let muted = cx.theme().muted_foreground;
-    let mono = cx.theme().mono_font_family.clone();
-    let mut rows = Vec::new();
-    for hook in &data.hooks {
-        let view = domain::apps::webhook_row(hook.has_secret, data.can_toggle);
-        // The top line = the name/URL column + the status Pill; under them,
-        // leading-aligned, Copy URL then (an owner) the action pill.
-        let top = gpui_component::h_flex()
-            .w_full()
-            .justify_between()
-            .gap_3()
-            .child(
-                v_flex()
-                    .id(SharedString::from(format!("{}-{}", apps.test_ids.webhook_row, hook.name)))
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().text_sm().font_family(mono.clone()).truncate().child(hook.name.clone()))
-                    .child(mid_text(hook.url.clone(), mono.clone()).text_xs().text_color(muted)),
-            )
-            .child(
-                crate::surface::glass_pill(
-                    SharedString::from(format!("app-webhook-status-{}", hook.name)),
-                    crate::surface::PillSize::Sm,
-                    crate::surface::PillMode::Readonly,
-                    cx,
-                )
-                .flex_shrink_0()
-                .child(view.label),
-            );
-        let mut pills = gpui_component::h_flex().flex_wrap().items_center().gap_2().child(copy_pill(
-            SharedString::from(format!("app-webhook-copy-url-{}", hook.name)),
-            copy.copy_url.clone(),
-            hook.url.clone(),
-            copy.copied.clone(),
-        ));
-        if let (Some(action), Some(label)) = (view.action, view.action_label) {
-            let name = hook.name.clone();
-            pills = pills.child(
-                Button::new(SharedString::from(format!("app-webhook-{}-{}", action.as_str(), hook.name)))
-                    .outline()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label(label)
-                    .loading(busy == Some(hook.name.as_str()))
-                    .disabled(busy.is_some())
-                    .on_click(cx.listener(move |this, _, window, cx| this.hook_action(name.clone(), action, window, cx))),
-            );
-        }
-        rows.push(crate::surface::glass_row_shell().child(v_flex().w_full().min_w_0().gap_2().child(top).child(pills)));
-        if let Some(secret) = secrets.get(&hook.name) {
-            rows.push(
-                crate::surface::glass_row_shell()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        v_flex()
-                            .id(SharedString::from(format!("{}-{}", apps.test_ids.webhook_secret, hook.name)))
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().text_xs().text_color(muted).truncate().child(copy.secret.clone()))
-                            .child(mid_text(secret.clone(), mono.clone()).text_sm()),
-                    )
-                    .child(copy_pill(
-                        SharedString::from(format!("app-webhook-copy-secret-{}", hook.name)),
-                        copy.copy_secret.clone(),
-                        secret.clone(),
-                        copy.copied.clone(),
-                    )),
-            );
-        }
-    }
-    Some(
-        v_flex()
-            .id(SharedString::from(apps.test_ids.webhooks.clone()))
-            .gap_1()
-            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(copy.title.clone()))
-            .child(crate::surface::glass_group_rows(rows)),
-    )
+    let xs_line = ink.r(XS) * LINE;
+    let sm_line = ink.r(SM) * LINE;
+    let url = json!({"id": HOOK_URL, "component": "Embed", "props": {"surface": path("urlSurface")}, "style": {"width": "100%", "height": xs_line}});
+    let top = json!({"id": "hook_top", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": ink.r(0.75)},
+        "children": [
+            two_lines(ink, "hook", text_line(ink, "hook_name", path("name"), SM, &ink.foreground, true), url, None),
+            ink.pill("hook_status", path("status"), false, None),
+        ]});
+    let copy_url = button(ink, tints, "hook_copy_url", Paint::Outline, None, json!(copy.copy_url), json!(false), json!({"name": "copy", "context": {"text": path("url")}}));
+    let action = button(ink, tints, "hook_action", Paint::Outline, None, path("actionLabel"), path("actionDisabled"), json!({"name": "hook", "context": {"key": path("key"), "action": path("action")}}));
+    let pills = json!({"id": "hook_pills", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5)},
+        "children": [copy_url, visible(action, path("hasAction"))]});
+    let column = json!({"id": "hook_column", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.5)}, "children": [top, pills]});
+    let hook = ink.shell("hook_row", false, json!(true), vec![column]);
+    let mut label = text_line(ink, "secret_label", json!(copy.secret), XS, &ink.muted, false);
+    label["style"]["flexShrink"] = json!(0);
+    let value = json!({"id": HOOK_SECRET, "component": "Embed", "props": {"surface": path("secretSurface")}, "style": {"width": "100%", "height": sm_line}});
+    let copy_secret = button(ink, tints, "hook_copy_secret", Paint::Outline, None, json!(copy.copy_secret), json!(false), json!({"name": "copy", "context": {"text": path("secret")}}));
+    let secret = ink.shell("secret_row", false, path("hasSecret"), vec![two_lines(ink, "secret", label, value, None), copy_secret]);
+    let item = json!({"id": "hook_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [ink.divider("hook_divider", path("divided")), hook, ink.divider("secret_divider", path("hasSecret")), secret]});
+    titled_item(ink, &apps.test_ids.webhooks, &copy.title, "/pane/hooks", item, tints)
 }
 
 #[cfg(test)]

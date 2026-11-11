@@ -101,4 +101,29 @@ export function placeOverlay(
   return { x: round(x), y: round(y), side, flipped }
 }
 
+/** #EXP-1765: an overlay whose box reaches `inset` OUTSIDE its content on
+ *  every side (the Select pill's popup: the IDE Popover's 1 px ring outside
+ *  its content), placed in gpui-component's Popover order: the inset first
+ *  (a `start` box begins `inset` before the anchor's start, an `end` one
+ *  `inset` past its end), then `placeOverlay`'s flip and padding clamp, then
+ *  the content's offset from the anchor's origin rounded to whole px, half
+ *  away from zero (gpui's Positioner; may leave the box half a px past the
+ *  padding, as the IDE's does). `fixtures/overlay-geometry.json` `inset`
+ *  locks it; the Rust core's `place_inset_overlay` mirrors it. */
+export function placeInsetOverlay(anchor: Rect, size: Size, viewport: Size, options: { side?: OverlaySide; align?: OverlayAlign; offset?: number; padding?: number }, inset: number): OverlayPlacement {
+  const p = placeOverlay({ ...anchor, x: anchor.x - inset, width: anchor.width + 2 * inset }, size, viewport, options)
+  return { ...p, x: round(snapInset(p.x, anchor.x, inset)), y: round(snapInset(p.y, anchor.y, inset)) }
+}
+
+/** #EXP-1629: `placeInsetOverlay`'s last step on one axis: a box placed at
+ *  `at` whose content starts `inset` inside it, moved so the content's
+ *  offset from the anchor's `origin` is whole px, half away from zero (the
+ *  web renderers' popper applies it after its shift and flip). */
+export function snapInset(at: number, origin: number, inset: number): number {
+  return origin + roundAway(at + inset - origin) - inset
+}
+
+/** Rust's `f64::round`: half away from zero (`Math.round` takes -0.5 up). */
+const roundAway = (n: number) => Math.sign(n) * Math.round(Math.abs(n))
+
 const round = (n: number) => Math.round(n * 1000) / 1000

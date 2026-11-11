@@ -3564,6 +3564,24 @@
         },
         {
           "when": {
+            "joinTop": true
+          },
+          "style": {
+            "borderTopLeftRadius": 0,
+            "borderTopRightRadius": 0
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true
+          },
+          "style": {
+            "borderBottomLeftRadius": 0,
+            "borderBottomRightRadius": 0
+          }
+        },
+        {
+          "when": {
             "state": "disabled"
           },
           "style": {
@@ -3649,6 +3667,14 @@
           },
           "style": {
             "opacity": 0.7
+          }
+        }
+      ],
+      "valueIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm"
           }
         }
       ],
@@ -4015,6 +4041,14 @@
           "style": {
             "borderColor": "$color.ring"
           }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "gap": "$spacing.xs"
+          }
         }
       ],
       "field": [
@@ -4025,6 +4059,15 @@
             "fontFamily": "$type.family.sans",
             "color": "$color.foreground",
             "minHeight": "$control.buttonMd"
+          }
+        },
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "minHeight": 0,
+            "paddingTop": "$spacing.sm"
           }
         }
       ],

@@ -418,6 +418,10 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("paddingBottom", &["spacing"]),
     // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
     ("textAlign", &[]),
+    // #EXP-1629: a joined Select multi row squares the corners it shares.
+    ("borderTopRightRadius", &["radius", "spacing"]),
+    ("borderBottomRightRadius", &["radius", "spacing"]),
+    ("borderBottomLeftRadius", &["radius", "spacing"]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -1092,11 +1096,12 @@ pub fn try_load_theme(source: &Value, options: &ThemeOptions) -> Result<Resolved
 /// #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
 /// after themes shipped takes a sibling's value when the chain sets none, so
 /// every older theme stays complete: `link` = `primary`, #EDE-65
-/// `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`.
+/// `borderStrong` = `border`, #EXP-1629 `ghostHover` = `accent`,
+/// `strokeActive` = `ring`.
 fn derive_colors(theme: &mut ResolvedTheme) {
     for mode in Mode::ALL {
         let m = theme.modes.get_mut(mode);
-        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent")] {
+        for (name, from) in [("link", "primary"), ("borderStrong", "border"), ("ghostHover", "accent"), ("strokeActive", "ring")] {
             if !m.color.contains_key(name) {
                 if let Some(value) = m.color.get(from).cloned() {
                     m.color.insert(name.to_string(), value);
@@ -1640,6 +1645,19 @@ mod tests {
             let t = builtin_theme(id).unwrap();
             assert_eq!(t.modes.light.color["ghostHover"], t.modes.light.color["accent"]);
             assert_eq!(t.modes.dark.color["ghostHover"], t.modes.dark.color["accent"]);
+        }
+    }
+
+    #[test]
+    fn stroke_active_is_the_glass_active_stroke_in_exponential_and_ring_elsewhere() {
+        // catalog/tokens.json `color.strokeActive` (a focused box Input's stroke).
+        let exp = builtin_theme("exponential").unwrap();
+        assert_eq!(exp.modes.dark.color["strokeActive"], "#ffffff29");
+        assert_eq!(exp.modes.light.color["strokeActive"], exp.modes.light.color["ring"]);
+        for id in ["neutral", "playful"] {
+            let t = builtin_theme(id).unwrap();
+            assert_eq!(t.modes.light.color["strokeActive"], t.modes.light.color["ring"]);
+            assert_eq!(t.modes.dark.color["strokeActive"], t.modes.dark.color["ring"]);
         }
     }
 
