@@ -73,9 +73,19 @@ struct TextFieldLeaf: View {
 struct ComposerLeaf: View {
     let cx: LeafContext
 
+    /// #EXP-1762 (interactions-round1.json composerSlots `field`): a flat
+    /// Composer's text view in a row `row` tall: its text starts `padTop`
+    /// (the field recipe's `paddingTop`) below the row's top, one line or
+    /// grown, and it reaches the row's bottom.
+    static func flatField(row: CGFloat, padTop: CGFloat) -> (y: CGFloat, height: CGFloat) {
+        (padTop, max(row - padTop, 0))
+    }
+
     var body: some View {
         let field = cx.part("Composer", "field")
         let send = cx.part("Composer", "send")
+        // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+        let sendIcon = cx.part("Composer", "sendIcon").width ?? 16
         let placeholder = cx.part("Composer", "placeholder")
         let sendSize = send.height ?? cx.control("buttonIcon", 36)
         let gap = cx.style.gap
@@ -86,13 +96,21 @@ struct ComposerLeaf: View {
         let attachments = cx.props.flag("attachments")
         let (w, h) = (cx.inner.width, cx.inner.height)
         // #EXP-1762: `flat` = one row: the field between the leading slot and
-        // the controls, centred on the send disc while one line, the row's
-        // full height once it grows (upward: the controls stay at the bottom).
+        // the controls, spanning the row (the disc's height while one line,
+        // growing upward: the controls stay at the bottom); its text starts
+        // the field recipe's paddingTop below the row's top, one line or
+        // grown (composerSlots `field`; the text view has no inset of its own).
         let flat = cx.props.str("layout") == "flat"
+        // #EXP-1762: the core lays an `above` slot out at the content top
+        // (it paints over this leaf); the field (and a flat row) start one
+        // gap below it.
+        let top = cx.model.index(of: "\(cx.node.id).above").map { cx.model.frame($0).height + gap } ?? 0
+        let rh = max(h - top, 0)
+        let flatBox = Self.flatField(row: rh, padTop: field.px("paddingTop") ?? 0)
         let slotW = { (name: String) -> CGFloat in cx.model.index(of: "\(cx.node.id).\(name)").map { cx.model.frame($0).width + gap } ?? 0 }
         let lead = flat ? slotW("leading") : 0
         let fieldW = flat ? max(w - lead - slotW("trailing") - (attachments ? SurfaceMeasurer.composerAttachWidth + gap : 0) - sendSize - gap, 0) : w
-        let fieldH = flat ? (h > sendSize + 0.5 ? h : min(lh, h)) : max(h - sendSize - gap, 0)
+        let fieldH = flat ? flatBox.height : max(rh - sendSize - gap, 0)
         ZStack(alignment: .topLeading) {
             OwnedTextField(
                 index: cx.index,
@@ -109,7 +127,7 @@ struct ComposerLeaf: View {
                 inputType: ""
             )
             .frame(width: fieldW, height: fieldH)
-            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: flat ? (h - fieldH) / 2 : 0)
+            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: top + (flat ? flatBox.y : 0))
             HStack(spacing: cx.model.spacing("xs")) {
                 Spacer(minLength: 0)
                 // `attachments: true` = the attach control (catalog: "Shows
@@ -137,17 +155,17 @@ struct ComposerLeaf: View {
                 }
                 let sendW = send.width ?? sendSize
                 // Web: busy = the recipe's `when busy` opacity; an empty
-                // draft = the disabled button (`.xui-Composer-send:disabled`
-                // opacity .5), inert.
+                // draft = the disabled button (the `send` part's `state:
+                // disabled` opacity, 0.5 without one), inert.
                 let empty = !busy && !cx.model.composerHasText(cx.index)
                 Button {
                     cx.model.composerSubmit(cx.index)
                 } label: {
-                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 16, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
+                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: sendIcon, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
                         .frame(width: sendW, height: sendSize)
                         .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: send.style.radius > 0 ? AnyShape(send.style.shape(CGSize(width: sendW, height: sendSize))) : AnyShape(Circle()))
                         .compositingGroup()
-                        .opacity(empty ? 0.5 : (send.style.opacity ?? 1))
+                        .opacity(empty ? (cx.part("Composer", "send", states: ["disabled"]).style.opacity ?? 0.5) : (send.style.opacity ?? 1))
                 }
                 .buttonStyle(.plain)
                 // Inert, not `.disabled`: the plain style would dim the

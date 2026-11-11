@@ -503,6 +503,48 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(s.node(s.index(of: "tz.trigger")!)?.props.str("text"), "UTC")
     }
 
+    /// #EXP-1629: an option's `iconColor` is its `itemIcon`'s own colour and,
+    /// with `triggerIcon`, the chosen one's `valueIcon`'s: the Icon leaf
+    /// paints in that ink; a plain option's glyph keeps the inherited ink.
+    func testSelectOptionIconColorTintsItsGlyphs() throws {
+        let options: JSONValue = .array([
+            .object(["label": .string("In Review"), "value": .string("review"), "icon": .string("status-in-review"), "iconColor": .string("$color.success")]),
+            .object(["label": .string("Backlog"), "value": .string("backlog"), "icon": .string("status-backlog")]),
+        ])
+        let m = try surface(node("status", "Select", ["label": .string("Status"), "triggerVariant": .string("row"), "triggerIcon": .bool(true), "value": .string("review"), "options": options]))
+        m.setOpen("status", true)
+        let painted = paint(m)
+        let success = try XCTUnwrap(m.color("success"))
+        let value = try XCTUnwrap(m.index(of: "status.valueIcon"))
+        let chosen = try XCTUnwrap(m.index(of: "status.itemIcon.0"))
+        let plain = try XCTUnwrap(m.index(of: "status.itemIcon.1"))
+        for i in [value, chosen, plain] { XCTAssertTrue(painted.contains(i), "\(m.nodes[i].id) painted") }
+        XCTAssertEqual(m.ink(value), success, "the chosen option's glyph leads the value in its colour")
+        XCTAssertEqual(m.ink(chosen), success)
+        XCTAssertNotEqual(m.ink(plain), success, "no `iconColor`: the inherited ink")
+    }
+
+    /// #EXP-1629: a `button` trigger leaf carries the picked option's `icon`
+    /// + `iconColor` as `valueIcon` / `iconColor`; a picked option with no
+    /// glyph leaves the trigger bare.
+    func testSelectButtonTriggerCarriesThePickedGlyph() throws {
+        let options: JSONValue = .array([
+            .object(["label": .string("In Review"), "value": .string("review"), "icon": .string("status-in-review"), "iconColor": .string("$color.success")]),
+            .object(["label": .string("Do nothing"), "value": .string("none")]),
+        ])
+        for (value, icon, color) in [("review", "status-in-review", "$color.success"), ("none", "", "")] {
+            let m = try surface(node("pr", "Select", ["label": .string("When a PR opens"), "triggerVariant": .string("button"), "value": .string(value), "options": options]))
+            paint(m)
+            let props = try XCTUnwrap(m.node(XCTUnwrap(m.index(of: "pr.trigger")))?.props)
+            XCTAssertEqual(props.str("valueIcon"), icon, value)
+            XCTAssertEqual(props.str("iconColor"), color, value)
+            if icon.isEmpty {
+                XCTAssertNil(props["valueIcon"], value)
+                XCTAssertNil(props["iconColor"], value)
+            }
+        }
+    }
+
     // MARK: - #EXP-1765: the `pill` Select, `loading`, `mono` options
 
     func pillSelect(_ extra: [String: JSONValue] = [:]) -> JSONValue {
@@ -571,8 +613,92 @@ final class Round1NativesTests: XCTestCase {
         let et = e.frame(try XCTUnwrap(e.index(of: "sel.trigger")))
         let ec = e.frame(try XCTUnwrap(e.index(of: "sel.content")))
         XCTAssertEqual(ec.width, 200, accuracy: 0.01)
-        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.01)
+        // #EXP-1765: inset, clamp, then the content's offset from the pill
+        // rounded to whole points (half away from zero): a content-sized pill
+        // leaves the box within half a point of flush.
+        let at = et.maxX + 1 - 200
+        XCTAssertEqual(ec.minX, et.minX + (at + 1 - et.minX).rounded() - 1, accuracy: 0.01)
+        XCTAssertEqual(ec.maxX, et.maxX + 1, accuracy: 0.5)
         XCTAssertLessThanOrEqual(ec.maxX, 390 - 7 + 0.01, "selectRowPopupMargin from the view's edge")
+    }
+
+    /// #EXP-1778: a `button` Select's menu: rows 36 high (web's picker), `selectButtonItemGap`
+    /// apart, the check on the CHOSEN row only (after the item `gap`, the
+    /// `check` recipe's width); the other rows reserve no slot, and the
+    /// other variants keep theirs.
+    func testSelectButtonMenuRowsCheckOnChosenOnly() throws {
+        let m = try surface(pillSelect(["triggerVariant": .string("button")]))
+        m.setOpen("sel", true)
+        paint(m)
+        let rows = (0..<3).map { m.index(of: "sel.item.\($0)")! }
+        XCTAssertEqual(rows.map { m.node($0)!.props.str("checkSlot") }, ["chosen", "chosen", "chosen"])
+        XCTAssertTrue(SelectTrigger.checkOnChosenOnly(m.node(rows[0])!.props))
+        XCTAssertEqual(m.frame(rows[0]).height, 36, accuracy: 0.01)
+        XCTAssertEqual(m.frame(rows[1]).minY - m.frame(rows[0]).maxY, 0, accuracy: 0.01)
+        XCTAssertEqual(m.frame(rows[2]).minY - m.frame(rows[1]).maxY, 0, accuracy: 0.01)
+        let gap = m.style(rows[0]).gap
+        XCTAssertEqual(gap, 8, accuracy: 0.01)
+        let chosen = SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen"), "check": .string("ui-check")], gap: gap, countWidth: 14)
+        XCTAssertEqual(chosen.1, 8 + 14, accuracy: 0.01, "the check after the item gap")
+        XCTAssertEqual(SurfaceMeasurer.textChrome("Select", "item", ["checkSlot": .string("chosen")], gap: gap, countWidth: 14).1, 0, "no slot on an unchosen row")
+        XCTAssertEqual(SelectTrigger.glyphSize(m.part("Select", "check", props: ["triggerVariant": .string("button")])), 14)
+
+        let p = try surface(pillSelect())
+        p.setOpen("sel", true)
+        let pr = try XCTUnwrap(p.index(of: "sel.item.1"))
+        XCTAssertFalse(SelectTrigger.checkOnChosenOnly(p.node(pr)!.props), "a pill keeps the reserved slot")
+        XCTAssertEqual(p.frame(try XCTUnwrap(p.index(of: "sel.item.2"))).minY, p.frame(pr).maxY, accuracy: 0.01)
+    }
+
+    /// #EXP-1629: `selectPointerOpen`: the pointer opening keeps the cursor
+    /// but on a pill.
+    func testSelectPointerOpenKeepsTheCursorButOnAPill() throws {
+        let cases = try Fixtures.json("interactions-round1.json")["selectPointerOpen"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let variant = c["triggerVariant"]?.string ?? ""
+            let m = try surface(pillSelect(["triggerVariant": .string(variant)]))
+            m.pressDown("sel.trigger")
+            m.pressUp("sel.trigger")
+            m.setOpen("sel", true)
+            let hovered = m.liveParts("sel", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id)
+            XCTAssertEqual(hovered.isEmpty, c["cursor"]?.bool != true, variant)
+        }
+    }
+
+    /// #EDE-65: `typeaheadFocus`: a Popover anchored on a text field (a
+    /// typeahead) opened and closed through data never moves the focus out
+    /// of the field; a Button-anchored one focuses its content and returns
+    /// the focus to the anchor; a trigger press focuses the content.
+    func testTypeaheadFocusKeepsTheFieldFocused() throws {
+        let fx = try Fixtures.json("interactions-round1.json")["typeaheadFocus"]
+        let cases = fx?["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? ""
+            let which = c["surface"]?.string ?? ""
+            let m = try surface(try XCTUnwrap(fx?["surfaces"]?[which]), theme: "neutral")
+            for (k, v) in c["data"]?.object ?? [:] { m.setData(path: "/\(k)", value: v) }
+            m.pass()
+            let field = which == "composer" ? "c" : which == "input" ? "q.field" : ""
+            for step in c["steps"]?.array ?? [] {
+                let op = step["do"]?.string ?? ""
+                switch op {
+                case "focusField": m.fieldFocused(try XCTUnwrap(m.index(of: field), name), true)
+                case "open", "close": m.setData(path: "/open", value: .bool(op == "open"))
+                case "pressTrigger": m.press(id: "t")
+                default: XCTFail("unknown step \(op)")
+                }
+                m.pass()
+                XCTAssertEqual(m.layers.contains { $0.owner == "menu" }, step["open"]?.bool == true, "\(name): \(op) open")
+                let at = m.focusedId.flatMap { m.node(id: $0) }
+                let place = at?.id == field ? "field" : at?.id == "b" ? "anchor" : (at?.layer ?? 0) > 0 ? "content" : String(describing: at?.id)
+                XCTAssertEqual(place, step["focus"]?.string, "\(name): \(op) focus")
+                if let menu = m.layers.first(where: { $0.owner == "menu" }) {
+                    XCTAssertEqual(m.isTypeahead(menu), c["typeahead"]?.bool == true, name)
+                }
+            }
+        }
     }
 
     /// Opened by the POINTER a pill shows no cursor until the pointer moves
@@ -932,6 +1058,30 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(trigger.component, "Button")
         p.press(trigger.index)
         XCTAssertTrue(p.layers.contains { $0.owner == "pm" })
+    }
+
+    /// #EXP-1629: a Menu item's `iconColor` rides on its `itemLabel` leaf
+    /// next to `icon`; `propColor` reads a theme token or a hex.
+    func testMenuItemIconColor() throws {
+        let items: JSONValue = .array([
+            .object(["label": .string("In Progress"), "value": .string("in_progress"), "icon": .string("status-in-progress"), "iconColor": .string("$color.warning")]),
+            .object(["label": .string("Copy"), "value": .string("copy")]),
+        ])
+        let m = try surface(node("sm", "Menu", ["items": items, "label": .string("Status")]))
+        paint(m)
+        let trigger = try XCTUnwrap(m.nodes.first { !$0.removed && $0.owner == "sm" && $0.part == "trigger" })
+        m.press(trigger.index)
+        paint(m)
+        let labels = m.liveParts("sm", "itemLabel")
+        XCTAssertEqual(labels.map { $0.props.str("text") }, ["In Progress", "Copy"])
+        XCTAssertEqual(labels[0].props.str("icon"), "status-in-progress")
+        XCTAssertEqual(labels[0].props.str("iconColor"), "$color.warning")
+        XCTAssertNil(labels[1].props["iconColor"])
+        let cx = LeafContext(model: m, node: labels[0], size: m.frame(labels[0].index).size, style: m.style(labels[0].index), ink: m.ink(labels[0].index), textStyle: m.textStyle(labels[0].index))
+        XCTAssertNotNil(m.color("warning"))
+        XCTAssertEqual(cx.propColor("$color.warning"), m.color("warning"))
+        XCTAssertEqual(cx.propColor("#ef4444"), Color(hex: "#ef4444"))
+        XCTAssertNil(cx.propColor("$color.noSuchToken"))
     }
 
     /// The round-3 guide geometry: 14 px columns, the line's LEFT edge at

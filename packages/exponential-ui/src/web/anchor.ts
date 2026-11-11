@@ -96,6 +96,25 @@ export function markAnchor(el: HTMLElement, open: boolean, contentId?: string | 
   else el.removeAttribute(`aria-controls`)
 }
 
+/** #EDE-65 (interactions-round1.json typeaheadFocus): a Popover whose
+ *  `anchor` is a TEXT FIELD (a Composer, an Input or a Textarea: the node
+ *  itself or its `field` part) is a typeahead: opening it never moves the
+ *  focus (the field keeps it and its caret) and closing it returns the focus
+ *  nowhere. `component` / `part` = the anchor node's (a part = its owner's
+ *  component + the part name). gpui `typeahead_layer`. */
+export function isFieldAnchor(component: string | null | undefined, part?: string | null): boolean {
+  return (component === `Composer` || component === `Input` || component === `Textarea`) && (!part || part === `root` || part === `field`)
+}
+
+/** The DOM half of `isFieldAnchor`: the anchor element (`findAnchor`), a
+ *  node (`data-xui-c`) or a part, a macro's included
+ *  (`data-xui-part="<Component>/<part>"`). */
+export function isFieldAnchorElement(el: Element | null | undefined): boolean {
+  if (!el) return false
+  const [owner, part] = (el.getAttribute(`data-xui-part`) ?? ``).split(`/`)
+  return isFieldAnchor(el.getAttribute(`data-xui-c`)) || isFieldAnchor(owner, part ?? null)
+}
+
 /** True when `target` is inside the anchor (a press there is the trigger's,
  *  not an outside press). */
 export function withinAnchor(el: HTMLElement | null | undefined, target: EventTarget | null): boolean {
@@ -155,4 +174,13 @@ export function watchAnchor(get: () => Element | null | undefined, onLost: () =>
   window.addEventListener(`scroll`, scrolled, true)
   frame = requestAnimationFrame(tick)
   return stop
+}
+
+/** Popover `matchAnchorWidth`: the panel is EXACTLY its anchor's width (the
+ *  `anchor` node, else the trigger), re-measured by the popper when the
+ *  anchor resizes (the core's exact layer width). `triggerWidthVar` = the
+ *  popper's anchor-width variable (`--radix-popover-trigger-width`); unset =
+ *  the content's own width. */
+export function popoverPanelWidth(props: Record<string, unknown>, triggerWidthVar: string): string | undefined {
+  return props.matchAnchorWidth === true ? `var(${triggerWidthVar})` : undefined
 }

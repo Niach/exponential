@@ -794,24 +794,61 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
             let frames: HashMap<String, (f32, f32, f32, f32)> = out.frames.iter().map(|f| (nodes[f.index as usize].id.clone(), (f.x, f.y, f.w, f.h))).collect();
             (s, frames)
         };
+        let without_above = {
+            let mut p = composer.clone();
+            if let Some(o) = p.get_mut("slots").and_then(Value::as_object_mut) {
+                o.remove("above");
+            }
+            p
+        };
         let (mut s, frames) = run(composer);
         let (_, bare) = run(plain);
+        let (_, no_above) = run(without_above);
+        let hidden = c.get("hiddenAbove");
         let frame = |id: &str| *frames.get(id).unwrap_or_else(|| panic!("{name}: no frame for {id}"));
         let cf = frame("c");
-        assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
         let ci = s.index_of("c").unwrap();
         let v = s.visual(ci).cloned().unwrap();
         let pad = v.padding.unwrap_or([0.0; 4]);
         let b = v.border_width.unwrap_or(0.0);
         let (start, end) = if rtl { (cf.0 + cf.2 - pad[1] - b, cf.0 + pad[3] + b) } else { (cf.0 + pad[3] + b, cf.0 + cf.2 - pad[1] - b) };
+        let token = |t: &str| eui_core::theme::resolve_token(s.theme().unwrap(), &json!(t), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
+        let xs = token("$spacing.xs");
+        // #EDE-65: the root's gap (`hiddenAbove`'s growth once shown).
+        let root_gap = token(if c["props"]["layout"] == "flat" { "$spacing.xs" } else { "$spacing.sm" });
+        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
+        if hidden.is_some() {
+            // #EDE-65: a hidden child = the slot absent: nothing laid out for
+            // it, and every other frame where it is without the slot.
+            assert!(!frames.contains_key("c.above") && !frames.contains_key("strip"), "{name}: a hidden above lays nothing out");
+            for (id, f) in &no_above {
+                assert_eq!(frames.get(id), Some(f), "{name}: {id} as if the slot were absent");
+            }
+        }
+        if slots.contains_key("above") && hidden.is_none() {
+            // #EXP-1762: `above` sits at the content top, the content box's
+            // full width, and SIZES the composer: + its height + the root's gap.
+            let above = frame("c.above");
+            let strip = frame("strip");
+            let gap = token(if c["props"]["layout"] == "flat" { "$spacing.xs" } else { "$spacing.sm" });
+            let cw = cf.2 - pad[1] - pad[3] - 2.0 * b;
+            near(above.1, cf.1 + pad[0] + b, "above at the content top");
+            near(above.0, cf.0 + pad[3] + b, "above starts at the content's left edge");
+            near(above.2, cw, "above spans the content width");
+            near(strip.2, cw, "the slot child spans the content width");
+            near(cf.3, bare["c"].3 + above.3 + gap, "above grows the composer by its height + the gap");
+            assert_eq!((cf.0, cf.1, cf.2), (bare["c"].0, bare["c"].1, bare["c"].2), "{name}: the width is unchanged");
+            let stack: Vec<&str> = c["stack"].as_array().unwrap().iter().map(|o| o.as_str().unwrap()).collect();
+            assert_eq!(stack.first(), Some(&"above"), "{name}: stack");
+        } else {
+            assert_eq!(cf, bare["c"], "{name}: the slots never size the composer");
+        }
         if slots.is_empty() {
             assert!(!frames.contains_key("c.bar"), "{name}: no row without slots");
             continue;
         }
         let send = frame("c.sendSpace");
-        let xs = eui_core::theme::resolve_token(s.theme().unwrap(), &json!("$spacing.xs"), s.mode()).and_then(|v| v.as_f64()).unwrap() as f32;
         let edge = |f: (f32, f32, f32, f32), lead: bool| if rtl == lead { f.0 + f.2 } else { f.0 };
-        let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 0.01, "{name}: {what}: {a} vs {b}");
         near(edge(send, false), end, "send ends at the content end");
         near(send.1 + send.3, cf.1 + cf.3 - pad[2] - b, "the row sits at the content bottom");
         let centre = send.1 + send.3 / 2.0;
@@ -840,6 +877,25 @@ fn composer_slot_cases_sit_in_the_controls_row_like_the_reference() {
             fired.extend(s.event(i, "press", None).into_iter().filter_map(|e| if let OutEvent::Action { name, context, .. } = e { Some(json!({"name": name, "context": context})) } else { None }));
         }
         assert_eq!(json!(fired), c["events"], "{name}: events");
+        // #EDE-65: shown = grows by its height + the gap; hidden again = back.
+        if let Some(h) = hidden {
+            let path = format!("/{}", h["path"].as_str().unwrap());
+            let at = |s: &mut Surface| {
+                let out = s.layout(&mut fixed());
+                let nodes = s.nodes();
+                out.frames.iter().map(|f| (nodes[f.index as usize].id.clone(), (f.x, f.y, f.w, f.h))).collect::<HashMap<String, (f32, f32, f32, f32)>>()
+            };
+            s.set_data(&path, Some(h["value"].clone())).unwrap();
+            let shown = at(&mut s);
+            let above = shown.get("c.above").unwrap_or_else(|| panic!("{name}: shown above laid out"));
+            assert!(above.3 > 0.0, "{name}: the shown above has a height");
+            near(shown["c"].3, bare["c"].3 + above.3 + root_gap, "the shown above grows the composer by its height + the gap");
+            near(shown["c.sendSpace"].1 + shown["c.sendSpace"].3, shown["c"].1 + shown["c"].3 - pad[2] - b, "the row stays at the content bottom");
+            s.set_data(&path, Some(json!(false))).unwrap();
+            let again = at(&mut s);
+            assert!(!again.contains_key("c.above"), "{name}: hidden again");
+            assert_eq!(again["c"], bare["c"], "{name}: hidden again = as if absent");
+        }
     }
 }
 
@@ -888,6 +944,81 @@ fn a_flat_composer_measures_its_field_at_the_width_the_slots_leave() {
     }
 }
 
+/// #EXP-1762 composerSlots `field` at the core: every built-in theme gives a
+/// flat Composer's field a `paddingTop` (where its text starts below the
+/// row's top), and the fixture's row grows past the send disc exactly when
+/// paddingTop + its lines (+ paddingBottom) are taller (neutral: 8 + n × 20
+/// against 36). The painters place the text (gpui, SwiftUI, Compose, web).
+#[test]
+fn a_flat_composer_field_starts_its_text_at_the_recipe_top_padding() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    let f = fixture();
+    let k = &f["composerSlots"];
+    let flat = |part: &str| RecipeQuery { component: "Composer".into(), part: part.into(), props: serde_json::from_value(json!({"layout": "flat", "attachments": false, "busy": false})).unwrap(), states: vec![] };
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        let px = |part: &str, key: &str| recipe_style(&theme, &flat(part)).get(key).and_then(|v| if v.is_number() { Some(v.clone()) } else { resolve_token(&theme, v, Mode::Light) }).and_then(|v| v.as_f64()).map(|v| v as f32);
+        let pad = px("field", "paddingTop").unwrap_or_else(|| panic!("{id}: a flat field has a paddingTop"));
+        assert!(pad > 0.0, "{id}: paddingTop {pad}");
+        if id == "exponential" {
+            assert!((pad - 4.25).abs() < 1e-4, "exponential: the IDE's 4.25, got {pad}");
+        }
+        if id != "neutral" {
+            continue;
+        }
+        assert!((pad - 8.0).abs() < 1e-4, "neutral: $spacing.sm, got {pad}");
+        let line = px("field", "lineHeight").unwrap();
+        let disc = px("send", "height").unwrap();
+        let mut seen = 0;
+        for c in k["cases"].as_array().unwrap().iter().filter(|c| c.get("field").is_some()) {
+            let rows = c["field"]["rows"].as_f64().unwrap() as f32;
+            let lines = c["data"]["draft"].as_str().unwrap().split('\n').count() as f32;
+            assert_eq!(rows, lines, "{}: rows = the draft's lines", c["name"]);
+            let bottom = px("field", "paddingBottom").unwrap_or(0.0);
+            assert_eq!(pad + rows * line + bottom > disc + 0.5, c["field"]["grown"] == true, "{}: grown", c["name"]);
+            seen += 1;
+        }
+        assert_eq!(seen, 2, "a one-line and a grown case");
+    }
+}
+
+/// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part: 16
+/// everywhere, the exponential theme's (and orange's, which extends it)
+/// flat composer 24 (the IDE's 32 px
+/// send: gpui-component's 0.75× icon).
+#[test]
+fn the_composer_send_glyph_takes_the_send_icon_part() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        for layout in ["flat", "stacked"] {
+            let q = RecipeQuery { component: "Composer".into(), part: "sendIcon".into(), props: serde_json::from_value(json!({"layout": layout, "attachments": false, "busy": false})).unwrap(), states: vec![] };
+            let style = recipe_style(&theme, &q);
+            let px = |key: &str| style.get(key).and_then(|v| if v.is_number() { Some(v.clone()) } else { resolve_token(&theme, v, Mode::Light) }).and_then(|v| v.as_f64()).unwrap_or_else(|| panic!("{id}/{layout}: no sendIcon {key}"));
+            let want = if matches!(id, "exponential" | "orange") && layout == "flat" { 24.0 } else { 16.0 };
+            assert_eq!((px("width"), px("height")), (want, want), "{id}/{layout}");
+        }
+    }
+}
+
+/// #EDE-65: a disabled send's dim is the `send` part's `state: disabled`
+/// opacity: neutral 0.5, the exponential theme 0.4 (the IDE's
+/// `primary.opacity(0.4)`; orange extends it), in both layouts.
+#[test]
+fn a_disabled_composer_send_dims_by_the_recipe() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        for layout in ["flat", "stacked"] {
+            let q = RecipeQuery { component: "Composer".into(), part: "send".into(), props: serde_json::from_value(json!({"layout": layout, "attachments": false, "busy": false})).unwrap(), states: vec!["disabled".into()] };
+            let v = recipe_style(&theme, &q).get("opacity").cloned().unwrap_or_else(|| panic!("{id}/{layout}: no disabled opacity"));
+            let v = if v.is_number() { v } else { resolve_token(&theme, &v, Mode::Light).unwrap() };
+            let want = if matches!(id, "exponential" | "orange") { 0.4 } else { 0.5 };
+            assert!((v.as_f64().unwrap() - want).abs() < 1e-6, "{id}/{layout}: {v}");
+        }
+    }
+}
+
 /// #EDE-65 R composerPaste at the core: what a painter sends for a paste
 /// (image files = `attach` {files: the images}; files without one =
 /// nothing; else the field's own edit = `change`) fires like the reference. Which clipboard a paste carries and
@@ -920,4 +1051,258 @@ fn composer_paste_cases_fire_attach_or_change_like_the_reference() {
         assert_eq!(json!(fired), c["events"], "{name}: events");
         assert_eq!(s.get_data("/draft").cloned().unwrap_or(Value::Null), c["draft"], "{name}: /draft");
     }
+}
+
+/// #EXP-1629 menuRows at the core: an item's `identifier` (its icon then
+/// leads as its own glyph) sits between the icon and the label, its
+/// `detail` after the label (a submenu parent's too), before the shortcut
+/// and the submenu indicator. gpui, SwiftUI and Compose paint these parts.
+#[test]
+fn menu_row_cases_lay_out_identifier_and_detail_like_the_reference() {
+    let f = fixture();
+    for c in f["menuRows"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(json!({"id": "m", "component": "Menu", "props": {"label": "More", "items": c["items"]}}));
+        let mut m = fixed();
+        let _ = s.set_open("m", true);
+        s.layout(&mut m);
+        if let Some(sub) = c["submenu"].as_u64() {
+            let at = s.nodes().iter().position(|n| n.id == format!("m.item.{sub}")).unwrap() as u32;
+            let _ = s.event(at, "press", None);
+            s.layout(&mut m);
+            // A searchable submenu: type into its field.
+            if let Some(q) = c["query"].as_str() {
+                let field = s.nodes().iter().position(|n| n.id == format!("m.search.{sub}")).unwrap_or_else(|| panic!("{name}: no field")) as u32;
+                let _ = s.event(field, "change", Some(json!({"value": q})));
+                s.layout(&mut m);
+            }
+        }
+        let nodes = s.nodes();
+        if let Some(shown) = c["shown"].as_array() {
+            let list = nodes.iter().find(|n| n.id == format!("m.list.{}", c["submenu"])).unwrap_or_else(|| panic!("{name}: no list"));
+            let got: Vec<String> = list.children.iter().map(|&i| &nodes[i as usize]).filter(|n| n.part.as_deref() == Some("item")).map(|n| n.id.trim_start_matches("m.item.").to_string()).collect();
+            assert_eq!(json!(got), json!(shown), "{name}: shown rows");
+        }
+        for r in c["rows"].as_array().unwrap() {
+            let key = r["key"].as_str().unwrap();
+            let row = nodes.iter().find(|n| n.id == format!("m.item.{key}")).unwrap_or_else(|| panic!("{name}: no row {key}"));
+            let mut parts = vec![];
+            for &child in &row.children {
+                let n = &nodes[child as usize];
+                match n.part.as_deref() {
+                    Some("itemLabel") => {
+                        if n.props.get("icon").is_some_and(|i| !i.is_null()) {
+                            parts.push("icon");
+                        }
+                        parts.push("label");
+                        assert_eq!(n.props["text"], r["label"], "{name}: {key} label");
+                        if !r["iconColor"].is_null() && n.props.get("icon").is_some_and(|i| !i.is_null()) {
+                            assert_eq!(n.props["iconColor"], r["iconColor"], "{name}: {key} tint");
+                        }
+                    }
+                    Some("itemIcon") => {
+                        parts.push("icon");
+                        // The glyph's ink is the tint, not the row's muted text.
+                        if !r["iconColor"].is_null() {
+                            let identifier = row.children.iter().copied().find(|&i| nodes[i as usize].part.as_deref() == Some("identifier")).unwrap();
+                            let ink = s.visual(child).expect("the glyph's visual").color.clone();
+                            assert!(ink.as_deref().is_some_and(|c| c.starts_with('#')), "{name}: {key} tint resolves: {ink:?}");
+                            assert_ne!(ink, s.visual(identifier).expect("the id's visual").color.clone(), "{name}: {key} tint");
+                        }
+                    }
+                    Some("check") => parts.push("check"),
+                    Some("identifier") => {
+                        parts.push("identifier");
+                        assert_eq!(n.props["text"], r["identifier"], "{name}: {key} identifier");
+                    }
+                    Some("detail") => {
+                        parts.push("detail");
+                        assert_eq!(n.props["text"], r["detail"], "{name}: {key} detail");
+                    }
+                    Some("shortcut") => parts.push("shortcut"),
+                    Some("submenuIndicator") => parts.push("submenuIndicator"),
+                    _ => {}
+                }
+            }
+            assert_eq!(json!(parts), r["parts"], "{name}: {key} parts");
+        }
+    }
+}
+
+/// #EXP-1629 menuPreview at the core (`eui_core::menu_preview`): a row's
+/// `hover` (the pointer) and `focus-visible` (the keyboard highlight)
+/// states, and the pointer's `hover` on the shown preview, decide which
+/// row's preview shows; the waits run through `HoverTimer` (owner
+/// `m.preview`, fired by [`Surface::hover_timeout`] when the clock passes
+/// them). The shown preview is a layer beside its row holding an `Embed`
+/// leaf (`m.preview.<key>.surface`) whose `action` fires the Menu's own.
+/// The nested surface (its texts, the denied host function) is each
+/// painter's Embed: gpui, SwiftUI and Compose replay it.
+#[test]
+fn menu_preview_cases_show_hide_and_forward_like_the_reference() {
+    let f = fixture();
+    let fx = &f["menuPreview"];
+    let items = fx["menu"]["props"]["items"].clone();
+    let item_at = |key: &str| {
+        let mut list = items.clone();
+        let mut item = Value::Null;
+        for i in key.split('.') {
+            item = list[i.parse::<usize>().unwrap()].clone();
+            list = item["items"].clone();
+        }
+        item
+    };
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(fx["menu"].clone());
+        let mut m = fixed();
+        let _ = s.set_open("m", true);
+        s.layout(&mut m);
+        if let Some(sub) = c["submenu"].as_u64() {
+            let at = s.nodes().iter().position(|n| n.id == format!("m.item.{sub}")).unwrap() as u32;
+            let _ = s.event(at, "press", None);
+            s.layout(&mut m);
+        }
+        let _ = s.take_events();
+        let mut now = 0.0_f64;
+        let mut timer: Option<f64> = None;
+        let mut hovered: Option<String> = None;
+        let mut highlighted: Option<String> = None;
+        let collect = |events: Vec<OutEvent>, now: f64, timer: &mut Option<f64>| {
+            let mut actions = vec![];
+            for e in events {
+                match e {
+                    OutEvent::HoverTimer { owner, delay_ms } => {
+                        assert_eq!(owner, "m.preview", "{name}: the timer's owner");
+                        *timer = Some(now + delay_ms as f64);
+                    }
+                    OutEvent::Action { name, context, .. } if name != "picked" => actions.push(json!({"name": name, "context": context})),
+                    _ => {}
+                }
+            }
+            actions
+        };
+        for (i, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            let mut fired = vec![];
+            let row_states = |s: &mut Surface, key: &str, hover: bool, kb: bool| {
+                let mut st = vec![];
+                if hover {
+                    st.push("hover".to_string());
+                }
+                if kb {
+                    st.extend(["focus".to_string(), "focus-visible".to_string()]);
+                }
+                s.set_states(&format!("m.item.{key}"), st);
+            };
+            if let Some(h) = step.get("hover") {
+                let next = h.as_str().map(str::to_string);
+                if let Some(prev) = hovered.take() {
+                    let kb = highlighted.as_deref() == Some(prev.as_str());
+                    row_states(&mut s, &prev, false, kb);
+                }
+                if let Some(k) = &next {
+                    let kb = highlighted.as_deref() == Some(k.as_str());
+                    row_states(&mut s, k, true, kb);
+                }
+                hovered = next;
+            }
+            if let Some(h) = step.get("highlight") {
+                let next = h.as_str().map(str::to_string);
+                if let Some(prev) = highlighted.take() {
+                    let hv = hovered.as_deref() == Some(prev.as_str());
+                    row_states(&mut s, &prev, hv, false);
+                }
+                if let Some(k) = &next {
+                    let hv = hovered.as_deref() == Some(k.as_str());
+                    row_states(&mut s, k, hv, true);
+                }
+                highlighted = next;
+            }
+            if let Some(o) = step.get("overPreview").and_then(Value::as_bool) {
+                let shown = s.nodes().iter().find(|n| n.part.as_deref() == Some("preview") && n.owner.as_deref() == Some("m")).map(|n| n.id.clone()).unwrap_or_else(|| panic!("{name}: step {i}: no preview to hover"));
+                s.set_states(&shown, if o { vec!["hover".into()] } else { vec![] });
+            }
+            fired.extend(collect(s.take_events(), now, &mut timer));
+            s.layout(&mut m);
+            if let Some(w) = step.get("wait").and_then(Value::as_f64) {
+                now += w;
+                while let Some(due) = timer.filter(|due| *due <= now) {
+                    timer = None;
+                    let out = s.hover_timeout("m.preview");
+                    fired.extend(collect(out, due, &mut timer));
+                    s.layout(&mut m);
+                }
+            }
+            if let Some(inner) = step.get("press").and_then(Value::as_str) {
+                // The painter's Embed: an inner `event` action reaches the
+                // host as the leaf's `action` {name, context}; a host
+                // function never does.
+                let key = step["shown"].as_str().unwrap();
+                let card = eui_core::embed::embed_mount(&item_at(key)["preview"]).card;
+                let mut stack = vec![card.root.clone()];
+                let mut found = None;
+                while let Some(n) = stack.pop() {
+                    if n["id"] == json!(inner) {
+                        found = Some(n.clone());
+                    }
+                    stack.extend(n["children"].as_array().cloned().unwrap_or_default());
+                }
+                let found = found.unwrap_or_else(|| panic!("{name}: no inner {inner}"));
+                if let Some(event) = found["on"]["press"].get("event") {
+                    let leaf = s.nodes().iter().position(|n| n.id == format!("m.preview.{key}.surface")).unwrap() as u32;
+                    let payload = eui_core::embed::embed_payload(event["name"].as_str().unwrap(), event.get("context"));
+                    fired.extend(collect(s.event(leaf, "action", Some(payload)), now, &mut timer));
+                }
+                s.layout(&mut m);
+            }
+            let out = s.layout(&mut m);
+            let nodes = s.nodes();
+            let previews: Vec<&eui_core::surface::Layer> = out.layers.iter().filter(|l| nodes[l.root as usize].part.as_deref() == Some("preview")).collect();
+            let shown = previews.first().map(|l| nodes[l.root as usize].id.strip_prefix("m.preview.").unwrap().to_string());
+            assert!(previews.len() <= 1, "{name}: step {i}: one preview at most");
+            assert_eq!(json!(shown), step["shown"], "{name}: step {i}: shown");
+            if let Some(key) = &shown {
+                let layer = previews[0];
+                assert_eq!(layer.owner, "m", "{name}: the preview is the menu's layer");
+                let leaf = nodes.iter().find(|n| n.id == format!("m.preview.{key}.surface")).unwrap_or_else(|| panic!("{name}: no Embed leaf"));
+                assert_eq!(leaf.component, "Embed");
+                assert_eq!(leaf.part, None, "{name}: painted as an Embed");
+                assert_eq!(leaf.props["surface"], item_at(key)["preview"], "{name}: the preview surface, untouched");
+                let row = nodes.iter().position(|n| n.id == format!("m.item.{key}")).unwrap();
+                let (rf, pf) = (s.last_frame(row as u32).unwrap(), s.last_frame(layer.root).unwrap());
+                assert!((pf.x - (rf.x + rf.w + eui_core::layout::MENU_PREVIEW_OFFSET)).abs() < 0.5 || (pf.x + pf.w + eui_core::layout::MENU_PREVIEW_OFFSET - rf.x).abs() < 0.5, "{name}: beside its row: {rf:?} {pf:?}");
+            }
+            assert_eq!(json!(fired), step["events"], "{name}: step {i}: events");
+            assert!(out.layers.iter().any(|l| nodes[l.root as usize].id == "m.content"), "{name}: step {i}: the menu stays open");
+        }
+    }
+}
+
+/// #EDE-65 typeaheadFocus at the core: `Surface::is_typeahead` names the
+/// open Popovers anchored on a text field (a Composer, an Input, a
+/// Textarea), whose open / close every painter keeps out of its focus
+/// bookkeeping; a Button anchor or a trigger slot is no typeahead. The focus
+/// itself replays in each painter.
+#[test]
+fn typeahead_focus_cases_name_the_field_anchored_popovers_like_the_reference() {
+    let f = fixture();
+    let fx = &f["typeaheadFocus"];
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(fx["surfaces"][c["surface"].as_str().unwrap()].clone());
+        let mut m = fixed();
+        for (k, v) in c["data"].as_object().unwrap() {
+            s.set_data(&format!("/{k}"), Some(v.clone())).unwrap();
+        }
+        if c["surface"] == json!("trigger") {
+            s.set_open("menu", true);
+        } else {
+            s.set_data("/open", Some(json!(true))).unwrap();
+        }
+        let out = s.layout(&mut m);
+        assert!(out.layers.iter().any(|l| l.owner == "menu"), "{name}: opens");
+        assert_eq!(s.is_typeahead("menu"), c["typeahead"].as_bool().unwrap(), "{name}");
+    }
+    assert!(eui_core::overlay::is_field_anchor("Input", Some("field")) && eui_core::overlay::is_field_anchor("Textarea", None));
+    assert!(!eui_core::overlay::is_field_anchor("Input", Some("label")) && !eui_core::overlay::is_field_anchor("Select", Some("search")));
 }

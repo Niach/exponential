@@ -173,8 +173,8 @@ struct AgentSessionView: View {
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
     @State private var composerExpanded = false
-    /// EXP-1316: the floating bottom band's measured height (the feed's
-    /// bottom inset) — a pinned feed re-pins as it changes.
+    /// EXP-1316: the bottom band's measured height (#EXP-1782: where the
+    /// feed's scroll area ends) — a pinned feed re-pins as it changes.
     @State private var bottomBandHeight: CGFloat = 0
     /// Set by `expandComposer`, cleared once the editor takes focus (or the
     /// retry window passes): the EXP-931 idle fold stands down meanwhile.
@@ -275,10 +275,12 @@ struct AgentSessionView: View {
         }
     }
 
-    /// The transcript and the composer band, which FLOATS over the feed
-    /// (EXP-1161): the transcript scrolls beneath it, and the feed's scroll
-    /// view takes the band's height as its bottom inset so the follow pin and
-    /// "Jump to bottom" land on the true end.
+    /// The transcript and the composer band UNDER it (#EXP-1782,
+    /// fixtures/dock.json): the feed's scroll view ENDS at the band's top
+    /// edge (the composer's when no card waits) and clips there; nothing
+    /// scrolls under or behind the band, no edge fade. The band's measured
+    /// height re-pins a pinned feed when it changes, and the "Jump to
+    /// bottom" circle rides 12pt above its top.
     @ViewBuilder
     private func runFace(_ model: AgentSessionModel) -> some View {
         // #EXP-1623: the transcript is its own observation scope too, so a
@@ -289,29 +291,30 @@ struct AgentSessionView: View {
             BodySlice {
                 feedBody(model)
             }
-        }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // EXP-1358: the band is its OWN observation scope. Built
-                // inline, every draft read it makes (`trimmedDraft`,
-                // `slashMatches`, `hasContent`) was tracked by THIS view's
-                // body, so each keystroke re-rendered the whole transcript.
-                BodySlice {
-                    bottomBand(model)
-                }
-                // EXP-1316: the band's measured height IS the feed's
-                // bottom inset; a pinned feed re-pins when it changes
-                // (the composer expanding, the keyboard, late layout).
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                    bottomBandHeight = height
-                }
+            .frame(maxHeight: .infinity)
+            .clipped()
+            // EXP-1358: the band is its OWN observation scope. Built
+            // inline, every draft read it makes (`trimmedDraft`,
+            // `slashMatches`, `hasContent`) was tracked by THIS view's
+            // body, so each keystroke re-rendered the whole transcript.
+            BodySlice {
+                bottomBand(model)
             }
+            // EXP-1316: the band's measured height is where the feed's
+            // scroll area ends; a pinned feed re-pins when it changes
+            // (the composer expanding, a card landing, late layout).
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                bottomBandHeight = height
+            }
+        }
     }
 
     /// N-12: THE Dock on the feed's bottom edge (fixtures/dock.json): the
     /// waiting cards (the relay's own ask, the tool-posted ones), THE Queue,
     /// the queued messages and the status banners as DockCards, then the
     /// quick replies and THE composer (always: it never yields its slot).
-    /// The cards are opaque; the edge strip sits behind the band.
+    /// The cards are opaque; #EXP-1782: the band sits under the feed, no
+    /// edge strip, fade or shadow.
     private func bottomBand(_ model: AgentSessionModel) -> some View {
         let rows = dockRows(model)
         return DockView(
@@ -329,10 +332,6 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
-        // EXP-1162: the bottom edge strip behind the band — not behind an
-        // open composer card, which is opaque and rides the keyboard.
-        // EXP-1256 (D15): in the page's own ground — no tint, no blur.
-        .floatingBarEdge(!rows.isEmpty || bandRetired(model) || !composerOpen(model), ground: true)
     }
 
     // MARK: - Header
@@ -594,52 +593,8 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
-        if !model.hasFeed, let status = historyStatus(model) {
-            // EXP-773: a finished session's transcript lives on the machine
-            // that ran it. Say which machine when it can't answer (VAPP-43:
-            // no device fed the join).
-            centeredState {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .multilineTextAlignment(.center)
-            }
-        } else if !model.hasFeed, model.phase != .live,
-                  SteerNoFeed.state(
-                      ended: model.sessionEnded, busy: (model.session ?? session).busy,
-                      deviceOffline: model.hostDevice.offline
-                  ) == .away {
-            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
-            // whose host is offline says so at once, never "starting"; a
-            // cached feed shows as the transcript instead.
-            let away = SteerNoFeed.away(deviceName: model.hostDevice.label)
-            centeredState {
-                EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
-            }
-            .accessibilityIdentifier("transcript-device-away")
-        } else if !model.hasFeed, model.phase == .starting,
-                  SteerNoFeed.state(
-                      ended: model.sessionEnded, busy: (model.session ?? session).busy
-                  ) == .idle {
-            // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
-            // a row that is not busy (idle, or on an open question) is never
-            // "starting": the idle empty state, while the model keeps redialing.
-            centeredState {
-                EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
-            }
-        } else if !model.hasFeed,
-                  model.phase == .connecting || model.phase == .starting || model.phase == .idle {
-            // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
-            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
-                .transcriptColumn()
-                .frame(maxHeight: .infinity, alignment: .top)
-                .padding(.top, 8)
-        } else if !model.hasFeed, model.phase == .live, model.latestDiff == nil {
-            centeredState {
-                Text("Waiting for activity…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
+        if let placeholder = noFeedPlaceholder(model) {
+            noFeedBody(placeholder, model: model)
         } else {
             VStack(spacing: 0) {
                 agentTabStrip(model)
@@ -651,6 +606,113 @@ struct AgentSessionView: View {
             // bare identifier on a plain container never reaches the hierarchy.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-feed")
+        }
+    }
+
+    /// What a session view with no feed shows instead of its transcript; nil
+    /// = the transcript.
+    private enum NoFeedPlaceholder {
+        case history(String)
+        case deviceAway
+        case idle
+        case loading
+        case waitingForActivity
+    }
+
+    private func noFeedPlaceholder(_ model: AgentSessionModel) -> NoFeedPlaceholder? {
+        guard !model.hasFeed else { return nil }
+        if let status = historyStatus(model) { return .history(status) }
+        if model.phase != .live,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy,
+               deviceOffline: model.hostDevice.offline
+           ) == .away {
+            return .deviceAway
+        }
+        if model.phase == .starting,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy
+           ) == .idle {
+            return .idle
+        }
+        if model.phase == .connecting || model.phase == .starting || model.phase == .idle {
+            return .loading
+        }
+        if model.phase == .live, model.latestDiff == nil { return .waitingForActivity }
+        return nil
+    }
+
+    /// #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
+    /// to hold the cards; the session's WAITING ones draw under it, so a
+    /// header pick always reaches an answerable card.
+    @ViewBuilder
+    private func noFeedBody(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
+        let waitingIds = sessionCards.filter(\.waiting).map(\.id)
+        if waitingIds.isEmpty {
+            noFeedPlaceholderView(placeholder, model: model)
+        } else {
+            GeometryReader { geo in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            noFeedPlaceholderView(placeholder, model: model)
+                            VStack(alignment: .leading, spacing: 0) {
+                                inlineToolCards(waitingIds, model: model)
+                            }
+                            .padding(.vertical, 8)
+                            .transcriptColumn()
+                        }
+                        .frame(minHeight: geo.size.height)
+                    }
+                    .modifier(WaitingFocusScroll(
+                        focus: waitingFocus, proxy: proxy, highlight: $highlightId
+                    ))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func noFeedPlaceholderView(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
+        switch placeholder {
+        case let .history(status):
+            // EXP-773: a finished session's transcript lives on the machine
+            // that ran it. Say which machine when it can't answer (VAPP-43:
+            // no device fed the join).
+            centeredState {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .multilineTextAlignment(.center)
+            }
+        case .deviceAway:
+            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
+            // whose host is offline says so at once, never "starting"; a
+            // cached feed shows as the transcript instead.
+            let away = SteerNoFeed.away(deviceName: model.hostDevice.label)
+            centeredState {
+                EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
+            }
+            .accessibilityIdentifier("transcript-device-away")
+        case .idle:
+            // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
+            // a row that is not busy (idle, or on an open question) is never
+            // "starting": the idle empty state, while the model keeps redialing.
+            centeredState {
+                EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
+            }
+        case .loading:
+            // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
+            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                .transcriptColumn()
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
+        case .waitingForActivity:
+            centeredState {
+                Text("Waiting for activity…")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
         }
     }
 
@@ -935,8 +997,8 @@ struct AgentSessionView: View {
                 }
                 .overlay(alignment: .bottom) {
                     // EXP-1191: the shared 32pt round jump button, centred
-                    // 12pt above the bottom band's top edge (the overlay
-                    // sits inside the band's safe-area inset). Only while
+                    // 12pt above the bottom band's top edge (#EXP-1782: the
+                    // feed's scroll view ends at that edge). Only while
                     // scrolled away from the newest row of a non-empty feed.
                     ZStack {
                         if !atBottom, model.hasFeed {

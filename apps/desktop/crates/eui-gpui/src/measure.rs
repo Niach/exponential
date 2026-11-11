@@ -703,6 +703,9 @@ pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String
         // Round 2 §7: `count` is its own muted part after the title, then the chevron.
         ("Accordion", Some("trigger")) => (0.0, if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 } + 16.0 + gap.max(8.0)),
         // #EXP-1765: a mono option's `trailing` (its width = `count_w`) before the check slot.
+        // #EXP-1778: a `button`'s menu row (`checkSlot: chosen`): the check
+        // (`count_w` = its recipe width) after the item `gap` on the chosen row only.
+        ("Select", Some("item")) if props.get("checkSlot").and_then(Value::as_str) == Some("chosen") => (icon("icon"), if has(props, "check") { gap + count_w } else { 0.0 }),
         ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0) + if has(props, "trailing") { gap.max(4.0) + count_w } else { 0.0 }),
         ("Menu", Some("itemLabel")) => (icon("icon"), 0.0),
         ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
@@ -938,7 +941,7 @@ impl<'a> GpuiMeasure<'a> {
         let label = str_prop(props, "label");
         let loading = props.get("loading").and_then(Value::as_bool) == Some(true);
         let has_icon = has(props, "icon") || loading;
-        let icon_only = str_prop(props, "size") == "icon";
+        let icon_only = matches!(str_prop(props, "size"), "icon" | "icon-xs");
         let icon = if has_icon || icon_only { px_prop(&self.part(component, "icon", props, &[]), "width").unwrap_or_else(|| control(self.theme, "iconSm", 16.0)) } else { 0.0 };
         let label_w = if icon_only || label.is_empty() { 0.0 } else { self.line(label, ts) };
         let gap = if has_icon && label_w > 0.0 { leaf.control.gap } else { 0.0 };
@@ -1062,7 +1065,11 @@ impl<'a> GpuiMeasure<'a> {
             rows as f32 * lh
         };
         if flat {
-            return (w, th.clamp(min_h, 200.0).max(send));
+            // The field's text starts its recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = px_prop(&field, "paddingTop").unwrap_or(0.0) + px_prop(&field, "paddingBottom").unwrap_or(0.0);
+            return (w, (th + pad).clamp(min_h, 200.0).max(send));
         }
         (w, th.clamp(min_h, 200.0) + gap + send)
     }
@@ -1243,14 +1250,23 @@ impl<'a> GpuiMeasure<'a> {
         let chevron = self.part("Select", "chevron", leaf.props, &[]);
         let glyph = px_prop(&chevron, "width").or_else(|| px_prop(&chevron, "height")).unwrap_or(16.0);
         let mut w = self.line(text, ts) + gap + glyph;
-        let mut h = ts.line_height;
+        // #EXP-1629: a `button`'s picked-option glyph.
+        if !str_prop(leaf.props, "valueIcon").is_empty() {
+            let picked = self.part("Select", "valueIcon", leaf.props, &[]);
+            w += px_prop(&picked, "width").or_else(|| px_prop(&picked, "height")).unwrap_or(16.0) + gap;
+        }
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger: the
+        // IDE ghost button's label, half a point high).
+        let lift = px_prop(&self.part("Select", "value", leaf.props, &[]), "marginTop").unwrap_or(0.0);
+        let mut h = if lift != 0.0 { (ts.line_height + lift).max(glyph) } else { ts.line_height };
         let label = str_prop(leaf.props, "label");
         if str_prop(leaf.props, "triggerVariant") == "row" && !label.is_empty() {
             let lts = self.part_text("Select", "label", leaf.props, ts);
             w += self.line(label, &lts) + gap;
             h = h.max(lts.line_height);
         }
-        (w, h, Some(self.line_baseline(ts)))
+        (w, h, Some(self.line_baseline(ts) + lift))
     }
 
     /// One leaf at one border-box wrap width: `(width, height, baseline)`.
@@ -1268,6 +1284,8 @@ impl<'a> GpuiMeasure<'a> {
             ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => self.trigger(leaf),
             ("Text", part) => {
                 let count_w = props.get("count").or_else(|| props.get("trailing")).map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
+                // #EXP-1778: a `button` menu row's check: its recipe width.
+                let count_w = if props.get("checkSlot").and_then(Value::as_str) == Some("chosen") { px_prop(&self.part("Select", "check", &serde_json::Map::from_iter([("triggerVariant".to_string(), Value::from("button"))]), &[]), "width").unwrap_or(16.0) } else { count_w };
                 let chrome = text_chrome(leaf.owner_component.unwrap_or(owner), part, props, c.gap, count_w);
                 let shown = display_text(props.get("text"));
                 let raw = shown.as_str();

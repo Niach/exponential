@@ -63,9 +63,11 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.closeSubmenu
 import at.exponential.ui.model.dateValue
 import at.exponential.ui.model.dismissLayer
+import at.exponential.ui.model.isMenuPreviewLayer
 import at.exponential.ui.model.isSubmenuLayer
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.pickDate
+import at.exponential.ui.model.popupTakesFocus
 import at.exponential.ui.paint.DateModel
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -405,10 +407,15 @@ private fun PopoverLayer(model: SurfaceModel, layer: LayerInfo) {
     val inWindow = model.layerViewportWidth != null
     val provider = remember(layer, density, inWindow) { LayerPositionProvider(layer, density, inWindow) }
     val submenu = model.isSubmenuLayer(layer)
+    // #EXP-1629: a Menu item's preview never takes the focus (the menu
+    // keeps its keys) and an outside tap is the menu's to handle.
+    val preview = model.isMenuPreviewLayer(layer)
     Popup(
         popupPositionProvider = provider,
-        onDismissRequest = { if (submenu) model.closeSubmenu(layer.owner) else model.dismissLayer(layer.owner) },
-        properties = PopupProperties(focusable = true),
+        onDismissRequest = { if (preview) Unit else if (submenu) model.closeSubmenu(layer.owner) else model.dismissLayer(layer.owner) },
+        // #EDE-65: nor does a typeahead (a Popover anchored on a text
+        // field): the field keeps the focus, its caret and the IME.
+        properties = PopupProperties(focusable = model.popupTakesFocus(layer)),
     ) {
         LayerView(layer)
     }

@@ -47,34 +47,35 @@ pub(crate) mod account_row_shots;
 #[cfg(test)]
 pub(crate) mod branch_picker_shots;
 pub(crate) mod account;
-mod add_repository_dialog;
+pub(crate) mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
+mod agent_doc;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
 pub(crate) mod app_mcp;
-mod new_agent;
-mod agents;
-mod agents_index;
+pub(crate) mod new_agent;
+pub(crate) mod agents;
+pub(crate) mod agents_index;
 pub(crate) mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
-mod resend_invite_dialog;
-mod issues;
+pub(crate) mod resend_invite_dialog;
+pub(crate) mod issues;
 pub(crate) mod labels;
-mod mcp;
+pub(crate) mod mcp;
 pub(crate) mod mcp_servers;
 // EXP-810: the pane's own add/edit form — a WINDOW, not an alert (the form
 // re-renders on its own state).
-mod mcp_server_dialog;
+pub(crate) mod mcp_server_dialog;
 pub(crate) mod statuses;
 pub(crate) mod local_repos;
 pub(crate) mod members;
 pub(crate) mod all_boards;
-mod change_email_dialog;
+pub(crate) mod change_email_dialog;
 pub(crate) mod sign_in_methods;
 pub(crate) mod notifications_prefs;
 // NEW-67: Settings → Personal → Voice (`fixtures/voice.json`).
@@ -770,7 +771,7 @@ impl SettingsView {
         let shared = rail_shared_for_window(window, cx);
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
-        let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
+        let issues = cx.new(|cx| IssuesPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
@@ -782,10 +783,10 @@ impl SettingsView {
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), window, cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), window, cx));
-        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
+        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
-        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
+        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(|cx| LocalReposPane::new(window, cx));

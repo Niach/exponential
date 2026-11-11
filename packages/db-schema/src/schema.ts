@@ -3004,7 +3004,7 @@ export const pullRequests = pgTable(
     // (draft | failing | checks | session | approval, null = ready): the
     // status pill reads it (`Session working`, `Needs approval`).
     // `merge_attempts` = train bounces; `merge_hold` = the hold reason
-    // (person | bounces | timeout, null = none); `merge_queued_since` = the
+    // (person | bounces | timeout | no_checks | conflict, null = none); `merge_queued_since` = the
     // 24 h clock (first entry to queued); `merge_ready_at` = the latest
     // entry to queued (queue order); `merge_now` = an owner's Merge now;
     // `merge_position` = the unit's 1-based queue place (`Queued · 2nd`);

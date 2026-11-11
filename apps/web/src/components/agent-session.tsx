@@ -62,7 +62,6 @@ import {
   JumpToBottomButton,
   JUMP_TO_BOTTOM_GAP,
   LoadEarlierButton,
-  useIsMobile,
   Button,
   Pill,
   IssueChip as IssueChipView,
@@ -70,7 +69,6 @@ import {
   SessionInlineResultTile,
   sessionResultPicture,
   CHAT_COLUMN_CLASS,
-  DETAIL_FADE_BOTTOM_CLASS,
   ExponentialLogo,
   ImagePreviewDialog,
   AttachmentFileLink,
@@ -279,20 +277,11 @@ const TRANSCRIPT_BODY_TEXT = `text-[length:var(--transcript-body-size)] leading-
 const TRANSCRIPT_TOOL_TEXT = `text-[length:var(--transcript-tool-size)] leading-[var(--transcript-tool-line-height)]`
 
 /** EXP-1256: the top edge fade is a MASK on the scroller's own content,
- *  only once the body scrolled; the bottom one is `DETAIL_FADE_BOTTOM_CLASS`'s,
- *  restated here when both apply. */
-function edgeFadeStyle({
-  top,
-  bottom,
-}: {
-  top: boolean
-  bottom: boolean
-}): React.CSSProperties | undefined {
+ *  only once the body scrolled. #EXP-1782: no bottom fade: the scroller
+ *  ends at the Dock band's top edge and clips there. */
+function edgeFadeStyle(top: boolean): React.CSSProperties | undefined {
   if (!top) return undefined
-  const tail = bottom
-    ? `black calc(100% - 48px), rgb(0 0 0 / 0.6) calc(100% - 24px), transparent`
-    : `black`
-  const mask = `linear-gradient(to bottom, transparent, black 24px, ${tail})`
+  const mask = `linear-gradient(to bottom, transparent, black 24px, black)`
   return { maskImage: mask, WebkitMaskImage: mask }
 }
 
@@ -618,7 +607,6 @@ export function AgentSessionView({
     deviceId: session.deviceId,
     userId: session.userId,
   })
-  const isMobile = useIsMobile()
   const deviceName = device.label || `Desktop`
   // EXP-773: the device-offline copy names the machine the transcript lives on.
   useEffect(
@@ -948,6 +936,12 @@ export function AgentSessionView({
         />
       </div>
     ) : null
+  // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
+  // to hold the cards; the session's WAITING ones draw under it, so a header
+  // chip or a Needs-you row always reaches an answerable card.
+  const waitingCardIds = toolCards
+    .filter((row) => (row.type === `plan` && row.decision === null) || (row.type === `question` && !row.answered))
+    .map((row) => row.id)
   const placeholderShown =
     noFeedAway ||
     (feedPlaceholder && starting) ||
@@ -1000,11 +994,13 @@ export function AgentSessionView({
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
               // #EXP-1732: a column, so a placeholder takes the room the
-              // extras under it leave.
-              `agent-feed flex h-full flex-col overflow-y-auto overscroll-contain`,
-              !isMobile && DETAIL_FADE_BOTTOM_CLASS
+              // extras under it leave. #EXP-1782: the scroller ENDS at the
+              // Dock band's top edge (the composer's when no card waits):
+              // the transcript is clipped there, nothing scrolls under or
+              // behind the composer, no bottom fade.
+              `agent-feed absolute inset-x-0 top-0 flex flex-col overflow-y-auto overscroll-contain`
             )}
-            style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
+            style={{ bottom: dockHeight, ...edgeFadeStyle(follow.scrolled) }}
           >
             {noFeedAway ? (
               <CenteredState>
@@ -1067,7 +1063,7 @@ export function AgentSessionView({
               <div
                 ref={follow.contentRef}
                 className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
-                style={{ paddingBottom: dockHeight + DOCK_GAP }}
+                style={{ paddingBottom: DOCK_GAP }}
               >
                 <AgentConversation
                   summary={agents.find((a) => a.subagentId === activeAgent)}
@@ -1079,7 +1075,7 @@ export function AgentSessionView({
               <div
                 ref={follow.contentRef}
                 className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
-                style={{ paddingBottom: dockHeight + DOCK_GAP }}
+                style={{ paddingBottom: DOCK_GAP }}
               >
                 {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
                 {renderToolCards(cardAnchors.unanchored, `head`)}
@@ -1137,12 +1133,13 @@ export function AgentSessionView({
                 )}
               </div>
             )}
-            {placeholderShown && chatExtras && (
+            {placeholderShown && (chatExtras || waitingCardIds.length > 0) && (
               <div
                 className={cn(`shrink-0 py-2`, TRANSCRIPT_COLUMN)}
-                style={{ paddingBottom: dockHeight + DOCK_GAP }}
+                style={{ paddingBottom: DOCK_GAP }}
                 data-testid="session-placeholder-extras"
               >
+                {renderToolCards(waitingCardIds, `placeholder`)}
                 {chatExtras}
               </div>
             )}

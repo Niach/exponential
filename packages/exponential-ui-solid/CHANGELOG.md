@@ -5,6 +5,27 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. Solid: the focus scope's mount and unmount auto-focus are prevented for it (`isFieldAnchorElement`).
+- Select `triggerVariant: "inline"` (#EXP-1629), React's: no label part, `aria-label`, `Select.dropdown`, content-sized, the field's popup (parity-tested).
+- Composer (#EDE-65): a hidden `above` renders no wrapper; the send/stop glyph is the `sendIcon` recipe part. A disabled send's opacity is the recipe's (base-css .5 stays the fallback).
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
+- Menu: a searchable submenu matches a row's `identifier` as well as its label and its rows draw the `identifier`, `detail` and `iconColor` tint, React's.
+- Select `button` popup keeps its starting cursor (#EXP-1629), React's.
+- Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only, as React; parity case added (a muted ghost icon-xs).
+- Select option `hint` (#EXP-1629), React's.
+- Select `button` trigger glyph (#EXP-1629), React's.
+- Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
+- Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.
+- Menu item `detail`, `identifier`, `preview` (#EXP-1629), React's: the `identifier` / `detail` parts, the preview box beside its row (`natives/menu-preview.tsx`, the keyboard modality from `isUsingKeyboard`), its events the Menu's `action`; `menuRows` + `menuPreview` replay here.
+- Select option `iconColor` (#EXP-1629), React's (parity-tested open).
+- Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
+- Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
+- Skeleton `rows` (#EXP-1629): no hairline between rows (the shared base CSS), React's.
+- Select `multiple` (#EXP-1629), React's: `joinTop` / `joinBottom` on a picked item next to another shown pick. A parity case (with and without search).
+- Popover `matchAnchorWidth` (parity with React): the content's `width` = `var(--radix-popover-trigger-width)` (the popper's anchor width, re-measured by `autoUpdate`). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases.
+- Select `pill` popup EXACTLY where `placeInsetOverlay` puts it (#EXP-1629): `popperWrapper` gains `inset`, a middleware after the shift and flip moving the box to whole px from the pill (`snapInset`, half away from zero), its translate then not rounded to device px; lands where React's nudge does. The browser overlay suite replays the `overlay-geometry.json` `inset` cases with no tolerance, plain and searchable (harness `?view=inset`).
+- Composer slot `above` (#EXP-1762), like React: `.xui-composer-above` first in the root, its own line in a flat one.
 - Composer `layout: "flat"` (#EXP-1762), like React: the leading slot in its own bar before the field, one row.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): macro data only (parity with React).
 - Select `triggerIcon` + the own-colour marks (#EXP-1764), React's: the `valueIcon` part before a `row` trigger's value; `brand-claude` in its own orange.

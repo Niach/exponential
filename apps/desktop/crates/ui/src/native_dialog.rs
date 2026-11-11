@@ -474,8 +474,6 @@ impl Focusable for DialogShell {
 }
 
 /// The web `DialogContent` panel frame: the glass card over the scrim.
-/// Shared with [`alert_specimen`], so the styleguide pictures the product's
-/// panel.
 fn panel_frame(cx: &App) -> gpui::Div {
     v_flex()
         .flex_shrink_0()
@@ -995,29 +993,6 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
             .padless()
             .on_enter(move |window, cx| AlertView::enter(&on_enter, window, cx))
     });
-}
-
-/// An alert OUTSIDE the scrim, for the styleguide's dialog specimens: the
-/// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, in the
-/// product's panel ([`panel_frame`] + [`panel_header`]) at the alert's own
-/// width, hugging its content like the product. `key` keeps the view across frames
-/// (`window.use_keyed_state`).
-pub(crate) fn alert_specimen(
-    key: &'static str,
-    spec: AlertSpec,
-    window: &mut Window,
-    cx: &mut App,
-) -> gpui::Div {
-    let title = spec.title.clone();
-    let width = spec.width;
-    let view = window.use_keyed_state(key, cx, |_, _| AlertView::new(spec));
-    panel_frame(cx).w(width).child(
-        v_flex()
-            .w_full()
-            .bg(t::glass::FILL_PANEL.to_hsla())
-            .child(panel_header(title, None, Some(close_button("native-alert-specimen-close", true, cx))))
-            .child(view),
-    )
 }
 
 /// #EXP-1553: an alert drawn as web's prompt CARD (no window-title band):

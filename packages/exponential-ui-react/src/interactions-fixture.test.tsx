@@ -15,7 +15,7 @@ import { ExponentialSurface } from "./surface"
 import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
-import { keyRecorderCode } from "@exponential_app/eui/web"
+import { keyRecorderCode, propColor } from "@exponential_app/eui/web"
 
 afterEach(() => cleanup())
 
@@ -778,7 +778,11 @@ interface ComposerSlotsCase {
   props: Record<string, unknown>
   slots: Record<string, NestedNode>
   direction?: `rtl`
+  stack?: string[]
   order: string[]
+  data?: Record<string, unknown>
+  field?: { rows: number; grown: boolean }
+  hiddenAbove?: { path: string; value: unknown; stack: string[] }
   steps: { press: string }[]
   events: { name: string; context: Record<string, unknown> }[]
 }
@@ -790,7 +794,7 @@ function composerRowOrder(root: ParentNode): string[] {
   // the leading bar and the controls bar).
   const host = root.querySelector(`[data-xui-id="c"]`)!
   const flat = host.getAttribute(`data-r-layout`) === `flat`
-  const row = flat ? Array.from(host.children).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
+  const row = flat ? Array.from(host.children).filter((el) => !el.classList.contains(`xui-composer-above`)).flatMap((el) => (el.classList.contains(`xui-composer-bar`) ? Array.from(el.children) : [el])) : Array.from(host.querySelector(`.xui-composer-bar`)!.children)
   return row.map((el) => {
     const c = el.className
     if (c.includes(`xui-Composer-field`)) return `field`
@@ -802,9 +806,40 @@ function composerRowOrder(root: ParentNode): string[] {
   })
 }
 
-function NestedSurface({ tree, host }: { tree: NestedNode; host: Record<string, unknown> }) {
-  const surface = useSurface({ surfaceId: `cs`, data: {}, initial: tree })
+function NestedSurface({ tree, host, data, onState }: { tree: NestedNode; host: Record<string, unknown>; data?: Record<string, unknown>; onState?: (s: SurfaceState) => void }) {
+  const surface = useSurface({ surfaceId: `cs`, data: data ?? {}, initial: tree })
+  useEffect(() => {
+    onState?.(surface)
+  })
   return <ExponentialSurface surface={surface} theme="neutral" id="cs" host={host} />
+}
+
+/** #EXP-1762: the value the surface's stylesheets give `el` for `prop` (jsdom
+ *  computes no cascade: the last matching rule's declaration). */
+function cascaded(el: Element, prop: string): string {
+  let value = ``
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSStyleRule) {
+        const v = rule.style.getPropertyValue(prop)
+        if (v && el.matches(rule.selectorText)) value = v
+      } else if (`cssRules` in rule) walk((rule as CSSGroupingRule).cssRules)
+    }
+  }
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules)
+  return el instanceof HTMLElement && el.style.getPropertyValue(prop) ? el.style.getPropertyValue(prop) : value
+}
+
+/** #EXP-1762: the composer's content top → bottom (`above`, `field`, `row`; a flat field is in the row). */
+function composerStack(root: ParentNode): string[] {
+  const host = root.querySelector(`[data-xui-id="c"]`)!
+  const flat = host.getAttribute(`data-r-layout`) === `flat`
+  const out: string[] = []
+  for (const el of Array.from(host.children)) {
+    const k = el.classList.contains(`xui-composer-above`) ? `above` : !flat && el.className.includes(`xui-Composer-field`) ? `field` : `row`
+    if (out[out.length - 1] !== k) out.push(k)
+  }
+  return out
 }
 
 describe(`fixtures/interactions-round1.json composerSlots`, () => {
@@ -813,10 +848,70 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       const actions: SurfaceActionEvent[] = []
       const composer = { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
       const root = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
-      const { container } = render(<NestedSurface tree={root} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
+      let state!: SurfaceState
+      const { container } = render(<NestedSurface tree={root} data={c.data} onState={(s) => (state = s)} host={{ onAction: (e: SurfaceActionEvent) => void actions.push(e) }} />)
       expect(composerRowOrder(container)).toEqual(c.order)
+      if (c.field) {
+        // The field stretches across the row (grown by its min-height, never
+        // a height) and its text starts at the recipe's padding-top
+        // (neutral `$spacing.sm`).
+        const field = container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+        expect(field.value.split(`\n`)).toHaveLength(c.field.rows)
+        expect(cascaded(field, `align-self`)).toBe(`stretch`)
+        expect(cascaded(field, `padding-top`)).toBe(`var(--xui-spacing-sm)`)
+        expect(field.style.height).toBe(``)
+      }
+      if (c.stack) expect(composerStack(container)).toEqual(c.stack)
       for (const s of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${s.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
+      // #EDE-65: a hidden `above` is the slot absent (no wrapper, so no gap);
+      // shown it is the slot, hidden again it is gone.
+      if (c.hiddenAbove) {
+        const host = container.querySelector(`[data-xui-id="c"]`)!
+        const { path, value, stack } = c.hiddenAbove
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+        expect(host.querySelector(`.xui-composer-above`)).toBeNull()
+        act(() => state.setData(`/${path}`, value))
+        expect(composerStack(container)).toEqual(stack)
+        expect(host.getAttribute(`data-above`)).toBe(`true`)
+        expect(container.querySelector(`[data-xui-id="strip"]`)).not.toBeNull()
+        act(() => state.setData(`/${path}`, false))
+        expect(composerStack(container)).toEqual(c.stack)
+        expect(host.hasAttribute(`data-above`)).toBe(false)
+      }
+    })
+  }
+})
+
+// #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+describe(`Composer sendIcon`, () => {
+  for (const [theme, layout, size] of [[`neutral`, `flat`, `16px`], [`neutral`, `stacked`, `16px`], [`exponential`, `flat`, `24px`], [`exponential`, `stacked`, `16px`]] as const) {
+    it(`${theme} ${layout}: the glyph is ${size}`, () => {
+      function Host() {
+        const surface = useSurface({ surfaceId: `si`, data: { draft: `hi` }, initial: { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, layout } } as NestedNode })
+        return <ExponentialSurface surface={surface} theme={theme} id="si" />
+      }
+      const { container } = render(<Host />)
+      const glyph = container.querySelector(`[data-xui-part="Composer/send"] svg`)!
+      expect(glyph.getAttribute(`data-xui-part`)).toBe(`Composer/sendIcon`)
+      expect(cascaded(glyph, `width`)).toBe(size)
+      expect(cascaded(glyph, `height`)).toBe(size)
+    })
+  }
+})
+
+// #EDE-65: a disabled send's dim is the `send` part's `state: disabled` opacity.
+describe(`Composer disabled send`, () => {
+  for (const [theme, layout, opacity] of [[`neutral`, `flat`, 0.5], [`neutral`, `stacked`, 0.5], [`exponential`, `flat`, 0.4], [`exponential`, `stacked`, 0.4]] as const) {
+    it(`${theme} ${layout}: an empty draft dims send to ${opacity}`, () => {
+      function Host() {
+        const surface = useSurface({ surfaceId: `sd`, data: { draft: `` }, initial: { ...composerSlotsFixture.surface, props: { ...composerSlotsFixture.surface.props, layout } } as NestedNode })
+        return <ExponentialSurface surface={surface} theme={theme} id="sd" />
+      }
+      const { container } = render(<Host />)
+      const send = container.querySelector(`[data-xui-part="Composer/send"]`) as HTMLButtonElement
+      expect(send.disabled).toBe(true)
+      expect(Number(cascaded(send, `opacity`))).toBe(opacity)
     })
   }
 })
@@ -859,6 +954,191 @@ describe(`fixtures/interactions-round1.json composerPaste`, () => {
       expect(uploads.flatMap((u) => u[0])).toEqual(c.uploads)
       for (const u of uploads) expect((u[1] as { name: string }).name).toBe(`c`)
       expect((state.data as Record<string, unknown>).draft ?? null).toBe(c.draft)
+    })
+  }
+})
+
+// #EXP-1629 menuRows: an item's `identifier` sits between its icon and its
+// label, its `detail` after the label (a submenu parent's too).
+interface MenuRowCase {
+  name: string
+  items: unknown[]
+  submenu: number | null
+  /** A searchable submenu: what the field holds, the row keys left. */
+  query?: string
+  shown?: string[]
+  rows: { key: string; parts: string[]; label: string; identifier?: string; detail?: string; iconColor?: string }[]
+}
+interface MenuPreviewStep {
+  hover?: string | null
+  overPreview?: boolean
+  highlight?: string | null
+  wait?: number
+  press?: string
+  shown: string | null
+  texts?: string[]
+  events: { name: string; context: Record<string, unknown> }[]
+}
+const menuRowsFixture = (fixture as unknown as { menuRows: MenuRowCase[] }).menuRows
+const menuPreviewFixture = (fixture as unknown as { menuPreview: { menu: NestedNode; cases: { name: string; submenu: number | null; steps: MenuPreviewStep[] }[] } }).menuPreview
+
+/** The part a row child paints (`null` = none of the fixture's). */
+function menuRowPart(el: Element): string | null {
+  const cls = el.getAttribute(`class`) ?? ``
+  if (el.tagName.toLowerCase() === `svg`) return `icon`
+  for (const [needle, part] of [[`xui-Menu-check`, `check`], [`xui-Menu-identifier`, `identifier`], [`xui-menu-label`, `label`], [`xui-Menu-detail`, `detail`], [`xui-Menu-shortcut`, `shortcut`], [`xui-Menu-submenuIndicator`, `submenuIndicator`]] as const) {
+    if (cls.split(/\s+/).includes(needle)) return part
+  }
+  return null
+}
+
+/** Open menu `m` (and the top-level submenu `submenu`). */
+function openMenu(container: HTMLElement, submenu: number | null) {
+  fireEvent.pointerDown(container.querySelector(`.xui-Menu-trigger`)!, { button: 0, ctrlKey: false, pointerType: `mouse` })
+  if (submenu !== null) {
+    const row = menuRow(submenu.toString())!
+    act(() => void fireEvent.keyDown(row, { key: `ArrowRight` }))
+  }
+}
+
+/** The painted row at item path `key` (top level or the open submenu). */
+function menuRow(key: string): HTMLElement | null {
+  const path = key.split(`.`).map(Number)
+  const content = document.querySelector(path.length === 1 ? `[data-xui-overlay="Menu"]` : `[data-xui-overlay="Menu.sub"]`)
+  if (!content) return null
+  // A searchable submenu's rows are its search list's options.
+  const search = content.querySelector(`.xui-menu-search`)
+  if (search) return search.querySelector<HTMLElement>(`[role="option"][id$="-${path[path.length - 1]}"]`)
+  const rows = Array.from(content.children).filter((c) => /^menuitem/.test(c.getAttribute(`role`) ?? ``))
+  return (rows[path[path.length - 1]!] as HTMLElement | undefined) ?? null
+}
+
+describe(`fixtures/interactions-round1.json menuRows`, () => {
+  for (const c of menuRowsFixture) {
+    it(`menuRows: ${c.name}`, () => {
+      const { container } = render(<ExponentialSurface root={tree({ id: `m`, component: `Menu`, props: { label: `More`, items: c.items } } as unknown as NestedNode)} theme="neutral" id="mr" />)
+      openMenu(container, c.submenu)
+      if (c.query !== undefined) act(() => void fireEvent.change(document.querySelector(`[data-xui-overlay="Menu.sub"] input`)!, { target: { value: c.query } }))
+      if (c.shown) expect(Array.from(document.querySelectorAll(`[data-xui-overlay="Menu.sub"] [role="option"]`)).map((o) => `${c.submenu}.${o.id.slice(o.id.lastIndexOf(`-`) + 1)}`)).toEqual(c.shown)
+      for (const r of c.rows) {
+        const row = menuRow(r.key)
+        expect(row, r.key).not.toBeNull()
+        const parts = Array.from(row!.children).map(menuRowPart).filter((p): p is string => p !== null)
+        expect({ key: r.key, parts }).toEqual({ key: r.key, parts: r.parts })
+        expect(row!.querySelector(`.xui-menu-label`)!.textContent).toBe(r.label)
+        expect(row!.querySelector(`.xui-Menu-identifier`)?.textContent ?? null).toBe(r.identifier ?? null)
+        expect(row!.querySelector(`.xui-Menu-detail`)?.textContent ?? null).toBe(r.detail ?? null)
+        if (r.iconColor) expect(row!.querySelector<SVGElement>(`svg`)!.style.color).toBe(propColor(r.iconColor))
+      }
+    })
+  }
+})
+
+// #EXP-1629 menuPreview: a row's preview shows beside it while hovered
+// (after 150 ms) or highlighted (at once), hides 80 ms after both left; its
+// inner events fire the Menu's `action`.
+describe(`fixtures/interactions-round1.json menuPreview`, () => {
+  afterEach(() => void vi.useRealTimers())
+  for (const c of menuPreviewFixture.cases) {
+    it(`menuPreview: ${c.name}`, () => {
+      vi.useFakeTimers()
+      const actions: SurfaceActionEvent[] = []
+      const { container } = render(<ExponentialSurface root={tree(menuPreviewFixture.menu)} theme="neutral" id="mpv" host={{ onAction: (e) => void actions.push(e) }} />)
+      openMenu(container, c.submenu)
+      let hovered: HTMLElement | null = null
+      const content = (key: string) => document.querySelector(key.includes(`.`) ? `[data-xui-overlay="Menu.sub"]` : `[data-xui-overlay="Menu"]`) as HTMLElement
+      for (const [i, s] of c.steps.entries()) {
+        const before = actions.length
+        if (`hover` in s) {
+          if (hovered) act(() => void fireEvent.pointerLeave(hovered!, { pointerType: `mouse` }))
+          hovered = s.hover ? menuRow(s.hover) : null
+          if (hovered) {
+            act(() => void fireEvent.pointerMove(hovered!, { pointerType: `mouse` }))
+            act(() => void fireEvent.pointerEnter(hovered!, { pointerType: `mouse` }))
+          }
+        }
+        if (`overPreview` in s) {
+          const panel = document.querySelector(`[data-xui-menu-preview]`)!
+          act(() => void (s.overPreview ? fireEvent.pointerEnter(panel, { pointerType: `mouse` }) : fireEvent.pointerLeave(panel, { pointerType: `mouse` })))
+        }
+        if (`highlight` in s) {
+          if (s.highlight) {
+            const row = menuRow(s.highlight)!
+            act(() => void fireEvent.keyDown(content(s.highlight!), { key: `Shift` }))
+            act(() => row.focus())
+          } else {
+            // No row highlighted: the focused row loses the focus.
+            act(() => (document.activeElement as HTMLElement | null)?.blur())
+          }
+        }
+        if (s.wait !== undefined) act(() => void vi.advanceTimersByTime(s.wait!))
+        if (s.press) {
+          const target = document.querySelector(`[data-xui-menu-preview] [data-xui-id="${s.press}"]`) as HTMLElement
+          expect(target, s.press).not.toBeNull()
+          act(() => void fireEvent.click(target))
+        }
+        const panel = document.querySelector(`[data-xui-menu-preview]`)
+        expect({ step: i, shown: panel?.getAttribute(`data-xui-menu-preview`) ?? null }).toEqual({ step: i, shown: s.shown })
+        if (panel) {
+          expect(panel.getAttribute(`data-xui-id`)).toBe(`m.preview.${s.shown}`)
+          for (const t of s.texts ?? []) expect(panel.textContent, t).toContain(t)
+        }
+        expect(actions.slice(before).filter((a) => a.name !== `picked`).map((a) => ({ name: a.name, context: a.context }))).toEqual(s.events)
+        expect(document.querySelector(`[data-xui-overlay="Menu"]`), `step ${i}: the menu stays open`).not.toBeNull()
+      }
+    })
+  }
+})
+
+// #EDE-65 typeaheadFocus: a Popover anchored on a text field (a typeahead)
+// never takes the focus from it; every other Popover still focuses its
+// content and returns the focus on close.
+interface TypeaheadStep {
+  do: `focusField` | `open` | `close` | `pressTrigger`
+  open: boolean
+  focus: `field` | `content` | `anchor`
+}
+interface TypeaheadCase {
+  name: string
+  surface: string
+  data: Record<string, unknown>
+  steps: TypeaheadStep[]
+}
+const typeaheadFixture = (fixture as unknown as { typeaheadFocus: { surfaces: Record<string, NestedNode>; cases: TypeaheadCase[] } }).typeaheadFocus
+
+function TypeaheadSurface({ initial, data, onState }: { initial: NestedNode; data: Record<string, unknown>; onState: (s: SurfaceState) => void }) {
+  const surface = useSurface({ surfaceId: `tf`, data: structuredClone(data), initial })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="tf" />
+}
+
+describe(`fixtures/interactions-round1.json typeaheadFocus`, () => {
+  for (const c of typeaheadFixture.cases) {
+    it(`typeaheadFocus: ${c.name}`, async () => {
+      let state!: SurfaceState
+      const { container } = render(<TypeaheadSurface initial={typeaheadFixture.surfaces[c.surface]!} data={c.data} onState={(s) => (state = s)} />)
+      const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+      await settle()
+      const field = () => container.querySelector<HTMLElement>(`[data-xui-id="c"] textarea, [data-xui-id="q"] input`)!
+      const popover = () => document.querySelector(`[data-xui-overlay="Popover"]`)
+      const where = (): string => {
+        const at = document.activeElement
+        if (!at || at === document.body) return `none`
+        if (at === field()) return `field`
+        if (popover()?.contains(at)) return `content`
+        if (container.querySelector(`[data-xui-id="b"]`)?.contains(at)) return `anchor`
+        return at.outerHTML.slice(0, 80)
+      }
+      for (const s of c.steps) {
+        if (s.do === `focusField`) act(() => field().focus())
+        else if (s.do === `open` || s.do === `close`) act(() => state.apply({ version: `1.0`, updateDataModel: { surfaceId: `tf`, path: `/open`, value: s.do === `open` } }))
+        else fireEvent.click(container.querySelector(`[data-xui-id="t"]`)!)
+        await settle()
+        expect(popover() !== null, `${c.name}: ${s.do} open`).toBe(s.open)
+        expect(where(), `${c.name}: ${s.do} focus`).toBe(s.focus)
+      }
     })
   }
 })

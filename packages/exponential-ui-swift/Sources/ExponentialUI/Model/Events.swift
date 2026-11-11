@@ -277,6 +277,11 @@ extension SurfaceModel {
     /// timer per owner: a new one restarts it).
     func scheduleHoverTimeout(owner: String, delayMs: Double) {
         guard !owner.isEmpty else { return }
+        if let sink = hoverTimerSink {
+            hoverCloseTimers[owner]?.cancel()
+            sink(owner, delayMs)
+            return
+        }
         hoverCloseTimers[owner]?.cancel()
         hoverCloseTimers[owner] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(max(0, delayMs))))
@@ -314,7 +319,7 @@ extension SurfaceModel {
     /// something handled it.
     @discardableResult
     public func escape() -> Bool {
-        if let top = layers.last(where: \.isInteractive) {
+        if let top = layers.last(where: takesFocus) {
             if top.dismissible {
                 justDismissed = nil
                 fire(top.root, "dismiss")
@@ -345,9 +350,10 @@ extension SurfaceModel {
     /// Open-layer bookkeeping after a pass (gpui `layers_changed`): focus
     /// into a newly opened interactive layer (its `autoFocus` node, else
     /// the selected option / day, else its first focusable; never a toast
-    /// or a tooltip), focus back to the trigger when one closes.
+    /// or a tooltip), focus back to the trigger when one closes. #EDE-65: a
+    /// typeahead (`isTypeahead`) does neither.
     func layersChanged(from before: [LayerInfo]) {
-        let interactive = layers.filter(\.isInteractive)
+        let interactive = layers.filter { takesFocus($0) && !isTypeahead($0) }
         let now = interactive.map { "\($0.owner)#\($0.layer)" }
         if now == openLayerKeys {
             layersSettled()

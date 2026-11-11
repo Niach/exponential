@@ -74,3 +74,85 @@ struct WaitingFocusScroll: ViewModifier {
         }
     }
 }
+
+/// #EXP-1785 (waiting-cards.json CHIPS, phones): THE waiting button at the
+/// start of the session header's trailing slot — ONE icon-only button,
+/// `icons.waiting` in the question tint, the count beside it muted; it
+/// opens `ChatWaitingSheet`. Not drawn when nothing waits.
+struct ChatWaitingButton: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                AppIcon(
+                    AppIcons.conceptOrName(WaitingCards.Icons.waiting) ?? AppIcons.uiHelp,
+                    size: CGFloat(Chats.Shell.ChatHeader.glyph), weight: .medium
+                )
+                .foregroundStyle(WaitingCardTint.color(.question))
+                Text("\(count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .padding(.horizontal, 6)
+            .frame(height: CGFloat(Chats.Shell.ChatHeader.button))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(WaitingCards.waitingCountLabel(count))
+        .accessibilityIdentifier(WaitingCards.TestIds.button)
+    }
+}
+
+/// #EXP-1562 / #EXP-1785 (waiting-cards.json CHIPS): the waiting button's
+/// Menu — on phones THE bottom sheet, headed `copy.waiting`: THE MenuRow per
+/// waiting card in Conversation order (the kind icon tinted, the chip label,
+/// the kind's ask-dock label muted). A pick hands the card back; the host
+/// goes to it (`waitingTarget`) once the sheet has dismissed.
+struct ChatWaitingSheet: View {
+    let chips: [WaitingCards.Chip]
+    let onPick: (String) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: WaitingCards.Copy.waiting) {
+            VStack(spacing: 0) {
+                ForEach(chips) { chip in
+                    GlassPickerSheetRow(
+                        item: PickerItem(
+                            value: chip.id,
+                            label: chip.label,
+                            icon: AppIcons.conceptOrName(chip.icon) ?? chip.icon,
+                            color: WaitingCardTint.color(chip.kind)
+                        ),
+                        checked: .none,
+                        style: .check,
+                        content: AnyView(HStack(spacing: 8) {
+                            Text(chip.label)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(AskDock.label(chip.kind))
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                                .lineLimit(1)
+                                .fixedSize()
+                        })
+                    ) {
+                        onPick(chip.id)
+                    }
+                    .accessibilityIdentifier("\(WaitingCards.TestIds.menu)-row")
+                }
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(WaitingCards.TestIds.menu)
+        }
+    }
+}

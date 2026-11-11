@@ -15,9 +15,8 @@
 //! `/pane`): the identity row (genUI IconPicker, ColorPicker and a `bare`
 //! Input), the description (a `row` Textarea), the records line, Record
 //! access, Tools, then `app_mcp`'s groups and the Export / Delete buttons.
-//! The share rows' ⋯ menus, the Accounts rows' server Selects and the
-//! webhook rows' middle-truncated URL / secret stay the IDE's own
-//! (`host_leaf` Embeds); the Export dialog and every confirm stay native.
+//! The share rows' ⋯ menus stay the IDE's own (`host_leaf` Embeds); the
+//! Export dialog and every confirm stay native.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -33,7 +32,7 @@ use domain::app_actions::{action_grantable, action_title, can_grant_actions, dec
 use domain::apps::{APPS, APPS_CAPS};
 use domain::rows::AppRow;
 
-use super::app_mcp::{AccountSelect, MidText, ShareMenu, ACCOUNT_SELECT, HOOK_SECRET, HOOK_URL, SHARE_MENU};
+use super::app_mcp::{ShareMenu, SHARE_MENU};
 use super::doc::{hex, not, path, IdeToasts, Ink, SM, XS};
 use super::SettingsSection;
 use crate::apps_view::AppEntry;
@@ -796,6 +795,8 @@ impl AppDetailPane {
                 }
             }
             "addServer" => self.add_upstream_server(key, window, cx),
+            // An Accounts row's server Select.
+            "upstream" => self.pick_upstream_server(key, value, cx),
             "connect" => {
                 let upstream = self.mcp.as_ref().and_then(|data| data.upstreams.iter().find(|u| u.name == key)).cloned();
                 if let Some(upstream) = upstream {
@@ -909,12 +910,12 @@ impl AppDetailPane {
             "tools": {"hasRows": !tools.is_empty(), "none": tools.is_empty(), "rows": tools},
             // VAPP-241: the published package's public links first (the web's order).
             "shares": super::app_mcp::shares_rows(data, self.share_busy.as_deref(), &mut state.menus),
-            "accounts": super::app_mcp::accounts_rows(data, busy, self.upstream_busy.as_deref(), &mut state.selects),
+            "accounts": super::app_mcp::accounts_rows(data, busy, self.upstream_busy.as_deref()),
             "mcpTools": super::app_mcp::tools_rows(data, busy),
             // #VAPP-220: the published package's automations, read-only.
             "automations": super::app_mcp::automations_rows(data),
             // #VAPP-238: the webhooks those automations listen on.
-            "hooks": super::app_mcp::hooks_rows(data, &self.hook_secrets, self.hook_busy.as_deref(), &mut state.texts),
+            "hooks": super::app_mcp::hooks_rows(data, &self.hook_secrets, self.hook_busy.as_deref()),
             // VAPP-121: any member exports an app that has a version.
             "export": AppEntry::from_row(row).head_version > 0,
             "delete": manage,
@@ -947,16 +948,13 @@ impl Render for AppDetailPane {
 const PATH: &str = "/pane";
 
 /// The document's actions (all the pane's).
-const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "addServer", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
+const ACTIONS: &[&str] = &["tool", "mcpTool", "share", "addServer", "upstream", "connect", "hook", "copy", "icon", "color", "rename", "export", "delete"];
 
 /// What the host draws itself, refilled by every projection.
 #[derive(Default)]
 struct HostState {
     pane: Option<WeakEntity<AppDetailPane>>,
     menus: HashMap<String, ShareMenu>,
-    selects: HashMap<String, AccountSelect>,
-    /// Keyed by the painted id (`hook_url.<name>`, `hook_secret.<name>`).
-    texts: HashMap<String, MidText>,
 }
 
 /// The pane's host: the IDE's plugin, the text fields' edits for the pane,
@@ -984,16 +982,11 @@ impl HostPlugin for PaneHost {
         });
     }
 
-    fn host_leaf_height(&self, component_id: &str, _width: f32, window: &mut Window, _cx: &mut App) -> Option<f32> {
+    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
         let state = self.state.borrow();
         let (node, key) = component_id.split_once('.')?;
         match node {
             SHARE_MENU => state.menus.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
-            ACCOUNT_SELECT => state.selects.contains_key(key).then_some(eui_gpui::controls::CTL_MD_H),
-            HOOK_URL | HOOK_SECRET => {
-                let text = state.texts.get(component_id)?;
-                Some(f32::from(window.rem_size()) * if text.sm { SM } else { XS } * super::doc::LINE)
-            }
             _ => None,
         }
     }
@@ -1008,8 +1001,6 @@ impl HostPlugin for PaneHost {
         let ide_text = div().font(gpui::font(theme.font_family.clone())).text_size(gpui::rems(1.)).line_height(gpui::phi()).text_color(theme.foreground);
         let leaf = match node {
             SHARE_MENU => super::app_mcp::share_menu(state.menus.get(key)?, pane, cx),
-            ACCOUNT_SELECT => super::app_mcp::account_select(state.selects.get(key)?, pane, cx),
-            HOOK_URL | HOOK_SECRET => super::app_mcp::mid_text(state.texts.get(component_id)?, cx),
             _ => return None,
         };
         Some(ide_text.child(leaf).into_any_element())
@@ -1023,13 +1014,13 @@ impl HostPlugin for PaneHost {
 /// The colours the document needs beyond [`Ink`]: gpui-component's outline
 /// and danger `Button`s.
 pub(super) struct Tints {
-    radius: f32,
+    pub(super) radius: f32,
     outline_fill: String,
     outline_stroke: String,
     outline_fg: String,
     outline_hover: String,
-    outline_fill_dim: String,
-    outline_stroke_dim: String,
+    pub(super) outline_fill_dim: String,
+    pub(super) outline_stroke_dim: String,
     outline_fg_dim: String,
     danger: String,
     danger_fg: String,

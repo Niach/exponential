@@ -846,6 +846,29 @@ fun ChatContent(
         if (latestScreen.active != SessionScreen.Tab.Chat) onSelectTab(SessionScreen.Tab.Chat)
         cardScroll = com.exponential.app.ui.session.CardScrollRequest(id, (cardScroll?.nonce ?: 0) + 1)
     }
+    // #EXP-1785 (waiting-cards.json, phones = `button`): THE TREE's waiting
+    // plans + questions (ask-dock `chatPendingAsks` over the chat rows: the
+    // root's and every descendant's, Conversation order) behind ONE button
+    // in the header's trailing slot; a pick goes to `waitingTarget`.
+    val waitingChips = remember(view?.rows) {
+        val rows = view?.rows.orEmpty()
+        WaitingCards.waitingChips(WaitingCards.inputs(AskDock.chatPendingAsks(rows) { null }), phone = true).chips
+    }
+    var waitingSheet by remember { mutableStateOf(false) }
+    val pickWaitingChip: (WaitingCards.Chip) -> Unit = { chip ->
+        val target = WaitingCards.waitingTarget(chip.kind, chip.sessionId, rootId)
+        when (target.open) {
+            // THE plan page as the screen's opened item (any session's plan).
+            WaitingCards.Open.Plan -> onOpen(SessionScreen.Open.Plan, chip.id)
+            // The root's question: the Chat tab, centred on its card + the ring.
+            WaitingCards.Open.Card -> pickWaiting(chip.id)
+            // A descendant's question: that session opened in place, at its card.
+            WaitingCards.Open.Session -> {
+                onOpen(SessionScreen.Open.Session, target.sessionId)
+                cardScroll = com.exponential.app.ui.session.CardScrollRequest(chip.id, (cardScroll?.nonce ?: 0) + 1)
+            }
+        }
+    }
     var initialCardDone by rememberSaveable { mutableStateOf(false) }
     val chatLoaded = view != null
     LaunchedEffect(initialCard, chatLoaded) {
@@ -881,6 +904,12 @@ fun ChatContent(
         ) { padding ->
             key(screen.open, openId) {
                 // Each item owns its view models: they die with the item.
+                // #EXP-1785: a descendant's waiting question opened here is
+                // centred + rung like the Chat tab's.
+                CompositionLocalProvider(
+                    com.exponential.app.ui.session.LocalCardScrollRequest provides cardScroll,
+                    com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
+                ) {
                 PageViewModelStore {
                     val id = openId
                     when (screen.open) {
@@ -901,11 +930,19 @@ fun ChatContent(
                         else -> Unit
                     }
                 }
+                }
             }
         }
         return
     }
 
+    if (waitingSheet && waitingChips.isNotEmpty()) {
+        SessionWaitingSheet(
+            chips = waitingChips,
+            onPick = pickWaitingChip,
+            onDismiss = { waitingSheet = false },
+        )
+    }
     Scaffold(
         modifier = modifier,
         containerColor = Color.Transparent,
@@ -921,6 +958,11 @@ fun ChatContent(
                 call = headerCall,
                 action = headerAction,
                 gear = gear,
+                waiting = if (waitingChips.isNotEmpty()) {
+                    { SessionWaitingButton(count = waitingChips.size, onClick = { waitingSheet = true }) }
+                } else {
+                    null
+                },
                 tabs = if (view != null) {
                     { SessionScreenTabs(tabs = screen.tabs, active = screen.active, onSelect = onSelectTab) }
                 } else {

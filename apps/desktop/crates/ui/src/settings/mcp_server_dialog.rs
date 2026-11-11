@@ -20,31 +20,27 @@
 //! `args`/`env`: a field whose values are single tokens does not need a chip
 //! editor, and the validator refuses a bad name at submit with the server's
 //! own sentence.
+//!
+//! #EXP-1629: the window stays native; its content is a document on the
+//! native binding ([`document`] over [`McpServerDialogView::project`]);
+//! #EXP-1784: the Runs on, Sign-in and Transport rows are genUI row Selects.
 
-use crate::controls::PointerMenuButtonExt as _;
 use std::collections::HashSet;
+use std::rc::Rc;
 
-use gpui::{
-    div, px, size, App, AppContext as _, Div, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, WeakEntity, Window,
-};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{InputEvent, InputState},
-    scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
-};
+use eui_gpui::{binding::Binding, view::SurfaceView};
+use gpui::{div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity, Window};
+use gpui_component::{ActiveTheme as _, ElementExt as _};
+use serde_json::{json, Value};
 
 use api::mcp_servers::{McpServerConfig, McpServerDevice, McpServerFields};
 
-use crate::icons::{registry, ExpIcon};
-use crate::controls::{disclosure_header, glass_input, ChevronSide, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
+use crate::picker::device_picker::DevicePickerDevice;
 use crate::queries;
-use crate::surface;
 
+use super::agent_doc::select_row;
+use super::doc::{hex, not, path, IdeToasts, Ink, LINE, SM, XS};
 use super::mcp_servers::McpServersPane;
 
 /// (wire value, label) — the labels are the pane's own chip vocabulary
@@ -78,8 +74,11 @@ pub(super) fn open(
     let height = (window.viewport_size().height * 0.85).min(px(540.));
     let spec = DialogSpec::new(title, size(px(460.), height))
         .resizable(size(px(400.), px(360.)));
+    // The content box: the window less the panel's bottom padding, known
+    // before the first paint so the footer never jumps.
+    let content_height = f32::from(height) - 16.;
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, device, pane, name, window, cx));
+        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, device, pane, name, content_height, window, cx));
         let busy = view.clone();
         DialogContent::new(view)
             // The view pins its own action bar and scrolls only the form.
@@ -246,11 +245,11 @@ fn dialog_line(draft: &Draft, touched: &HashSet<&'static str>, attempted: bool) 
 
 /// How members get in (web `mcpAuthLine`): the glyph and the line under the
 /// form's first group.
-fn auth_line(draft: &Draft) -> (ExpIcon, &'static str) {
+fn auth_line(draft: &Draft) -> (&'static str, &'static str) {
     match draft.auth.as_str() {
-        "oauth" => (registry::UI_SIGN_IN, "Members sign in with their own account (OAuth)"),
-        "secret" => (registry::UI_PRIVATE, "Members paste their own API key"),
-        _ => (registry::UI_SUCCESS, "No sign-in needed"),
+        "oauth" => ("ui-sign-in", "Members sign in with their own account (OAuth)"),
+        "secret" => ("ui-private", "Members paste their own API key"),
+        _ => ("ui-success", "No sign-in needed"),
     }
 }
 
@@ -273,21 +272,40 @@ fn wire_fields(draft: &Draft) -> McpServerFields {
     }
 }
 
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct McpDialogShot {
+    pub edit: bool,
+    pub name: &'static str,
+    pub url: &'static str,
+    pub command: &'static str,
+    pub args: &'static str,
+    pub names: &'static str,
+    pub scopes: &'static str,
+    /// `http` when empty.
+    pub transport: &'static str,
+    /// `none` when empty.
+    pub auth: &'static str,
+    pub enabled: bool,
+    pub advanced: bool,
+    /// A device row picked (`devices.id`) in the Runs on picker.
+    pub device: Option<&'static str>,
+    pub error: Option<&'static str>,
+    pub attempted: bool,
+    pub busy: bool,
+}
+
 pub struct McpServerDialogView {
     team_id: String,
     /// The row being edited; `None` = create.
     editing: Option<String>,
     /// The pane to refetch once the write lands.
     pane: WeakEntity<McpServersPane>,
-    name: Entity<InputState>,
-    url: Entity<InputState>,
-    command: Entity<InputState>,
-    args: Entity<InputState>,
-    /// The header names (http) or variable names (stdio) — ONE field: the
-    /// transport decides which side of the row it is, and switching keeps
-    /// what was typed rather than hiding it in a second, invisible list.
-    names: Entity<InputState>,
-    scopes: Entity<InputState>,
+    /// The text fields as typed: they outlive the field being drawn (the
+    /// transport and the auth kind take rows away), so what was typed stays
+    /// when a row comes back.
+    fields: Fields,
     transport: String,
     auth: String,
     enabled_by_default: bool,
@@ -304,36 +322,62 @@ pub struct McpServerDialogView {
     /// The Advanced disclosure (web alike: open from the start for a command
     /// server).
     advanced: bool,
-    body_scroll: ScrollHandle,
-    _subscriptions: Vec<Subscription>,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    /// The Runs on rows the pictures add (no store rows headless).
+    #[cfg(test)]
+    shot_devices: Vec<DevicePickerDevice>,
+    /// Frames the bench's opened popup still fades in over (the headless
+    /// clock stands still).
+    #[cfg(test)]
+    shot_settle: u8,
 }
 
-/// `dialogLineCases`: an edit or a leave touches the field, Enter tries a submit.
-fn subscriptions_touch(
-    subscriptions: &mut Vec<Subscription>,
-    field: &'static str,
-    input: &Entity<InputState>,
-    cx: &mut gpui::Context<McpServerDialogView>,
-) {
-    subscriptions.push(cx.subscribe(input, move |this, _, event: &InputEvent, cx| {
-        match event {
-            InputEvent::Change | InputEvent::Blur => {
-                this.touched.insert(field);
-            }
-            InputEvent::PressEnter { .. } => this.attempted = true,
-            _ => return,
+/// The six text fields (ONE names field: the transport decides which side of
+/// the row it is, and switching keeps what was typed).
+#[derive(Clone, Default)]
+struct Fields {
+    name: String,
+    url: String,
+    command: String,
+    args: String,
+    names: String,
+    scopes: String,
+}
+
+impl Fields {
+    fn slot(&mut self, field: &str) -> Option<&mut String> {
+        match field {
+            "name" => Some(&mut self.name),
+            "url" => Some(&mut self.url),
+            "command" => Some(&mut self.command),
+            "args" => Some(&mut self.args),
+            "names" => Some(&mut self.names),
+            "scopes" => Some(&mut self.scopes),
+            _ => None,
         }
-        cx.notify();
-    }));
+    }
+}
+
+/// The field a press, an edit or a leave was on (`dialogLineCases`).
+fn touch_key(field: &str) -> Option<&'static str> {
+    match field {
+        "name" => Some("name"),
+        "url" => Some("url"),
+        "command" => Some("command"),
+        _ => None,
+    }
 }
 
 impl McpServerDialogView {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         team_id: String,
         initial: Option<McpServerConfig>,
         device: Option<McpServerDevice>,
         pane: WeakEntity<McpServersPane>,
         prefill_name: Option<String>,
+        viewport_height: f32,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -344,64 +388,66 @@ impl McpServerDialogView {
             }
         }
         let http = seed.is_http();
-        let mut touch_subscriptions = Vec::new();
-        let mut field = |placeholder: &'static str, value: String, cx: &mut gpui::Context<Self>| {
-            cx.new(|cx| {
-                let mut state = InputState::new(window, cx).placeholder(placeholder);
-                if !value.is_empty() {
-                    state.set_value(value, window, cx);
-                }
-                state
-            })
+        let fields = Fields {
+            name: seed.name.clone(),
+            url: seed.url.clone().unwrap_or_default(),
+            command: seed.command.clone().unwrap_or_default(),
+            args: format_list(&seed.args),
+            names: format_list(if http { &seed.header_names } else { &seed.env_names }),
+            scopes: format_list(&seed.scopes),
         };
-        let name = field("linear", seed.name.clone(), cx);
-        let url = field(
-            "https://mcp.example.com/mcp",
-            seed.url.clone().unwrap_or_default(),
-            cx,
-        );
-        let command = field("npx", seed.command.clone().unwrap_or_default(), cx);
-        let args = field("-y @acme/mcp", format_list(&seed.args), cx);
-        let names = field(
-            "X-Api-Key",
-            format_list(if http { &seed.header_names } else { &seed.env_names }),
-            cx,
-        );
-        let scopes = field("read", format_list(&seed.scopes), cx);
 
-        for (field, input) in [("name", &name), ("url", &url), ("command", &command)] {
-            subscriptions_touch(&mut touch_subscriptions, field, input, cx);
-        }
-        // The validation line and the submit gate re-evaluate per keystroke.
-        let mut subscriptions = touch_subscriptions;
-        for input in [&name, &url, &command, &args, &names, &scopes] {
-            subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
-            }));
-        }
+        // Every action leaves the binding for the view (the writes and the
+        // window's close need its window).
+        let me = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["edit", "touch", "attempt", "toggle", "advanced", "device", "auth", "transport", "cancel", "submit"] {
+                let me = me.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = event.context.clone();
+                    let payload = event.payload.clone().unwrap_or(Value::Null);
+                    let me = me.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = me.update(cx, |view, cx| view.action(name, &context, &payload, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let theme = cx.theme();
+        let chrome = Chrome {
+            radius: f32::from(theme.radius),
+            danger: hex(theme.danger),
+            border: hex(theme.border),
+            button_fg: hex(theme.button_foreground),
+            button_fill: hex(theme.input_background()),
+            button_stroke: hex(theme.input),
+            button_off_fg: hex(theme.muted_foreground.opacity(0.5)),
+            primary: hex(theme.button_primary),
+            primary_fg: hex(theme.button_primary_foreground),
+            primary_hover: hex(theme.button_primary_hover),
+        };
+        let view = super::doc::mount_with("mcp-server-dialog", document(&Ink::of(cx), &chrome), &binding, Rc::new(super::doc::ide_plugin()), true, window, cx);
+        // The content owns the window's height: the rows scroll, the footer
+        // stays (`DialogContent::self_scrolling`).
+        view.update(cx, |view, cx| {
+            view.set_fill_height(true, cx);
+            view.set_viewport_height(viewport_height, cx);
+        });
 
         Self {
             team_id,
             editing: initial.as_ref().map(|row| row.id.clone()),
             pane,
-            name,
-            url,
-            command,
-            args,
-            names,
-            scopes,
-            transport: if http {
-                "http".to_string()
-            } else {
-                "stdio".to_string()
-            },
-            auth: if initial.is_some() {
-                seed.auth.clone()
-            } else {
-                "none".to_string()
-            },
+            fields,
+            transport: if http { "http".to_string() } else { "stdio".to_string() },
+            auth: if initial.is_some() { seed.auth.clone() } else { "none".to_string() },
             // A new server starts pre-selected (web `EMPTY_MCP_SERVER_DRAFT`).
             enabled_by_default: initial.is_none() || seed.enabled_by_default,
             device_id: device.as_ref().map(|d| d.id.clone()),
@@ -411,26 +457,121 @@ impl McpServerDialogView {
             touched: HashSet::new(),
             attempted: false,
             advanced: !http,
-            body_scroll: ScrollHandle::new(),
-            _subscriptions: subscriptions,
+            binding,
+            view,
+            #[cfg(test)]
+            shot_devices: Vec::new(),
+            #[cfg(test)]
+            shot_settle: 0,
         }
     }
 
-    fn draft(&self, cx: &App) -> Draft {
-        let text = |state: &Entity<InputState>| state.read(cx).value().trim().to_string();
-        let names = parse_list(self.names.read(cx).value().as_ref());
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new("t".into(), None, None, WeakEntity::new_invalid(), None, 0., window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: McpDialogShot, _window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.editing = shot.edit.then(|| "s1".to_string());
+        self.fields = Fields { name: shot.name.into(), url: shot.url.into(), command: shot.command.into(), args: shot.args.into(), names: shot.names.into(), scopes: shot.scopes.into() };
+        self.transport = if shot.transport.is_empty() { "http".to_string() } else { shot.transport.to_string() };
+        self.auth = if shot.auth.is_empty() { "none".to_string() } else { shot.auth.to_string() };
+        self.enabled_by_default = shot.enabled;
+        self.advanced = shot.advanced;
+        self.device_id = shot.device.map(str::to_string);
+        self.error = shot.error.map(SharedString::from);
+        self.attempted = shot.attempted;
+        self.busy = shot.busy;
+        let device = |id: &str, name: &str, icon: &str, server: bool| DevicePickerDevice { id: id.into(), name: name.into(), icon: Some(icon.into()), server, description: None, disabled: false };
+        self.shot_devices = vec![device("d1", "studio-mac", "laptop", false), device("d2", "build-server", "server", true)];
+        cx.notify();
+    }
+
+    /// The bench's press on a document node (a headless click never reaches
+    /// an eUI popup), its popup's enter fade run out.
+    #[cfg(test)]
+    pub(crate) fn press_for_shots(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.view.update(cx, |view, cx| {
+            let index = view.index_of(id).expect("the pressed node");
+            view.press(index, window, cx);
+            view.advance_clock(std::time::Duration::from_millis(500), cx);
+        });
+        self.shot_settle = 4;
+        cx.notify();
+    }
+
+    /// A document action: a field's edit, a leave or an Enter on it
+    /// (`dialogLineCases`: an edit or a leave touches the field, Enter tries
+    /// a submit), the Default switch, the Advanced fold, the footer.
+    fn action(&mut self, name: &str, context: &Value, payload: &Value, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let value = payload.get("value").and_then(Value::as_str).unwrap_or_default();
+        match name {
+            "edit" => {
+                let field = context.get("field").and_then(Value::as_str).unwrap_or_default();
+                if let Some(slot) = self.fields.slot(field) {
+                    *slot = value.to_string();
+                    if let Some(key) = touch_key(field) {
+                        self.touched.insert(key);
+                    }
+                }
+            }
+            "touch" => {
+                if let Some(key) = context.get("field").and_then(Value::as_str).and_then(touch_key) {
+                    self.touched.insert(key);
+                }
+            }
+            "attempt" => self.attempted = true,
+            "toggle" => {
+                if let Some(on) = payload.get("checked").and_then(Value::as_bool) {
+                    self.enabled_by_default = on;
+                }
+            }
+            "advanced" => self.advanced = !self.advanced,
+            // A Select's `change` also reports `{open}` as its popup opens.
+            "device" | "auth" | "transport" if payload.get("value").is_none() => return,
+            "device" => self.device_id = (!value.is_empty()).then(|| value.to_string()),
+            "auth" => self.auth = value.to_string(),
+            "transport" => {
+                self.transport = value.to_string();
+                // OAuth is an HTTP-only kind; a stdio row falls back.
+                if self.transport == "stdio" && self.auth == "oauth" {
+                    self.auth = "none".to_string();
+                }
+            }
+            "cancel" if !self.busy => native_dialog::close_dialog_window(window, cx),
+            "submit" => self.submit(window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    fn draft(&self) -> Draft {
+        let text = |value: &str| value.trim().to_string();
+        let names = parse_list(&self.fields.names);
         let http = self.transport != "stdio";
         Draft {
-            name: text(&self.name),
+            name: text(&self.fields.name),
             transport: self.transport.clone(),
-            url: text(&self.url),
+            url: text(&self.fields.url),
             header_names: if http { names.clone() } else { Vec::new() },
-            command: text(&self.command),
-            args: parse_list(self.args.read(cx).value().as_ref()),
+            command: text(&self.fields.command),
+            args: parse_list(&self.fields.args),
             env_names: if http { Vec::new() } else { names },
-            scopes: parse_list(self.scopes.read(cx).value().as_ref()),
+            scopes: parse_list(&self.fields.scopes),
             auth: self.auth.clone(),
             enabled_by_default: self.enabled_by_default,
+        }
+    }
+
+    /// A field's change reaches the view after the 150 ms debounce: Save
+    /// reads the text as it is NOW.
+    fn flush_fields(&mut self, cx: &App) {
+        let view = self.view.read(cx);
+        for id in ["name", "url", "command", "args", "names", "scopes"] {
+            if let (Some(text), Some(slot)) = (view.field_text(&format!("{id}.field"), cx), self.fields.slot(id)) {
+                *slot = text;
+            }
         }
     }
 
@@ -438,7 +579,8 @@ impl McpServerDialogView {
         if self.busy {
             return;
         }
-        let draft = self.draft(cx);
+        self.flush_fields(cx);
+        let draft = self.draft();
         if validate(&draft).is_some() {
             self.attempted = true;
             cx.notify();
@@ -502,127 +644,16 @@ impl McpServerDialogView {
         })
         .detach();
     }
-
-    // -- render pieces --------------------------------------------------------
-
-    fn input_row(
-        &self,
-        label: &'static str,
-        input: &Entity<InputState>,
-        window: &Window,
-        cx: &App,
-    ) -> Div {
-        surface::glass_input_row(
-            label,
-            surface::glass_row_input(glass_input(input, window, cx)).into_any_element(),
-            cx,
-        )
-    }
-
-    /// A closed-vocabulary picker row (Transport · Auth): the label leading,
-    /// the picked label trailing behind a caret, writing `value` back through
-    /// `apply`.
-    fn choice_row(
-        &self,
-        label: &'static str,
-        id: &'static str,
-        options: Vec<(&'static str, &'static str)>,
-        current: &str,
-        apply: fn(&mut Self, &str, &mut gpui::Context<Self>),
-        cx: &mut gpui::Context<Self>,
-    ) -> Div {
-        let picked: SharedString = options
-            .iter()
-            .find(|(value, _)| *value == current)
-            .map(|(_, label)| *label)
-            .unwrap_or(current)
-            .to_string()
-            .into();
-        let current = current.to_string();
-        let view = cx.entity().downgrade();
-        let control = crate::trigger_editor::picker_trigger(id.into(), picked, cx)
-            .pointer_menu(move |mut menu, _window, _cx| {
-                menu = crate::pickers::single_select_menu(menu);
-                for (value, label) in &options {
-                    let view = view.clone();
-                    let value = value.to_string();
-                    let on = value == current;
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(SharedString::from(*label), false)
-                            .checked(on)
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let value = value.clone();
-                                    view.update(cx, |view, cx| {
-                                        apply(view, &value, cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            })
-            .into_any_element();
-        surface::glass_picker_row(label, None, control, cx)
-    }
-
-    fn footer(&self, blocked: bool, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        h_flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap_2()
-            .pt_3()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .child(div().flex_1())
-            .child(
-                Button::new("mcp-edit-cancel")
-                    .outline()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label("Cancel")
-                    .disabled(self.busy)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        if this.busy {
-                            return;
-                        }
-                        native_dialog::close_dialog_window(window, cx);
-                    })),
-            )
-            .child(
-                // A press on the disabled button counts as trying to submit.
-                div()
-                    .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
-                        this.attempted = true;
-                        cx.notify();
-                    }))
-                    .child(
-                        Button::new("mcp-edit-save")
-                            .primary()
-                            .cursor_pointer()
-                            .web_sm()
-                            .label(if self.editing.is_some() {
-                                "Save"
-                            } else {
-                                "Add server"
-                            })
-                            .loading(self.busy)
-                            .disabled(blocked || self.busy)
-                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-                    ),
-            )
-    }
 }
 
 impl McpServerDialogView {
-    /// VAPP-239 (settings-mcp.json `runsOnLabel`): THE device picker over the
+    /// VAPP-239 (settings-mcp.json `runsOnLabel`): the Runs on options, the
     /// owner's own desktop apps and CLI daemons, first item `runsOnServer` =
     /// no device (the server broker calls it).
-    fn runs_on_row(&self, cx: &mut gpui::Context<Self>) -> Div {
+    fn runs_on_options(&self, cx: &App) -> Vec<Value> {
         let copy = &super::mcp::SETTINGS_MCP;
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let mut rows = vec![crate::picker::device_picker::DevicePickerDevice {
+        let mut rows = vec![DevicePickerDevice {
             id: String::new(),
             name: copy.runs_on_server.to_string(),
             icon: None,
@@ -636,7 +667,7 @@ impl McpServerDialogView {
                 if me.is_none() || row.user_id != me || (kind != "desktop" && kind != "server") {
                     continue;
                 }
-                rows.push(crate::picker::device_picker::DevicePickerDevice {
+                rows.push(DevicePickerDevice {
                     id: row.id.clone(),
                     name: row.label.clone().filter(|l| !l.is_empty()).or_else(|| row.device_id.clone()).unwrap_or_default(),
                     icon: row.icon.clone(),
@@ -646,8 +677,10 @@ impl McpServerDialogView {
                 });
             }
         }
+        #[cfg(test)]
+        rows.extend(self.shot_devices.iter().map(|d| DevicePickerDevice { id: d.id.clone(), name: d.name.clone(), icon: d.icon.clone(), server: d.server, description: None, disabled: false }));
         if let Some(current) = self.initial_device.as_ref().filter(|d| !rows.iter().any(|r| r.id == d.id)) {
-            rows.push(crate::picker::device_picker::DevicePickerDevice {
+            rows.push(DevicePickerDevice {
                 id: current.id.clone(),
                 name: current.label.clone(),
                 icon: current.icon.clone(),
@@ -656,175 +689,211 @@ impl McpServerDialogView {
                 disabled: false,
             });
         }
-        let picked = self.device_id.clone().unwrap_or_default();
-        let label = rows.iter().find(|r| r.id == picked).map(|r| r.name.clone()).unwrap_or_else(|| copy.runs_on_server.to_string());
-        let trigger = crate::trigger_editor::picker_trigger("mcp-edit-runs-on".into(), label, cx).into_any_element();
-        let view = cx.entity().downgrade();
-        let on_pick: crate::picker::OnPickerChange<String> = std::rc::Rc::new(move |next: Vec<String>, _window: &mut Window, cx: &mut App| {
-            let Some(id) = next.into_iter().next() else { return };
-            if let Some(view) = view.upgrade() {
-                view.update(cx, |view, cx| {
-                    view.device_id = (!id.is_empty()).then_some(id);
-                    cx.notify();
-                });
-            }
-        });
-        let control = crate::picker::deferred(move |window, cx| {
-            crate::picker::device_picker::device_picker(&rows, Some(picked), trigger, on_pick)
-                .id(SharedString::from("mcp-edit-runs-on-picker"))
-                .render(window, cx)
+        rows.into_iter().map(|r| json!({"label": r.name, "value": r.id, "icon": crate::icons::device_icon_name(r.icon.as_deref(), r.server)})).collect()
+    }
+
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let draft = self.draft();
+        let http = draft.is_http();
+        let (auth_icon, auth_text) = auth_line(&draft);
+        // The server's refusal wins over the client-side rule: it is the one
+        // the person has not seen yet.
+        let line = self.error.as_ref().map(ToString::to_string).or_else(|| dialog_line(&draft, &self.touched, self.attempted));
+        let blocked = validate(&draft).is_some();
+        let choices = |options: &[(&str, &str)]| options.iter().map(|(value, label)| json!({"label": label, "value": value})).collect::<Vec<_>>();
+        let auth_options = if self.transport == "stdio" { vec![AUTH_NONE, AUTH_SECRET] } else { vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET] };
+        json!({
+            "fields": {"name": self.fields.name, "url": self.fields.url, "command": self.fields.command, "args": self.fields.args, "names": self.fields.names, "scopes": self.fields.scopes},
+            "http": http,
+            "stdio": !http,
+            "oauth": draft.auth == "oauth",
+            "advanced": self.advanced,
+            "advancedClosed": !self.advanced,
+            "enabled": self.enabled_by_default,
+            "pickers": {
+                "runsOn": {"value": self.device_id.clone().unwrap_or_default(), "options": self.runs_on_options(cx)},
+                "signIn": {"value": self.auth, "options": choices(&auth_options)},
+                "transport": {"value": self.transport, "options": choices(TRANSPORT_OPTIONS)},
+            },
+            "namesLabel": match (draft.auth == "secret", http) {
+                (true, true) => "Header that carries the key",
+                (true, false) => "Variable that carries the key",
+                (false, true) => "Header names",
+                (false, false) => "Variable names",
+            },
+            "authIcon": auth_icon,
+            "authText": auth_text,
+            "hasError": line.is_some(),
+            "error": line.unwrap_or_default(),
+            "primary": if self.editing.is_some() { "Save" } else { "Add server" },
+            "on": !blocked && !self.busy,
+            "off": blocked && !self.busy,
+            "busy": self.busy,
         })
-        .into_any_element();
-        surface::glass_picker_row(copy.runs_on_label, None, control, cx)
     }
 }
 
 impl Render for McpServerDialogView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "McpServerDialogView").entered();
-        let draft = self.draft(cx);
-        let http = draft.is_http();
-        let validation = validate(&draft);
-        let muted = cx.theme().muted_foreground;
-
-        // The form's rows, web alike: what every server needs first, the
-        // transport and its details behind Advanced.
-        let mut rows: Vec<Div> = vec![self.input_row("Name", &self.name, window, cx)];
-        if http {
-            rows.push(self.input_row("URL", &self.url, window, cx));
+        #[cfg(test)]
+        if self.shot_settle > 0 {
+            self.shot_settle -= 1;
+            self.view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
+            cx.notify();
         }
-        rows.push(self.runs_on_row(cx));
-        rows.push(surface::glass_toggle_row(
-            domain::skills::DEFAULT_LABEL,
-            None,
-            crate::controls::web_switch("mcp-edit-default")
-                .checked(self.enabled_by_default)
-                .on_click(cx.listener(|this, on: &bool, _, cx| {
-                    this.enabled_by_default = *on;
-                    cx.notify();
-                }))
-                .into_any_element(),
-            cx,
-        ));
-
-        let (auth_icon, auth_text) = auth_line(&draft);
-        let mut body = v_flex()
-            .w_full()
-            .gap_2()
-            .child(surface::glass_group_rows(rows))
-            .child(
-                h_flex()
-                    .px_1()
-                    .gap_1p5()
-                    .items_center()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(gpui_component::Icon::from(auth_icon).with_size(px(14.)))
-                    .child(auth_text),
-            )
-            .child(
-                disclosure_header(
-                    "mcp-edit-advanced",
-                    self.advanced,
-                    ChevronSide::Leading,
-                    div().text_xs().child("Advanced"),
-                    cx,
-                )
-                .px_1()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.advanced = !this.advanced;
-                    cx.notify();
-                })),
-            );
-        if self.advanced {
-            let auth_options = if http {
-                vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET]
-            } else {
-                vec![AUTH_NONE, AUTH_SECRET]
-            };
-            let mut advanced: Vec<Div> = vec![
-                self.choice_row(
-                    "Sign-in",
-                    "mcp-edit-auth",
-                    auth_options,
-                    &self.auth,
-                    |this, value, _cx| this.auth = value.to_string(),
-                    cx,
-                ),
-                self.choice_row(
-                    "Transport",
-                    "mcp-edit-transport",
-                    TRANSPORT_OPTIONS.to_vec(),
-                    &self.transport,
-                    |this, value, _cx| {
-                        this.transport = value.to_string();
-                        // OAuth is an HTTP-only kind; a stdio row falls back.
-                        if this.transport == "stdio" && this.auth == "oauth" {
-                            this.auth = "none".to_string();
-                        }
-                    },
-                    cx,
-                ),
-            ];
-            if !http {
-                advanced.push(self.input_row("Command", &self.command, window, cx));
-                advanced.push(self.input_row("Arguments", &self.args, window, cx));
-            }
-            advanced.push(self.input_row(
-                match (draft.auth == "secret", http) {
-                    (true, true) => "Header that carries the key",
-                    (true, false) => "Variable that carries the key",
-                    (false, true) => "Header names",
-                    (false, false) => "Variable names",
-                },
-                &self.names,
-                window,
-                cx,
-            ));
-            if draft.auth == "oauth" {
-                advanced.push(self.input_row("Scopes", &self.scopes, window, cx));
-            }
-            body = body.child(surface::glass_group_rows(advanced));
-        }
-        // The server's refusal wins over the client-side rule: it is the one
-        // the person has not seen yet.
-        if let Some(message) = self
-            .error
-            .clone()
-            .or_else(|| dialog_line(&draft, &self.touched, self.attempted).map(SharedString::from))
-        {
-            body = body.child(crate::action_error::field_error(message, cx).px_1());
-        }
-
-        let body_scroll = self.body_scroll.clone();
-        v_flex()
-            .size_full()
-            .gap_3()
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .child(
-                        v_flex()
-                            .id("mcp-edit-body-scroll")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&body_scroll)
-                            .child(body),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
-                    ),
-            )
-            .child(self.footer(validation.is_some(), cx))
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        // The window owns the height (resizable): the document fills it.
+        let surface = self.view.clone();
+        div().size_full().min_w_0().on_prepaint(move |bounds, _, cx| {
+            surface.update(cx, |view, cx| view.set_viewport_height(f32::from(bounds.size.height), cx));
+        }).child(self.view.clone())
     }
+}
+
+/// The colours the document needs beyond [`Ink`]: the error ink, the footer
+/// hairline and the outline / primary `Button`s' paints.
+struct Chrome {
+    radius: f32,
+    danger: String,
+    border: String,
+    button_fg: String,
+    button_fill: String,
+    button_stroke: String,
+    button_off_fg: String,
+    primary: String,
+    primary_fg: String,
+    primary_hover: String,
+}
+
+/// One `glass_input_row`: genUI's row Input.
+fn input_row(id: &str, label: Value, placeholder: &str, visible: Value) -> Value {
+    json!({"id": id, "component": "Input", "visible": visible,
+        "props": {"variant": "row", "label": label, "name": id, "placeholder": placeholder, "value": path(&format!("/pane/fields/{id}"))},
+        "on": {"change": {"event": {"name": "edit", "context": {"field": id}}}, "blur": {"event": {"name": "touch", "context": {"field": id}}}, "submit": {"event": {"name": "attempt"}}}})
+}
+
+/// A `web_sm` `Button` (32 px, `px 12`, `text_sm` on a line of 1, the theme
+/// radius; `gap_1` before a glyph).
+#[allow(clippy::too_many_arguments)]
+fn sm_button(ink: &Ink, id: &str, glyph: Option<Value>, label: Value, fill: &str, stroke: Option<&str>, fg: &str, event: &str, radius: f32) -> Value {
+    let size = ink.r(SM);
+    let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}});
+    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
+        "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
+    if let Some(stroke) = stroke {
+        button["style"]["borderWidth"] = json!(1);
+        button["style"]["borderColor"] = json!(stroke);
+    }
+    button
+}
+
+/// The dialog's tree: the rows scroll (the IDE's overlay scrollbar), the
+/// footer stays.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let rule = |id: &str, visible: Value| ink.divider(id, visible);
+    // The first group, web alike: what every server needs.
+    let name = input_row("name", json!("Name"), "linear", json!(true));
+    let url = input_row("url", json!("URL"), "https://mcp.example.com/mcp", path("/pane/http"));
+    let device = select_row("runs_on", super::mcp::SETTINGS_MCP.runs_on_label, "pickers/runsOn", "device", json!({"popupMinWidth": 170}));
+    let toggle = ink.shell("default", false, json!(true), vec![
+        json!({"id": "default_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "flexShrink": 1, "minWidth": 0}, "children": [ink.text("default_label", json!(domain::skills::DEFAULT_LABEL), SM, &ink.foreground)]}),
+        json!({"id": "default_switch", "component": "Switch", "props": {"label": "", "name": "enabledByDefault", "checked": path("/pane/enabled")}, "on": {"change": {"event": {"name": "toggle"}}}}),
+    ]);
+    let first = ink.group("group", vec![name, rule("url_rule", path("/pane/http")), url, rule("device_rule", json!(true)), device, rule("default_rule", json!(true)), toggle]);
+
+    // How members get in (web `mcpAuthLine`).
+    let auth_line = json!({"id": "auth_line", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.25)},
+        "children": [
+            {"id": "auth_icon", "component": "Icon", "props": {"name": path("/pane/authIcon")}, "style": {"width": 14, "height": 14, "color": ink.muted, "flexShrink": 0}},
+            ink.text("auth_text", path("/pane/authText"), XS, &ink.muted),
+        ]});
+
+    // The Advanced fold (`disclosure_header`, chevron leading): muted at
+    // rest, the whole line brightening under the pointer. A node's `:hover`
+    // can't reach its children and Text / Icon take their ink from their
+    // own recipes, so the bright face is a layer over the muted one that
+    // only shows while it is hovered; it also carries the press.
+    let size = ink.r(XS);
+    let face = |id: &str, color: &str| {
+        let glyph = |suffix: &str, icon: &str, visible: Value| json!({"id": format!("{id}_{suffix}"), "component": "Icon", "visible": visible, "props": {"name": icon}, "style": {"width": size, "height": size, "color": color, "flexShrink": 0}});
+        vec![
+            glyph("closed", "ui-chevron-right", path("/pane/advancedClosed")),
+            glyph("open", "ui-chevron-down", path("/pane/advanced")),
+            json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": "Advanced"}, "style": {"fontSize": size, "lineHeight": size * LINE, "color": color}}),
+        ]
+    };
+    let hover = json!({"id": "advanced_hover", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Advanced"}, "on": {"press": {"event": {"name": "advanced"}}},
+        "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.25), "cursor": "pointer", "opacity": 0, ":hover": {"opacity": 1}},
+        "children": face("advanced_bright", &ink.foreground)});
+    let mut children = face("advanced_muted", &ink.muted);
+    children.push(hover);
+    let fold = json!({"id": "advanced_toggle", "component": "Box",
+        "style": {"position": "relative", "display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.25)},
+        "children": children});
+
+    // Behind the fold: how it signs in, how it runs, the transport's fields.
+    let stdio = path("/pane/stdio");
+    let oauth = path("/pane/oauth");
+    let auth = select_row("sign_in", "Sign-in", "pickers/signIn", "auth", json!({"popupMinWidth": 170}));
+    let transport = select_row("transport", "Transport", "pickers/transport", "transport", json!({"popupMinWidth": 170}));
+    let command = input_row("command", json!("Command"), "npx", stdio.clone());
+    let args = input_row("args", json!("Arguments"), "-y @acme/mcp", stdio.clone());
+    let names = input_row("names", path("/pane/namesLabel"), "X-Api-Key", json!(true));
+    let scopes = input_row("scopes", json!("Scopes"), "read", oauth.clone());
+    let mut more = ink.group("advanced", vec![
+        auth, rule("transport_rule", json!(true)), transport,
+        rule("command_rule", stdio.clone()), command, rule("args_rule", stdio), args,
+        rule("names_rule", json!(true)), names, rule("scopes_rule", oauth), scopes,
+    ]);
+    more["visible"] = path("/pane/advanced");
+
+    let error = json!({"id": "error_row", "component": "Box", "visible": path("/pane/hasError"), "style": {"paddingHorizontal": ink.r(0.25), "width": "100%"},
+        "children": [{"id": "error", "component": "Text", "props": {"text": path("/pane/error")}, "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}}]});
+
+    let body = json!({"id": "body", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%"},
+        "children": [first, auth_line, fold, more, error]});
+    let scroller = json!({"id": "body_scroll", "component": "Box", "style": {"flexGrow": 1, "flexShrink": 1, "minHeight": 0, "width": "100%", "overflowY": "auto"}, "children": [body]});
+
+    // The footer: Cancel, then the primary (its face per state: a press on
+    // the disabled one counts as trying to submit).
+    let cancel = {
+        let mut button = sm_button(ink, "cancel", None, json!("Cancel"), &chrome.button_fill, Some(&chrome.button_stroke), &chrome.button_fg, "cancel", chrome.radius);
+        button["visible"] = not(path("/pane/busy"));
+        button
+    };
+    let cancel_off = {
+        let mut button = sm_button(ink, "cancel_off", None, json!("Cancel"), "#00000000", Some(&chrome.button_stroke), &chrome.button_off_fg, "cancel", chrome.radius);
+        button["visible"] = path("/pane/busy");
+        button["props"]["pressable"] = json!(false);
+        button["style"]["cursor"] = json!("default");
+        // The wash and the stroke at half (`Button::disabled`, outline).
+        button["style"]["position"] = json!("relative");
+        button["style"]["borderColor"] = json!("#00000000");
+        button["children"].as_array_mut().expect("the button's children").insert(0, json!({"id": "cancel_off_fill", "component": "Box",
+            "style": {"position": "absolute", "top": -1, "left": -1, "right": -1, "bottom": -1, "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.button_stroke, "backgroundColor": chrome.button_fill, "opacity": 0.5}}));
+        button
+    };
+    let mut primary = sm_button(ink, "primary", None, path("/pane/primary"), &chrome.primary, None, &chrome.primary_fg, "submit", chrome.radius);
+    primary["visible"] = path("/pane/on");
+    primary["style"][":hover"] = json!({"backgroundColor": chrome.primary_hover});
+    let off = |id: &str, glyph: Option<Value>, visible: Value| {
+        let mut button = sm_button(ink, id, glyph, path("/pane/primary"), "#00000000", None, &chrome.primary_fg, "attempt", chrome.radius);
+        button["visible"] = visible;
+        button["style"]["cursor"] = json!("default");
+        button["style"]["position"] = json!("relative");
+        button["children"].as_array_mut().expect("the button's children").insert(0, json!({"id": format!("{id}_fill"), "component": "Box",
+            "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": chrome.radius, "backgroundColor": chrome.primary, "opacity": 0.5}}));
+        button
+    };
+    let row = json!({"id": "footer_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "flex-end", "gap": ink.r(0.5), "paddingTop": ink.r(0.75)},
+        "children": [cancel, cancel_off, primary, off("primary_off", None, path("/pane/off")), off("primary_busy", None, path("/pane/busy"))]});
+    let footer = json!({"id": "footer", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0, "width": "100%"},
+        "children": [{"id": "footer_rule", "component": "Box", "style": {"height": 1, "flexShrink": 0, "backgroundColor": chrome.border}}, row]});
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "width": "100%", "height": "100%", "minWidth": 0}, "children": [scroller, footer]})
 }
 
 #[cfg(test)]

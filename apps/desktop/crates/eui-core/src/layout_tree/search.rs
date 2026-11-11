@@ -12,8 +12,9 @@
 //! - A searchable Menu submenu: the same head + list + fade around the
 //!   submenu's entries (`menuItem.searchable`).
 //! - `Skeleton` rows (feedback-states.json `placeholder`): `rows` × a `row`
-//!   (the row height) of a `dot` and two `bar`s, hairline-divided; the dot
-//!   and bars are `Skeleton` leaves, so every painter's pulse applies.
+//!   (the row height) of a `dot` and two `bar`s, borderless (the web app's
+//!   flat rows, fixtures/skeleton-rows.json); the dot and bars are
+//!   `Skeleton` leaves, so every painter's pulse applies.
 
 use serde_json::{json, Value};
 
@@ -167,7 +168,7 @@ impl Builder<'_, '_> {
             .into_iter()
             .enumerate()
             .filter(|(_, it)| !matches!(it.get("kind").and_then(Value::as_str), Some("separator" | "label")))
-            .filter(|(_, it)| search_matches(&it.get("label").map(js).unwrap_or_default(), "", &query))
+            .filter(|(_, it)| search_matches(&it.get("label").map(js).unwrap_or_default(), &it.get("identifier").map(js).unwrap_or_default(), &query))
             .collect();
         let placeholder = str_prop(item.as_object().unwrap_or(&serde_json::Map::new()), "placeholder").map(str::to_string).unwrap_or_else(|| self.string("search"));
         let count = (!query.trim().is_empty()).then_some(entries.len());
@@ -193,11 +194,10 @@ impl Builder<'_, '_> {
                 self.add_state(row, "disabled");
             }
             let mut label_props = json!({"text": label, "lines": 1});
-            if let Some(icon) = entry.get("icon") {
-                label_props["icon"] = icon.clone();
-            }
+            self.menu_row_lead(row, owner, entry, &row_suffix, &mut label_props);
             let l = self.part_in(row, owner, "itemLabel", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), label_props, &row_suffix);
             self.nodes[l as usize].part_query = None;
+            self.menu_row_detail(row, owner, entry, &row_suffix);
             if kind == "checkbox" && entry.get("checked").and_then(Value::as_bool) == Some(true) {
                 let glyph = format!("{}.check", owner.component);
                 self.icon_part(row, owner, "check", &glyph, &row_suffix);
@@ -251,11 +251,8 @@ impl Builder<'_, '_> {
         for r in 0..rows {
             let suffix = format!(".{r}");
             // The ROW height (the recipe only spaces the row): `rowHeight`, else `$control.row`.
-            let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "height": height.map(|h| json!(h)).unwrap_or_else(|| json!("$control.row"))});
-            if r > 0 {
-                style["borderTopWidth"] = json!("$border.hairline");
-                style["borderColor"] = json!("$color.border");
-            }
+            // Borderless: no rule between rows (fixtures/skeleton-rows.json `row.hairline`).
+            let style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "height": height.map(|h| json!(h)).unwrap_or_else(|| json!("$control.row"))});
             let row = self.part_in(index, &owner, "row", "Box", NodeKind::Container, style, json!({}), &suffix);
             let leaf = |b: &mut Self, part: &str, style: Value, suffix: &str| b.part_in(row, &owner, part, "Skeleton", NodeKind::Leaf, style, json!({}), suffix);
             if dot {

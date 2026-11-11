@@ -5,6 +5,18 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `triggerVariant: "inline"` (#EXP-1629): through the React renderer.
+- Select `button` popup keeps its starting cursor (#EXP-1629): through the React renderer.
+- Select `button` popup matches web's picker (#EXP-1629): through the React renderer.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): through the React renderer.
+- Select option `hint` (#EXP-1629): through the React renderer.
+- Select `button` trigger glyph (#EXP-1629): through the React renderer.
+- Select `row` disabled (#EXP-1629): through the React renderer.
+- Select option `iconColor` (#EXP-1629): through the React renderer.
+- Menu item `iconColor` (#EXP-1629): through the React renderer.
+- Skeleton `rows` (#EXP-1629): no hairline between rows, through the React renderer.
+- Select `multiple` joined rows (#EXP-1629): through the React renderer.
+- Popover `matchAnchorWidth` (through the Solid renderer); the harness's overlay view passes the fixture's `matchAnchorWidth` / `contentWidth`.
 - `ColorPicker` 28 px cells, `inline`, child trigger (#EXP-1775): through the React renderer.
 - Select `triggerIcon` + the `brand-claude` / `brand-codex` marks (#EXP-1764): through the React renderer.
 - `IconPicker` + `ColorPicker` (#EXP-1760) through the Solid painter.

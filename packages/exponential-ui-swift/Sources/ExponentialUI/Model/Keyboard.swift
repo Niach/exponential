@@ -20,8 +20,35 @@ extension SurfaceModel {
     /// The Tab order in force: the top interactive layer's (the focus trap),
     /// else the main tree's.
     public func focusOrder() -> [Int] {
-        if let top = layers.last(where: \.isInteractive) { return focusOrder(in: top) }
+        if let top = layers.last(where: takesFocus) { return focusOrder(in: top) }
         return Self.focusOrder(nodes: nodes, paintOrder: order, layer: 0)
+    }
+
+    /// An interactive layer that takes the focus, the Tab order and Escape:
+    /// #EXP-1629 never a Menu item's `preview` (beside its row while hovered
+    /// or highlighted; the menu under it keeps them, gpui `passive_layer`).
+    func takesFocus(_ layer: LayerInfo) -> Bool {
+        guard layer.isInteractive else { return false }
+        guard let root = node(layer.root) else { return true }
+        return !(root.ownerComponent == "Menu" && root.part == "preview")
+    }
+
+    /// #EDE-65 (interactions-round1.json typeaheadFocus): a Popover whose
+    /// `anchor` (the node it linked as its trigger) is a text field (a
+    /// Composer, an Input, a Textarea: the node itself or its `field` part)
+    /// is a TYPEAHEAD: opening it never moves the focus (the field keeps it
+    /// and its caret) and closing it returns the focus nowhere. It keeps
+    /// Escape and the Tab order (gpui `Surface::is_typeahead`).
+    func isTypeahead(_ layer: LayerInfo) -> Bool {
+        guard layer.kind == "Popover", let owner = node(id: layer.owner), owner.component == "Popover",
+              !owner.props.str("anchor").isEmpty,
+              let anchor = trigger(of: layer.owner) else { return false }
+        return Self.isFieldAnchor(anchor.part == nil ? anchor.component : (anchor.ownerComponent ?? anchor.component), anchor.part)
+    }
+
+    /// `is_field_anchor` (Rust) / `isFieldAnchor` (TS).
+    static func isFieldAnchor(_ component: String, _ part: String?) -> Bool {
+        ["Composer", "Input", "Textarea"].contains(component) && (part == nil || part == "root" || part == "field")
     }
 
     func focusOrder(in layer: LayerInfo) -> [Int] {

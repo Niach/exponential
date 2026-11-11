@@ -10,19 +10,20 @@
 // motion). A trigger slot is wrapped in an inline-flex span so Radix
 // measures the slot's own box and the slot's painter keeps its element.
 
-import { Fragment, forwardRef, type ComponentType, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, forwardRef, type ComponentType, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
-import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
+import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Slot, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
-import { absolutePath, isPickerPopover } from "@exponential_app/eui/web"
+import { findAnchor, isFieldAnchorElement, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
+import { absolutePath, isPickerPopover, propColor, popoverPanelWidth } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 import { SearchBody, searchMatches } from "./search"
+import { MenuPreviewContext, MenuPreviewPanel, anyPreview, hasPreview, insidePreview, menuModalityProps, useMenuPreview, useMenuPreviewRow } from "./menu-preview"
 
 /** A Radix Portal into the overlay layer, or (EXP-1673, `inlineOverlays`)
  *  no portal: the content paints in place. */
@@ -324,12 +325,16 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const outside = useRef(false)
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `dialog`, toggle: () => setOpen(!openRef.current), hover: { active: () => hoverModeRef.current, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchored = !!anchorId
+  // #EDE-65 typeaheadFocus: anchored on a text field = a typeahead: opening
+  // it never takes the focus from the field, closing it returns it nowhere.
+  const typeahead = anchored && isFieldAnchorElement(anchor.el)
   const [triggerEl, setTriggerEl] = useState<Element | null>(null)
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
   const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
   useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
+  const panelWidth = popoverPanelWidth(props, `--radix-popover-trigger-width`)
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
@@ -359,7 +364,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           dir={ctx.direction}
           // #EXP-1760: a picker opens with the focus on its panel (Tab walks
           // the grid), not a focus ring on its first cell (the IDE's look).
-          onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
+          onOpenAutoFocus={hoverMode || typeahead ? (e) => e.preventDefault() : isPickerPopover(node.recipe) ? (e) => { e.preventDefault(); contentRef.current?.focus() } : undefined}
           // VAPP-276: a press on the anchor is its toggle, not an outside
           // press; a press or focus in ANOTHER open overlay (a second panel
           // applet) dismisses nothing (the core's rule); a close that did not
@@ -372,13 +377,16 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
             anchored
               ? (e) => {
                   e.preventDefault()
-                  if (!outside.current && !hoverMode) anchor.el?.focus()
+                  if (!outside.current && !hoverMode && !typeahead) anchor.el?.focus()
                   outside.current = false
                 }
               : undefined
           }
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
+          // `matchAnchorWidth`: exactly the anchor's (else the trigger's)
+          // width, Radix's anchor-width variable (re-measured on a resize).
+          style={panelWidth ? { width: panelWidth } : undefined}
         >
           {/* The nearest overlay decides: a Form in a Popover closes nothing,
               not even a Dialog around the Popover. */}
@@ -456,6 +464,8 @@ export interface MenuItem {
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
   icon?: string
+  /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
+  iconColor?: string
   shortcut?: string
   checked?: boolean
   destructive?: boolean
@@ -465,6 +475,11 @@ export interface MenuItem {
   /** EXP-1259: the submenu is a search list of its entries. */
   searchable?: boolean
   placeholder?: string
+  /** #EXP-1629: a mono id before the label, muted text after it, a nested
+   *  surface beside the row while hovered or highlighted. */
+  identifier?: string
+  detail?: string
+  preview?: unknown
 }
 
 /** EXP-1259: a searchable submenu = the search list (head, the entries that
@@ -483,8 +498,8 @@ function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string;
   }, [])
   const rows = objects<MenuItem>(item.items)
     .map((entry, index) => ({ index, entry }))
-    .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label) }, query))
-    .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, disabled: bool(entry.disabled) } }))
+    .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label), identifier: entry.identifier }, query))
+    .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, iconColor: entry.iconColor, identifier: entry.identifier, detail: entry.detail, disabled: bool(entry.disabled) } }))
   return (
     <div
       ref={box}
@@ -514,8 +529,10 @@ function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string;
         rowPart={(_, __, active) => part(`item`, active && `selected`) as Record<string, string>}
         renderRow={(row) => (
           <>
-            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} /> : null}
+            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} style={propColor(row.iconColor) ? { color: propColor(row.iconColor) } : undefined} /> : null}
+            {typeof row.identifier === `string` && row.identifier ? <span {...(part(`identifier`) as Record<string, string>)}>{row.identifier}</span> : null}
             <span className="xui-menu-label">{row.label}</span>
+            {typeof row.detail === `string` && row.detail ? <span {...(part(`detail`) as Record<string, string>)}>{row.detail}</span> : null}
           </>
         )}
       />
@@ -525,6 +542,13 @@ function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string;
 
 type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
 
+/** #EXP-1629: a row's preview tracking (pointer, keyboard highlight) handed
+ *  to its ONE Radix item child (Slot merges the handlers and the ref). */
+function PreviewRow({ at, has, children }: { at: string; has: boolean; children: ReactNode }) {
+  const row = useMenuPreviewRow(at, has)
+  return <Slot.Root {...row}>{children}</Slot.Root>
+}
+
 /** The entries, shared by both openings. A submenu's `items` may be a
  *  binding (`{path}` to rows a host source feeds): the bind pass resolved it
  *  already, so it renders like a literal one. */
@@ -532,13 +556,19 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
   const ctx = useSurfaceContext()
   const raws = objects<Record<string, unknown>>(rawItems)
   const N = ns as typeof MenuPrimitive
+  const previewApi = useContext(MenuPreviewContext)
+  const menuModality = previewApi ? menuModalityProps(previewApi) : {}
   return (
     <>
       {items.map((item, i) => {
         const kind = item.separator ? `separator` : (item.kind ?? `item`)
         const key = `${path}${i}`
-        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} /> : null
+        const icon = item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} style={propColor(item.iconColor) ? { color: propColor(item.iconColor) } : undefined} /> : null
         const shortcut = item.shortcut ? <span {...(part(`shortcut`) as Record<string, string>)}>{item.shortcut}</span> : null
+        // #EXP-1629: the mono id between the icon and the label, the muted
+        // detail after the label (before the shortcut / the indicator).
+        const identifier = typeof item.identifier === `string` && item.identifier ? <span {...(part(`identifier`) as Record<string, string>)}>{item.identifier}</span> : null
+        const detail = typeof item.detail === `string` && item.detail ? <span {...(part(`detail`) as Record<string, string>)}>{item.detail}</span> : null
         if (kind === `separator`) return <N.Separator key={key} {...(part(`separator`) as Record<string, string>)} />
         if (kind === `label`) return <N.Label key={key} {...(part(`label`) as Record<string, string>)}>{str(item.label)}</N.Label>
         if (kind === `submenu`) {
@@ -546,7 +576,9 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
             <N.Sub key={key}>
               <N.SubTrigger {...(part(`item`, bool(item.disabled) && `disabled`) as Record<string, string>)} disabled={bool(item.disabled)}>
                 {icon}
+                {identifier}
                 <span className="xui-menu-label">{str(item.label)}</span>
+                {detail}
                 <span {...(part(`submenuIndicator`) as Record<string, string>)}>
                   <BuiltinIcon slot="Menu.submenuIndicator" />
                 </span>
@@ -554,6 +586,9 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
               <OverlayPortal as={N.Portal}>
                 <N.SubContent
                   {...(part(`content`) as Record<string, string>)}
+                  {...menuModality}
+                  onPointerDownOutside={insidePreview}
+                  onFocusOutside={insidePreview}
                   sideOffset={2}
                   collisionPadding={OVERLAY_PADDING}
                   data-xui-overlay={`${overlay}.sub`}
@@ -572,8 +607,8 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
         if (kind === `checkbox`) {
           const raw = raws[i]?.checked
           return (
+            <PreviewRow key={key} at={key} has={hasPreview(item)}>
             <N.CheckboxItem
-              key={key}
               {...(part(`item`, bool(item.disabled) && `disabled`, bool(item.checked) && `checked`) as Record<string, string>)}
               checked={bool(item.checked)}
               disabled={bool(item.disabled)}
@@ -589,17 +624,25 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
                   <BuiltinIcon slot="Menu.check" />
                 </N.ItemIndicator>
               </span>
+              {icon}
+              {identifier}
               <span className="xui-menu-label">{str(item.label)}</span>
+              {detail}
               {shortcut}
             </N.CheckboxItem>
+            </PreviewRow>
           )
         }
         return (
-          <N.Item key={key} {...(part.with(`item`, { destructive: bool(item.destructive) }, bool(item.disabled) && `disabled`) as Record<string, string>)} disabled={bool(item.disabled)} data-destructive={item.destructive ? `true` : undefined} onSelect={() => void emit(`select`, { value: item.value ?? item.label })}>
+          <PreviewRow key={key} at={key} has={hasPreview(item)}>
+          <N.Item {...(part.with(`item`, { destructive: bool(item.destructive) }, bool(item.disabled) && `disabled`) as Record<string, string>)} disabled={bool(item.disabled)} data-destructive={item.destructive ? `true` : undefined} onSelect={() => void emit(`select`, { value: item.value ?? item.label })}>
             {icon}
+            {identifier}
             <span className="xui-menu-label">{str(item.label)}</span>
+            {detail}
             {shortcut}
           </N.Item>
+          </PreviewRow>
         )
       })}
     </>
@@ -638,7 +681,9 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
   const hosted = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
   useCloseOnAnchorLost(open, anchored && anchor.el ? anchor.el : triggerEl, () => setOpen(false))
+  const preview = useMenuPreview(open)
   return (
+    <MenuPreviewContext.Provider value={anyPreview(items) ? preview : null}>
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, anchored && !child ? null : true, child)}>
         {anchored ? (
@@ -665,11 +710,13 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
         )}
       </div>
       <OverlayPortal as={MenuPrimitive.Portal} hosted={hosted}>
-        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...(anchored ? { id: contentId } : {})} side={side} align={align} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
+        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...(anchored ? { id: contentId } : {})} {...menuModalityProps(preview)} onPointerDownOutside={insidePreview} onFocusOutside={insidePreview} side={side} align={align} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
           <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={() => setOpen(false)} />
         </MenuPrimitive.Content>
       </OverlayPortal>
+      {open ? <MenuPreviewPanel api={preview} items={items} part={part} emit={emit} /> : null}
     </MenuPrimitive.Root>
+    </MenuPreviewContext.Provider>
   )
 }
 
@@ -685,7 +732,9 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLDivElement | null>(null)
   useCloseOnAnchorLost(open, open ? triggerRef.current : null, closeContextMenu)
+  const preview = useMenuPreview(open)
   return (
+    <MenuPreviewContext.Provider value={anyPreview(items) ? preview : null}>
     <ContextPrimitive.Root onOpenChange={setOpen} dir={ctx.direction}>
       <ContextPrimitive.Trigger asChild>
         <div
@@ -704,11 +753,13 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
         </div>
       </ContextPrimitive.Trigger>
       <OverlayPortal as={ContextPrimitive.Portal}>
-        <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
+        <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...menuModalityProps(preview)} onPointerDownOutside={insidePreview} onFocusOutside={insidePreview} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
           <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={closeContextMenu} />
         </ContextPrimitive.Content>
       </OverlayPortal>
+      {open ? <MenuPreviewPanel api={preview} items={items} part={part} emit={emit} /> : null}
     </ContextPrimitive.Root>
+    </MenuPreviewContext.Provider>
   )
 }
 

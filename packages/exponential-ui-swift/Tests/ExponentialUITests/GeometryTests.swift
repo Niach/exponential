@@ -96,6 +96,35 @@ final class GeometryTests: XCTestCase {
         XCTAssertFalse(m.layers.contains { $0.owner == "startMenu" }, "the anchor toggles it closed")
     }
 
+    /// Popover `matchAnchorWidth` (overlay-geometry.json's `matchAnchorWidth`
+    /// cases through the core's layer manager): the content is painted at
+    /// `contentWidth`, the panel is EXACTLY the anchor's (a trigger, or an
+    /// `anchor` by id) and lands where the fixture records.
+    func testMatchAnchorWidthCasesPlaceThePanelAtTheAnchorsWidth() throws {
+        let cases = (try Fixtures.json("overlay-geometry.json")["cases"]?.array ?? []).filter { $0["matchAnchorWidth"]?.bool == true }
+        XCTAssertGreaterThan(cases.count, 1)
+        for c in cases {
+            let name = c["name"]?.string ?? ""
+            let a = c["anchor"]!, s = c["size"]!, v = c["viewport"]!, e = c["expected"]!
+            let (ax, ay, aw, ah) = (a["x"]!.number!, a["y"]!.number!, a["width"]!.number!, a["height"]!.number!)
+            let (vw, vh) = (v["width"]!.number!, v["height"]!.number!)
+            let side = c["side"]!.string!, align = c["align"]?.string ?? "center"
+            let content = #"[{"id": "content", "component": "Box", "style": {"width": \#(c["contentWidth"]!.number!), "height": \#(s["height"]!.number!)}}]"#
+            let at = #"{"position": "absolute", "left": \#(ax), "top": \#(ay), "width": \#(aw), "height": \#(ah)}"#
+            let children = c["byId"]?.bool == true
+                ? #"[{"id": "panelButton", "component": "Box", "style": \#(at)}, {"id": "pop", "component": "Popover", "props": {"open": true, "side": "\#(side)", "align": "\#(align)", "anchor": "panelButton", "matchAnchorWidth": true}, "children": \#(content)}]"#
+                : #"[{"id": "pop", "component": "Popover", "props": {"open": true, "side": "\#(side)", "align": "\#(align)", "matchAnchorWidth": true}, "style": \#(at), "slots": {"trigger": {"id": "anchor", "component": "Box", "style": {"width": \#(aw), "height": \#(ah)}}}, "children": \#(content)}]"#
+            let m = try makeModel("match", theme: nil, width: CGFloat(vw), fixed: true)
+            m.setViewport(width: CGFloat(vw), height: CGFloat(vh))
+            try m.setNested(json: #"{"id": "root", "component": "Box", "style": {"position": "relative", "width": \#(vw), "height": \#(vh), "overflow": "hidden"}, "children": \#(children)}"#)
+            let layer = try XCTUnwrap(m.layers.first { $0.owner == "pop" }, name)
+            XCTAssertEqual(layer.placementSide, e["side"]!.string!, name)
+            XCTAssertEqual(Double(layer.anchorFrame?.width ?? 0), aw, accuracy: 0.01, "\(name): the anchor")
+            XCTAssertEqual(Double(layer.frame.width), aw, accuracy: 0.01, "\(name): the anchor's width")
+            XCTAssertEqual(Double(layer.frame.minX), e["x"]!.number!, accuracy: 0.01, "\(name): x")
+        }
+    }
+
     /// VAPP-281: with `hostedPopups` an anchored Popover leaves the 44 pt
     /// panel surface (unclipped, above it, end-aligned): the surface paints
     /// none of it while a popup host shows it, the host hears it (side,

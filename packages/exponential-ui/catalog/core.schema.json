@@ -14,7 +14,7 @@
   "components": {
     "Box": {
       "type": "object",
-      "description": "Container laid out by its whitelisted style; every macro expands into it. `hover` fires on pointer enter.",
+      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
       "properties": {
         "component": {
           "const": "Box"
@@ -58,7 +58,7 @@
     },
     "Stack": {
       "type": "object",
-      "description": "Flex container: children in one direction with a gap.",
+      "description": "Flex: children in one direction with a gap.",
       "properties": {
         "component": {
           "const": "Stack"
@@ -269,7 +269,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "Unset: `center` in a row, `stretch` in a column."
+          "description": "Unset: row `center`, column `stretch`."
         },
         "justify": {
           "oneOf": [
@@ -386,7 +386,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "Children wrap onto new lines.",
+          "description": "Children wrap.",
           "default": false
         },
         "style": {
@@ -416,7 +416,7 @@
     },
     "Grid": {
       "type": "object",
-      "description": "Equal-column grid for cards and tiles.",
+      "description": "Equal columns of cards or tiles.",
       "properties": {
         "component": {
           "const": "Grid"
@@ -451,7 +451,7 @@
               "additionalProperties": false
             }
           ],
-          "description": "Equal columns 1–6 (`{base: 1, md: 2, lg: 3}`).",
+          "description": "1–6 (`{base: 1, md: 2, lg: 3}`).",
           "default": 2
         },
         "gap": {
@@ -571,7 +571,7 @@
         },
         "padded": {
           "type": "boolean",
-          "description": "Pads the body; off = edge-to-edge rows.",
+          "description": "Off = edge-to-edge rows.",
           "default": true
         },
         "style": {
@@ -612,7 +612,7 @@
     },
     "Window": {
       "type": "object",
-      "description": "Window frame: three-dot chrome bar (optional caption) over one child filling the body.",
+      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
       "properties": {
         "component": {
           "const": "Window"
@@ -648,7 +648,7 @@
     },
     "Separator": {
       "type": "object",
-      "description": "Hairline that divides content.",
+      "description": "Dividing hairline.",
       "properties": {
         "component": {
           "const": "Separator"
@@ -685,7 +685,7 @@
     },
     "List": {
       "type": "object",
-      "description": "Windowed list for anything past a screen; children may come from a data template.",
+      "description": "Windowed list for anything past a screen; children may be a data template.",
       "properties": {
         "component": {
           "const": "List"
@@ -717,11 +717,11 @@
         },
         "sectionBy": {
           "type": "string",
-          "description": "Groups runs of items by this field; slot `section` = header ({value, count})."
+          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
         },
         "stickyHeaders": {
           "type": "boolean",
-          "description": "Pins the current section header.",
+          "description": "Pins the current header.",
           "default": false
         },
         "style": {
@@ -758,7 +758,7 @@
     },
     "Resizable": {
       "type": "object",
-      "description": "Panels split by drag handles; each child is a panel.",
+      "description": "Panels split by drag handles, one per child.",
       "properties": {
         "component": {
           "const": "Resizable"
@@ -876,7 +876,7 @@
     },
     "ScrollArea": {
       "type": "object",
-      "description": "Scrolling region of bounded height or width.",
+      "description": "Scroll region of bounded height or width.",
       "properties": {
         "component": {
           "const": "ScrollArea"
@@ -892,7 +892,7 @@
         },
         "maxHeight": {
           "type": "number",
-          "description": "Px before it scrolls; omit to fill the parent."
+          "description": "Px before scrolling; omit = fill the parent."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -921,7 +921,7 @@
     },
     "Sidebar": {
       "type": "object",
-      "description": "Shell: nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
+      "description": "Shell: nav column (`sidebar` slot) beside children.",
       "properties": {
         "component": {
           "const": "Sidebar"
@@ -947,7 +947,7 @@
             "lg",
             "xl"
           ],
-          "description": "Hides it below this breakpoint.",
+          "description": "Hidden below this breakpoint.",
           "default": "md"
         },
         "collapsed": {
@@ -992,7 +992,7 @@
     },
     "SplitView": {
       "type": "object",
-      "description": "List (`list` slot) + detail (children); phones show one, detail with a back button.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with back.",
       "properties": {
         "component": {
           "const": "SplitView"
@@ -1045,7 +1045,7 @@
     },
     "AppBar": {
       "type": "object",
-      "description": "Top bar: title, optional subtitle and back button.",
+      "description": "Screen top bar.",
       "properties": {
         "component": {
           "const": "AppBar"
@@ -1100,7 +1100,7 @@
     },
     "Page": {
       "type": "object",
-      "description": "Screen: an AppBar row over a padded scrolling body.",
+      "description": "Screen: AppBar row over a padded scrolling body.",
       "properties": {
         "component": {
           "const": "Page"
@@ -1120,7 +1120,7 @@
         },
         "padded": {
           "type": "boolean",
-          "description": "Pads the body; off = edge-to-edge lists.",
+          "description": "Off = edge-to-edge lists.",
           "default": true
         },
         "children": {
@@ -1163,7 +1163,7 @@
     },
     "Toolbar": {
       "type": "object",
-      "description": "Controls in one row, bottom-aligned, wrapping on phones; `trailing` = end action.",
+      "description": "One row of controls, bottom-aligned, wraps on phones; `trailing` = end action.",
       "properties": {
         "component": {
           "const": "Toolbar"
@@ -1212,7 +1212,7 @@
     },
     "Section": {
       "type": "object",
-      "description": "Band header (foldable, tinted) over hairline-divided rows; no title = rows only.",
+      "description": "Band header over hairline-divided rows; no title = rows only.",
       "properties": {
         "component": {
           "const": "Section"
@@ -1223,7 +1223,7 @@
         },
         "caption": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Muted text after the title."
+          "description": "Muted, after the title."
         },
         "count": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
@@ -1254,6 +1254,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -1847,12 +1848,12 @@
             "danger",
             "info"
           ],
-          "description": "Band's colour tone.",
+          "description": "Band tone.",
           "default": "neutral"
         },
         "tree": {
           "type": "boolean",
-          "description": "Rows form a tree: `Row.depth` indents and draws guides.",
+          "description": "Rows are a tree: `Row.depth` indents, draws guides.",
           "default": false
         },
         "loading": {
@@ -1900,7 +1901,7 @@
     },
     "Group": {
       "type": "object",
-      "description": "Rounded group of form rows, optional title and footnote.",
+      "description": "Rounded group of form rows.",
       "properties": {
         "component": {
           "const": "Group"
@@ -1911,7 +1912,7 @@
         },
         "footer": {
           "type": "string",
-          "description": "Note under the group."
+          "description": "Note under it."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -1939,7 +1940,7 @@
     },
     "Text": {
       "type": "object",
-      "description": "Text in one type style; prefer components over inline markdown.",
+      "description": "One type style; prefer components over inline markdown.",
       "properties": {
         "component": {
           "const": "Text"
@@ -1967,11 +1968,18 @@
             "center",
             "end"
           ],
-          "description": "Horizontal alignment in its box."
+          "description": "Horizontal, in its box."
         },
         "lines": {
           "type": "number",
           "description": "Truncates to this many lines with an ellipsis."
+        },
+        "truncate": {
+          "enum": [
+            "end",
+            "middle"
+          ],
+          "description": "One line; `middle` keeps the start and end (start…end)."
         },
         "tone": {
           "enum": [
@@ -1986,7 +1994,7 @@
         },
         "shimmer": {
           "type": "boolean",
-          "description": "Highlight sweeps the text while work runs.",
+          "description": "Highlight sweep while working.",
           "default": false
         },
         "live": {
@@ -2024,7 +2032,7 @@
     },
     "Heading": {
       "type": "object",
-      "description": "Section or page heading, four levels.",
+      "description": "Section or page heading.",
       "properties": {
         "component": {
           "const": "Heading"
@@ -2068,7 +2076,7 @@
     },
     "Markdown": {
       "type": "object",
-      "description": "GitHub-flavoured markdown, for prose.",
+      "description": "GitHub-flavoured markdown prose.",
       "properties": {
         "component": {
           "const": "Markdown"
@@ -2082,7 +2090,7 @@
             "document",
             "inline"
           ],
-          "description": "`inline` = a text run (no outer gap; paragraphs in `variant`'s type), `document` = full prose.",
+          "description": "`inline` = a text run (no outer gap, `variant` paragraphs); `document` = full prose.",
           "default": "document"
         },
         "variant": {
@@ -2090,7 +2098,7 @@
             "body",
             "caption"
           ],
-          "description": "Paragraph type of the inline profile.",
+          "description": "Inline profile's paragraph type.",
           "default": "body"
         },
         "lines": {
@@ -2123,7 +2131,7 @@
     },
     "CodeBlock": {
       "type": "object",
-      "description": "Mono source code: syntax colouring, line numbers, copy button.",
+      "description": "Mono source code.",
       "properties": {
         "component": {
           "const": "CodeBlock"
@@ -2165,7 +2173,7 @@
         },
         "wrap": {
           "type": "boolean",
-          "description": "Wraps long lines instead of side-scrolling.",
+          "description": "Wraps long lines (else side-scrolls).",
           "default": false
         },
         "copyable": {
@@ -2178,7 +2186,7 @@
           "items": {
             "type": "number"
           },
-          "description": "1-based line numbers to emphasise."
+          "description": "1-based lines to emphasise."
         },
         "maxLines": {
           "type": "number",
@@ -2235,14 +2243,14 @@
     },
     "Kbd": {
       "type": "object",
-      "description": "Keyboard shortcut drawn as a key cap.",
+      "description": "Shortcut as a key cap.",
       "properties": {
         "component": {
           "const": "Kbd"
         },
         "keys": {
           "type": "string",
-          "description": "Shortcut text (`⌘K`, `Ctrl+Shift+P`)."
+          "description": "`⌘K`, `Ctrl+Shift+P`."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -2269,14 +2277,14 @@
     },
     "KbdGroup": {
       "type": "object",
-      "description": "Key chord: one Kbd cap per key.",
+      "description": "Key chord: a Kbd cap per key.",
       "properties": {
         "component": {
           "const": "KbdGroup"
         },
         "keys": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "Keys in order (`⌘`, `K`)."
+          "description": "In order (`⌘`, `K`)."
         },
         "style": {
           "$ref": "#/$defs/Style"
@@ -2303,7 +2311,7 @@
     },
     "Label": {
       "type": "object",
-      "description": "Caption for an unlabelled control, optional required mark.",
+      "description": "Caption for an unlabelled control.",
       "properties": {
         "component": {
           "const": "Label"
@@ -2314,7 +2322,7 @@
         },
         "for": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "Id of the control it labels."
+          "description": "The control it labels."
         },
         "required": {
           "type": "boolean",
@@ -2408,6 +2416,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -2980,7 +2989,7 @@
             "x",
             "zap"
           ],
-          "description": "Icon when the picture fails or is missing."
+          "description": "Icon if missing or failed."
         },
         "loading": {
           "enum": [
@@ -2992,11 +3001,11 @@
         },
         "focalX": {
           "type": "number",
-          "description": "Focal x 0..1 kept on crop (0.5)."
+          "description": "0..1 kept on crop (0.5)."
         },
         "focalY": {
           "type": "number",
-          "description": "Focal y 0..1 kept on crop (0.5)."
+          "description": "0..1 kept on crop (0.5)."
         },
         "style": {
           "$ref": "#/$defs/Style",
@@ -3040,11 +3049,11 @@
         },
         "naturalWidth": {
           "type": "number",
-          "description": "Pixel width."
+          "description": "In px."
         },
         "naturalHeight": {
           "type": "number",
-          "description": "Pixel height."
+          "description": "In px."
         },
         "initial": {
           "enum": [
@@ -3108,7 +3117,7 @@
     },
     "Icon": {
       "type": "object",
-      "description": "One icon from the shared Lucide registry.",
+      "description": "One Lucide icon (shared registry).",
       "properties": {
         "component": {
           "const": "Icon"
@@ -3140,6 +3149,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -3782,7 +3792,7 @@
     },
     "Video": {
       "type": "object",
-      "description": "Poster until play, then the platform player with controls.",
+      "description": "Poster, then the platform player with controls.",
       "properties": {
         "component": {
           "const": "Video"
@@ -3795,7 +3805,7 @@
         "poster": {
           "type": "string",
           "format": "uri-reference",
-          "description": "Still shown before playback."
+          "description": "Still before playback."
         },
         "durationMs": {
           "type": "number",
@@ -3837,7 +3847,7 @@
     },
     "AudioPlayer": {
       "type": "object",
-      "description": "Audio player: title and play control.",
+      "description": "Audio with a play control.",
       "properties": {
         "component": {
           "const": "AudioPlayer"
@@ -3880,7 +3890,7 @@
     },
     "Avatar": {
       "type": "object",
-      "description": "Round user picture; falls back to initials on a stable hue.",
+      "description": "Round user picture, else initials on a stable hue.",
       "properties": {
         "component": {
           "const": "Avatar"
@@ -3933,7 +3943,7 @@
     },
     "QrCode": {
       "type": "object",
-      "description": "QR code of a value, dark on a light plate.",
+      "description": "QR code, dark on a light plate.",
       "properties": {
         "component": {
           "const": "QrCode"
@@ -3986,19 +3996,19 @@
     },
     "Carousel": {
       "type": "object",
-      "description": "Horizontal pager; each child is one page.",
+      "description": "Horizontal pager, a page per child.",
       "properties": {
         "component": {
           "const": "Carousel"
         },
         "page": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "Active page index.",
+          "description": "Active page.",
           "default": 0
         },
         "loop": {
           "type": "boolean",
-          "description": "Last page wraps to the first.",
+          "description": "Wraps last to first.",
           "default": false
         },
         "indicators": {
@@ -4008,7 +4018,7 @@
         },
         "counter": {
           "type": "boolean",
-          "description": "Shows `i / n`.",
+          "description": "`i / n`.",
           "default": false
         },
         "thumbnails": {
@@ -4017,7 +4027,7 @@
             "type": "string",
             "format": "uri-reference"
           },
-          "description": "Thumbnail URL per page."
+          "description": "One per page."
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -4061,7 +4071,7 @@
           "items": {
             "$ref": "#/$defs/picture"
           },
-          "description": "Pictures in order."
+          "description": "In order."
         },
         "label": {
           "type": "string",
@@ -4098,7 +4108,7 @@
     },
     "Tabs": {
       "type": "object",
-      "description": "Tab navigation; child i is the panel of tab i.",
+      "description": "Tab navigation; child i is tab i's panel.",
       "properties": {
         "component": {
           "const": "Tabs"
@@ -4108,7 +4118,7 @@
           "items": {
             "$ref": "#/$defs/tab"
           },
-          "description": "Tab headers in order."
+          "description": "Headers in order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -4143,7 +4153,7 @@
         },
         "swipeable": {
           "type": "boolean",
-          "description": "Touch: swipe pages the panels.",
+          "description": "Touch swipe pages panels.",
           "default": false
         },
         "children": {
@@ -4193,14 +4203,14 @@
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "Segments in order."
+          "description": "In order."
         },
         "type": {
           "enum": [
             "single",
             "multiple"
           ],
-          "description": "One active value or several.",
+          "description": "One value or several.",
           "default": "single"
         },
         "value": {
@@ -4214,7 +4224,7 @@
             "outline",
             "bar"
           ],
-          "description": "Pill track, bare toggles, joined outline buttons, or full-width icon `bar`.",
+          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar.",
           "default": "segmented"
         },
         "size": {
@@ -4228,7 +4238,7 @@
         },
         "fill": {
           "type": "boolean",
-          "description": "Segments span the width (a `bar` always does).",
+          "description": "Spans the width (`bar` always).",
           "default": false
         },
         "orientation": {
@@ -4270,7 +4280,7 @@
     },
     "Accordion": {
       "type": "object",
-      "description": "Collapsible sections; child i is the body of item i.",
+      "description": "Collapsible sections; child i is item i's body.",
       "properties": {
         "component": {
           "const": "Accordion"
@@ -4280,14 +4290,14 @@
           "items": {
             "$ref": "#/$defs/accordionItem"
           },
-          "description": "Section headers in order."
+          "description": "Headers in order."
         },
         "type": {
           "enum": [
             "single",
             "multiple"
           ],
-          "description": "One section open, or any number.",
+          "description": "One open, or any number.",
           "default": "single"
         },
         "value": {
@@ -4327,7 +4337,7 @@
     },
     "Collapsible": {
       "type": "object",
-      "description": "One disclosure section: a title row shows or hides its children.",
+      "description": "Disclosure: a title row folds its children.",
       "properties": {
         "component": {
           "const": "Collapsible"
@@ -4378,7 +4388,7 @@
     },
     "Trace": {
       "type": "object",
-      "description": "Column of TraceItem lines (an agent's steps).",
+      "description": "TraceItem column (an agent's steps).",
       "properties": {
         "component": {
           "const": "Trace"
@@ -4417,7 +4427,7 @@
     },
     "TraceItem": {
       "type": "object",
-      "description": "One step: icon, title, muted detail; may expand to its children.",
+      "description": "One step: icon, title, muted detail; expands to its children.",
       "properties": {
         "component": {
           "const": "TraceItem"
@@ -4451,6 +4461,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -5182,7 +5193,7 @@
     },
     "Pagination": {
       "type": "object",
-      "description": "Previous, next, and current page of a total.",
+      "description": "Previous, next, current page of a total.",
       "properties": {
         "component": {
           "const": "Pagination"
@@ -5193,7 +5204,7 @@
         },
         "page": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "Current 1-based page; bind it.",
+          "description": "1-based; bind it.",
           "default": 1
         },
         "on": {
@@ -5227,7 +5238,7 @@
     },
     "Breadcrumb": {
       "type": "object",
-      "description": "Path to the current page; all but the last are links firing `select`.",
+      "description": "Path to the current page; all but the last fire `select`.",
       "properties": {
         "component": {
           "const": "Breadcrumb"
@@ -5280,7 +5291,7 @@
           "items": {
             "$ref": "#/$defs/outlineItem"
           },
-          "description": "Rows in order."
+          "description": "In order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -5331,7 +5342,7 @@
           "items": {
             "$ref": "#/$defs/step"
           },
-          "description": "Steps in order."
+          "description": "In order."
         },
         "current": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
@@ -5380,7 +5391,7 @@
     },
     "Dialog": {
       "type": "object",
-      "description": "Centred modal, opened by its trigger slot or by binding `open`.",
+      "description": "Centred modal, opened by its trigger slot or bound `open`.",
       "properties": {
         "component": {
           "const": "Dialog"
@@ -5442,7 +5453,7 @@
     },
     "Drawer": {
       "type": "object",
-      "description": "Panel sliding in from an edge (a bottom sheet on phones).",
+      "description": "Panel sliding from an edge (bottom sheet on phones).",
       "properties": {
         "component": {
           "const": "Drawer"
@@ -5530,7 +5541,7 @@
         },
         "dragToDismiss": {
           "type": "boolean",
-          "description": "Swipe toward its edge closes it.",
+          "description": "Swiping to its edge closes.",
           "default": true
         },
         "children": {
@@ -5587,7 +5598,7 @@
         },
         "caption": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Muted text after the label."
+          "description": "Muted, after the label."
         },
         "meta": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -5618,6 +5629,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -6265,17 +6277,17 @@
         },
         "confirmLabel": {
           "type": "string",
-          "description": "Confirming button's text.",
+          "description": "Confirm button text.",
           "default": "$string.confirm"
         },
         "cancelLabel": {
           "type": "string",
-          "description": "Cancelling button's text.",
+          "description": "Cancel button text.",
           "default": "$string.cancel"
         },
         "destructive": {
           "type": "boolean",
-          "description": "Confirm button looks dangerous.",
+          "description": "Dangerous confirm button.",
           "default": false
         },
         "open": {
@@ -6355,15 +6367,20 @@
         },
         "anchor": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "Node id to open at; it toggles it."
+          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
         },
         "openOn": {
           "enum": [
             "press",
             "hover"
           ],
-          "description": "Press, or hover (press on touch).",
+          "description": "`hover` is press on touch.",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "description": "Panel exactly as wide as its anchor/trigger.",
+          "default": false
         },
         "children": {
           "$ref": "#/$defs/ChildList"
@@ -6403,7 +6420,7 @@
     },
     "Tooltip": {
       "type": "object",
-      "description": "Short hint on hover or long-press over its children.",
+      "description": "Hint on hovering or long-pressing its children.",
       "properties": {
         "component": {
           "const": "Tooltip"
@@ -6449,7 +6466,7 @@
     },
     "Menu": {
       "type": "object",
-      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "properties": {
         "component": {
           "const": "Menu"
@@ -6483,6 +6500,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -7062,7 +7080,7 @@
           "items": {
             "$ref": "#/$defs/menuItem"
           },
-          "description": "Entries in order."
+          "description": "In order."
         },
         "side": {
           "enum": [
@@ -7085,14 +7103,14 @@
         },
         "anchor": {
           "$ref": "common_types.json#/$defs/ComponentId",
-          "description": "Node id to open at; it toggles it."
+          "description": "Open-at node; it toggles it."
         },
         "openOn": {
           "enum": [
             "press",
             "contextmenu"
           ],
-          "description": "Press on the child, or the context gesture.",
+          "description": "Child's press, or right-click/long-press.",
           "default": "press"
         },
         "children": {
@@ -7120,7 +7138,8 @@
             "lite": false,
             "children": "one",
             "events": [
-              "select"
+              "select",
+              "action"
             ]
           }
         }
@@ -7158,12 +7177,12 @@
         },
         "duration": {
           "type": "number",
-          "description": "Ms until it dismisses; 0 = never.",
+          "description": "Ms to dismiss; 0 = never.",
           "default": 5000
         },
         "actionLabel": {
           "type": "string",
-          "description": "Button label; press fires `action`."
+          "description": "Button firing `action`."
         },
         "dismissible": {
           "type": "boolean",
@@ -7231,7 +7250,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Filled, secondary, outlined or destructive.",
+          "description": "`default` = filled.",
           "default": "default"
         },
         "icon": {
@@ -7259,6 +7278,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -7858,7 +7878,7 @@
     },
     "Alert": {
       "type": "object",
-      "description": "Inline banner: icon, title, message.",
+      "description": "Inline banner.",
       "properties": {
         "component": {
           "const": "Alert"
@@ -7906,7 +7926,7 @@
     },
     "Chip": {
       "type": "object",
-      "description": "Small token: a pill (filter, label, state) or a rect naming an entity; removable.",
+      "description": "Small token: a pill (filter, label, state) or an entity rect.",
       "properties": {
         "component": {
           "const": "Chip"
@@ -7920,7 +7940,7 @@
             "pill",
             "rect"
           ],
-          "description": "Rounded pill or squarer entity chip.",
+          "description": "`rect` = entity chip.",
           "default": "pill"
         },
         "selected": {
@@ -7953,7 +7973,7 @@
         "dot": {
           "type": "string",
           "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
-          "description": "Colour dot before the text (label chip)."
+          "description": "Dot before the text (label chip)."
         },
         "icon": {
           "type": "string",
@@ -7980,6 +8000,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -8557,15 +8578,15 @@
         "image": {
           "type": "string",
           "format": "uri-reference",
-          "description": "Round picture instead of the icon."
+          "description": "Round picture, not the icon."
         },
         "detail": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Muted text after the label."
+          "description": "Muted, after the label."
         },
         "removable": {
           "type": "boolean",
-          "description": "Remove control firing `remove`.",
+          "description": "× firing `remove`.",
           "default": false
         },
         "pressable": {
@@ -8640,6 +8661,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -9224,7 +9246,7 @@
         },
         "actionLabel": {
           "type": "string",
-          "description": "Button label (`page` only); press fires `press`."
+          "description": "Button firing `press` (`page` only)."
         },
         "size": {
           "enum": [
@@ -9266,7 +9288,7 @@
     },
     "Progress": {
       "type": "object",
-      "description": "Horizontal progress bar.",
+      "description": "Progress bar.",
       "properties": {
         "component": {
           "const": "Progress"
@@ -9286,11 +9308,11 @@
         },
         "valueText": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Text after the label (rate, time left)."
+          "description": "After the label (rate, time left)."
         },
         "detail": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Muted line under the bar."
+          "description": "Muted line below."
         },
         "tone": {
           "enum": [
@@ -9329,7 +9351,7 @@
     },
     "Meter": {
       "type": "object",
-      "description": "Usage bar: coloured segments against a maximum, label and value.",
+      "description": "Usage bar: coloured segments against a max.",
       "properties": {
         "component": {
           "const": "Meter"
@@ -9349,7 +9371,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Slices in order."
+          "description": "In order."
         },
         "max": {
           "type": "number",
@@ -9515,7 +9537,7 @@
         },
         "rowHeight": {
           "type": "number",
-          "description": "Row height in px."
+          "description": "In px."
         },
         "dot": {
           "type": "boolean",
@@ -9569,7 +9591,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "What the voice is doing.",
+          "description": "Voice state.",
           "default": "idle"
         },
         "variant": {
@@ -9642,7 +9664,7 @@
     },
     "CallSurface": {
       "type": "object",
-      "description": "Voice call screen: wave, avatar, name, status, call buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, buttons.",
       "properties": {
         "component": {
           "const": "CallSurface"
@@ -9703,7 +9725,7 @@
         },
         "level": {
           "$ref": "common_types.json#/$defs/DynamicNumber",
-          "description": "Level 0 to 1."
+          "description": "0 to 1."
         },
         "bands": {
           "oneOf": [
@@ -9737,7 +9759,7 @@
         },
         "speaker": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "Shows the speaker toggle."
+          "description": "Speaker toggle."
         },
         "on": {
           "$ref": "#/$defs/On_CallSurface"
@@ -9772,7 +9794,7 @@
     },
     "Table": {
       "type": "object",
-      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns hold components.",
+      "description": "Typed columns, sortable, selectable, windowed; `slot` columns hold components.",
       "properties": {
         "component": {
           "const": "Table"
@@ -9782,15 +9804,15 @@
           "items": {
             "$ref": "#/$defs/column"
           },
-          "description": "Columns in order."
+          "description": "In order."
         },
         "rows": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "One object per row, keyed by column key."
+          "description": "One object per row, by column key."
         },
         "rowKey": {
           "type": "string",
-          "description": "Row field identifying a row.",
+          "description": "Field identifying a row.",
           "default": "id"
         },
         "sort": {
@@ -9805,7 +9827,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Active sort; bound = you order `rows`, else sorted locally."
+          "description": "Bound = you order `rows`; else sorted locally."
         },
         "selectable": {
           "enum": [
@@ -9813,12 +9835,12 @@
             "single",
             "multiple"
           ],
-          "description": "Row selection (many = a checkbox column).",
+          "description": "`multiple` = a checkbox column.",
           "default": "none"
         },
         "selected": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "Selected row keys; bind them."
+          "description": "Row keys; bind them."
         },
         "caption": {
           "type": "string",
@@ -9826,7 +9848,7 @@
         },
         "emptyText": {
           "type": "string",
-          "description": "Shown when there are no rows.",
+          "description": "Shown with no rows.",
           "default": "$string.noResults"
         },
         "striped": {
@@ -9892,7 +9914,7 @@
     },
     "Chart": {
       "type": "object",
-      "description": "Chart of any `kind`, with axes, legend and tooltip.",
+      "description": "Any `kind` of chart, with tooltip.",
       "properties": {
         "component": {
           "const": "Chart"
@@ -9949,11 +9971,11 @@
         },
         "xLabel": {
           "type": "string",
-          "description": "Caption under the x axis."
+          "description": "Under the x axis."
         },
         "yLabel": {
           "type": "string",
-          "description": "Caption beside the y axis."
+          "description": "Beside the y axis."
         },
         "min": {
           "type": "number",
@@ -9974,7 +9996,7 @@
         },
         "showGrid": {
           "type": "boolean",
-          "description": "Grid lines at the ticks.",
+          "description": "Tick grid lines.",
           "default": true
         },
         "showLegend": {
@@ -9984,7 +10006,7 @@
         },
         "showValues": {
           "type": "boolean",
-          "description": "Labels each mark with its value.",
+          "description": "Value label on each mark.",
           "default": false
         },
         "style": {
@@ -10033,7 +10055,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Points, oldest first."
+          "description": "Oldest first."
         },
         "tone": {
           "enum": [
@@ -10077,7 +10099,7 @@
     },
     "StatTile": {
       "type": "object",
-      "description": "Dashboard tile: label, big value, toned change, trend sparkline.",
+      "description": "Dashboard tile: big value.",
       "properties": {
         "component": {
           "const": "StatTile"
@@ -10131,7 +10153,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Recent values (sparkline)."
+          "description": "Sparkline values."
         },
         "pressable": {
           "type": "boolean",
@@ -10170,7 +10192,7 @@
     },
     "Button": {
       "type": "object",
-      "description": "Press target: label and optional icon (or one custom child).",
+      "description": "Press target: label + optional icon, or one custom child.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -10211,6 +10233,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -10815,9 +10838,18 @@
             "sm",
             "default",
             "lg",
-            "icon"
+            "icon",
+            "icon-xs"
           ],
-          "description": "Control height class; `icon` is a square icon-only button.",
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one.",
+          "default": "default"
+        },
+        "tone": {
+          "enum": [
+            "default",
+            "muted"
+          ],
+          "description": "`muted` = muted glyph and label.",
           "default": "default"
         },
         "disabled": {
@@ -10841,7 +10873,7 @@
         },
         "hold": {
           "type": "boolean",
-          "description": "holdStart/holdEnd/holdCancel, no press.",
+          "description": "hold* events, no press.",
           "default": false
         },
         "holdingLabel": {
@@ -10895,7 +10927,7 @@
         "href": {
           "type": "string",
           "format": "uri-reference",
-          "description": "URL to open; omit to handle `press` yourself."
+          "description": "Omit to handle `press` yourself."
         },
         "external": {
           "type": "boolean",
@@ -10967,6 +10999,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -11594,7 +11627,7 @@
     },
     "Form": {
       "type": "object",
-      "description": "Collects fields by `name`; fires `submit` with their values once every check passes.",
+      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
       "properties": {
         "component": {
           "const": "Form"
@@ -11653,14 +11686,14 @@
     },
     "FieldGroup": {
       "type": "object",
-      "description": "Fields side by side (Starts / Ends) that stack on phones.",
+      "description": "Side-by-side fields (Starts / Ends), stacked on phones.",
       "properties": {
         "component": {
           "const": "FieldGroup"
         },
         "columns": {
           "type": "number",
-          "description": "Columns from md up (1-4).",
+          "description": "From md up (1-4).",
           "default": 2
         },
         "children": {
@@ -11689,7 +11722,7 @@
     },
     "FormActions": {
       "type": "object",
-      "description": "End-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "description": "End-aligned buttons: children, Cancel, then THE submit (the one primary).",
       "properties": {
         "component": {
           "const": "FormActions"
@@ -11741,7 +11774,7 @@
     },
     "SettingsRow": {
       "type": "object",
-      "description": "Settings line: label (+ description), then the control (children); stacks on phones.",
+      "description": "Settings line: label (+ description), then the control (children).",
       "properties": {
         "component": {
           "const": "SettingsRow"
@@ -11762,7 +11795,7 @@
             "lg",
             "xl"
           ],
-          "description": "Control under the label below this breakpoint.",
+          "description": "Below this, control under the label.",
           "default": "sm"
         },
         "children": {
@@ -11820,7 +11853,7 @@
             "url",
             "tel"
           ],
-          "description": "Keyboard and masking kind.",
+          "description": "Keyboard and masking.",
           "default": "text"
         },
         "placeholder": {
@@ -11839,7 +11872,7 @@
             "code",
             "box"
           ],
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown.",
+          "description": "`row` = a Group row (label, value); `bare` = chromeless, label hidden; `code` = mono `bare`; `box` = boxed, label hidden.",
           "default": "field"
         },
         "size": {
@@ -11923,17 +11956,17 @@
         },
         "rows": {
           "type": "number",
-          "description": "Visible lines (minimum when autosizing).",
+          "description": "Visible lines (autosize minimum).",
           "default": 3
         },
         "autosize": {
           "type": "boolean",
-          "description": "Grows from `rows` up to `maxRows`.",
+          "description": "Grows `rows` → `maxRows`.",
           "default": false
         },
         "maxRows": {
           "type": "number",
-          "description": "Autosize stops growing here and scrolls."
+          "description": "Autosize cap; then scrolls."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -11945,7 +11978,7 @@
             "row",
             "code"
           ],
-          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type.",
+          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono.",
           "default": "field"
         },
         "disabled": {
@@ -11996,7 +12029,7 @@
     },
     "NumberField": {
       "type": "object",
-      "description": "Numeric field: steppers, min/max/step clamping, locale formatting.",
+      "description": "Number field: steppers, clamping, locale format.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12157,7 +12190,7 @@
     },
     "Radio": {
       "type": "object",
-      "description": "Labelled radio group choosing one value.",
+      "description": "Radio group choosing one value.",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12180,7 +12213,7 @@
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "Choices in order."
+          "description": "In order."
         },
         "value": {
           "$ref": "common_types.json#/$defs/DynamicString",
@@ -12226,7 +12259,7 @@
     },
     "ChoiceTiles": {
       "type": "object",
-      "description": "Picture tiles picking one or many values (options' `image`, `description`).",
+      "description": "Picture tiles picking one or many (options' `image`, `description`).",
       "allOf": [
         {
           "$ref": "common_types.json#/$defs/Checkable"
@@ -12245,7 +12278,7 @@
           "items": {
             "$ref": "#/$defs/option"
           },
-          "description": "Choices in order."
+          "description": "In order."
         },
         "type": {
           "enum": [
@@ -12420,6 +12453,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -12996,11 +13030,11 @@
         },
         "endLabel": {
           "$ref": "common_types.json#/$defs/DynamicString",
-          "description": "Text after the track."
+          "description": "After the track."
         },
         "showValue": {
           "type": "boolean",
-          "description": "false hides the value.",
+          "description": "Shows the value.",
           "default": true
         },
         "on": {
@@ -13034,7 +13068,7 @@
     },
     "Rating": {
       "type": "object",
-      "description": "Row of stars scoring out of `max`.",
+      "description": "Stars scoring out of `max`.",
       "properties": {
         "component": {
           "const": "Rating"
@@ -13053,7 +13087,7 @@
         },
         "readOnly": {
           "type": "boolean",
-          "description": "Display only; no presses.",
+          "description": "Display only.",
           "default": false
         },
         "size": {
@@ -13132,11 +13166,11 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Inline choices or a path the host refills on `search`; omit with `source`."
+          "description": "Inline, or a path the host refills on `search`; omit with `source`."
         },
         "source": {
           "type": "string",
-          "description": "Host list id for the options (`exp:statuses`)."
+          "description": "Host list id (`exp:statuses`)."
         },
         "placeholder": {
           "type": "string",
@@ -13153,7 +13187,7 @@
         },
         "searchable": {
           "type": "boolean",
-          "description": "A filter field; typing fires `search`.",
+          "description": "Filter field; typing fires `search`.",
           "default": false
         },
         "emptyText": {
@@ -13163,21 +13197,23 @@
         },
         "searchPlaceholder": {
           "type": "string",
-          "description": "Hint in the filter field.",
+          "description": "Filter field hint.",
           "default": "$string.search"
         },
         "triggerVariant": {
           "enum": [
             "field",
             "row",
-            "pill"
+            "pill",
+            "button",
+            "inline"
           ],
-          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule.",
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon; `inline` = chromeless text + chevron.",
           "default": "field"
         },
         "triggerIcon": {
           "type": "boolean",
-          "description": "`row`: the chosen option's `icon` before the value.",
+          "description": "`row`: chosen option's `icon` before the value.",
           "default": false
         },
         "align": {
@@ -13194,7 +13230,7 @@
         },
         "popupMinWidth": {
           "type": "number",
-          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+          "description": "Px: fits its options, at least this (instead of `popupWidth`)."
         },
         "loading": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -13367,7 +13403,7 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Completions offered while typing."
+          "description": "Completions while typing."
         },
         "placeholder": {
           "type": "string",
@@ -13415,7 +13451,7 @@
     },
     "KeyRecorder": {
       "type": "object",
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; the host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys then fire `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; host sets `value`.",
       "properties": {
         "component": {
           "const": "KeyRecorder"
@@ -13435,7 +13471,7 @@
         },
         "pending": {
           "$ref": "common_types.json#/$defs/DynamicStringList",
-          "description": "Held modifiers while recording."
+          "description": "Held modifiers."
         },
         "placeholder": {
           "type": "string",
@@ -13443,7 +13479,7 @@
         },
         "error": {
           "type": "string",
-          "description": "Error under the field."
+          "description": "Under the field."
         },
         "on": {
           "$ref": "#/$defs/On_KeyRecorder"
@@ -13478,7 +13514,7 @@
     },
     "IconPicker": {
       "type": "object",
-      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "description": "Icon field: a square with the pick opens an icon grid.",
       "properties": {
         "component": {
           "const": "IconPicker"
@@ -13514,6 +13550,7 @@
               "atom",
               "audio-lines",
               "auth-passkey",
+              "automation-off",
               "award",
               "ban",
               "battery-charging",
@@ -14087,7 +14124,7 @@
               "zap"
             ]
           },
-          "description": "Offered icons; default the board set."
+          "description": "Offered; default the board set."
         },
         "color": {
           "type": "string",
@@ -14133,7 +14170,7 @@
     },
     "ColorPicker": {
       "type": "object",
-      "description": "Colour field: a swatch (or the child) opens the palette grid.",
+      "description": "Colour field: a swatch (or the child) opens the palette.",
       "properties": {
         "component": {
           "const": "ColorPicker"
@@ -14156,7 +14193,7 @@
         },
         "inline": {
           "type": "boolean",
-          "description": "The grid alone, no trigger.",
+          "description": "Grid only, no trigger.",
           "default": false
         },
         "children": {
@@ -14276,7 +14313,7 @@
     },
     "DateRangePicker": {
       "type": "object",
-      "description": "Two-date range field with one calendar (ISO dates).",
+      "description": "Date range field, one calendar (ISO dates).",
       "properties": {
         "component": {
           "const": "DateRangePicker"
@@ -14292,12 +14329,12 @@
         "start": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "First day as yyyy-mm-dd, or empty."
+          "description": "First day, or empty."
         },
         "end": {
           "$ref": "common_types.json#/$defs/DynamicString",
           "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
-          "description": "Last day as yyyy-mm-dd, or empty."
+          "description": "Last day, or empty."
         },
         "min": {
           "type": "string",
@@ -14418,7 +14455,7 @@
     },
     "FileUpload": {
       "type": "object",
-      "description": "Drop zone + browse button; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
       "properties": {
         "component": {
           "const": "FileUpload"
@@ -14433,7 +14470,7 @@
         },
         "accept": {
           "type": "string",
-          "description": "Accepted types, comma-separated (`image/*,.pdf`)."
+          "description": "Comma-separated types (`image/*,.pdf`)."
         },
         "multiple": {
           "type": "boolean",
@@ -14442,7 +14479,7 @@
         },
         "maxSize": {
           "type": "number",
-          "description": "Max bytes per file; larger are refused."
+          "description": "Bytes per file; larger refused."
         },
         "files": {
           "oneOf": [
@@ -14459,11 +14496,11 @@
               "$ref": "common_types.json#/$defs/FunctionCall"
             }
           ],
-          "description": "Attached files, each removable."
+          "description": "Attached, each removable."
         },
         "hint": {
           "type": "string",
-          "description": "Text under the drop zone's title."
+          "description": "Under the drop zone's title."
         },
         "disabled": {
           "type": "boolean",
@@ -14561,7 +14598,7 @@
     },
     "Composer": {
       "type": "object",
-      "description": "Chat input: growing text field, submit button, optional attachments; slots sit in its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "properties": {
         "component": {
           "const": "Composer"
@@ -14576,7 +14613,7 @@
         },
         "submitLabel": {
           "type": "string",
-          "description": "Submit button's accessibility label.",
+          "description": "Submit button's a11y label.",
           "default": "$string.send"
         },
         "attachments": {
@@ -14599,7 +14636,7 @@
         },
         "menuKeys": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
-          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu).",
+          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu).",
           "default": false
         },
         "slots": {
@@ -14627,7 +14664,8 @@
             "children": "none",
             "slots": [
               "leading",
-              "trailing"
+              "trailing",
+              "above"
             ],
             "events": [
               "submit",
@@ -14642,7 +14680,7 @@
     },
     "Row": {
       "type": "object",
-      "description": "THE list row: lead glyph or slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nestable; with children it folds.",
+      "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
       "properties": {
         "component": {
           "const": "Row"
@@ -14698,6 +14736,7 @@
                 "atom",
                 "audio-lines",
                 "auth-passkey",
+                "automation-off",
                 "award",
                 "ban",
                 "battery-charging",
@@ -15317,7 +15356,7 @@
             "flat",
             "card"
           ],
-          "description": "Flat, or a padded card (own fill and border).",
+          "description": "`card` = padded, own fill and border.",
           "default": "flat"
         },
         "pressable": {
@@ -15332,7 +15371,7 @@
         },
         "depth": {
           "type": "number",
-          "description": "Depth under a tree Section (0 = root).",
+          "description": "Under a tree Section (0 = root).",
           "default": 0
         },
         "open": {
@@ -15619,7 +15658,7 @@
           "items": {
             "type": "object"
           },
-          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
         },
         "size": {
           "type": "array",
@@ -15630,7 +15669,7 @@
         },
         "duration": {
           "type": "number",
-          "description": "Length in ms (with layers)."
+          "description": "Ms (with layers)."
         },
         "fps": {
           "type": "number",
@@ -15664,12 +15703,12 @@
         },
         "loop": {
           "type": "boolean",
-          "description": "false = play once and hold.",
+          "description": "false = once, then hold.",
           "default": true
         },
         "plays": {
           "type": "number",
-          "description": "Plays this many times (overrides loop)."
+          "description": "Play count (overrides loop)."
         },
         "direction": {
           "enum": [
@@ -15707,7 +15746,7 @@
         },
         "poster": {
           "type": "number",
-          "description": "Still frame (ms) for reduced motion and pre-play."
+          "description": "Still frame (ms): reduced motion, pre-play."
         },
         "fit": {
           "enum": [
@@ -15783,7 +15822,7 @@
         },
         "shapes": {
           "$ref": "common_types.json#/$defs/DynamicValue",
-          "description": "Motion's shapes without keys, + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
+          "description": "Motion's shapes (no keys) + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
         },
         "fit": {
           "enum": [
@@ -15838,7 +15877,7 @@
     },
     "Embed": {
       "type": "object",
-      "description": "Nested surface drawn in place, sandboxed (own data and ids); its `event` actions fire `action` {name, context}; a bad one shows an error box.",
+      "description": "Sandboxed nested surface (own data and ids); its `event` actions fire `action` {name, context}; bad = an error box.",
       "properties": {
         "component": {
           "const": "Embed"
@@ -15878,7 +15917,7 @@
     },
     "Calendar": {
       "type": "object",
-      "description": "Month or week of records as coloured bars in lanes; phones: dots and the day's agenda.",
+      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
       "properties": {
         "component": {
           "const": "Calendar"
@@ -15942,7 +15981,7 @@
     },
     "Timeline": {
       "type": "object",
-      "description": "Records over time: coloured bars across week, month or quarter columns.",
+      "description": "Records over time: coloured bars in week, month or quarter columns.",
       "properties": {
         "component": {
           "const": "Timeline"
@@ -15962,7 +16001,7 @@
         },
         "showCount": {
           "type": "boolean",
-          "description": "Each row's count under its label.",
+          "description": "Row count under each label.",
           "default": false
         },
         "style": {
@@ -15996,7 +16035,7 @@
     },
     "RecordForm": {
       "type": "object",
-      "description": "Form for one record kind: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
       "properties": {
         "component": {
           "const": "RecordForm"
@@ -16026,7 +16065,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Draft data path (default /recordForm/<id>); seed it to edit."
+          "description": "Draft path (default /recordForm/<id>); seed it to edit."
         },
         "fields": {
           "type": "array",
@@ -16108,7 +16147,7 @@
         },
         "query": {
           "type": "string",
-          "description": "Query (`sort=name&order=asc`, `query=<name>`); default newest first."
+          "description": "`sort=name&order=asc`, `query=<name>`; default newest first."
         },
         "columns": {
           "type": "array",
@@ -23363,6 +23402,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -23937,6 +23977,11 @@
           ],
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "type": "boolean",
           "description": "Shows the option but refuses it."
@@ -23948,6 +23993,10 @@
         "trailing": {
           "type": "string",
           "description": "Text after the label (Select popup)."
+        },
+        "hint": {
+          "type": "string",
+          "description": "Small muted text at the row's end (Select popup)."
         },
         "mono": {
           "type": "boolean",
@@ -24031,6 +24080,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -24664,6 +24714,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -25238,9 +25289,26 @@
           ],
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "$ref": "common_types.json#/$defs/DynamicValue",
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
         },
         "checked": {
           "$ref": "common_types.json#/$defs/DynamicBoolean",
@@ -25319,6 +25387,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -26229,6 +26298,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -26924,6 +26994,7 @@
             "atom",
             "audio-lines",
             "auth-passkey",
+            "automation-off",
             "award",
             "ban",
             "battery-charging",
@@ -27900,6 +27971,9 @@
       "properties": {
         "select": {
           "$ref": "#/$defs/EuiAction"
+        },
+        "action": {
+          "$ref": "#/$defs/EuiAction"
         }
       },
       "additionalProperties": false
@@ -28293,6 +28367,9 @@
           "$ref": "common_types.json#/$defs/ComponentId"
         },
         "trailing": {
+          "$ref": "common_types.json#/$defs/ComponentId"
+        },
+        "above": {
           "$ref": "common_types.json#/$defs/ComponentId"
         }
       },

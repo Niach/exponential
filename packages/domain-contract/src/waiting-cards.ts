@@ -82,6 +82,19 @@ export function waitingChips(
   return { layout, count: chips.length, chips }
 }
 
+export type WaitingOpen = `plan` | `card` | `session`
+
+/** #EXP-1785: where a picked chip (or menu row) goes: a plan = the plan
+ *  page; the root's question = the Chat tab at its card; a question of a
+ *  session under the root = that session opened in place at its card. */
+export function waitingTarget(
+  card: { kind: AskDockKind; sessionId: string },
+  rootId: string
+): { open: WaitingOpen; sessionId: string } {
+  if (card.kind === `plan`) return { open: `plan`, sessionId: card.sessionId }
+  return { open: card.sessionId === rootId ? `card` : `session`, sessionId: card.sessionId }
+}
+
 /** The phone button's accessible name. */
 export function waitingCountLabel(count: number): string {
   return fixture.copy.waitingCount.replace(`{count}`, String(count))

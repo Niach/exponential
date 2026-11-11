@@ -17,7 +17,8 @@
       "sm",
       "default",
       "lg",
-      "icon"
+      "icon",
+      "icon-xs"
     ],
     "tone": [
       "neutral",
@@ -378,7 +379,9 @@
     "selectTrigger": [
       "field",
       "row",
-      "pill"
+      "pill",
+      "button",
+      "inline"
     ],
     "inputVariant": [
       "field",
@@ -390,6 +393,10 @@
     "inputSize": [
       "default",
       "sm"
+    ],
+    "buttonTone": [
+      "default",
+      "muted"
     ],
     "textareaVariant": [
       "field",
@@ -412,6 +419,10 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "disabled": {
           "type": "boolean"
         },
@@ -419,6 +430,9 @@
           "type": "string"
         },
         "trailing": {
+          "type": "string"
+        },
+        "hint": {
           "type": "string"
         },
         "mono": {
@@ -479,8 +493,22 @@
         "icon": {
           "type": "icon"
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true
+        },
         "shortcut": {
           "type": "string"
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "object",
+          "bindable": true
         },
         "checked": {
           "type": "boolean",
@@ -1250,7 +1278,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",
@@ -1753,6 +1781,13 @@
         },
         "lines": {
           "type": "number"
+        },
+        "truncate": {
+          "type": "enum",
+          "values": [
+            "end",
+            "middle"
+          ]
         },
         "tone": {
           "type": "enum",
@@ -2740,6 +2775,10 @@
           "type": "enum",
           "enum": "openOn",
           "default": "press"
+        },
+        "matchAnchorWidth": {
+          "type": "boolean",
+          "default": false
         }
       },
       "events": [
@@ -2804,7 +2843,8 @@
         }
       },
       "events": [
-        "select"
+        "select",
+        "action"
       ]
     },
     "Toast": {
@@ -3465,6 +3505,11 @@
         "size": {
           "type": "enum",
           "enum": "size",
+          "default": "default"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "buttonTone",
           "default": "default"
         },
         "disabled": {
@@ -4583,7 +4628,8 @@
       "children": "none",
       "slots": [
         "leading",
-        "trailing"
+        "trailing",
+        "above"
       ],
       "props": {
         "placeholder": {

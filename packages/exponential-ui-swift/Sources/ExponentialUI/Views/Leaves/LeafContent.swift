@@ -221,12 +221,34 @@ struct TextLeaf: View {
         let align = cx.style.textAlign ?? cx.props["align"]?.string
         let lh = cx.textStyle.lineHeight
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(Self.shown(cx.props.text("text"), cx.textStyle, width: cx.inner.width, clamp: cx.node.lines).enumerated()), id: \.offset) { _, line in
+            ForEach(Array(shownLines().enumerated()), id: \.offset) { _, line in
                 TextLabel(line, cx.textStyle, color: ink, align: align, lines: 1)
                     .frame(width: cx.inner.width, height: lh)
             }
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+    }
+
+    /// #EXP-1778: `truncate: middle` = start…end in the content box (the
+    /// core keeps it one line), each character measured with the leaf's font.
+    private func shownLines() -> [String] {
+        let text = cx.props.text("text")
+        guard cx.props["truncate"]?.string == "middle" else {
+            return Self.shown(text, cx.textStyle, width: cx.inner.width, clamp: cx.node.lines)
+        }
+        return [Self.middle(text, cx.textStyle, width: cx.inner.width)]
+    }
+
+    /// One middle-cut line (`middleTruncateWidth` over the shown text).
+    static func middle(_ text: String, _ ts: TextStyle, width: CGFloat) -> String {
+        var cache: [String: Double] = [:]
+        let line = ts.shown(text.replacingOccurrences(of: "\n", with: " "))
+        return middleTruncateWidth(line, width: Double(width)) { ch in
+            if let w = cache[ch] { return w }
+            let w = Double(TextShaper.maxContent(ch, ts))
+            cache[ch] = w
+            return w
+        }
     }
 
     /// The lines a text leaf draws (gpui `text_lines`).
@@ -360,7 +382,7 @@ struct ButtonLeaf: View {
         let pendingLabel = cx.props.str("pendingLabel")
         let label = loading && !pendingLabel.isEmpty ? pendingLabel : cx.props.str("label")
         let icon = cx.props.str("icon")
-        let iconOnly = cx.props.str("size") == "icon"
+        let iconOnly = ["icon", "icon-xs"].contains(cx.props.str("size"))
         // Web: a CodeBlock's copy glyph is 12 px (`.xui-CodeBlock-copy>svg`).
         let iconSize = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" ? 12 : (cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16))
         HStack(spacing: cx.style.gap) {

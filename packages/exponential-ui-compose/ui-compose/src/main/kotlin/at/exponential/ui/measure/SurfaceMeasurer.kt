@@ -442,7 +442,7 @@ class SurfaceMeasurer(
         val label = shown(props.shownText("label"), leaf)
         val loading = props.flag("loading")
         val hasIcon = props.str("icon").isNotEmpty() || loading
-        val iconOnly = props.str("size") == "icon"
+        val iconOnly = props.str("size").let { it == "icon" || it == "icon-xs" }
         val icon = if (hasIcon || iconOnly) (part(leaf.component, "icon", props).width ?: control("iconSm", 16f)) else 0f
         val labelW = if (iconOnly || label.isEmpty()) 0f else line(label, ts)
         val gap = if (hasIcon && labelW > 0f) leaf.control.gap else 0f
@@ -518,7 +518,11 @@ class SurfaceMeasurer(
         // slots' width off `wrap`), the row is the taller of field and disc.
         if (props.str("layout") == "flat") {
             val att = if (props.flag("attachments")) at.exponential.ui.compose.COMPOSER_ATTACH_W + gap else 0f
-            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            val pad = (field.px("paddingTop") ?: 0f) + (field.px("paddingBottom") ?: 0f)
+            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height + pad
             return Size(w, max(min(max(fh, minH), 200f), send))
         }
         val th = shaper.measure(text, fieldTs, max(w, 1f), null).height
@@ -605,11 +609,18 @@ class SurfaceMeasurer(
         val ts = ts(leaf)
         val c = leaf.control
         val text = leaf.props.str("text").ifEmpty { leaf.props.str("placeholder") }
-        val gap = max(c.gap, spacing("sm"))
+        // #EXP-1629: an `inline` Select's gap is its recipe's exactly (gpui's).
+        val gap = if (leaf.props.str("triggerVariant") == "inline" && c.gap > 0f) c.gap else max(c.gap, spacing("sm"))
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
         // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).let { it.width ?: it.height } ?: 16f
-        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
+        // #EXP-1629: a `button`'s picked-option glyph.
+        val picked = if (leaf.props.str("valueIcon").isEmpty()) 0f else (part("Select", "valueIcon", leaf.props).let { it.width ?: it.height } ?: 16f) + gap
+        // #EXP-1629: the `value` part's `marginTop` lifts the text off the
+        // centre and shortens the box by as much (an `inline` trigger).
+        val lift = part("Select", "value", leaf.props).px("marginTop") ?: 0f
+        val h = if (lift != 0f) max(ts.lineHeight + lift, glyph) else ts.lineHeight
+        return Content(line(shown(text, leaf), ts) + gap + glyph + picked, h, baseline(ts) + lift)
     }
 
     /**

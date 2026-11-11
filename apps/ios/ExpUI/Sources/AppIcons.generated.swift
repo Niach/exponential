@@ -439,6 +439,7 @@ public enum AppIcons {
         "action-suggestion": "lightbulb",
         "app-editor-chat": "message-square",
         "auth-passkey": "fingerprint",
+        "automation-off": "ban",
         "call-end": "phone-off",
         "call-incoming": "phone-incoming",
         "call-mute": "mic",
@@ -774,6 +775,8 @@ public enum AppIcons {
     public static let appEditorChat: String = "message-square"
     /// Concept `auth-passkey`.
     public static let authPasskey: String = "fingerprint"
+    /// Concept `automation-off`.
+    public static let automationOff: String = "ban"
     /// Concept `call-end`.
     public static let callEnd: String = "phone-off"
     /// Concept `call-incoming`.

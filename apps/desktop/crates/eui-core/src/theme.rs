@@ -418,6 +418,10 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("paddingBottom", &["spacing"]),
     // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
     ("textAlign", &[]),
+    // #EXP-1629: a joined Select multi row squares the corners it shares.
+    ("borderTopRightRadius", &["radius", "spacing"]),
+    ("borderBottomRightRadius", &["radius", "spacing"]),
+    ("borderBottomLeftRadius", &["radius", "spacing"]),
 ];
 /// #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`).
 const PERCENT_KEYS: [&str; 1] = ["maxWidth"];
@@ -1526,6 +1530,10 @@ mod tests {
         has(&r(json!({"variant": "outline", "size": "sm"}), &[]), json!({"height": 32, "borderWidth": 1, "borderColor": "#e5e5e5", "backgroundColor": "#ffffff"}));
         has(&r(json!({"variant": "outline", "size": "sm"}), &["hover"]), json!({"backgroundColor": "#f5f5f5"}));
         has(&r(json!({"variant": "ghost", "size": "icon"}), &[]), json!({"width": 36, "height": 36, "backgroundColor": "#00000000", "boxShadow": []}));
+        // #EXP-1629: icon-xs = a 24 round square; a muted tone keeps its colour under the ghost hover fill.
+        has(&r(json!({"variant": "ghost", "size": "icon-xs"}), &[]), json!({"width": 24, "height": 24, "borderRadius": 9999, "paddingHorizontal": 0}));
+        has(&r(json!({"variant": "ghost", "size": "icon-xs", "tone": "muted"}), &[]), json!({"color": "#737373", "backgroundColor": "#00000000"}));
+        has(&r(json!({"variant": "ghost", "size": "icon-xs", "tone": "muted"}), &["hover"]), json!({"color": "#737373", "backgroundColor": "#f5f5f5"}));
         has(&r(json!({"variant": "default", "size": "default"}), &["disabled"]), json!({"opacity": 0.5}));
         has(&r(json!({"variant": "default", "size": "default"}), &["hover"]), json!({"opacity": 0.9}));
     }

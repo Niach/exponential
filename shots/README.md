@@ -2,9 +2,8 @@
 
 Every product view, photographed on every platform, committed as optimized webp:
 `shots/<view-id>/<platform>.webp` plus a generated `shots/index.json`. The view
-inventory lives in `packages/view-catalog/views.json`; the styleguide app
-(`bun run dev:styleguide`) browses this store, and exponential.at (apps/site) embeds it
-directly. **This directory deliberately supersedes EXP-348** ("screenshots stay
+inventory lives in `packages/view-catalog/views.json`; exponential.at (apps/site)
+embeds it directly and `bun run shots:check` keeps the two in step. **This directory deliberately supersedes EXP-348** ("screenshots stay
 out of git") — the writer only rewrites a file when the image visibly changed
 (pixel-diff tolerance per view), so a run over an unchanged product leaves
 `git status shots/` empty.
@@ -33,8 +32,8 @@ The orchestrator (`packages/shots/src/capture-all.ts`) preflights everything it
 needs, seeds the demo team, starts the steer-relay stub, then runs the capture
 LANES IN PARALLEL (`lanes.ts`): a lane waits only on a resource it shares
 (the screen, one emulator, the device fleet a desktop run joins), each wait
-named in `shots:plan`. iOS store and styleguide own their simulators and
-DerivedData, after ONE `tuist generate`. It imports the native outputs, writes
+named in `shots:plan`. The iOS store and `sg_*` lanes share one simulator
+and DerivedData (one after the other), after ONE `tuist generate`. It imports the native outputs, writes
 the store + index, and exits non-zero if any in-scope view failed, after
 finishing everything else; the summary ends with one rerun line per platform
 for just the failed views.
@@ -419,8 +418,7 @@ store screenshots out of git) — only `HAND_RECTS` is.
 ## The automation
 
 The team action **“Refresh app screenshots”** (trigger: `pr_merged`) runs on its
-bound device and pushes a `shots/`-only commit straight to master, then
-redeploys the styleguide site.
+bound device and pushes a `shots/`-only commit straight to master.
 
 What makes it affordable is that it asks first. `bun run shots:affected --since
 auto` maps the merged diff to `<view, platform>` pairs; a lane whose list comes
