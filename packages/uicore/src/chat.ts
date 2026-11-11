@@ -92,6 +92,8 @@ export interface ChatPlusRow {
   items?: ChatPlusItem[] | null
   /** The submenu filters its entries in a search field. */
   searchable?: boolean
+  /** #EDE-65 lane T: a submenu parent's current value (`Model › Opus`). */
+  detail?: string
 }
 
 /** A submenu entry: `checked` = a check entry, absent = an action. */
@@ -101,6 +103,14 @@ export interface ChatPlusItem {
   icon?: string | null
   checked?: boolean | null
   disabled?: boolean
+  /** #EDE-65 lane T: the muted text after the label (an Account's health). */
+  detail?: string | null
+  /** The mono id before the label (`EXP-12`, an Issue row). */
+  identifier?: string | null
+  /** The glyph's own tint (an Issue row's status colour). */
+  iconColor?: string | null
+  /** The nested surface beside the row (an Account's usage card). */
+  preview?: unknown
 }
 
 export interface ChatRepliesInput {
@@ -124,6 +134,7 @@ export function plusMenu(rows: ChatPlusRow[]): ChatMenuItem[] {
     if (row.id === `separator`) return { kind: `separator` }
     const item: ChatMenuItem = { label: row.label ?? ``, value: row.id }
     if (row.icon) item.icon = row.icon
+    if (row.detail) item.detail = row.detail
     if (row.items) {
       item.kind = `submenu`
       if (row.searchable) item.searchable = true
@@ -135,6 +146,10 @@ export function plusMenu(rows: ChatPlusRow[]): ChatMenuItem[] {
           e.checked = entry.checked
         }
         if (entry.disabled) e.disabled = true
+        if (entry.detail) e.detail = entry.detail
+        if (entry.identifier) e.identifier = entry.identifier
+        if (entry.iconColor) e.iconColor = entry.iconColor
+        if (entry.preview !== undefined && entry.preview !== null) e.preview = entry.preview
         return e
       })
     }

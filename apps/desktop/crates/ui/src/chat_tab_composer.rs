@@ -36,8 +36,6 @@ pub(crate) const RING: &str = "chat_ring";
 const RING_SIZE: f32 = 24.;
 /// A chip's picture is the image itself up to this size (a `data:` url).
 const CHIP_PICTURE_MAX: usize = 2 * 1024 * 1024;
-/// The "Issue ›" submenu's rows (the search list's open issues, newest first).
-const ISSUE_ROWS: usize = 50;
 
 // ---------------------------------------------------------------------------
 // The mapping (pure)
@@ -72,10 +70,69 @@ pub(crate) fn slash_rows(items: &[SlashItem], selected: usize) -> Value {
                 }),
             };
             row["selected"] = json!(index == selected);
-            row
+            domain::chat_document::plain_row(row)
         })
         .collect();
     json!({"open": !rows.is_empty(), "rows": rows})
+}
+
+/// #EDE-65 lane T: an issue's status glyph and tone (the shared status
+/// table's colours, `domain::options::ISSUE_STATUS_OPTIONS`).
+fn status_glyph(status: domain::IssueStatus) -> (&'static str, &'static str) {
+    use domain::IssueStatus as S;
+    match status {
+        S::Backlog => ("status-backlog", "neutral"),
+        S::InProgress => ("status-in-progress", "warning"),
+        S::InReview => ("status-in-review", "success"),
+        S::Done => ("status-done", "info"),
+        S::Cancelled => ("status-cancelled", "neutral"),
+        S::Duplicate => ("status-duplicate", "neutral"),
+    }
+}
+
+/// The `$color.<name>` of a tone (a menu item's `iconColor`).
+fn tone_token(tone: &str) -> &'static str {
+    match tone {
+        "warning" => "warning",
+        "success" => "success",
+        "info" => "info",
+        _ => "mutedForeground",
+    }
+}
+
+/// An agent's brand mark as the icon concept the Menu draws.
+fn agent_mark(agent: coding::CodingAgent) -> &'static str {
+    match agent {
+        coding::CodingAgent::Claude => "brand-claude",
+        coding::CodingAgent::Codex => "brand-codex",
+    }
+}
+
+/// #EDE-65 lane T: an Account row's usage card (`menuItem.preview`, the IDE's
+/// `usage_bar::render_account_limits`): one labelled bar per window.
+fn limits_preview(limits: &coding::AccountLimits) -> Value {
+    use crate::usage_bar::{account_limit_bars, limit_severity, Severity};
+    let rows: Vec<Value> = account_limit_bars(limits)
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, used))| {
+            let tone = match limit_severity(used) {
+                Severity::Danger => "danger",
+                Severity::Warning => "warning",
+                Severity::Normal => "primary",
+            };
+            json!({
+                "id": format!("limit_{index}"),
+                "component": "Box",
+                "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 5.25, "width": "100%"},
+                "children": [
+                    {"id": format!("limit_{index}_label"), "component": "Text", "props": {"text": label, "variant": "muted", "lines": 1}, "style": {"width": 28, "flexShrink": 0, "fontSize": 10}},
+                    {"id": format!("limit_{index}_bar"), "component": "Progress", "props": {"value": (used.clamp(0., 1.) * 100.).round(), "tone": tone}, "style": {"flex": 1, "minWidth": 0}},
+                ],
+            })
+        })
+        .collect();
+    json!({"root": {"id": "limits", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 3.5, "width": "100%"}, "children": rows}, "data": {}})
 }
 
 /// What the document's composer asked for (`ede_chat` {action, …}: a
@@ -556,7 +613,7 @@ impl SteerSessionView {
                         .filter_map(|member| users.get(&member.user_id))
                         .filter_map(|user| {
                             let email = user.email.clone()?;
-                            Some(domain::chat_document::Member { name: user.name.clone().unwrap_or_else(|| email.clone()), email })
+                            Some(domain::chat_document::Member { name: user.name.clone().unwrap_or_else(|| email.clone()), email, image: user.image.clone() })
                         })
                         .collect();
                 }
@@ -566,7 +623,10 @@ impl SteerSessionView {
                         .into_iter()
                         .filter(|row| query.is_empty() || row.identifier.to_lowercase().contains(&query) || row.title.to_lowercase().contains(&query))
                         .take(domain::typeahead::MAX_ITEMS)
-                        .map(|row| (row.identifier, row.title))
+                        .map(|row| {
+                            let (icon, tone) = status_glyph(row.status);
+                            domain::chat_document::MentionIssue { identifier: row.identifier, title: row.title, icon: icon.into(), tone: tone.into() }
+                        })
                         .collect();
                 }
                 domain::typeahead::CompletionTrigger::Emoji => {}
@@ -613,10 +673,14 @@ impl SteerSessionView {
                 Row::AddFile => d::plus_row(d::PLUS_ADD_FILE),
                 Row::ImplementIssue => {
                     let Some(team_id) = team_id.as_deref() else { continue };
+                    // #EDE-65 lane T: every open issue (`searchable` filters): the
+                    // status glyph in its tone, the mono id, the title.
                     let items = crate::picker::issue_picker::snapshot_rows(cx, team_id, &Default::default())
                         .into_iter()
-                        .take(ISSUE_ROWS)
-                        .map(|row| ChatPlusItem { label: format!("{} {}", row.identifier, row.title), value: row.identifier, ..Default::default() })
+                        .map(|row| {
+                            let (icon, tone) = status_glyph(row.status);
+                            ChatPlusItem { label: row.title, value: row.identifier.clone(), identifier: Some(row.identifier), icon: Some(icon.into()), icon_color: Some(format!("$color.{}", tone_token(tone))), ..Default::default() }
+                        })
                         .collect();
                     submenu(d::PLUS_ISSUE, items, true)
                 }
@@ -654,38 +718,48 @@ impl SteerSessionView {
                         .iter()
                         .map(|(id, label)| ChatPlusItem { label: label.clone(), value: id.clone(), checked: Some(device.device_id.as_deref() == Some(id.as_str())), ..Default::default() })
                         .collect();
-                    submenu(d::PLUS_DEVICE, items, false)
+                    ChatPlusRow { detail: device.value().unwrap_or_default(), ..submenu(d::PLUS_DEVICE, items, false) }
                 }
                 Row::Account => match (&account_switch, editor_runner) {
-                    (Some((_, targets)), _) => submenu(
-                        d::PLUS_ACCOUNT,
-                        targets
-                            .iter()
-                            .map(|target| ChatPlusItem {
-                                label: target.caption.clone(),
-                                value: target.profile_id.clone(),
-                                checked: Some(target.current),
-                                disabled: !target.pickable(),
-                                ..Default::default()
-                            })
-                            .collect(),
-                        false,
-                    ),
-                    (None, Some(runner)) if !runner.menu.accounts.is_empty() => submenu(
-                        d::PLUS_ACCOUNT,
-                        runner
-                            .menu
-                            .accounts
-                            .iter()
-                            .map(|option| ChatPlusItem {
-                                label: option.email.clone(),
-                                value: option.account_option_key(),
-                                checked: Some(option.account_option_key() == runner.menu.account_picked),
-                                ..Default::default()
-                            })
-                            .collect(),
-                        false,
-                    ),
+                    (Some((context, targets)), _) => ChatPlusRow {
+                        detail: crate::account_switch::current_caption(targets).unwrap_or_default(),
+                        ..submenu(
+                            d::PLUS_ACCOUNT,
+                            targets
+                                .iter()
+                                .map(|target| ChatPlusItem {
+                                    label: target.caption.clone(),
+                                    value: target.profile_id.clone(),
+                                    icon: Some(agent_mark(context.agent).into()),
+                                    checked: Some(target.current),
+                                    disabled: !target.pickable(),
+                                    detail: target.health.badge_label().map(str::to_string),
+                                    preview: target.usage.as_ref().and_then(coding::account_option::account_limits).map(|limits| limits_preview(&limits)),
+                                    ..Default::default()
+                                })
+                                .collect(),
+                            false,
+                        )
+                    },
+                    (None, Some(runner)) if !runner.menu.accounts.is_empty() => ChatPlusRow {
+                        detail: runner.menu.account_value().unwrap_or_default(),
+                        ..submenu(
+                            d::PLUS_ACCOUNT,
+                            runner
+                                .menu
+                                .accounts
+                                .iter()
+                                .map(|option| ChatPlusItem {
+                                    label: option.email.clone(),
+                                    value: option.account_option_key(),
+                                    icon: Some(agent_mark(option.agent).into()),
+                                    checked: Some(option.account_option_key() == runner.menu.account_picked),
+                                    ..Default::default()
+                                })
+                                .collect(),
+                            false,
+                        )
+                    },
                     _ => continue,
                 },
                 Row::Model => {
@@ -695,7 +769,8 @@ impl SteerSessionView {
                         _ => continue,
                     };
                     let items = models.iter().map(|(label, value)| ChatPlusItem { label: (*label).to_string(), value: (*value).to_string(), checked: Some(picked == *value), ..Default::default() }).collect();
-                    submenu(d::PLUS_MODEL, items, false)
+                    let detail = models.iter().find(|(_, value)| *value == picked).map(|(label, _)| (*label).to_string()).unwrap_or_else(|| crate::steer_viewer::model_label(&picked));
+                    ChatPlusRow { detail, ..submenu(d::PLUS_MODEL, items, false) }
                 }
                 // Launch-only rows never reach a session's surface.
                 _ => continue,
@@ -1026,6 +1101,19 @@ mod tests {
         }
     }
 
+    /// #EDE-65 lane T: the "+" rows carry the IDE's captions and marks.
+    #[test]
+    fn an_account_row_carries_its_mark_badge_and_usage_card() {
+        let preview = limits_preview(&coding::AccountLimits { five_hour: Some(0.4), week: 0.95, model: None });
+        let rows = preview["root"]["children"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["children"][1]["props"]["value"], 40.0);
+        assert_eq!(rows[1]["children"][1]["props"]["tone"], "danger");
+        assert_eq!(agent_mark(coding::CodingAgent::Claude), "brand-claude");
+        assert_eq!(status_glyph(domain::IssueStatus::InReview), ("status-in-review", "success"));
+        assert_eq!(tone_token("neutral"), "mutedForeground");
+    }
+
     /// #EDE-65 lane T: the IDE card's look and rules through existing genUI:
     /// the FLAT Composer, the "+" (24 px, Tooltip `Add`, inert while a send
     /// is in flight), the `/` menu floating over the card (a Popover anchored
@@ -1049,13 +1137,18 @@ mod tests {
         assert_eq!(tip["props"]["content"], crate::chat_screen::PLUS_TOOLTIP);
         let plus = node(tip, "chat_plus_button").expect("the + button");
         assert_eq!(plus["props"]["disabled"], json!({"@path": "/chatting/composer/sending"}));
-        assert_eq!(plus["style"], json!({"width": 24, "height": 24, "marginTop": 4}));
+        assert_eq!((plus["props"]["size"].as_str(), plus["props"]["tone"].as_str()), (Some("icon-xs"), Some("muted")));
         let popover = node(&tree, "chat_slash_popover").expect("the / menu's popover");
         assert_eq!(popover["component"], "Popover");
         assert_eq!(popover["props"]["anchor"], COMPOSER);
         assert_eq!(popover["props"]["side"], "top");
+        assert_eq!(popover["props"]["matchAnchorWidth"], true);
         assert_eq!(popover["props"]["open"], json!({"@path": "/chatMenu/open"}));
         assert!(node(popover, "chat_slash").is_some());
+        let strip = composer["slots"]["above"].clone();
+        assert_eq!((strip["id"].as_str(), strip["style"]["flexWrap"].as_str()), (Some("chat_files"), Some("wrap")));
+        let picture = node(&strip, "chat_file_image").expect("the picture tile");
+        assert_eq!((picture["style"]["width"].as_i64(), picture["style"]["height"].as_i64()), (Some(48), Some(48)));
         let replies = node(&tree, "chat_reply_list").expect("the replies");
         assert_eq!(replies["style"]["flexWrap"], "wrap");
         assert_eq!(replies["style"]["gap"], 5.25);

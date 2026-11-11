@@ -2425,6 +2425,7 @@ fn chat_menu_changed(shell: &SharedShell) {
         let current = &s.model.switcher.current;
         let query = domain::typeahead::detect_trigger(&s.chat_draft, s.chat_draft.len()).filter(|t| t.trigger == domain::typeahead::CompletionTrigger::IssueRef).map(|t| t.query);
         let ranked = query.map(|q| issues::rank_in(&s.issue_index, &current.kind, &current.id, &q, domain::typeahead::MAX_ITEMS)).unwrap_or_default();
+        let ranked: Vec<chat::MentionIssue> = ranked.into_iter().map(Into::into).collect();
         match chat::mention_menu(&s.chat_draft, &s.chat_members, &ranked) {
             Some(menu) => (menu, false),
             None => (chat::slash_menu(&s.chat_draft, s.chat_cli.as_deref(), &s.chat_prompts), true),
@@ -3249,7 +3250,7 @@ fn main() {
         // The goldens: `EDE_SHELL_DEMO_DRAFT` types into the demo composer (`/` opens the menu).
         if let Some(draft) = std::env::var("EDE_SHELL_DEMO_DRAFT").ok().filter(|_| demo) {
             feed.set("/chat", json!({"draft": draft}));
-            let mut menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
+            let mut menu = chat::mention_menu(&draft, &chat::demo_members(), &chat::demo_issues().into_iter().map(Into::into).collect::<Vec<chat::MentionIssue>>()).unwrap_or_else(|| chat::slash_menu(&draft, Some("claude"), &chat::demo_prompts()));
             // `EDE_SHELL_DEMO_HIGHLIGHT` = the row the menu keys moved to.
             chat::highlight(&mut menu, std::env::var("EDE_SHELL_DEMO_HIGHLIGHT").ok().and_then(|i| i.parse().ok()).unwrap_or(0), true);
             feed.set("/chatMenu", menu);

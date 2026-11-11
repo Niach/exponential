@@ -143,6 +143,9 @@ pub struct ChatPlusRow {
     /// The submenu filters its entries in a search field.
     #[serde(default)]
     pub searchable: bool,
+    /// #EDE-65 lane T: a submenu parent's current value (`Model › Opus`).
+    #[serde(default)]
+    pub detail: String,
 }
 
 /// A submenu entry: `checked` = a check entry (the picked model, a team),
@@ -158,6 +161,18 @@ pub struct ChatPlusItem {
     pub checked: Option<bool>,
     #[serde(default)]
     pub disabled: bool,
+    /// #EDE-65 lane T: the muted text after the label (an Account's health).
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// The mono id before the label (`EXP-12`, an Issue row).
+    #[serde(default)]
+    pub identifier: Option<String>,
+    /// The glyph's own tint (an Issue row's status colour).
+    #[serde(default)]
+    pub icon_color: Option<String>,
+    /// The nested surface beside the row (an Account's usage card).
+    #[serde(default)]
+    pub preview: Option<Value>,
 }
 
 /// The quick replies of message `message_id`.
@@ -296,6 +311,9 @@ pub fn plus_menu(rows: &[ChatPlusRow]) -> Vec<Value> {
             if !row.icon.is_empty() {
                 item.insert("icon".into(), json!(row.icon));
             }
+            if !row.detail.is_empty() {
+                item.insert("detail".into(), json!(row.detail));
+            }
             if let Some(entries) = &row.items {
                 item.insert("kind".into(), json!("submenu"));
                 if row.searchable {
@@ -316,6 +334,18 @@ pub fn plus_menu(rows: &[ChatPlusRow]) -> Vec<Value> {
                         }
                         if entry.disabled {
                             e.insert("disabled".into(), json!(true));
+                        }
+                        if let Some(detail) = entry.detail.as_deref().filter(|d| !d.is_empty()) {
+                            e.insert("detail".into(), json!(detail));
+                        }
+                        if let Some(identifier) = entry.identifier.as_deref().filter(|i| !i.is_empty()) {
+                            e.insert("identifier".into(), json!(identifier));
+                        }
+                        if let Some(color) = entry.icon_color.as_deref().filter(|c| !c.is_empty()) {
+                            e.insert("iconColor".into(), json!(color));
+                        }
+                        if let Some(preview) = &entry.preview {
+                            e.insert("preview".into(), preview.clone());
                         }
                         Value::Object(e)
                     })
