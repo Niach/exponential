@@ -13229,16 +13229,79 @@
                 "id": "specimen_select_case_9_label",
                 "component": "Text",
                 "props": {
+                  "text": "option iconColor + triggerIcon",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c9_pr_automation",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c9_pr_opened",
+                    "component": "Select",
+                    "props": {
+                      "label": "When a PR opens",
+                      "name": "prOpened",
+                      "triggerVariant": "row",
+                      "triggerIcon": true,
+                      "popupMinWidth": 170,
+                      "value": "in_review",
+                      "options": [
+                        {
+                          "label": "Backlog",
+                          "value": "backlog",
+                          "icon": "status-backlog",
+                          "iconColor": "$color.mutedForeground"
+                        },
+                        {
+                          "label": "In Progress",
+                          "value": "in_progress",
+                          "icon": "status-in-progress",
+                          "iconColor": "$color.warning"
+                        },
+                        {
+                          "label": "In Review",
+                          "value": "in_review",
+                          "icon": "status-in-review",
+                          "iconColor": "$color.success"
+                        },
+                        {
+                          "label": "Cancelled",
+                          "value": "cancelled",
+                          "icon": "status-cancelled",
+                          "iconColor": "$color.destructive"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_10_label",
+                "component": "Text",
+                "props": {
                   "text": "multiple · searchable · row + option icon, description",
                   "variant": "caption"
                 }
               },
               {
-                "id": "c9_agent_skills",
+                "id": "c10_agent_skills",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c9_skills",
+                    "id": "c10_skills",
                     "component": "Select",
                     "props": {
                       "label": "Skills",

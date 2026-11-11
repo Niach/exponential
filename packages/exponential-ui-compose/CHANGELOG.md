@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Menu item `detail`, `identifier`, `preview` (#EXP-1629): the core lays out the `identifier` / `detail` parts and the shown preview as the menu's layer holding an Embed leaf (mounted like any Embed); the preview's popup is not focusable and never takes Escape (`isMenuPreviewLayer`); the core's `hoverTimer` runs the waits. `MenuPreviewTest` replays `menuRows` + `menuPreview`.
+- Select option `iconColor` (#EXP-1629): the core sets the tint as the `itemIcon` / `valueIcon` part's colour; painted as any Icon leaf.
 - Composer matches the app: the send glyph is the catalog's `Composer.send` = `ui-submit` (`Glyph.Submit`, Lucide `circle-arrow-up`); a flat `ComposerLeaf` places its text field `paddingTop` (the field recipe's) below the row's top down to its bottom, one line or grown (`flatComposerField`), and the measurer adds the field's paddingTop/paddingBottom. Snapshots: the Composer cases re-recorded.
 - Menu item `iconColor` (#EXP-1629): `MenuItemLeaf` paints the glyph in `LeafContext.propColor` (a `$color.<name>` token, else the host's hex), else the ink.
 - Skeleton `rows` (#EXP-1629): no hairline between rows (from eui-core, and the native Select popup's loading rows); the Skeleton pulse eases on CSS `ease-in-out` (cubic-bezier 0.42, 0, 0.58, 1) instead of `FastOutSlowInEasing`. Snapshot `components.json` re-recorded (`RecordTable/loading=true`).
