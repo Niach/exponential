@@ -6,6 +6,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
+- Menu: a searchable submenu matches a row's `identifier` as well as its label (`searchMatches`) and its rows draw the `identifier`, `detail` and `iconColor` tint.
+- Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensWithoutCursor` is `pill` only.
+- Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only (no label part, the label is the `aria-label`), its size, radius, glyph and muted colour from the recipes. Snapshots re-recorded (every Button gains `data-r-tone="default"`; + the three new catalog cases).
+- Select option `hint` (#EXP-1629): the `itemHint` part before the check.
 - Select `button` trigger glyph (#EXP-1629): the picked option's `icon` + `iconColor` before the value.
 - Select `button` trigger + Text `truncate` (#EXP-1778): the button is the field trigger with no label part (the label = its `aria-label`) and the `Select.dropdown` glyph; its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it; a `middle` Text cuts its line with `watchMiddleTruncate` (the element's font on a canvas, again on resize).
 - Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.

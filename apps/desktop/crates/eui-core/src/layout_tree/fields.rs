@@ -521,7 +521,8 @@ impl Builder<'_, '_> {
             let suffix = format!(".{i}");
             let icon = option.get("icon").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
             let description = option.get("description").map(js).filter(|d| !d.is_empty());
-            let item = if icon.is_some() || description.is_some() {
+            let hint = option.get("hint").map(js).filter(|h| !h.is_empty());
+            let item = if icon.is_some() || description.is_some() || hint.is_some() {
                 // #EXP-1629: an option with a glyph or a `description` is a
                 // row of parts (the IDE picker's row): the `itemIcon`, the
                 // `itemText` column (`itemLabel` over the muted
@@ -539,6 +540,10 @@ impl Builder<'_, '_> {
                 self.part_in(column, &owner, "itemLabel", "Text", NodeKind::Leaf, json!({}), json!({"text": text, "lines": 1}), &suffix);
                 if let Some(description) = description {
                     self.part_in(column, &owner, "itemDescription", "Text", NodeKind::Leaf, json!({}), json!({"text": description, "lines": 1}), &suffix);
+                }
+                // #EXP-1629: web's picker hint: a small muted run at the row's end.
+                if let Some(hint) = hint {
+                    self.part_in(item, &owner, "itemHint", "Text", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"text": hint, "lines": 1}), &suffix);
                 }
                 if selected {
                     self.part_in(item, &owner, "check", "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": super::builtin_icon("Select.check")}), &suffix);

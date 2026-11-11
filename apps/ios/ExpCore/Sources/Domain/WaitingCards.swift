@@ -4,7 +4,7 @@ import Foundation
 /// (`packages/domain-contract/fixtures/waiting-cards.json`, TS reference
 /// `src/waiting-cards.ts`): a card's state (waiting / answered / dismissed /
 /// superseded) and the chat header's waiting chips. `WaitingCardsTests`
-/// replays `stateCases` and `chipCases`, comparing the WHOLE value.
+/// replays `stateCases`, `chipCases` and `targetCases`, comparing the WHOLE value.
 public enum WaitingCards {
     public enum State: String, Equatable, Sendable {
         case waiting, answered, dismissed, superseded
@@ -108,6 +108,40 @@ public enum WaitingCards {
         }
         let layout: Layout = chips.isEmpty ? .hidden : phone ? .button : .chips
         return Chips(layout: layout, count: chips.count, chips: chips)
+    }
+
+    /// #EXP-1785: what a picked chip (or menu row) opens.
+    public enum Open: String, Equatable, Sendable {
+        case plan, card, session
+    }
+
+    public struct Target: Equatable, Sendable {
+        public let open: Open
+        public let sessionId: String
+
+        public init(open: Open, sessionId: String) {
+            self.open = open
+            self.sessionId = sessionId
+        }
+    }
+
+    /// A picked card: its kind and its asking session.
+    public struct TargetCard: Equatable, Sendable {
+        public let kind: AskDock.Kind
+        public let sessionId: String
+
+        public init(kind: AskDock.Kind, sessionId: String) {
+            self.kind = kind
+            self.sessionId = sessionId
+        }
+    }
+
+    /// #EXP-1785: where a pick goes: a plan = the plan page; the root's
+    /// question = the Chat tab at its card; a question of a session under
+    /// the root = that session opened in place at its card.
+    public static func waitingTarget(card: TargetCard, rootId: String) -> Target {
+        if card.kind == .plan { return Target(open: .plan, sessionId: card.sessionId) }
+        return Target(open: card.sessionId == rootId ? .card : .session, sessionId: card.sessionId)
     }
 
     /// The phone button's accessible name.

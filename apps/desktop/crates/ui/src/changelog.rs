@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-11-waiting-in-the-header",
+    date: "2026-11-11",
+    title: "Waiting plans and questions are back in the header",
+    summary: "A chat's header shows every plan and question waiting on you again, from the chat and its sessions: tap one to open it.",
+    body: r#"- **In the header**: every waiting plan and question of the chat and of its sessions sits in the chat's header again, on every platform; on a phone it is one button with the count.
+- **One tap**: a plan opens the plan page, a question takes you to its card (in its session when a session asked it), ready to answer."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_248: ChangelogEntry = ChangelogEntry {
     id: "2026-11-10-chat-ends-at-composer",
     date: "2026-11-10",
     title: "The chat ends at the composer",

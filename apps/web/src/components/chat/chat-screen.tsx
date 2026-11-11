@@ -1,5 +1,5 @@
 import { chatPendingAsks, chatSessionNames } from "@exp/domain-contract/ask-dock"
-import { WAITING_CARDS_CONSTANTS } from "@exp/domain-contract/waiting-cards"
+import { WAITING_CARDS_CONSTANTS, waitingTarget } from "@exp/domain-contract/waiting-cards"
 import type { ChatLead } from "@exp/domain-contract/chats"
 import {
   SESSION_SCREEN_COPY,
@@ -17,6 +17,7 @@ import { useNavigate } from "@tanstack/react-router"
 import {
   CardHighlightContext,
   ChatLeadDisc,
+  ChatWaitingChips,
   conceptIcon,
   Menu,
   MenuGestureHost,
@@ -311,6 +312,37 @@ export function ChatScreen({
     return () => clearTimeout(timer)
   }, [highlight, scrollTo])
 
+  // #EXP-1785 (waiting-cards.json): the header's WAITING chips = every
+  // waiting plan and question of the TREE (the root and every session under
+  // it). A pick: a plan opens the plan page; the root's question scrolls the
+  // Chat tab to its card; a question under the root opens that session in
+  // place at its card (both ring it).
+  const waitingAsks = useMemo(
+    () =>
+      view.rows.flatMap((row) =>
+        (row.type === `plan` && row.decision === null) || (row.type === `question` && !row.answered)
+          ? [{ id: row.id, kind: row.type, sessionId: row.sessionId }]
+          : []
+      ),
+    [view.rows]
+  )
+  const waitingCards = useMemo(
+    () => chatPendingAsks(view.rows, () => null).map(({ id, kind, text }) => ({ id, kind, text })),
+    [view.rows]
+  )
+  const selectWaiting = (id: string) => {
+    const card = waitingAsks.find((entry) => entry.id === id)
+    if (!card) return
+    const target = waitingTarget(card, root.id)
+    if (target.open === `plan`) {
+      openItem({ open: `plan`, plan: id })
+      return
+    }
+    if (target.open === `session` && rowsById.has(target.sessionId)) openSession(target.sessionId)
+    else if (isMobile && screen.layout !== `chat`) onNavigate({ tab: `chat`, ...keepBack })
+    setScrollTo({ id, at: Date.now() })
+  }
+
   // EXP-1323 / #EXP-1545: the Chat tab's suggested tasks (Start, Start all,
   // Do it here, Start on… / with…, File, Dismiss), a Live child's Queue in
   // THE Dock, a filed suggestion's issue chip.
@@ -537,6 +569,8 @@ export function ChatScreen({
             subtitleClass={CHAT_HEADER_TONE_CLASS[sessionScreenTone(status)]}
             trailing={
               <>
+                {/* #EXP-1785: the waiting chips lead the trailing slot. */}
+                <ChatWaitingChips cards={waitingCards} phone={isMobile} onSelect={selectWaiting} />
                 {/* S-3: the Merge pill sits in the header on every width. */}
                 <ChatGuideMerge pr={guidePr} canMerge={permissions.isMember} />
                 {agent?.trailing}

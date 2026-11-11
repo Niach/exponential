@@ -6,6 +6,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
+- Select `button` popup matches web's picker (#EXP-1629): the layout constants (`SELECT_BUTTON_POPUP_OFFSET` 4, `SELECT_BUTTON_ITEM_GAP` 0) and regenerated themes.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): generated catalog + themes; the recipe index lists Button's `tone`; theme tests pin the 24 px round icon-xs and the muted colour under the ghost hover fill; `catalog_fixtures` counts 743 cases.
+- Select option `hint` (#EXP-1629): the row of parts gains `itemHint` before the check (`tests/select_option_hint.rs`).
+- Select `align` (#EXP-1629): it places the popup and no longer also aligns the trigger's text (a `button` trigger with `align: end` read right-aligned on the native painters).
 - Select `button` trigger glyph (#EXP-1629): the trigger leaf carries the picked option's `valueIcon` + `iconColor` (`tests/select_button_glyph.rs`).
 - Select `triggerVariant: "button"` + Text `truncate` (#EXP-1778): a `button` trigger stretches, holds the `Select.dropdown` glyph and no `label` part (the label is its accessibility `label`); its popup fits its options (at least `layout::SELECT_BUTTON_POPUP_MIN_WIDTH`), its border box `SELECT_BUTTON_POPUP_OFFSET` under the trigger and `SELECT_PILL_POPUP_INSET` outside its edge. A `truncate` Text is one line (`lines: 1`); `text_truncate::middle_truncate_width` replays `fixtures/text-truncate.json`.
 - Select `row` disabled (#EXP-1629): generated themes; `tests/select_row_disabled.rs` (value + chevron 0.35, label + description unchanged).

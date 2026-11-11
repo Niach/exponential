@@ -83,6 +83,10 @@ struct ChatScreen: View {
     /// #EXP-1562: the scroll a waiting card asks for (the root's session
     /// view scrolls to it and lights it).
     @State private var waitingFocus: WaitingFocus?
+    /// #EXP-1785: the waiting button's Menu sheet, its pick (run once the
+    /// sheet has dismissed).
+    @State private var waitingOpen = false
+    @State private var pendingWaitingPick: String?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
     // The chat PR (`guidePullRequest`)
@@ -280,6 +284,15 @@ struct ChatScreen: View {
         }
         .background {
             Color.clear
+                .sheet(isPresented: $waitingOpen, onDismiss: runPendingWaitingPick) {
+                    ChatWaitingSheet(chips: waitingChips.chips) { id in
+                        pendingWaitingPick = id
+                        waitingOpen = false
+                    }
+                }
+        }
+        .background {
+            Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
                     ChatIssueMenuSheet(
                         identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier }
@@ -401,6 +414,14 @@ struct ChatScreen: View {
                 )
             }
         } trailing: {
+            // #EXP-1785: THE waiting button leads the trailing slot (not an
+            // app editor's).
+            if editor == nil, waitingChips.layout == .button {
+                ChatWaitingButton(count: waitingChips.count) {
+                    UIApplication.endEditing()
+                    waitingOpen = true
+                }
+            }
             headerMergePill
             if rows.root.isAgent, rows.root.appId == nil, let agentId = rows.root.agentId {
                 AgentCallButton(
@@ -426,6 +447,53 @@ struct ChatScreen: View {
     }
 
     private var chatLoaded: Bool { model?.view != nil }
+
+    /// #EXP-1785 (waiting-cards.json): THE TREE's waiting plans and
+    /// questions (ask-dock `chatPendingAsks` over the chat view's rows, the
+    /// children's included), in Conversation order.
+    private var waitingCards: [(card: AskDock.Pending, sessionId: String)] {
+        guard let view = model?.view else { return [] }
+        let sessions = Dictionary(view.rows.compactMap { row -> (String, String)? in
+            switch row {
+            case let .plan(card): (card.id, card.sessionId)
+            case let .question(card): (card.id, card.sessionId)
+            default: nil
+            }
+        }, uniquingKeysWith: { first, _ in first })
+        return AskDock.chatPendingAsks(view.rows, sessionName: { _ in nil }).map {
+            ($0, sessions[$0.id] ?? rootId)
+        }
+    }
+
+    private var waitingChips: WaitingCards.Chips {
+        WaitingCards.chips(waitingCards.map(\.card), phone: true)
+    }
+
+    /// #EXP-1785 `waitingTarget`: a plan = its plan page; the root's
+    /// question = the Chat tab scrolled to its card + the ring; a child's =
+    /// that session opened in place, scrolled to its card + the ring.
+    private func runPendingWaitingPick() {
+        guard let id = pendingWaitingPick else { return }
+        pendingWaitingPick = nil
+        guard let picked = waitingCards.first(where: { $0.card.id == id }) else { return }
+        let target = WaitingCards.waitingTarget(
+            card: WaitingCards.TargetCard(kind: picked.card.kind, sessionId: picked.sessionId),
+            rootId: rows?.root.id ?? rootId
+        )
+        pendingPage = nil
+        switch target.open {
+        case .plan:
+            setTab(.chat)
+            openItem(.plan(id))
+        case .card:
+            opened = nil
+            setTab(.chat)
+            waitingFocus = WaitingFocus(id: id, at: Date())
+        case .session:
+            waitingFocus = WaitingFocus(id: id, at: Date())
+            openSession(target.sessionId)
+        }
+    }
 
     /// #FEED-191 (needs-you.json): a Needs you row's `card`: the Chat,
     /// scrolled to the card, once the chat is there.
@@ -537,6 +605,8 @@ struct ChatScreen: View {
             SessionScreenItemPage(title: rows.flatMap { $0.session(id: sessionId) }.map(sessionName) ?? "") {
                 if let rows { sessionPage(sessionId, rows: rows) }
             }
+            // #EXP-1785: a child's waiting question scrolls its page too.
+            .environment(\.waitingFocus, waitingFocus)
             .environment(\.chatIssueOutlet, issueOutlet)
             .environment(\.chatPlanOutlet, planOutlet)
         case let .plan(messageId):

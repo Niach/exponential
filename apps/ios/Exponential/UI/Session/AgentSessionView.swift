@@ -593,52 +593,8 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
-        if !model.hasFeed, let status = historyStatus(model) {
-            // EXP-773: a finished session's transcript lives on the machine
-            // that ran it. Say which machine when it can't answer (VAPP-43:
-            // no device fed the join).
-            centeredState {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .multilineTextAlignment(.center)
-            }
-        } else if !model.hasFeed, model.phase != .live,
-                  SteerNoFeed.state(
-                      ended: model.sessionEnded, busy: (model.session ?? session).busy,
-                      deviceOffline: model.hostDevice.offline
-                  ) == .away {
-            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
-            // whose host is offline says so at once, never "starting"; a
-            // cached feed shows as the transcript instead.
-            let away = SteerNoFeed.away(deviceName: model.hostDevice.label)
-            centeredState {
-                EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
-            }
-            .accessibilityIdentifier("transcript-device-away")
-        } else if !model.hasFeed, model.phase == .starting,
-                  SteerNoFeed.state(
-                      ended: model.sessionEnded, busy: (model.session ?? session).busy
-                  ) == .idle {
-            // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
-            // a row that is not busy (idle, or on an open question) is never
-            // "starting": the idle empty state, while the model keeps redialing.
-            centeredState {
-                EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
-            }
-        } else if !model.hasFeed,
-                  model.phase == .connecting || model.phase == .starting || model.phase == .idle {
-            // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
-            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
-                .transcriptColumn()
-                .frame(maxHeight: .infinity, alignment: .top)
-                .padding(.top, 8)
-        } else if !model.hasFeed, model.phase == .live, model.latestDiff == nil {
-            centeredState {
-                Text("Waiting for activity…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
+        if let placeholder = noFeedPlaceholder(model) {
+            noFeedBody(placeholder, model: model)
         } else {
             VStack(spacing: 0) {
                 agentTabStrip(model)
@@ -650,6 +606,113 @@ struct AgentSessionView: View {
             // bare identifier on a plain container never reaches the hierarchy.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-feed")
+        }
+    }
+
+    /// What a session view with no feed shows instead of its transcript; nil
+    /// = the transcript.
+    private enum NoFeedPlaceholder {
+        case history(String)
+        case deviceAway
+        case idle
+        case loading
+        case waitingForActivity
+    }
+
+    private func noFeedPlaceholder(_ model: AgentSessionModel) -> NoFeedPlaceholder? {
+        guard !model.hasFeed else { return nil }
+        if let status = historyStatus(model) { return .history(status) }
+        if model.phase != .live,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy,
+               deviceOffline: model.hostDevice.offline
+           ) == .away {
+            return .deviceAway
+        }
+        if model.phase == .starting,
+           SteerNoFeed.state(
+               ended: model.sessionEnded, busy: (model.session ?? session).busy
+           ) == .idle {
+            return .idle
+        }
+        if model.phase == .connecting || model.phase == .starting || model.phase == .idle {
+            return .loading
+        }
+        if model.phase == .live, model.latestDiff == nil { return .waitingForActivity }
+        return nil
+    }
+
+    /// #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
+    /// to hold the cards; the session's WAITING ones draw under it, so a
+    /// header pick always reaches an answerable card.
+    @ViewBuilder
+    private func noFeedBody(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
+        let waitingIds = sessionCards.filter(\.waiting).map(\.id)
+        if waitingIds.isEmpty {
+            noFeedPlaceholderView(placeholder, model: model)
+        } else {
+            GeometryReader { geo in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            noFeedPlaceholderView(placeholder, model: model)
+                            VStack(alignment: .leading, spacing: 0) {
+                                inlineToolCards(waitingIds, model: model)
+                            }
+                            .padding(.vertical, 8)
+                            .transcriptColumn()
+                        }
+                        .frame(minHeight: geo.size.height)
+                    }
+                    .modifier(WaitingFocusScroll(
+                        focus: waitingFocus, proxy: proxy, highlight: $highlightId
+                    ))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func noFeedPlaceholderView(_ placeholder: NoFeedPlaceholder, model: AgentSessionModel) -> some View {
+        switch placeholder {
+        case let .history(status):
+            // EXP-773: a finished session's transcript lives on the machine
+            // that ran it. Say which machine when it can't answer (VAPP-43:
+            // no device fed the join).
+            centeredState {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .multilineTextAlignment(.center)
+            }
+        case .deviceAway:
+            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
+            // whose host is offline says so at once, never "starting"; a
+            // cached feed shows as the transcript instead.
+            let away = SteerNoFeed.away(deviceName: model.hostDevice.label)
+            centeredState {
+                EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
+            }
+            .accessibilityIdentifier("transcript-device-away")
+        case .idle:
+            // EXP-1487 (steer-enet.json NO FEED, EMPTY TRANSCRIPT): NO FEED on
+            // a row that is not busy (idle, or on an open question) is never
+            // "starting": the idle empty state, while the model keeps redialing.
+            centeredState {
+                EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
+            }
+        case .loading:
+            // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
+            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                .transcriptColumn()
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
+        case .waitingForActivity:
+            centeredState {
+                Text("Waiting for activity…")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
         }
     }
 

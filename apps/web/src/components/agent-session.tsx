@@ -936,6 +936,12 @@ export function AgentSessionView({
         />
       </div>
     ) : null
+  // #EXP-1785 (waiting-cards.json NO FEED): a placeholder has no transcript
+  // to hold the cards; the session's WAITING ones draw under it, so a header
+  // chip or a Needs-you row always reaches an answerable card.
+  const waitingCardIds = toolCards
+    .filter((row) => (row.type === `plan` && row.decision === null) || (row.type === `question` && !row.answered))
+    .map((row) => row.id)
   const placeholderShown =
     noFeedAway ||
     (feedPlaceholder && starting) ||
@@ -1127,12 +1133,13 @@ export function AgentSessionView({
                 )}
               </div>
             )}
-            {placeholderShown && chatExtras && (
+            {placeholderShown && (chatExtras || waitingCardIds.length > 0) && (
               <div
                 className={cn(`shrink-0 py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: DOCK_GAP }}
                 data-testid="session-placeholder-extras"
               >
+                {renderToolCards(waitingCardIds, `placeholder`)}
                 {chatExtras}
               </div>
             )}

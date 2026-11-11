@@ -1793,7 +1793,10 @@
           "description": "`default` = primary, `destructive` = dangerous, `ghost`/`link` = quiet."
         },
         "size": {
-          "description": "Control height class; `icon` is a square icon-only button."
+          "description": "Control height class; `icon` is a square icon-only button, `icon-xs` a small round one."
+        },
+        "tone": {
+          "description": "`muted` = muted glyph and label."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -3538,6 +3541,9 @@
         },
         "trailing": {
           "description": "Text after the label (Select popup)."
+        },
+        "hint": {
+          "description": "Small muted text at the row's end (Select popup)."
         },
         "mono": {
           "description": "Label in the mono type (Select popup)."

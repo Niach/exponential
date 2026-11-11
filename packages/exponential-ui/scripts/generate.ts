@@ -1046,7 +1046,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
               detail: `Healthy`,
               preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
             },
-            { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
+            { label: `Issue`, kind: `submenu`, searchable: true, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
           ],
         },
         children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],
@@ -1217,6 +1217,10 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `pr_merged_button`, component: `Select`, props: { label: `When a PR merges`, name: `prMergedButton`, triggerVariant: `button`, value: `none`, options: [{ label: `Done`, value: `done`, icon: `status-done`, iconColor: `$color.info` }, { label: `Do nothing`, value: `none` }] }, style: { width: 176 } },
       ],
     },
+  }, {
+    // #EXP-1629: web's picker hint: a small muted run at each row's end.
+    label: `triggerVariant · button + option hint`,
+    node: { id: `estimate_scale`, component: `Select`, props: { label: `Estimate scale`, name: `estimateScale`, triggerVariant: `button`, value: `tshirt`, options: [{ label: `Not in use`, value: `none` }, { label: `Fibonacci`, value: `fibonacci`, hint: `1, 2, 3, 5, 8 points` }, { label: `T-shirt`, value: `tshirt`, hint: `XS, S, M, L, XL` }] }, style: { width: 176 } },
   }, {
     // #EXP-1778: App detail's Accounts picker: an outline small button (the
     // label names it) opening the pointer menu, the shown option checked.
@@ -1432,6 +1436,14 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Button: [{
     label: `hold · true`,
     node: { id: `talk`, component: `Button`, props: { label: `Hold to talk`, icon: `call-mute`, hold: true, holdingLabel: `Holding…` } },
+  }, {
+    // #EXP-1629: the IDE's composer "+" tool (a muted ghost web_icon_xs)
+    // next to the quick replies' ✕.
+    label: `size · icon-xs, tone · muted`,
+    node: { id: `icon-xs`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, align: `center` }, children: [
+      { id: `tool`, component: `Button`, props: { label: `Add`, icon: `ui-add`, variant: `ghost`, size: `icon-xs`, tone: `muted` } },
+      { id: `dismiss`, component: `Button`, props: { label: `Dismiss`, icon: `ui-close`, variant: `ghost`, size: `icon-xs` } },
+    ] },
   }],
   // VAPP-162: a conversation (in, out, the three delivery states).
   MessageBubble: [{

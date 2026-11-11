@@ -493,6 +493,30 @@ class InteractionTest {
      * `trailing` its own run (the core's `trailing` prop, the label alone
      * as the text), a plain one reads it on.
      */
+    /** #EXP-1629: the popup row's own fields: the glyph's tint and the end hint. */
+    @Test fun selectOptionsCarryIconColorAndHint() {
+        val owner = mapOf("options" to JsonValue.Arr(listOf(JsonValue.Obj(mapOf("label" to JsonValue.Str("T-shirt"), "value" to JsonValue.Str("t"), "icon" to JsonValue.Str("status-done"), "iconColor" to JsonValue.Str("\$color.success"), "hint" to JsonValue.Str("XS, S")))))) 
+        val o = at.exponential.ui.compose.selectOptions(owner, "").single()
+        assertEquals("\$color.success", o.iconColor)
+        assertEquals("XS, S", o.hint)
+    }
+
+    /** #EXP-1629: `selectPointerOpen`: the pointer opening keeps the cursor but on a pill. */
+    @Test
+    fun selectPointerOpenKeepsTheCursorButOnAPill() {
+        for (case in Fixtures.json("interactions-round1.json")["selectPointerOpen"]!!.array!!) {
+            val variant = case["triggerVariant"]!!.string!!
+            val m = SurfaceModel("select-cursor", SurfaceOptions(overlays = OverlayPresentation.Painted), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested("""{"id":"root","component":"Box","children":[{"id":"s","component":"Select","props":{"label":"L","name":"s","triggerVariant":"$variant","value":"b","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}}]}""")
+            m.setViewport(390f, 800f)
+            m.focus("s.trigger", true, fromKeyboard = false)
+            m.press("s.trigger")
+            val hovered = m.nodes.filter { it.ownerComponent == "Select" && it.part == "item" && !it.hidden && "hover" in m.statesOf(it.id) }.map { it.id }
+            assertEquals(variant, if (case["cursor"]!!.bool == true) listOf("s.item.0") else emptyList(), hovered)
+        }
+    }
+
     @Test
     fun selectPill() {
         val options = """[{"label":"Option A","value":"a","disabled":true},{"label":"main","value":"main","mono":true,"trailing":"default"},{"label":"dev","value":"dev","trailing":"· old"}]"""

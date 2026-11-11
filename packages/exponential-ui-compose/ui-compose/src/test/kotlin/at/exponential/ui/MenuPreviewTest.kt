@@ -6,6 +6,8 @@ import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.embed
 import at.exponential.ui.model.escape
+import at.exponential.ui.model.fieldEdited
+import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.focus
 import at.exponential.ui.model.hover
 import at.exponential.ui.model.isMenuPreviewLayer
@@ -73,7 +75,22 @@ class MenuPreviewTest {
             val name = c["name"]?.string ?: "?"
             val tree = JsonValue.Obj(mapOf("id" to JsonValue.Str("m"), "component" to JsonValue.Str("Menu"), "props" to JsonValue.Obj(mapOf("label" to JsonValue.Str("More"), "items" to c["items"]!!))))
             val m = mount(tree, RecordingHost(), backgroundScope)
-            c["submenu"]?.number?.toInt()?.let { m.press("m.item.$it") }
+            c["submenu"]?.number?.toInt()?.let { sub ->
+                m.press("m.item.$sub")
+                // A searchable submenu: type into its field.
+                c["query"]?.string?.let { q ->
+                    val field = m.indexOf("m.search.$sub")!!
+                    m.fieldFocused(field, true)
+                    m.fieldEdited(field, q)
+                    advanceTimeBy(200)
+                    runCurrent()
+                }
+                c["shown"]?.array?.let { shown ->
+                    val list = m.nodes.first { it.id == "m.list.$sub" }
+                    val got = list.children.map { child -> m.nodes.first { it.index == child } }.filter { it.part == "item" }.map { it.id.removePrefix("m.item.") }
+                    assertEquals("$name: shown rows", shown.map { it.string }, got)
+                }
+            }
             for (r in c["rows"]?.array.orEmpty()) {
                 val key = r["key"]!!.string!!
                 val row = m.nodes.firstOrNull { it.id == "m.item.$key" }
@@ -83,7 +100,10 @@ class MenuPreviewTest {
                     val n = m.nodes.first { it.index == child }
                     when (n.part) {
                         "itemLabel" -> {
-                            if (n.props["icon"]?.string != null) parts.add("icon")
+                            if (n.props["icon"]?.string != null) {
+                                parts.add("icon")
+                                r["iconColor"]?.string?.let { assertEquals("$name: $key tint", it, n.props["iconColor"]?.string) }
+                            }
                             parts.add("label")
                             assertEquals("$name: $key label", r["label"]?.string, n.props.shownText("text"))
                         }

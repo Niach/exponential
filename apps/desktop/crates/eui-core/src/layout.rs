@@ -82,12 +82,12 @@ pub const MENU_PREVIEW_OPEN_MS: f64 = 150.0;
 pub const MENU_PREVIEW_CLOSE_MS: f64 = 80.0;
 /// #EXP-1778: how far under a `button` Select its popup's border box hangs
 /// (px): the IDE pointer menu's quarter-rem offset less its outside ring.
-pub const SELECT_BUTTON_POPUP_OFFSET: f32 = 2.5;
+pub const SELECT_BUTTON_POPUP_OFFSET: f32 = 4.0;
 /// #EXP-1778: the narrowest a `button` Select's popup gets (px): the IDE
 /// pointer menu's 128 content plus its ring.
 pub const SELECT_BUTTON_POPUP_MIN_WIDTH: f32 = 130.0;
 /// #EXP-1778: the space between a `button` Select's menu rows (px).
-pub const SELECT_BUTTON_ITEM_GAP: f32 = 2.0;
+pub const SELECT_BUTTON_ITEM_GAP: f32 = 0.0;
 
 #[cfg(test)]
 mod tests {

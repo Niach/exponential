@@ -124,7 +124,10 @@
         { "when": { "variant": "ghost" }, "style": { "color": "$color.primary", "boxShadow": "$shadow.none" } },
         { "when": { "variant": "link" }, "style": { "boxShadow": "$shadow.none", "paddingHorizontal": "$spacing.none" } },
         { "when": { "size": "icon" }, "style": { "paddingHorizontal": "$spacing.none" } },
-        { "when": { "size": "sm" }, "style": { "paddingHorizontal": "$spacing.lg" } }
+        { "when": { "size": "sm" }, "style": { "paddingHorizontal": "$spacing.lg" } },
+        { "when": { "size": "icon-xs" }, "style": { "paddingHorizontal": "$spacing.none" } },
+        { "when": { "tone": "muted" }, "style": { "color": "$color.mutedForeground" } },
+        { "when": { "tone": "muted", "state": "hover" }, "style": { "color": "$color.mutedForeground" } }
       ]
     },
     "Badge": {

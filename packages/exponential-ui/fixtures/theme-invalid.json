@@ -244,7 +244,7 @@
             "root": [
               {
                 "when": {
-                  "tone": "primary"
+                  "side": "top"
                 },
                 "style": {
                   "color": "$color.primary"
@@ -256,8 +256,8 @@
       },
       "issues": [
         {
-          "path": "recipes.Button.root[0].when.tone",
-          "message": "not a recipe prop of this part; known: state|variant|size|disabled|loading"
+          "path": "recipes.Button.root[0].when.side",
+          "message": "not a recipe prop of this part; known: state|variant|size|disabled|loading|tone"
         }
       ]
     },

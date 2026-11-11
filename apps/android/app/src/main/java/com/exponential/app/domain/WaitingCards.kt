@@ -8,8 +8,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * (fixtures/waiting-cards.json; TS reference
  * `packages/domain-contract/src/waiting-cards.ts`, desktop
  * `domain::waiting_cards`, iOS ExpCore `WaitingCards.swift`): a card's state,
- * the dismiss ×, and the chat header's waiting chips. `WaitingCardsTest`
- * replays `stateCases` and `chipCases`, comparing whole values.
+ * the dismiss ×, the session screen header's waiting chips and a pick's
+ * target. `WaitingCardsTest` replays `stateCases`, `chipCases` and
+ * `targetCases`, comparing whole values.
  */
 object WaitingCards {
 
@@ -73,10 +74,18 @@ object WaitingCards {
         return if (answeredAt != null || card.str("answer") != null) CardState.Answered else CardState.Waiting
     }
 
-    /** One waiting card as the chips read it. */
-    data class Input(val id: String, val kind: AskDock.Kind, val text: String)
+    /** One waiting card as the chips read it ([sessionId] = the asking
+     *  session, #EXP-1785; the pick's [waitingTarget] reads it). */
+    data class Input(val id: String, val kind: AskDock.Kind, val text: String, val sessionId: String = "")
 
-    data class Chip(val id: String, val kind: AskDock.Kind, val icon: String, val label: String)
+    data class Chip(
+        val id: String,
+        val kind: AskDock.Kind,
+        val icon: String,
+        val label: String,
+        /** The asking session (not part of the fixture's chip value). */
+        val sessionId: String = "",
+    )
 
     enum class Layout(val wire: String) { Hidden("hidden"), Chips("chips"), Button("button") }
 
@@ -99,6 +108,7 @@ object WaitingCards {
                 kind = card.kind,
                 icon = Icons.of(card.kind),
                 label = clipLabel(AskDock.askDockTitle(card.text)).ifEmpty { AskDock.label(card.kind) },
+                sessionId = card.sessionId,
             )
         }
         val layout = when {
@@ -110,7 +120,22 @@ object WaitingCards {
     }
 
     /** A chat's chip inputs: ask-dock `chatPendingAsks` (Conversation order). */
-    fun inputs(pending: List<AskDock.Pending>): List<Input> = pending.map { Input(it.id, it.kind, it.text) }
+    fun inputs(pending: List<AskDock.Pending>): List<Input> =
+        pending.map { Input(it.id, it.kind, it.text, it.sessionId.orEmpty()) }
+
+    /** #EXP-1785: where a pick goes (`targetCases`). */
+    enum class Open(val wire: String) { Plan("plan"), Card("card"), Session("session") }
+
+    data class Target(val open: Open, val sessionId: String)
+
+    /** #EXP-1785 `waitingTarget(card, rootId)`: a plan = THE plan page
+     *  (any session's); the root's question = the Chat tab at its card; a
+     *  question under the root = that session opened in place at its card. */
+    fun waitingTarget(kind: AskDock.Kind, sessionId: String, rootId: String): Target = when {
+        kind == AskDock.Kind.Plan -> Target(Open.Plan, sessionId)
+        sessionId == rootId -> Target(Open.Card, sessionId)
+        else -> Target(Open.Session, sessionId)
+    }
 
     /** The phone button's accessible name. */
     fun waitingCountLabel(count: Int): String = Copy.WAITING_COUNT.replace("{count}", count.toString())
