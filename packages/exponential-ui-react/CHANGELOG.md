@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer matches the app: the send glyph is `ui-submit` (`CircleArrowUp`, in `FALLBACK_ICONS`); a flat field stretches across the row (`align-self: stretch`, grown by its `min-height`, never a `height`) with its text at the recipe's padding-top. Snapshots: every `Composer/*` case (the glyph; `Composer/layout=flat` = `min-height` instead of `height`).
+- Menu item `iconColor` (#EXP-1629): the item's glyph takes `propColor(iconColor)` as its colour; a `checkbox` entry draws its `icon` (the core's row: check, glyph, label).
 - Skeleton `rows` (#EXP-1629): no hairline between rows (base CSS); `batch-ui.test.tsx` replays `fixtures/skeleton-rows.json`.
 - Select `multiple` (#EXP-1629): a picked option's item carries `data-r-join-top` / `data-r-join-bottom` (`selectItemJoins` over the shown options), so the theme draws a run of adjacent picks as one block.
 - Popover `matchAnchorWidth`: the content's `width` = `var(--radix-popover-trigger-width)` (Radix's anchor width: the `anchor` node's virtual ref, else the trigger; floating-ui re-measures it on a resize). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases. Snapshots: + `Popover/matchAnchorWidth=true|false`.

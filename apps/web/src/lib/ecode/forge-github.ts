@@ -94,6 +94,8 @@ export const githubForge: Forge = {
       user?: { id?: number; login?: string } | null
       head?: { sha?: string; ref?: string }
       base?: { ref?: string }
+      mergeable?: boolean | null
+      updated_at?: string | null
     }
     const merged = Boolean(data.merged)
     const pr: ForgePullRequest = {
@@ -108,6 +110,8 @@ export const githubForge: Forge = {
       mergedAt: merged && data.merged_at ? new Date(data.merged_at) : null,
       mergedBy: merged ? (data.merged_by ?? null) : null,
       author: githubAuthorLine(data.user),
+      mergeable: data.mergeable ?? null,
+      updatedAt: data.updated_at ? new Date(data.updated_at) : null,
     }
     return pr
   },
@@ -123,7 +127,9 @@ export const githubForge: Forge = {
   async requiredChecks(repo, base) {
     const token = await tokenFor(repo)
     if (!token) return []
-    return [...(await requiredChecksFor(repo.fullName, base, token))]
+    const names = await requiredChecksFor(repo.fullName, base, token)
+    if (!names) throw new Error(`the required checks of ${repo.fullName}@${base} are unreadable`)
+    return [...names]
   },
 
   async dispatchPipeline(repo, inputs) {

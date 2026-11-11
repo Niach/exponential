@@ -73,6 +73,14 @@ struct TextFieldLeaf: View {
 struct ComposerLeaf: View {
     let cx: LeafContext
 
+    /// #EXP-1762 (interactions-round1.json composerSlots `field`): a flat
+    /// Composer's text view in a row `row` tall: its text starts `padTop`
+    /// (the field recipe's `paddingTop`) below the row's top, one line or
+    /// grown, and it reaches the row's bottom.
+    static func flatField(row: CGFloat, padTop: CGFloat) -> (y: CGFloat, height: CGFloat) {
+        (padTop, max(row - padTop, 0))
+    }
+
     var body: some View {
         let field = cx.part("Composer", "field")
         let send = cx.part("Composer", "send")
@@ -86,13 +94,16 @@ struct ComposerLeaf: View {
         let attachments = cx.props.flag("attachments")
         let (w, h) = (cx.inner.width, cx.inner.height)
         // #EXP-1762: `flat` = one row: the field between the leading slot and
-        // the controls, centred on the send disc while one line, the row's
-        // full height once it grows (upward: the controls stay at the bottom).
+        // the controls, spanning the row (the disc's height while one line,
+        // growing upward: the controls stay at the bottom); its text starts
+        // the field recipe's paddingTop below the row's top, one line or
+        // grown (composerSlots `field`; the text view has no inset of its own).
         let flat = cx.props.str("layout") == "flat"
+        let flatBox = Self.flatField(row: h, padTop: field.px("paddingTop") ?? 0)
         let slotW = { (name: String) -> CGFloat in cx.model.index(of: "\(cx.node.id).\(name)").map { cx.model.frame($0).width + gap } ?? 0 }
         let lead = flat ? slotW("leading") : 0
         let fieldW = flat ? max(w - lead - slotW("trailing") - (attachments ? SurfaceMeasurer.composerAttachWidth + gap : 0) - sendSize - gap, 0) : w
-        let fieldH = flat ? (h > sendSize + 0.5 ? h : min(lh, h)) : max(h - sendSize - gap, 0)
+        let fieldH = flat ? flatBox.height : max(h - sendSize - gap, 0)
         ZStack(alignment: .topLeading) {
             OwnedTextField(
                 index: cx.index,
@@ -109,7 +120,7 @@ struct ComposerLeaf: View {
                 inputType: ""
             )
             .frame(width: fieldW, height: fieldH)
-            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: flat ? (h - fieldH) / 2 : 0)
+            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: flat ? flatBox.y : 0)
             HStack(spacing: cx.model.spacing("xs")) {
                 Spacer(minLength: 0)
                 // `attachments: true` = the attach control (catalog: "Shows

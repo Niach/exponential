@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
+- Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
 - Skeleton `rows` (#EXP-1629): no hairline between rows (the shared base CSS), React's.
 - Select `multiple` (#EXP-1629), React's: `joinTop` / `joinBottom` on a picked item next to another shown pick. A parity case (with and without search).
 - Popover `matchAnchorWidth` (parity with React): the content's `width` = `var(--radix-popover-trigger-width)` (the popper's anchor width, re-measured by `autoUpdate`). The browser overlay suite asserts the panel width on the fixture's `matchAnchorWidth` cases.

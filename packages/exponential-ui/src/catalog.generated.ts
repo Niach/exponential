@@ -201,7 +201,7 @@ export interface Shapes {
   option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; mono?: boolean; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
-  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
+  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; iconColor?: string | Dynamic; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
   searchItem: { label: string | Dynamic; value: string; icon?: IconName; identifier?: string; disabled?: boolean }
   accordionItem: { title: string | Dynamic; value: string; count?: number }
   segment: { value: number; tone?: ToneValue; label?: string }
