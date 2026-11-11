@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensWithoutCursor` is `pill` only.
 - Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
 - Select option `hint` (#EXP-1629): the `itemHint` part before the check.
 - Select `button` trigger glyph (#EXP-1629): the picked option's `icon` + `iconColor` before the value.

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): opened by the pointer, it starts on the first enabled option like web's picker and the other Selects; only a `pill` still starts without one. `interactions-round1.json` gains `selectPointerOpen`.
 - Select `button` popup matches web's picker (#EXP-1629): rows 36 px (vertical padding 8, so every row's one line sits centred; no gap between rows, 8 px inside a row), the check 14 px, the popup 4 px under the trigger. Recipe and layout values only (exponential theme; `selectButtonPopupOffset`, `selectButtonItemGap`).
 - Select option `hint` (#EXP-1629): a small muted run at the end of the popup row, before the chosen one's check (web's picker hint; the `itemHint` part: `$type.size.xs`, `mutedForeground`; exponential 10.5 / 16.99). `trailing` is unchanged: it stays the label's own run. The Select specimen gains `triggerVariant · button + option hint`.
 - Select `button` trigger glyph (#EXP-1629): a `triggerVariant: button` trigger leads with the picked option's own `icon` in its `iconColor` (the `valueIcon` part, 16 px; web's PR trigger). No prop: the picked option is the one source, so an option with no glyph, no pick or a `multiple` Select leave the trigger as it was. `catalog-components` gains `Select/triggerVariant=button+icon`; the Select specimen gains `triggerVariant · button + the picked option's icon`.

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
 - Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
 - Select option `hint` (#EXP-1629): the core's `itemHint` part, painted and measured as a Text leaf.
 - Select `button` trigger glyph (#EXP-1629): `select_trigger` paints the `valueIcon` in its `iconColor` before the value; the measurer adds it.

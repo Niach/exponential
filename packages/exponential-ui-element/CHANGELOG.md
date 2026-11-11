@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): through the React renderer.
 - Select `button` popup matches web's picker (#EXP-1629): through the React renderer.
 - Select option `hint` (#EXP-1629): through the React renderer.
 - Select `button` trigger glyph (#EXP-1629): through the React renderer.

@@ -650,6 +650,22 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(p.frame(try XCTUnwrap(p.index(of: "sel.item.2"))).minY, p.frame(pr).maxY, accuracy: 0.01)
     }
 
+    /// #EXP-1629: `selectPointerOpen`: the pointer opening keeps the cursor
+    /// but on a pill.
+    func testSelectPointerOpenKeepsTheCursorButOnAPill() throws {
+        let cases = try Fixtures.json("interactions-round1.json")["selectPointerOpen"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let variant = c["triggerVariant"]?.string ?? ""
+            let m = try surface(pillSelect(["triggerVariant": .string(variant)]))
+            m.pressDown("sel.trigger")
+            m.pressUp("sel.trigger")
+            m.setOpen("sel", true)
+            let hovered = m.liveParts("sel", "item").filter { m.states(of: $0.id).contains("hover") }.map(\.id)
+            XCTAssertEqual(hovered.isEmpty, c["cursor"]?.bool != true, variant)
+        }
+    }
+
     /// Opened by the POINTER a pill shows no cursor until the pointer moves
     /// over an option or a key goes (↓ = the first enabled option); opened
     /// from the KEYBOARD it keeps the cursor; a field Select is unchanged.
