@@ -53,3 +53,15 @@ fn another_variant_never_gets_it() {
         assert_eq!(props.get("valueIcon"), None, "{variant}");
     }
 }
+
+/// A Select's `align` places its popup: it must not align the trigger's text.
+#[test]
+fn the_popup_align_leaves_the_trigger_text_alone() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [{"id": "sel", "component": "Select", "props": {"label": "Scale", "name": "s", "triggerVariant": "button", "align": "end", "value": "a", "options": [{"label": "A", "value": "a"}]}}]})).expect("tree");
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    assert!(s.set_nested(tree).issues.is_empty());
+    s.set_viewport(760.0, 400.0, None);
+    s.layout(&mut eui_core::measure::FixedMeasure { sizes: std::collections::HashMap::new(), wrap: true });
+    let t = s.index_of("sel.trigger").expect("the trigger");
+    assert_eq!(s.visual(t).and_then(|v| v.text_align.as_deref()), Some("left"));
+}
