@@ -186,6 +186,7 @@ mod box_fields;
 mod change_email;
 mod field_variants;
 mod focus;
+mod issues;
 mod labels;
 mod local_repos;
 mod mcp_server_dialog;

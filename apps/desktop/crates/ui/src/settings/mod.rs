@@ -64,7 +64,7 @@ pub(crate) mod doctor_section;
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
 pub(crate) mod resend_invite_dialog;
-mod issues;
+pub(crate) mod issues;
 pub(crate) mod labels;
 mod mcp;
 pub(crate) mod mcp_servers;
@@ -771,7 +771,7 @@ impl SettingsView {
         let shared = rail_shared_for_window(window, cx);
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
-        let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
+        let issues = cx.new(|cx| IssuesPane::new(nav.clone(), window, cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), window, cx));
