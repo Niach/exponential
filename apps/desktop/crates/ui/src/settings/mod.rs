@@ -786,7 +786,7 @@ impl SettingsView {
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), window, cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
-        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
+        let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(|cx| LocalReposPane::new(window, cx));

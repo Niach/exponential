@@ -79,7 +79,7 @@ fn bare() -> McpShot {
 }
 
 fn page(name: &str, shot: McpShot) {
-    shoot_pane_acted(name, McpPane::for_shots, |_, _| {}, None, &[], move |pane, window, cx| pane.show(shot, window, cx));
+    shoot_pane(name, McpPane::for_shots, move |pane, cx| pane.show(shot, cx));
 }
 
 #[test]
@@ -198,4 +198,14 @@ fn settings_mcp_activity_empty() {
 #[ignore]
 fn settings_mcp_activity_no_team() {
     activity("mcp-activity-no-team", None, None);
+}
+
+/// An owner's level menu open on Dennis's Customer admin row (no BEFORE:
+/// today's gpui picker does not open headless).
+#[test]
+#[ignore]
+fn settings_after_mcp_level_open() {
+    shoot_pane_acted("mcp-level-open", McpPane::for_shots, |pane, cx| pane.show(base(), cx), Some(std::time::Duration::from_millis(1200)), &[], |pane, window, cx| {
+        pane.press_for_shots("level_trigger.a1:u-dennis|level_menu.a1:u-dennis", window, cx)
+    });
 }
