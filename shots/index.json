@@ -1541,8 +1541,8 @@
         "file": "shots/chat-screen/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 77950,
-        "sha256": "bf70332a4d3ec818b1f9fae136caf2c36fc4544340fea5f2faba32b8d3cd8027"
+        "bytes": 88402,
+        "sha256": "a9afd7d43010da104f0606391a0a8af2c60ec7705a93125c9c1050a959ca89e4"
       },
       "ios": {
         "file": "shots/chat-screen/ios.webp",
