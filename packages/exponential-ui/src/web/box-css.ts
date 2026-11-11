@@ -22,9 +22,9 @@
 // (their items render under the template node's own class), so a templated
 // row wears its author and macro styles (audit bug B).
 
-import { parseMediaCondition, parseTokenRef, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential_app/eui"
+import { nativeRecipeProps, parseMediaCondition, parseTokenRef, recipeStyle, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential_app/eui"
 import { hasDynamic } from "./data"
-import { declarations, rule, shimmerRule } from "./theme-css"
+import { cssValue, declarations, rule, shimmerRule } from "./theme-css"
 
 export const nodeClass = (id: string): string => `xui-n-${cssEscape(id)}`
 export const surfaceClass = (surfaceId: string): string => `xui-s-${cssEscape(surfaceId)}`
@@ -168,7 +168,7 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
   }
   const cls = nodeClass(node.id)
   const own = withVars(``, style)
-  let css = styleRules(style, own, withVars, scope, cls, theme, fonts, queries, fenced)
+  let css = styleRules(style, own, withVars, scope, cls, theme, fonts, queries, fenced) + fieldInkRule(node, own, scope, cls, theme, fenced)
   const authored = node.recipe?.authored
   if (authored?.length) {
     const picked: Record<string, unknown> = {}
@@ -179,6 +179,26 @@ function nodeChunk(node: UiNode, style: Record<string, unknown>, scope: string, 
   const chunk = { css, queries: [...queries] }
   chunkCache.set(node, { scope, theme, fonts, fenced, chunk })
   return chunk
+}
+
+/** #EXP-1787 (interactions-round1 `fieldInk`): an Input/Textarea node's
+ *  own top-level `color` colours its TYPED text: the field element takes
+ *  it over the `field` recipe (`xui-recipe` < this `xui-node` rule; a `row`
+ *  value draws its 70% tone of it through `currentColor`), the caret stays
+ *  pinned to the recipe's colour and the `::placeholder` keeps its own. */
+function fieldInkRule(node: UiNode, own: Record<string, unknown>, scope: string, cls: string, theme: ResolvedTheme | undefined, fenced: boolean): string {
+  if (node.component !== `Input` && node.component !== `Textarea`) return ``
+  const value = cssValue(`color`, own.color)
+  if (value === null || typeof own.color === `object`) return ``
+  const sel = fenced ? `${scope} .${cls}:not(${scope} .xui-surface .${cls})` : `${scope} .${cls}`
+  const field = `.xui-${node.component}-field`
+  const recipe = theme ? recipeStyle(theme, { component: node.component, part: `field`, props: nativeRecipeProps(node.component, node.props) }).color : undefined
+  const caret = recipe === undefined ? null : cssValue(`color`, recipe)
+  const decls: [string, string][] = [[`color`, value]]
+  if (caret) decls.push([`caret-color`, caret])
+  let css = rule(`${sel} ${field}`, decls)
+  if (caret && node.component === `Input`) css += rule(`${sel} .xui-Input-rowfield`, [[`caret-color`, `color-mix(in srgb, ${caret} 70%, transparent)`]])
+  return css
 }
 
 /** The rules of one style object (a node's whole style, or its authored

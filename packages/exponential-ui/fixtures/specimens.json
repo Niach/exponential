@@ -11674,6 +11674,62 @@
                 ]
               }
             ]
+          },
+          {
+            "id": "specimen_input_case_12",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_input_case_12_label",
+                "component": "Text",
+                "props": {
+                  "text": "style · color (a muted value)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c12_lookup",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.sm"
+                },
+                "children": [
+                  {
+                    "id": "c12_lookup_value",
+                    "component": "Input",
+                    "props": {
+                      "label": "Repository",
+                      "name": "lookup",
+                      "variant": "box",
+                      "value": "acme/web"
+                    },
+                    "style": {
+                      "color": "$color.mutedForeground"
+                    }
+                  },
+                  {
+                    "id": "c12_lookup_empty",
+                    "component": "Input",
+                    "props": {
+                      "label": "Repository",
+                      "name": "lookup-empty",
+                      "variant": "box",
+                      "placeholder": "owner/name"
+                    },
+                    "style": {
+                      "color": "$color.mutedForeground"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

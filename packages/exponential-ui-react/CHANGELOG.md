@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Input / Textarea `style.color` colours the typed text (#EXP-1787): the shared node sheet's rule on the field element (`color`, `caret-color` pinned to the `field` recipe's; the placeholder untouched); `interactions-fixture.test.tsx` replays `fieldInk`.
 - Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet.
 - Popover: a field-anchored popover is a typeahead and never takes focus (#EDE-65): a Popover whose `anchor` is a text field (a Composer, an Input or a Textarea: the node itself or its `field` part; the IDE composer's `/` and @ / # / : menus) never moves the focus when it opens and returns it nowhere when it closes, so the field keeps the focus, its caret and the typing. Pointer presses on its rows work and Escape is unchanged. Every other Popover (a trigger press, a non-field anchor) still focuses its content and returns the focus on close. `interactions-round1.json` gains `typeaheadFocus`, replayed by React, Solid, the core, gpui, SwiftUI and Compose. React: Radix's `onOpenAutoFocus` / `onCloseAutoFocus` are prevented for it (`isFieldAnchorElement`).
 - Select `triggerVariant: "inline"` (#EXP-1629): the field trigger's parts with no label part (the label = its `aria-label`), the `Select.dropdown` glyph, content-sized (base-css), the field's popup.

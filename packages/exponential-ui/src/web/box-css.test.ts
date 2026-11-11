@@ -1,7 +1,7 @@
 // VAPP-152: the node sheet per node, the `<style>` batches a streamed
 // update appends to, and the structural sharing between reduced trees.
 import { describe, expect, it } from "bun:test"
-import { CORE_CATALOG_ID, reduceNested, type UiNode } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, builtinTheme, reduceNested, type UiNode } from "@exponential_app/eui"
 import { AUTHOR_SEP, compileNodeSheet, nodeSheetBatches, type NodeSheetBatch } from "./box-css"
 import { share } from "./share"
 
@@ -125,5 +125,21 @@ describe(`VAPP-163: authored keys of a macro node`, () => {
     const b = nodeSheetBatches([], compileNodeSheet([node(`root`, { padding: 1 }, [heading()])], `s`).chunks)
     expect(b[0].css.startsWith(`@layer xui-node{.xui-s-s .xui-n-root{padding:1px}`)).toBe(true)
     expect(b[0].css).toContain(`}@layer xui-author{`)
+  })
+})
+
+describe(`fieldInk (#EXP-1787)`, () => {
+  const field = (component: string, style?: Record<string, unknown>): UiNode => ({ id: `f`, component, props: {}, children: [], ...(style ? { style } : {}) }) as UiNode
+  const theme = builtinTheme(`neutral`)!
+  it(`an Input's style.color reaches its field element; the caret stays the recipe's`, () => {
+    const css = compileNodeSheet([field(`Input`, { color: `$color.mutedForeground` })], `s`, theme).chunks.get(`f`)!
+    expect(css).toContain(`.xui-s-s .xui-n-f .xui-Input-field{color:var(--xui-color-mutedForeground);caret-color:var(--xui-color-foreground)}`)
+    expect(css).toContain(`.xui-s-s .xui-n-f .xui-Input-rowfield{caret-color:color-mix(in srgb, var(--xui-color-foreground) 70%, transparent)}`)
+    expect(css).not.toContain(`placeholder`)
+  })
+  it(`a Textarea shares it; no colour or another component = no rule`, () => {
+    expect(compileNodeSheet([field(`Textarea`, { color: `$color.info` })], `s`, theme).chunks.get(`f`)).toContain(`.xui-n-f .xui-Textarea-field{color:var(--xui-color-info);caret-color:var(--xui-color-foreground)}`)
+    expect(compileNodeSheet([field(`Input`, { width: 120 })], `s`, theme).chunks.get(`f`)).not.toContain(`-field`)
+    expect(compileNodeSheet([field(`Select`, { color: `$color.info` })], `s`, theme).chunks.get(`f`)).not.toContain(`-field`)
   })
 })

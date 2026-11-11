@@ -526,6 +526,10 @@ impl SurfaceView {
         let disabled = matches!(n.props.get("disabled"), Some(Value::Bool(true))) || n.states.iter().any(|s| s == "disabled");
         let font = lcx.font.clone();
         let size = lcx.text_style.font_size;
+        // #EXP-1787: the field's ink is the node's own `color` when set (the
+        // core lands it on the `field` part as an authored key); it colours
+        // only the TYPED text: gpui-component draws the placeholder and the
+        // caret in its editor style's `muted_foreground` and `caret`.
         let ink = lcx.ink;
         let icon = (f.kind == FieldKind::Search).then(|| n.props.get("icon").and_then(Value::as_str).unwrap_or("search").to_string());
         // The glyph-to-text gap: the field's recipe `gap`, else 8.

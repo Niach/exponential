@@ -30,6 +30,10 @@ struct OwnedTextField {
     /// #EXP-1629: the one-line text's (and placeholder's) alignment; a
     /// `row` Input ends its value (`.natural` = the platform default).
     var textAlignment: NSTextAlignment = .natural
+    /// #EXP-1787 `fieldInk`: the caret's colour when it is not the typed
+    /// text's (a node's own `color` inks the text only; the caret keeps the
+    /// `field` recipe's). nil = the text colour.
+    var caretColor: PlatformColor? = nil
 
     var secure: Bool { inputType == "password" }
 
@@ -190,7 +194,7 @@ extension OwnedTextField: UIViewRepresentable {
         if let field = view as? KeyedTextField {
             field.font = font
             field.textColor = color
-            field.tintColor = color
+            field.tintColor = caretColor ?? color
             field.isEnabled = !disabled
             field.accessibilityLabel = accessibilityLabel
             field.textAlignment = textAlignment
@@ -209,7 +213,7 @@ extension OwnedTextField: UIViewRepresentable {
             tv.onPaste = submitsOnReturn ? { coordinator.parent.paste() } : nil
             tv.font = font
             tv.textColor = color
-            tv.tintColor = color
+            tv.tintColor = caretColor ?? color
             tv.isEditable = !disabled
             tv.accessibilityLabel = accessibilityLabel
             tv.placeholderLabel.text = placeholder
@@ -364,7 +368,12 @@ extension OwnedTextField: NSViewRepresentable {
             parent.edited(field.stringValue)
         }
 
-        func controlTextDidBeginEditing(_ obj: Notification) { parent.focused(true) }
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            // The window's field editor is shared: each field sets its own
+            // caret on taking it (#EXP-1787; nil = AppKit's default).
+            (obj.userInfo?["NSFieldEditor"] as? NSTextView)?.insertionPointColor = parent.caretColor ?? .textColor
+            parent.focused(true)
+        }
         func controlTextDidEndEditing(_ obj: Notification) { parent.focused(false) }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -480,6 +489,7 @@ extension OwnedTextField: NSViewRepresentable {
             field.setAccessibilityLabel(accessibilityLabel)
             field.alignment = textAlignment
             field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: placeholderAttributes)
+            if let caretColor { (field.currentEditor() as? NSTextView)?.insertionPointColor = caretColor }
             if wantsWrite, field.stringValue != text {
                 field.stringValue = text
                 // A model write (an echo, an action's `set`) leaves the cursor at the END.
@@ -489,6 +499,7 @@ extension OwnedTextField: NSViewRepresentable {
             tv.font = font
             tv.textColor = color
             tv.isEditable = !disabled
+            if let caretColor { tv.insertionPointColor = caretColor }
             if wantsWrite, tv.string != text {
                 tv.string = text
                 tv.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
