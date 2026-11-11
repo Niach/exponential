@@ -237,6 +237,28 @@ pub fn board_glyph(board: &Board) -> ExpIcon {
         .unwrap_or_else(|| board_fallback_glyph(board))
 }
 
+/// #EXP-1629: the icon name [`board_glyph`] resolves (a document's
+/// `Icon`): the stored curated `icon` when known, else the fallback's.
+pub fn board_icon_name(board: &Board) -> &str {
+    match board.icon.as_deref().filter(|name| board_icon_glyph(name).is_some()) {
+        Some(name) => name,
+        None if board.repository_id.is_some() => "code",
+        None => "square-kanban",
+    }
+}
+
+/// #EXP-1629: the icon name [`agent_glyph`] resolves.
+pub fn agent_icon_name(icon: Option<&str>) -> &str {
+    icon.filter(|name| board_icon_glyph(name).is_some())
+        .or_else(|| Some(domain::session_tree::CHATS_LIST.agent_defaults.icon.as_str()).filter(|name| board_icon_glyph(name).is_some()))
+        .unwrap_or("ui-agent-source")
+}
+
+/// #EXP-1629: the icon name [`app_icon`] resolves.
+pub fn app_icon_name(icon: Option<&str>) -> &str {
+    icon.filter(|name| registry::PICKABLE_ICONS.contains(name) && board_icon_glyph(name).is_some()).unwrap_or("nav-apps")
+}
+
 /// EXP-1294: an agent's glyph — the stored curated `icon` when known, else
 /// the fixture default (`chat-list.json` `agentDefaults.icon`), else the
 /// agent concept. [`board_glyph`]'s twin for agent roots.

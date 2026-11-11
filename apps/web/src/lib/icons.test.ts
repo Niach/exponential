@@ -468,7 +468,7 @@ describe(`icon call sites`, () => {
       `utf8`
     )
     const desktop = readFileSync(
-      join(repoRoot, `apps/desktop/crates/ui/src/settings/mod.rs`),
+      join(repoRoot, `apps/desktop/crates/ui/src/settings/shell.rs`),
       `utf8`
     )
 
@@ -479,14 +479,15 @@ describe(`icon call sites`, () => {
     )) {
       webNav.set(m[1], m[2])
     }
-    // desktop: `SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL)`
+    // desktop: `SettingsSection::General => "settings-general"` (#EXP-1629:
+    // the nav document's `section_icon`, `settings/shell.rs`)
     // (EXP-1294: an or-pattern arm, `AgentClis | Agent(_) => { … }`, counts
     // once under its first variant).
     const desktopNav = new Map<string, string>()
     for (const m of desktop.matchAll(
-      /SettingsSection::(\w+)(?:\(_\))?(?:\s*\|\s*SettingsSection::\w+(?:\(_\))?)* => \{?\s*Icon::from\(registry::([A-Z0-9_]+)\)/g
+      /SettingsSection::(\w+)(?:\(_\))?(?:\s*\|\s*SettingsSection::\w+(?:\(_\))?)* => "([a-z0-9-]+)"/g
     )) {
-      desktopNav.set(m[1], m[2].toLowerCase().replace(/_/g, `-`))
+      desktopNav.set(m[1], m[2])
     }
 
     // Every icon on both screens comes from the registry — no stragglers.
