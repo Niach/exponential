@@ -1284,7 +1284,11 @@ impl SurfaceView {
                 self.motion.layer_opened(&l.owner, enter_ms, now);
             }
         }
-        let passive: std::collections::HashSet<u32> = layers.iter().filter(|l| self.passive_layer(l)).map(|l| l.root).collect();
+        // #EDE-65 typeaheadFocus: a Popover anchored on a text field (the
+        // composer's `/` and @ / # / : menus) never takes the focus on open
+        // nor returns it on close: the field keeps it and its caret (it
+        // keeps Escape and the Tab order, unlike a passive layer).
+        let passive: std::collections::HashSet<u32> = layers.iter().filter(|l| self.passive_layer(l) || self.surface.is_typeahead(&l.owner)).map(|l| l.root).collect();
         let interactive = |l: &&Layer| l.class == LayerClass::Overlay && l.kind != "Tooltip" && !passive.contains(&l.root);
         let now_open: Vec<String> = layers.iter().filter(interactive).map(|l| format!("{}#{}", l.owner, l.layer)).collect();
         if now_open == self.open_layers {

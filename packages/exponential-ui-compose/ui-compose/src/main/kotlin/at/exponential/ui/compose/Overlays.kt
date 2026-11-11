@@ -67,6 +67,7 @@ import at.exponential.ui.model.isMenuPreviewLayer
 import at.exponential.ui.model.isSubmenuLayer
 import at.exponential.ui.model.modalLayers
 import at.exponential.ui.model.pickDate
+import at.exponential.ui.model.popupTakesFocus
 import at.exponential.ui.paint.DateModel
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -412,7 +413,9 @@ private fun PopoverLayer(model: SurfaceModel, layer: LayerInfo) {
     Popup(
         popupPositionProvider = provider,
         onDismissRequest = { if (preview) Unit else if (submenu) model.closeSubmenu(layer.owner) else model.dismissLayer(layer.owner) },
-        properties = PopupProperties(focusable = !preview),
+        // #EDE-65: nor does a typeahead (a Popover anchored on a text
+        // field): the field keeps the focus, its caret and the IME.
+        properties = PopupProperties(focusable = model.popupTakesFocus(layer)),
     ) {
         LayerView(layer)
     }

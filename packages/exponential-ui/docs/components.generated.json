@@ -3354,7 +3354,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Open-at node; it toggles it."
+          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
         },
         {
           "name": "openOn",

@@ -666,6 +666,41 @@ final class Round1NativesTests: XCTestCase {
         }
     }
 
+    /// #EDE-65: `typeaheadFocus`: a Popover anchored on a text field (a
+    /// typeahead) opened and closed through data never moves the focus out
+    /// of the field; a Button-anchored one focuses its content and returns
+    /// the focus to the anchor; a trigger press focuses the content.
+    func testTypeaheadFocusKeepsTheFieldFocused() throws {
+        let fx = try Fixtures.json("interactions-round1.json")["typeaheadFocus"]
+        let cases = fx?["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? ""
+            let which = c["surface"]?.string ?? ""
+            let m = try surface(try XCTUnwrap(fx?["surfaces"]?[which]), theme: "neutral")
+            for (k, v) in c["data"]?.object ?? [:] { m.setData(path: "/\(k)", value: v) }
+            m.pass()
+            let field = which == "composer" ? "c" : which == "input" ? "q.field" : ""
+            for step in c["steps"]?.array ?? [] {
+                let op = step["do"]?.string ?? ""
+                switch op {
+                case "focusField": m.fieldFocused(try XCTUnwrap(m.index(of: field), name), true)
+                case "open", "close": m.setData(path: "/open", value: .bool(op == "open"))
+                case "pressTrigger": m.press(id: "t")
+                default: XCTFail("unknown step \(op)")
+                }
+                m.pass()
+                XCTAssertEqual(m.layers.contains { $0.owner == "menu" }, step["open"]?.bool == true, "\(name): \(op) open")
+                let at = m.focusedId.flatMap { m.node(id: $0) }
+                let place = at?.id == field ? "field" : at?.id == "b" ? "anchor" : (at?.layer ?? 0) > 0 ? "content" : String(describing: at?.id)
+                XCTAssertEqual(place, step["focus"]?.string, "\(name): \(op) focus")
+                if let menu = m.layers.first(where: { $0.owner == "menu" }) {
+                    XCTAssertEqual(m.isTypeahead(menu), c["typeahead"]?.bool == true, name)
+                }
+            }
+        }
+    }
+
     /// Opened by the POINTER a pill shows no cursor until the pointer moves
     /// over an option or a key goes (↓ = the first enabled option); opened
     /// from the KEYBOARD it keeps the cursor; a field Select is unchanged.

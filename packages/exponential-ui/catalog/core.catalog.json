@@ -3483,7 +3483,7 @@
         },
         "anchor": {
           "type": "componentId",
-          "description": "Open-at node; it toggles it."
+          "description": "Open-at node; it toggles it. A text-field anchor = a typeahead: it never takes focus."
         },
         "openOn": {
           "type": "enum",

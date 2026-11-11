@@ -15,7 +15,7 @@ export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, que
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
 export { BASE_CSS } from "./base-css"
 export { QUIET_FOCUS_ATTR, openFocusTarget, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "./focus"
-export { findAnchor, linkAnchor, markAnchor, popoverPanelWidth, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay } from "./anchor"
+export { findAnchor, isFieldAnchor, isFieldAnchorElement, linkAnchor, markAnchor, popoverPanelWidth, virtualAnchor, watchAnchor, withinAnchor, withinOtherOverlay } from "./anchor"
 export type { AnchorLink, VirtualAnchor } from "./anchor"
 export { HOSTED_POPUP_ATTR, hostedPopupOf, mountHostedPopup } from "./popup-host"
 export type { HostedPopup, PopupHost } from "./popup-host"

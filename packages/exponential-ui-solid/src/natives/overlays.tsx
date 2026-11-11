@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, isFieldAnchorElement, isPickerPopover, propColor, popoverPanelWidth, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, watchAnchor, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { ClosePickerContext, CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -361,6 +361,9 @@ export function PopoverNative(props: NativeProps): JSX.Element {
   const [wrapper, setWrapper] = createSignal<HTMLElement>()
   const linked = createAnchor(anchorId, wrapper, { haspopup: `dialog`, toggle: () => setOpen(!untrack(open)), hover: { active: hoverMode, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchor = () => (anchored() ? (linked() ?? undefined) : own())
+  // #EDE-65 typeaheadFocus: anchored on a text field = a typeahead: opening
+  // it never takes the focus from the field, closing it returns it nowhere.
+  const typeahead = () => anchored() && isFieldAnchorElement(linked())
   const hosted = createHostedPopup(() => props.node.id, `Popover`, open, anchor, side, align)
   closeOnAnchorLost(open, () => anchor() ?? wrapper(), () => setOpen(false))
   const state = () => (open() ? `open` : `closed`)
@@ -390,7 +393,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
       trapped: () => false,
       loop: true,
       onMountAutoFocus: (e) => {
-        if (untrack(hoverMode)) e.preventDefault()
+        if (untrack(hoverMode) || untrack(typeahead)) e.preventDefault()
         // #EXP-1760: a picker opens with the focus on its panel (Tab walks
         // the grid), not a focus ring on its first cell.
         else if (isPickerPopover(props.node.recipe)) {
@@ -399,7 +402,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
         }
       },
       onUnmountAutoFocus: (e) => {
-        if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode)) anchor()?.focus()
+        if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode) && !untrack(typeahead)) anchor()?.focus()
         e.preventDefault()
         hasInteractedOutside = false
         hasPointerDownOutside = false
