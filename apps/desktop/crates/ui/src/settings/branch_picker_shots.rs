@@ -1,18 +1,15 @@
 //! #EXP-1765: the bench's per-repository branch picker (`settings_bench`
-//! `settings_repo_branch_*`): the IDE's own (`repositories::branch_trigger`
-//! under a `Popover` holding `branch_picker_column`) and genUI's `pill`
-//! Select, in the same states, so the pill, the skeleton rows, the empty
-//! list and the mono rows are judged pixel for pixel.
+//! `settings_repo_branch_eui`): genUI's `pill` Select in each of its states
+//! (the pill, the skeleton rows, the empty list and the mono rows). The
+//! IDE's own picker it was judged against went with Repositories' move to
+//! it; `settings_repositories_branch_*` keep the in-pane comparison.
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, App, Entity, Window};
-use gpui_component::input::InputState;
+use gpui::{div, prelude::*, App, Entity, Window};
 use serde_json::json;
 
 use eui_gpui::view::SurfaceView;
-
-use super::repositories::{branch_picker_column, branch_trigger, BranchLoad};
 
 /// What the picker shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -34,58 +31,14 @@ impl PickerState {
     fn open(self) -> bool {
         matches!(self, Self::Loading | Self::Empty | Self::Ready)
     }
-
-    fn load(self) -> Option<BranchLoad> {
-        match self {
-            Self::Loading => Some(BranchLoad::Loading),
-            _ => Some(BranchLoad::Ready(BRANCHES.iter().map(|b| b.to_string()).collect())),
-        }
-    }
 }
 
 const BRANCHES: [&str; 3] = ["main", "develop", "release/2026-11"];
 /// The Empty state's search.
 const NO_MATCH: &str = "zzz";
 
-/// The IDE's picker: the pill, and while open its popover as gpui-component
-/// opens it (a controlled `Popover`).
-pub(crate) struct IdeBranchPicker {
-    state: PickerState,
-    query: Entity<InputState>,
-}
-
-impl IdeBranchPicker {
-    pub(crate) fn for_shots(state: PickerState) -> impl FnOnce(&mut Window, &mut gpui::Context<Self>) -> Self {
-        move |window, cx| {
-            let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search branches..."));
-            if state == PickerState::Empty {
-                query.update(cx, |input, cx| input.set_value(NO_MATCH, window, cx));
-            }
-            Self { state, query }
-        }
-    }
-}
-
-impl Render for IdeBranchPicker {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let state = self.state;
-        let button = branch_trigger(0, "acme/web", "main", state == PickerState::Disabled, cx);
-        let query = self.query.clone();
-        let popover = gpui_component::popover::Popover::new("bench-repo-branch")
-            .p_1()
-            .w(px(crate::pickers::PICKER_SEARCH_WIDTH))
-            .trigger(button)
-            .open(state.open())
-            .content(move |_, window, cx| {
-                let pick: super::repositories::BranchPick = Rc::new(|_, _, _| {});
-                branch_picker_column(0, state.load(), "main", Some("main"), &query, pick, window, cx)
-            });
-        div().w_full().min_w_0().flex().child(popover)
-    }
-}
-
-/// The same picker as a genUI document: a `pill` Select, opened by
-/// pressing its trigger.
+/// The picker as a genUI document: a `pill` Select, opened by pressing its
+/// trigger.
 pub(crate) struct EuiBranchPicker {
     view: Entity<SurfaceView>,
     presses: (VecDeque<String>, u8),

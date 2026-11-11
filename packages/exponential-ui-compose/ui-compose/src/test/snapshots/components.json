@@ -10484,6 +10484,42 @@
       }
     ]
   },
+  "Composer\/layout=flat" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/layout=stacked" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
   "Composer\/menuKeys=false" : {
     "height" : 72,
     "nodes" : [
@@ -20038,6 +20074,36 @@
       }
     ]
   },
+  "Popover\/matchAnchorWidth=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/matchAnchorWidth=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
   "Popover\/open=false" : {
     "height" : 0,
     "nodes" : [
@@ -26623,7 +26689,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          78.5,
+          78,
           12,
           12
         ],
@@ -26636,7 +26702,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          80.5,
+          80,
           56,
           8
         ],
@@ -26649,7 +26715,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          80.5,
+          80,
           120,
           8
         ],
@@ -26673,7 +26739,7 @@
         "component" : "Skeleton",
         "frame" : [
           12,
-          110.5,
+          110,
           12,
           12
         ],
@@ -26686,7 +26752,7 @@
         "component" : "Skeleton",
         "frame" : [
           36,
-          112.5,
+          112,
           56,
           8
         ],
@@ -26699,7 +26765,7 @@
         "component" : "Skeleton",
         "frame" : [
           104,
-          112.5,
+          112,
           192,
           8
         ],

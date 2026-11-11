@@ -200,10 +200,10 @@ export type Responsive<T> = { base: T; sm?: T; md?: T; lg?: T; xl?: T }
 export type IconName = (typeof ICON_NAMES)[number]
 /** The shared shapes (catalog `defs`). */
 export interface Shapes {
-  option: { label: string | Dynamic; value: string; icon?: IconName; disabled?: boolean; description?: string; trailing?: string; mono?: boolean; image?: string; count?: number | Dynamic }
+  option: { label: string | Dynamic; value: string; icon?: IconName; iconColor?: string | Dynamic; disabled?: boolean; description?: string; trailing?: string; mono?: boolean; image?: string; count?: number | Dynamic }
   check: { condition: Dynamic; message?: string }
   tab: { label: string | Dynamic; value: string; icon?: IconName; count?: number }
-  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; shortcut?: string; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
+  menuItem: { label?: string; value?: string; kind?: MenuItemKindValue; icon?: IconName; iconColor?: string | Dynamic; shortcut?: string; identifier?: string; detail?: string; preview?: Record<string, unknown> | Dynamic; checked?: boolean | Dynamic; destructive?: boolean; disabled?: boolean; items?: Shapes["menuItem"][] | Dynamic; searchable?: boolean; placeholder?: string }
   searchItem: { label: string | Dynamic; value: string; icon?: IconName; identifier?: string; disabled?: boolean }
   accordionItem: { title: string | Dynamic; value: string; count?: number }
   segment: { value: number; tone?: ToneValue; label?: string }
@@ -270,7 +270,7 @@ export interface ComponentProps {
   Drawer: { title?: string; description?: string; open?: boolean | Dynamic; side?: SideValue | Responsive<SideValue>; dismissible?: boolean; dragToDismiss?: boolean }
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
-  Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue }
+  Popover: { open?: boolean | Dynamic; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: OpenOnValue; matchAnchorWidth?: boolean }
   Tooltip: { content: string | Dynamic; side?: SideValue }
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; side?: SideValue; align?: OverlayAlignValue; anchor?: string; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
@@ -316,7 +316,7 @@ export interface ComponentProps {
   TimePicker: { label?: string; name: string; value?: string | Dynamic; min?: string; max?: string; step?: number; placeholder?: string; disabled?: boolean }
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   QrScanner: { hint?: string | Dynamic; formats?: string[]; label?: string; disabled?: boolean }
-  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; menuKeys?: boolean | Dynamic }
+  Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean; layout?: "stacked" | "flat"; menuKeys?: boolean | Dynamic }
   Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number; open?: boolean | Dynamic }
   Tree: { items: Shapes["treeItem"][]; expanded?: string[] | Dynamic; value?: string | Dynamic; label?: string }
   MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic; pressable?: boolean; href?: string | Dynamic }

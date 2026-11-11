@@ -161,6 +161,9 @@ struct ENode {
     /// right, bottom, left]` (they stay out of taffy), the box they sit in.
     /// `None` = children make it a flex container (a Menu owner's trigger).
     inset: Option<[f32; 4]>,
+    /// #EXP-1762: a FLAT Composer (`layout: "flat"`): its field shares the
+    /// row with the slots, so its measure wraps at the width they leave.
+    reserve: bool,
 }
 
 impl Default for ENode {
@@ -176,6 +179,7 @@ impl Default for ENode {
             measured: false,
             percent: false,
             inset: None,
+            reserve: false,
         }
     }
 }
@@ -370,8 +374,66 @@ impl View<'_, '_> {
     }
 
     /// A leaf's layout: its measure (or zero when not measured).
+    /// #EXP-1762: the width a flat Composer's slots take from its field:
+    /// every bar child but the spacer (where the field sits) and the send
+    /// square (the measure keeps that itself), each plus the bar's gap.
+    fn slot_reserve(&mut self, node: NodeId) -> f32 {
+        use taffy::util::MaybeResolve as _;
+        let n = &self.engine.nodes[slot(node)];
+        // The bar is the LAST child (an `above` column comes first, #EXP-1762).
+        let Some(&bar) = n.children.last().filter(|_| n.reserve) else { return 0.0 };
+        let b = &self.engine.nodes[bar as usize];
+        let calc = |_: *const (), _: f32| 0.0;
+        let gap: Option<f32> = b.laid_style().gap.width.maybe_resolve(None, calc);
+        let gap = gap.unwrap_or(0.0);
+        let kids = b.children.clone();
+        let mut reserve = 0.0;
+        for (k, c) in kids.iter().enumerate() {
+            if k + 1 == kids.len() || self.engine.nodes[*c as usize].laid_style().flex_grow > 0.0 {
+                continue;
+            }
+            let input = LayoutInput {
+                run_mode: RunMode::ComputeSize,
+                sizing_mode: taffy::SizingMode::InherentSize,
+                axis: taffy::RequestedAxis::Horizontal,
+                known_dimensions: Size::NONE,
+                parent_size: Size::NONE,
+                available_space: Size::MAX_CONTENT,
+                vertical_margins_are_collapsible: Line::FALSE,
+            };
+            reserve += self.compute_child(NodeId::from(*c as usize), input).size.width + gap;
+        }
+        reserve
+    }
+
+    /// #EXP-1762: a slotted Composer's `above` column (its FIRST of two
+    /// children: `above`, then the bar) sizes it: its height at the content
+    /// width `w` plus the Composer's own (column) gap. 0 without one.
+    fn above_extra(&mut self, node: NodeId, w: f32) -> f32 {
+        use taffy::util::MaybeResolve as _;
+        let n = &self.engine.nodes[slot(node)];
+        if !n.measured || n.inset.is_none() || n.children.len() != 2 {
+            return 0.0;
+        }
+        let above = n.children[0];
+        let calc = |_: *const (), _: f32| 0.0;
+        let gap: Option<f32> = n.laid_style().gap.height.maybe_resolve(None, calc);
+        let gap = gap.unwrap_or(0.0);
+        let input = LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            sizing_mode: taffy::SizingMode::InherentSize,
+            axis: taffy::RequestedAxis::Vertical,
+            known_dimensions: Size { width: Some(w), height: None },
+            parent_size: Size { width: Some(w), height: None },
+            available_space: Size { width: AvailableSpace::Definite(w), height: AvailableSpace::MaxContent },
+            vertical_margins_are_collapsible: Line::FALSE,
+        };
+        self.compute_child(NodeId::from(above as usize), input).size.height + gap
+    }
+
     fn measured_leaf(&mut self, node: NodeId, inputs: LayoutInput) -> LayoutOutput {
         let index = slot(node) as u32;
+        let reserve = self.slot_reserve(node);
         let View { engine, measure } = self;
         let n = &engine.nodes[slot(node)];
         let measured = n.measured;
@@ -388,16 +450,29 @@ impl View<'_, '_> {
             if !measured {
                 return Size::ZERO;
             }
+            // #EXP-1762: a flat Composer measures its field at the width its
+            // slots leave; the slots' width is added back.
+            let less = |w: f32| (w - reserve).max(0.0);
+            let known = Size { width: known.width.map(less), ..known };
+            let available = Size { width: available.width.map_definite_value(less), ..available };
             let answer = measure(index, known, available);
             baseline = answer.baseline;
+            let size = Size { width: answer.size.width + reserve, ..answer.size };
             // gpui rounds a measured size UP to whole device pixels.
             match snap {
-                Some(s) => answer.size.map(|d| (d.max(0.0) * s).ceil() / s),
-                None => answer.size,
+                Some(s) => size.map(|d| (d.max(0.0) * s).ceil() / s),
+                None => size,
             }
         });
         if let Some(b) = baseline {
             output.first_baselines.y = Some(b);
+        }
+        // #EXP-1762: a Composer's `above` slot grows it by its height + the
+        // gap (a known height stays the parent's word).
+        if inputs.known_dimensions.height.is_none() {
+            let [_, r, _, l] = self.engine.nodes[slot(node)].inset.unwrap_or_default();
+            let w = (output.size.width - l - r).max(0.0);
+            output.size.height += self.above_extra(node, w);
         }
         output
     }
@@ -582,6 +657,14 @@ impl Engine {
     pub fn set_inset(&mut self, i: u32, inset: Option<[f32; 4]>) {
         if self.nodes[i as usize].inset != inset {
             self.nodes[i as usize].inset = inset;
+            self.mark_dirty(i);
+        }
+    }
+
+    /// #EXP-1762: a flat Composer (see [`ENode::reserve`]).
+    pub fn set_reserve(&mut self, i: u32, reserve: bool) {
+        if self.nodes[i as usize].reserve != reserve {
+            self.nodes[i as usize].reserve = reserve;
             self.mark_dirty(i);
         }
     }

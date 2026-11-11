@@ -325,6 +325,12 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Composer-send{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Composer-send>svg,.xui-Composer-attachment>svg{width:16px;height:16px}
 .xui-Composer-send:disabled{opacity:.5;pointer-events:none}
+[data-xui-c="Composer"][data-r-layout="flat"].xui-el{flex-direction:row;align-items:flex-end}
+[data-r-layout="flat"]>.xui-Composer-field{flex:1 1 0;width:auto;align-self:stretch}
+[data-r-layout="flat"]>.xui-composer-bar{flex-shrink:0;min-height:var(--xui-control-buttonIcon)}
+.xui-composer-above{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;min-width:0}
+[data-xui-c="Composer"][data-r-layout="flat"][data-above].xui-el{flex-wrap:wrap}
+[data-r-layout="flat"]>.xui-composer-above{flex:0 0 100%}
 [data-xui-c="Ring"].xui-el,[data-xui-c="Spinner"].xui-el{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 [data-xui-c="Ring"].xui-el>svg,[data-xui-c="Spinner"].xui-el>svg{width:100%;height:100%;display:block}
 .xui-Ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
@@ -355,7 +361,6 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-Skeleton-dot,.xui-Skeleton-bar{animation:xui-skeleton ${SKELETON_PULSE_MS}ms ease-in-out infinite;opacity:${SKELETON_OPACITY_LOW};flex-shrink:0}
 [data-xui-c="Skeleton"][data-rows].xui-el{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;background:none;border-radius:0}
 .xui-Skeleton-row{display:flex;flex-direction:row;align-items:center;flex-shrink:0}
-.xui-Skeleton-row+.xui-Skeleton-row{border-top:var(--xui-border-hairline) solid var(--xui-color-border)}
 .xui-Skeleton-dot{display:block}
 .xui-Skeleton-bar{display:block}
 .xui-Skeleton-bar[data-title]{flex-shrink:1;min-width:0}
@@ -532,6 +537,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Menu-check{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .xui-Menu-check svg,.xui-Menu-submenuIndicator>svg{width:100%;height:100%}
 .xui-Menu-submenuIndicator{display:inline-flex;margin-inline-start:auto;flex-shrink:0}
+.xui-Menu-identifier,.xui-Menu-detail{flex-shrink:0;white-space:nowrap}
+.xui-Menu-preview{z-index:53;display:flex;flex-direction:column;box-sizing:border-box;outline:none}
+.xui-Menu-preview>.xui-menu-preview-surface{align-self:stretch;min-width:0}
 .xui-Select-searchbox>svg{width:16px;height:16px;flex-shrink:0;color:var(--xui-color-mutedForeground)}
 .xui-Select-listbox>.xui-Select-item{flex-shrink:0}
 .xui-Select-searchfield{flex:1 1 auto;align-self:stretch;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit}

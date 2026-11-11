@@ -15,28 +15,31 @@
 //! re-list definitively, and this window regaining focus while the list is
 //! unusable re-fetches with `refresh` as the fallback (the server caches
 //! discovery per user for a minute).
+//!
+//! #EXP-1629: the content is a document on the native binding (projection at
+//! `/pane`); the window around it stays native, and so does the lookup field
+//! (a `host_leaf` Embed, [`LookupHost`]; drop with EXP-1787).
 
-use gpui::{
-    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Entity,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
-};
+use std::rc::Rc;
+
+use eui_gpui::{binding::Binding, host::HostPlugin, view::SurfaceView};
+use gpui::{div, px, size, AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window};
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
     input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    ActiveTheme as _, ElementExt as _,
 };
+use serde_json::{json, Value};
 
-use crate::controls::{glass_input, search_field, SearchFieldSize, WebControl as _};
+use crate::controls::{glass_input, WebControl as _, CTL_MD_H};
 use crate::github_connect::{
     copy, fetch_github_repos, is_repo_full_name, lookup_repo, GithubRepo, GithubReposResult,
     Prerequisite,
 };
-use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
+use super::api_keys::premultiplied_hex;
+use super::doc::{failed_state, hex, mount_with, path, IdeToasts, Ink, PillPaint, SM, XS};
 use super::repositories::RepositoriesPane;
 use super::{open_url, row_stroke};
 
@@ -44,6 +47,18 @@ enum Load {
     Loading,
     Ready(GithubReposResult),
     Failed,
+}
+
+/// A state the pictures show (`settings_bench`).
+#[cfg(test)]
+pub(crate) struct AddRepoShot {
+    /// `None` = the first load; `Some(None)` = the failed load.
+    pub load: Option<Option<GithubReposResult>>,
+    pub query: &'static str,
+    pub lookup: &'static str,
+    pub lookup_busy: bool,
+    pub lookup_error: Option<&'static str>,
+    pub plan_limited: Option<&'static str>,
 }
 
 /// The repo row's height (`py_1p5` around a `text_sm` line): the first
@@ -81,7 +96,7 @@ pub struct AddRepositoryDialogView {
     team_id: String,
     /// The pane to refetch once a repo is connected.
     pane: WeakEntity<RepositoriesPane>,
-    query: Entity<InputState>,
+    query: String,
     load: Load,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
@@ -93,7 +108,6 @@ pub struct AddRepositoryDialogView {
     /// The add failed a plan cap — the server's own message, rendered with
     /// the neutral "Upgrade on the web" pointer (§4.9).
     plan_limited: Option<SharedString>,
-    focused_once: bool,
     /// FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
     /// up through `integrations.github.lookupRepo` (the connect path's own
     /// checks) and, on a hit, added exactly like a row pick.
@@ -102,8 +116,27 @@ pub struct AddRepositoryDialogView {
     /// The server's reason the typed name was refused — about the INPUT, so
     /// it stays under the field (FEED-79); offline is a toast instead.
     lookup_error: Option<SharedString>,
+    /// The search field has the focus: its box wears the active stroke.
+    query_focused: bool,
+    /// The search takes the focus once, the first time it shows.
+    focused_once: bool,
+    /// The search field is to take the focus once the document has drawn
+    /// it (it exists only after the paint that first shows it, so it is
+    /// retried after every render).
+    want_focus: bool,
+    focus_tries: u8,
+    binding: Entity<Binding<Value>>,
+    view: Entity<SurfaceView>,
+    chrome: Chrome,
     _subscriptions: Vec<Subscription>,
 }
+
+/// Renders a wanted focus is retried for.
+const FOCUS_TRIES: u8 = 4;
+/// The search `Input`'s text field (its `<id>.field` part).
+const QUERY_FIELD: &str = "query.field";
+/// The lookup field's Embed id, painted by [`LookupHost`].
+const LOOKUP_EMBED: &str = "add-repo-lookup";
 
 impl AddRepositoryDialogView {
     fn new(
@@ -112,12 +145,45 @@ impl AddRepositoryDialogView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let query =
-            cx.new(|cx| InputState::new(window, cx).placeholder(copy::SEARCH_PLACEHOLDER));
+        // Every action leaves the binding for the view (a pick's add and the
+        // field writes need its window).
+        let me = cx.weak_entity();
+        let handle = window.window_handle();
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new("/pane", Value::Null, |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            for name in ["edit", "focus_search", "clear", "lookup", "pick", "fix", "refresh", "recheck", "retry", "open"] {
+                let me = me.clone();
+                binding.on_action(name, move |_, event, cx| {
+                    let context = |key: &str| event.context.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+                    let (field, key) = (context("field"), context("key"));
+                    let value = event.payload.as_ref().and_then(|p| p.get("value")).and_then(Value::as_str).map(str::to_string);
+                    let me = me.clone();
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            let _ = me.update(cx, |view, cx| view.action(name, &field, &key, value, window, cx));
+                        });
+                    });
+                    None
+                });
+            }
+            binding
+        });
+        let chrome = Chrome::of(cx);
         let lookup = cx.new(|cx| InputState::new(window, cx).placeholder(copy::LOOKUP_PLACEHOLDER));
+        let plugin = Rc::new(LookupHost { ide: super::doc::ide_plugin(), view: cx.weak_entity() });
+        let view = mount_with("add-repository", document(&Ink::of(cx), &chrome), &binding, plugin, true, window, cx);
+        // The content owns the window's height: the rows scroll, the rest
+        // stays (`DialogContent::self_scrolling`).
+        view.update(cx, |view, cx| view.set_fill_height(true, cx));
         let subscriptions = vec![
-            cx.subscribe(&query, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
+            // Whether the search holds the focus: its box's stroke follows
+            // it (the document fires no `focus` event).
+            cx.observe(&view, |this, view, cx| {
+                let surface = view.read(cx);
+                let focused = surface.focused().is_some_and(|index| Some(index) == surface.index_of(QUERY_FIELD));
+                if focused != this.query_focused {
+                    this.query_focused = focused;
                     cx.notify();
                 }
             }),
@@ -180,20 +246,89 @@ impl AddRepositoryDialogView {
         let mut this = Self {
             team_id,
             pane,
-            query,
+            query: String::new(),
             load: Load::Loading,
             generation: 0,
             adding: false,
             retry_pressed: false,
             plan_limited: None,
-            focused_once: false,
             lookup,
             lookup_busy: false,
             lookup_error: None,
+            query_focused: false,
+            focused_once: false,
+            want_focus: false,
+            focus_tries: FOCUS_TRIES,
+            binding,
+            view,
+            chrome,
             _subscriptions: subscriptions,
         };
         this.fetch(false, true, cx);
         this
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new("t".into(), WeakEntity::new_invalid(), window, cx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: AddRepoShot, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.load = match shot.load {
+            None => Load::Loading,
+            Some(None) => Load::Failed,
+            Some(Some(result)) => Load::Ready(result),
+        };
+        self.query = shot.query.to_string();
+        self.lookup.update(cx, |state, cx| state.set_value(shot.lookup, window, cx));
+        self.lookup_busy = shot.lookup_busy;
+        self.lookup_error = shot.lookup_error.map(SharedString::from);
+        self.plan_limited = shot.plan_limited.map(SharedString::from);
+        cx.notify();
+    }
+
+    /// A document action: the search's edit and clear; the look-up; a row pick; the prerequisite's fix, the refreshes, Retry
+    /// and the footer's links.
+    fn action(&mut self, name: &str, field: &str, key: &str, value: Option<String>, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match name {
+            "edit" if field == "query" => self.query = value.unwrap_or_default(),
+            "focus_search" => (self.want_focus, self.focus_tries) = (true, FOCUS_TRIES),
+            // The clear puts the caret back: a focused field keeps what was
+            // typed, so the write goes through a blur.
+            "clear" => {
+                self.view.update(cx, |view, cx| view.blur_field(QUERY_FIELD, window, cx));
+                self.query.clear();
+                (self.want_focus, self.focus_tries) = (true, FOCUS_TRIES);
+            }
+            "lookup" => self.lookup(window, cx),
+            "pick" => {
+                let repo = match &self.load {
+                    Load::Ready(result) => result.repos.iter().find(|repo| repo.full_name == key).cloned(),
+                    _ => None,
+                };
+                if let Some(repo) = repo {
+                    self.add(&repo, window, cx);
+                }
+            }
+            "fix" => {
+                let Load::Ready(result) = &self.load else { return };
+                match result.prerequisite() {
+                    Prerequisite::NotInstalled => {
+                        if let Some(url) = result.install_url.clone() {
+                            open_url(cx, url);
+                        }
+                    }
+                    _ => self.connect_github(cx),
+                }
+            }
+            "refresh" => self.refresh_access(cx),
+            "recheck" => self.fetch(true, true, cx),
+            "retry" => self.retry_load(cx),
+            "open" => open_url(cx, key.to_string()),
+            _ => return,
+        }
+        cx.notify();
     }
 
     /// Refresh: a forced re-list (SLOP-7 lists LIVE off GitHub, so a repo
@@ -285,116 +420,6 @@ impl AddRepositoryDialogView {
             });
         })
         .detach();
-    }
-
-    /// FEED-30: the list explains itself. A missing repo is (almost) always an
-    /// installation whose repo selection doesn't include it, or a repo on an
-    /// account that isn't installed at all — say so, link the exact GitHub
-    /// page per account, offer the two fixes, and the by-name escape hatch.
-    /// Rendered in EVERY installed state, the empty one included.
-    fn footer(
-        &self,
-        result: &GithubReposResult,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let manage_links: Vec<(String, String)> = result
-            .installations
-            .iter()
-            .filter(|inst| !inst.manage_url.is_empty())
-            .map(|inst| (inst.label(), inst.manage_url.clone()))
-            .collect();
-        let install_url = result.install_url.clone();
-        let has_more = result.has_more;
-        let loading = matches!(self.load, Load::Loading);
-        let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
-
-        // The sentence (its own full-width block, so it wraps instead of
-        // clipping), then one Configure link per account (`accountLogin` or
-        // "installation {id}") with a trailing external glyph, comma-
-        // separated (FEED-42 ×4).
-        let mut sentence = h_flex()
-            .flex_wrap()
-            .items_center()
-            .gap_x_1()
-            .child(div().w_full().child(copy::FOOTER_EXPLAIN));
-        let link_count = manage_links.len();
-        for (index, (label, url)) in manage_links.into_iter().enumerate() {
-            sentence = sentence.child(
-                h_flex()
-                    .items_center()
-                    .child(
-                        Button::new(("add-repo-manage", index))
-                            .link()
-                            .cursor_pointer()
-                            .xsmall()
-                            .label(SharedString::from(label))
-                            .child(super::repositories::external_glyph())
-                            .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                    )
-                    .when(index + 1 < link_count, |link| link.child(",")),
-            );
-        }
-
-        let mut lookup_button = pill("add-repo-lookup", cx)
-            .label(copy::LOOK_UP)
-            .disabled(!lookup_valid || self.lookup_busy)
-            .on_click(cx.listener(|this, _, window, cx| this.lookup(window, cx)));
-        if self.lookup_busy {
-            // A pill has no glyph at rest — the spinner rides the icon slot.
-            lookup_button = lookup_button.icon(registry::UI_LOADING).loading(true);
-        }
-
-        v_flex()
-            .w_full()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_dashed()
-            .border_color(row_stroke(cx))
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(sentence)
-            .when(has_more, |column| column.child(copy::CAP_NOTE))
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        pill("add-repo-refresh", cx)
-                            .icon(registry::UI_REFRESH)
-                            .label(copy::REFRESH)
-                            .disabled(loading)
-                            .on_click(cx.listener(|this, _, _, cx| this.refresh_access(cx))),
-                    )
-                    .children(install_url.map(|url| {
-                        pill("add-repo-install-another", cx)
-                            .icon(registry::UI_ADD)
-                            .label(copy::INSTALL_ANOTHER)
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    })),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(glass_input(&self.lookup, window, cx).web_input_sm()),
-                    )
-                    .child(lookup_button),
-            )
-            .children(
-                self.lookup_error
-                    .clone()
-                    .map(|message| crate::action_error::field_error(message, cx)),
-            )
     }
 
     /// Re-detect after a browser hand-off: only when the current list is
@@ -542,277 +567,418 @@ impl AddRepositoryDialogView {
         .detach();
     }
 
-    fn message(&self, message: &'static str, cx: &gpui::App) -> impl IntoElement {
-        div()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(message)
-    }
-
-    /// A missing prerequisite (web `GithubRepoPicker`, ×4): one sentence
-    /// naming it, ONE button fixing it, and the "I've done that" re-list.
-    fn prerequisite_block(
-        &self,
-        prerequisite: Prerequisite,
-        result: &GithubReposResult,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let github_glyph = Icon::new(registry::UI_GITHUB).small().into_any_element();
+    /// The state as the document binds it.
+    fn project(&self, cx: &App) -> Value {
+        let (loading, failed) = (matches!(self.load, Load::Loading), matches!(self.load, Load::Failed));
+        let result = match &self.load {
+            Load::Ready(result) => Some(result),
+            _ => None,
+        };
+        let prerequisite = result.map(GithubReposResult::prerequisite);
+        let not_configured = prerequisite == Some(Prerequisite::NotConfigured);
+        let missing = prerequisite.is_some_and(|p| !matches!(p, Prerequisite::NotConfigured | Prerequisite::Ready));
+        let ready = prerequisite == Some(Prerequisite::Ready);
         let sentence = match prerequisite {
-            Prerequisite::Expired => copy::PICKER_RECONNECT_BANNER,
-            Prerequisite::NotInstalled => copy::PICKER_NOT_INSTALLED,
+            Some(Prerequisite::Expired) => copy::PICKER_RECONNECT_BANNER,
+            Some(Prerequisite::NotInstalled) => copy::PICKER_NOT_INSTALLED,
             _ => copy::PICKER_NOT_LINKED,
         };
         let fix_label = match prerequisite {
-            Prerequisite::NotInstalled => copy::INSTALL_APP,
-            Prerequisite::Expired => copy::RECONNECT_GITHUB,
+            Some(Prerequisite::NotInstalled) => copy::INSTALL_APP,
+            Some(Prerequisite::Expired) => copy::RECONNECT_GITHUB,
             _ => copy::CONNECT_GITHUB,
         };
-        let fix = Button::new("add-repo-prerequisite-fix")
-            .primary()
-            .cursor_pointer()
-            .web_sm()
-            .icon(registry::UI_GITHUB)
-            .label(fix_label);
-        let fix = match prerequisite {
-            Prerequisite::NotInstalled => {
-                let install_url = result.install_url.clone();
-                fix.disabled(install_url.is_none())
-                    .on_click(move |_, _, cx| {
-                        if let Some(url) = install_url.clone() {
-                            open_url(cx, url);
-                        }
-                    })
-            }
-            Prerequisite::Expired => fix
-                .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
-            _ => fix
-                .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
-        };
-        v_flex()
-            .gap_3()
-            .child(state_box(github_glyph, sentence, cx))
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .items_center()
-                    .child(fix)
-                    .child(
-                        pill("add-repo-connected-refresh", cx)
-                            .icon(registry::UI_REFRESH)
-                            .label(copy::PICKER_CONNECTED_CHECK)
-                            .on_click(cx.listener(|this, _, _, cx| this.fetch(true, true, cx))),
-                    ),
-            )
+        let install_url = result.and_then(|r| r.install_url.clone());
+        let fix_off = prerequisite == Some(Prerequisite::NotInstalled) && install_url.is_none();
+
+        let any_suspended = result.is_some_and(|r| r.installations.iter().any(|inst| inst.suspended));
+        let repos: &[GithubRepo] = result.filter(|_| ready).map(|r| r.repos.as_slice()).unwrap_or(&[]);
+        let filter = self.query.trim().to_lowercase();
+        let visible: Vec<Value> = repos
+            .iter()
+            .filter(|repo| filter.is_empty() || repo.full_name.to_lowercase().contains(&filter))
+            .map(|repo| json!({"key": repo.full_name, "name": repo.full_name, "private": repo.private}))
+            .collect();
+        let has_list = !visible.is_empty();
+
+        let links: Vec<(String, String)> = result
+            .filter(|_| ready)
+            .map(|r| r.installations.iter().filter(|inst| !inst.manage_url.is_empty()).map(|inst| (inst.label(), inst.manage_url.clone())).collect())
+            .unwrap_or_default();
+        let last = links.len().saturating_sub(1);
+        let links: Vec<Value> = links
+            .into_iter()
+            .enumerate()
+            .map(|(index, (label, url))| json!({"key": url, "label": label, "url": url, "comma": index != last}))
+            .collect();
+
+        let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
+        json!({
+            "loading": loading,
+            "failed": failed,
+            "notConfigured": not_configured,
+            "missing": missing,
+            "sentence": sentence,
+            "fixLabel": fix_label,
+            "fixOn": missing && !fix_off,
+            "fixOff": missing && fix_off,
+            "suspended": ready && any_suspended,
+            "suspendedText": result.filter(|_| ready && any_suspended).map(|r| copy::picker_suspended_banner(&r.suspended_picker_labels())).unwrap_or_default(),
+            "none": ready && repos.is_empty() && !any_suspended,
+            "search": ready && !repos.is_empty(),
+            "noMatch": ready && !repos.is_empty() && !has_list,
+            "hasList": ready && has_list,
+            "repos": visible,
+            "hasQuery": !self.query.is_empty(),
+            "query": self.query,
+            "searchStroke": if self.query_focused { &self.chrome.field_active } else { &self.chrome.field_stroke },
+            "footer": ready,
+            "links": links,
+            "capNote": result.filter(|_| ready).is_some_and(|r| r.has_more),
+            "hasInstall": install_url.is_some(),
+            "installUrl": install_url.clone().unwrap_or_default(),
+            "lookupSurface": {"root": {"id": LOOKUP_EMBED, "component": "Box"}, "data": {}},
+            "lookupOn": lookup_valid && !self.lookup_busy,
+            "lookupDim": !lookup_valid && !self.lookup_busy,
+            "lookupBusy": self.lookup_busy,
+            "hasLookupError": self.lookup_error.is_some(),
+            "lookupError": self.lookup_error.clone().map(|e| e.to_string()).unwrap_or_default(),
+            "planLimited": self.plan_limited.is_some(),
+            "planMessage": self.plan_limited.clone().map(|m| m.to_string()).unwrap_or_default(),
+        })
     }
 
-    /// One pickable repo row. The name ellipsizes, so the whole definite-width
-    /// chain has to hold: `w_full` row → `flex_1 min_w_0` on the truncating
-    /// div itself.
-    fn render_repo_row(
-        &self,
-        index: usize,
-        repo: &GithubRepo,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let repo_for_click = repo.clone();
-        h_flex()
-            .id(("add-repo-row", index))
-            .role(gpui::Role::ListItem)
-            .aria_label(SharedString::from(repo.full_name.clone()))
-            .w_full()
-            .items_center()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .rounded(cx.theme().radius)
-            .cursor_pointer()
-            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .child(
-                Icon::new(registry::UI_GITHUB)
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(repo.full_name.clone())),
-            )
-            .when(repo.private, |row| {
-                row.child(
-                    Icon::new(registry::UI_PRIVATE)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(cx.theme().muted_foreground),
-                )
-            })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.add(&repo_for_click, window, cx);
-            }))
+    /// The search shows (a ready list holding at least one repo).
+    fn search_shown(&self) -> bool {
+        matches!(&self.load, Load::Ready(result) if result.prerequisite() == Prerequisite::Ready && !result.repos.is_empty())
     }
-}
-
-/// Every inline action of the picker is an `sm action` pill (FEED-42).
-// a11y: named by the caller (every call site chains `.label(..)`).
-fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
-    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
-}
-
-/// The bordered notice row both banners share — the shared inline alert
-/// (EXP-970) at the picker's density: its rows wrap their pills, sit on one
-/// line and speak in `text_xs`, and each passes its OWN leading glyph.
-fn banner(variant: crate::controls::AlertVariant, cx: &gpui::App) -> gpui::Div {
-    crate::controls::alert(variant, None, cx)
-        .flex_wrap()
-        .items_center()
-        .gap_2()
-        .text_xs()
-}
-
-/// A full-state box (loading / not configured / not installed): the glyph,
-/// then the copy.
-fn state_box(glyph: gpui::AnyElement, message: &'static str, cx: &gpui::App) -> impl IntoElement {
-    h_flex()
-        .w_full()
-        .items_start()
-        .gap_2()
-        .px_3()
-        .py_3()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_dashed()
-        .border_color(row_stroke(cx))
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(div().flex_shrink_0().pt_0p5().child(glyph))
-        .child(div().flex_1().min_w_0().child(message))
-}
-
-/// GitHub-side App suspension (REV2-29): the installation lists no repos and
-/// mints no tokens until it's unsuspended ON GITHUB. Explanation only — no
-/// button (FEED-42 ×4); the Repositories pane carries Manage. An account
-/// without a login reads "a connected account".
-fn suspended_notice(result: &GithubReposResult, cx: &gpui::App) -> impl IntoElement {
-    banner(crate::controls::AlertVariant::Destructive, cx)
-        .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
-        .child(div().flex_1().min_w_0().child(SharedString::from(
-            copy::picker_suspended_banner(&result.suspended_picker_labels()),
-        )))
 }
 
 impl Render for AddRepositoryDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AddRepositoryDialogView").entered();
-        if !self.focused_once {
+        let projection = self.project(cx);
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+        // The search takes the focus the first time it shows (unless the
+        // person has moved to the lookup field meanwhile).
+        if !self.focused_once && self.search_shown() {
             self.focused_once = true;
-            self.query.update(cx, |state, cx| state.focus(window, cx));
+            if !self.lookup.read(cx).focus_handle(cx).is_focused(window) {
+                (self.want_focus, self.focus_tries) = (true, FOCUS_TRIES);
+            }
         }
-
-        let mut body = v_flex().size_full().min_h_0().gap_3();
-        let github_glyph = || Icon::new(registry::UI_GITHUB).small().into_any_element();
-
-        match &self.load {
-            // First load: the list's rows as placeholders (EXP-1259 D8).
-            Load::Loading => {
-                body = body.child(crate::feedback::skeleton_rows(
-                    "add-repo-skeleton",
-                    crate::feedback::SKELETON_ROWS,
-                    REPO_ROW_H,
-                    cx,
-                ));
-            }
-            // A failed load (FEED-79): the empty state + Retry, no toast.
-            Load::Failed => {
-                body = body.child(crate::action_error::load_failed_state(
-                    "add-repo-retry",
-                    Icon::new(registry::UI_GITHUB),
-                    NO_REPOSITORIES,
-                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
-                    cx,
-                ));
-            }
-            Load::Ready(result) if result.prerequisite() == Prerequisite::NotConfigured => {
-                body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
-            }
-            Load::Ready(result) if result.prerequisite() != Prerequisite::Ready => {
-                body = body.child(self.prerequisite_block(result.prerequisite(), result, cx));
-            }
-            Load::Ready(result) => {
-                // Installed → the live, searchable list of push-able repos.
-                // A suspended installation lists nothing at all — say why,
-                // or the empty state reads as "you have no repositories"
-                // (REV2-29).
-                let any_suspended = result.installations.iter().any(|inst| inst.suspended);
-                if any_suspended {
-                    body = body.child(suspended_notice(result, cx));
-                }
-
-                if result.repos.is_empty() {
-                    if !any_suspended {
-                        body = body.child(self.message(copy::NONE_PUSHABLE, cx));
-                    }
+        if self.want_focus && self.focus_tries > 0 {
+            self.focus_tries -= 1;
+            let view = self.view.clone();
+            cx.defer_in(window, move |this, window, cx| {
+                // Focus once the field holds its bound text: a focused field
+                // keeps its own text over a later write.
+                let ready = view.read(cx).field_text(QUERY_FIELD, cx).as_ref() == Some(&this.query);
+                if ready && view.update(cx, |view, cx| view.focus_field(QUERY_FIELD, window, cx)) {
+                    this.want_focus = false;
+                } else if this.focus_tries > 0 {
+                    cx.notify();
                 } else {
-                    let filter = self.query.read(cx).value().trim().to_lowercase();
-                    let visible: Vec<GithubRepo> = result
-                        .repos
-                        .iter()
-                        .filter(|repo| {
-                            filter.is_empty() || repo.full_name.to_lowercase().contains(&filter)
-                        })
-                        .cloned()
-                        .collect();
-
-                    body = body.child(search_field(&self.query, SearchFieldSize::Sm, window, cx));
-                    if visible.is_empty() {
-                        body = body.child(self.message(copy::NO_MATCH, cx));
-                    } else {
-                        // Tap adds (FEED-42 ×4) — no select step, no check.
-                        let mut list = v_flex()
-                            .id("add-repo-list")
-                            .flex_1()
-                            .min_h_0()
-                            .w_full()
-                            .overflow_y_scroll();
-                        for (index, repo) in visible.iter().enumerate() {
-                            list = list.child(self.render_repo_row(index, repo, cx));
-                        }
-                        body = body.child(list);
-                    }
+                    this.want_focus = false;
                 }
-                // FEED-30: the footer explains every installed state, the
-                // empty one included.
-                body = body.child(self.footer(result, window, cx));
-            }
+            });
         }
+        // The window owns the height: the document fills it.
+        let surface = self.view.clone();
+        div().size_full().min_w_0().on_prepaint(move |bounds, _, cx| {
+            surface.update(cx, |view, cx| view.set_viewport_height(f32::from(bounds.size.height), cx));
+        }).child(self.view.clone())
+    }
+}
 
-        // Add errors land INSIDE the still-open picker (FEED-42).
-        if let Some(message) = self.plan_limited.clone() {
-            body = body.child(
-                v_flex()
-                    .gap_1()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().primary.opacity(0.4))
-                    .bg(cx.theme().primary.opacity(0.05))
-                    .text_sm()
-                    .child(message)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(copy::UPGRADE_ON_THE_WEB),
-                    ),
-            );
+// drop with EXP-1787: the lookup field stays the IDE's own `glass_input` (a
+// `host_leaf` Embed): the footer's muted ink reaches its typed text, and
+// genUI's `Input.field` recipe pins that to the foreground.
+struct LookupHost {
+    ide: crate::exponential_ui_host::IdePlugin,
+    view: WeakEntity<AddRepositoryDialogView>,
+}
+
+impl HostPlugin for LookupHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.ide.icon(name)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.ide.on_unknown(node)
+    }
+
+    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
+        (component_id == LOOKUP_EMBED).then_some(CTL_MD_H)
+    }
+
+    fn host_leaf(&self, component_id: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        if component_id != LOOKUP_EMBED {
+            return None;
         }
-        body
+        let view = self.view.upgrade()?;
+        let lookup = view.read(cx).lookup.clone();
+        let field = glass_input(&lookup, window, cx).web_input_sm();
+        Some(div().size_full().text_color(cx.theme().muted_foreground).child(field).into_any_element())
+    }
+}
+
+/// The colours the document needs beyond [`Ink`].
+struct Chrome {
+    /// The theme radius (rows, dashed boxes, the notice, the `web_sm`
+    /// button).
+    radius: f32,
+    danger: String,
+    /// The suspended banner's destructive wash and stroke.
+    alert_fill: String,
+    alert_stroke: String,
+    /// The plan notice's 40% primary stroke over its 5% primary wash.
+    notice_stroke: String,
+    notice_wash: String,
+    link: String,
+    /// The `row_stroke` hairline of the dashed boxes.
+    dashed: String,
+    /// `glass_input`'s fill and stroke, and its focus stroke.
+    field_fill: String,
+    field_stroke: String,
+    field_active: String,
+    /// A ghost `Button`'s hover wash (the search's clear).
+    ghost_hover: String,
+    skeleton: String,
+}
+
+impl Chrome {
+    fn of(cx: &App) -> Self {
+        let theme = cx.theme();
+        Self {
+            radius: f32::from(theme.radius),
+            danger: hex(theme.danger),
+            alert_fill: premultiplied_hex(theme.danger.opacity(0.1)),
+            alert_stroke: premultiplied_hex(theme.danger.opacity(0.5)),
+            notice_stroke: premultiplied_hex(theme.primary.opacity(0.4)),
+            notice_wash: premultiplied_hex(theme.primary.opacity(0.05)),
+            link: hex(theme.link),
+            dashed: hex(row_stroke(cx)),
+            field_fill: hex(theme.input_background()),
+            field_stroke: hex(theme.input),
+            field_active: hex(crate::controls::ide_chrome().stroke_active),
+            ghost_hover: premultiplied_hex(theme.accent.opacity(0.5)),
+            skeleton: hex(theme.muted_foreground.opacity(0.18)),
+        }
+    }
+}
+
+/// An `Icon` at `size`.
+fn glyph(id: &str, name: Value, size: f32, color: &str) -> Value {
+    json!({"id": id, "component": "Icon", "props": {"name": name}, "style": {"width": size, "height": size, "color": color, "flexShrink": 0}})
+}
+
+/// A text run taking the free width (`flex_1 min_w_0`), wrapping.
+fn grow(mut text: Value) -> Value {
+    text["style"]["flexGrow"] = json!(1);
+    text["style"]["flexShrink"] = json!(1);
+    text["style"]["flexBasis"] = json!(0);
+    text["style"]["minWidth"] = json!(0);
+    text
+}
+
+/// A pill whose label's line sits half a point lower (gpui centres a
+/// Button's line lower than the flex centre at these pills' fractional y).
+fn lowered(mut pill: Value) -> Value {
+    let id = format!("{}_text", pill["id"].as_str().unwrap_or_default());
+    for child in pill["children"].as_array_mut().expect("the pill's children") {
+        if child["id"].as_str() == Some(id.as_str()) {
+            child["style"]["paddingTop"] = json!(1);
+        }
+    }
+    pill
+}
+
+/// A `Text` shown where `visible`.
+fn shown(mut node: Value, visible: Value) -> Value {
+    node["visible"] = visible;
+    node
+}
+
+/// A full-state box (not configured / a missing prerequisite): the
+/// `size_3p5` glyph, then the copy, in the dashed hairline.
+fn state_box(ink: &Ink, chrome: &Chrome, id: &str, text: Value) -> Value {
+    let icon = json!({"id": format!("{id}_glyph"), "component": "Box", "style": {"display": "flex", "flexShrink": 0, "paddingTop": ink.r(0.125)},
+        "children": [glyph(&format!("{id}_icon"), json!("ui-github"), ink.r(0.875), &ink.muted)]});
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "flex-start", "width": "100%", "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.75), "borderRadius": chrome.radius, "borderWidth": 1, "borderStyle": "dashed", "borderColor": chrome.dashed},
+        "children": [icon, grow(ink.text(&format!("{id}_text"), text, SM, &ink.muted))]})
+}
+
+/// The one fix's `web_sm` primary `Button` (32 px, `px 12`, `text_sm` on a
+/// line of 1, the `size_3p5` glyph after `gap_1`, the theme radius). The
+/// disabled face: the fill at half under the solid label.
+fn fix_button(ink: &Ink, chrome: &Chrome) -> [Value; 2] {
+    let size = ink.r(SM);
+    let glyph_size = ink.r(0.875);
+    let face = |id: &str, on: bool| {
+        let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": path("/pane/fixLabel")}, "style": {"fontSize": size, "lineHeight": size, "color": ink.primary_button_fg, "flexShrink": 0}});
+        let mut button = json!({"id": id, "component": "Box", "accessibility": {"label": path("/pane/fixLabel")},
+            "style": {"position": "relative", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": if on { ink.primary_button_fill.as_str() } else { "#00000000" }},
+            "children": [glyph(&format!("{id}_icon"), json!("ui-github"), glyph_size, &ink.primary_button_fg), text]});
+        if on {
+            button["props"] = json!({"pressable": true});
+            button["on"] = json!({"press": {"event": {"name": "fix"}}});
+            button["style"]["cursor"] = json!("pointer");
+            button["style"][":hover"] = json!({"backgroundColor": ink.primary_button_hover});
+        } else {
+            button["children"].as_array_mut().expect("the button's children").insert(0, json!({"id": format!("{id}_fill"), "component": "Box",
+                "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": chrome.radius, "backgroundColor": ink.primary_button_fill, "opacity": 0.5}}));
+        }
+        button
+    };
+    let mut on = face("fix", true);
+    on["visible"] = path("/pane/fixOn");
+    let mut off = face("fix_off", false);
+    off["visible"] = path("/pane/fixOff");
+    [on, off]
+}
+
+/// The search row (`search_field(.., Sm)`): the 28 px `glass_input` frame
+/// with the glyph inside and the clear once there is text; Box, Icon and a
+/// `bare` Input, since a `box` Input has neither the 28 px rung nor a glyph.
+fn search_row(ink: &Ink, chrome: &Chrome) -> Value {
+    let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
+        "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": ink.r(1.25), "height": ink.r(1.25), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.ghost_hover}},
+        "children": [glyph("clear_icon", json!("ui-clear"), ink.r(0.75), &ink.muted)]});
+    let clear = json!({"id": "clear_tip", "component": "Tooltip", "visible": path("/pane/hasQuery"), "props": {"content": "Clear search"}, "children": [clear_box]});
+    let field = json!({"id": "query", "component": "Input", "props": {"label": copy::SEARCH_PLACEHOLDER, "name": "query", "variant": "bare", "placeholder": copy::SEARCH_PLACEHOLDER, "value": path("/pane/query")},
+        "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
+        "on": {
+            "change": {"event": {"name": "edit", "context": {"field": "query"}}},
+        }});
+    json!({"id": "search_row", "component": "Box", "visible": path("/pane/search"), "props": {"pressable": true}, "accessibility": {"label": copy::SEARCH_PLACEHOLDER}, "on": {"press": {"event": {"name": "focus_search"}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "width": "100%", "height": 28, "paddingHorizontal": 8, "gap": 4, "borderRadius": ink.radius_lg, "borderWidth": 1, "borderColor": path("/pane/searchStroke"), "backgroundColor": chrome.field_fill},
+        "children": [glyph("search_icon", json!("nav-search"), 14., &ink.muted), field, clear]})
+}
+
+/// One pickable repo row (`py_1p5`, `px_2`, `gap_2`, the theme radius, the
+/// hover wash; the name ellipsizes, a private repo ends in its lock).
+fn repo_row(ink: &Ink, chrome: &Chrome) -> Value {
+    let glyph_size = ink.r(0.75);
+    let mut name = grow(ink.text("row_name", path("name"), SM, &ink.foreground));
+    name["props"]["lines"] = json!(1);
+    let mut lock = glyph("row_lock", json!("ui-private"), glyph_size, &ink.muted);
+    lock["visible"] = path("private");
+    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "flexShrink": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.375), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": ink.fill_row}},
+        "children": [glyph("row_icon", json!("ui-github"), glyph_size, &ink.muted), name, lock]})
+}
+
+/// The scrolling list (`flex_1 min_h_0`, the footer stays).
+fn repo_list(ink: &Ink, chrome: &Chrome) -> Value {
+    let rows = json!({"id": "rows", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "template": {"component": "row_wrap", "path": "/pane/repos", "key": "key"},
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "flexShrink": 0}, "children": [repo_row(ink, chrome)]}]});
+    json!({"id": "list", "component": "Box", "visible": path("/pane/hasList"), "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minHeight": 0, "width": "100%", "overflowY": "auto"}, "children": [rows]})
+}
+
+/// The footer (a dashed `text_xs` box, `gap_2`): the sentence with one
+/// Configure link per account, the cap note, Refresh and "Install on another
+/// account", the lookup (a `box` `sm` Input and "Look up"), its error.
+fn footer(ink: &Ink, chrome: &Chrome) -> Value {
+    let xs = |id: &str, text: Value| ink.text(id, text, XS, &ink.muted);
+    let mut explain = xs("explain", json!(copy::FOOTER_EXPLAIN));
+    explain["style"]["width"] = json!("100%");
+    let mut link_text = ink.text("link_text", path("label"), XS, &chrome.link);
+    // A link Button's box is 1.5 less than its line of 1.25 (`text_xs`), and
+    // gpui centres the line half a point lower than the flex centre.
+    link_text["style"]["lineHeight"] = json!(ink.r(XS) * 1.25 - 1.5);
+    link_text["style"]["textDecoration"] = json!("underline");
+    link_text["style"]["flexShrink"] = json!(0);
+    link_text["style"]["paddingTop"] = json!(1);
+    let link = json!({"id": "link", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("url")}}}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "cursor": "pointer"},
+        "children": [link_text, glyph("link_glyph", json!("ui-external-link"), crate::surface::PillSize::Sm.glyph(), &chrome.link)]});
+    let comma = shown(xs("link_comma", json!(",")), path("comma"));
+    let links = json!({"id": "link_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}, "children": [link, comma]});
+    let sentence = json!({"id": "sentence", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "width": "100%", "columnGap": ink.r(0.25)},
+        "template": {"component": "link_wrap", "path": "/pane/links", "key": "key"}, "children": [explain, links]});
+    let cap = shown(xs("cap_note", json!(copy::CAP_NOTE)), path("/pane/capNote"));
+    let [refresh, _] = ink.pill_button("refresh", Some("ui-refresh"), json!(copy::REFRESH), json!(false), json!({"name": "refresh"}));
+    let [install, _] = ink.pill_button("install", Some("ui-add"), json!(copy::INSTALL_ANOTHER), json!(false), json!({"name": "open", "context": {"key": path("/pane/installUrl")}}));
+    let actions = json!({"id": "footer_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5)}, "children": [lowered(refresh), shown(lowered(install), path("/pane/hasInstall"))]});
+    // drop with EXP-1787: the field is a claimed Embed (`LookupHost`).
+    let input = json!({"id": LOOKUP_EMBED, "component": "Embed", "props": {"surface": path("/pane/lookupSurface")}, "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "height": CTL_MD_H}});
+    let [look, _] = ink.pill_button_with("look_up", PillPaint::Glass, None, None, json!(copy::LOOK_UP), json!(false), None, json!({"name": "lookup"}));
+    let [_, dim] = ink.pill_button_with("look_up", PillPaint::Glass, None, None, json!(copy::LOOK_UP), json!(true), None, Value::Null);
+    let [_, busy] = ink.pill_button_with("look_up_busy", PillPaint::Glass, Some(json!("ui-loading")), None, json!(copy::LOOK_UP), json!(true), Some(json!(true)), Value::Null);
+    let lookup_row = json!({"id": "lookup_row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5)},
+        "children": [input, shown(lowered(look), path("/pane/lookupOn")), shown(lowered(dim), path("/pane/lookupDim")), shown(lowered(busy), path("/pane/lookupBusy"))]});
+    let error = json!({"id": "lookup_error", "component": "Text", "visible": path("/pane/hasLookupError"), "props": {"text": path("/pane/lookupError")},
+        "style": {"fontSize": crate::action_error::FIELD_ERROR_PX, "lineHeight": 20, "color": chrome.danger}});
+    json!({"id": "footer", "component": "Box", "visible": path("/pane/footer"),
+        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "flexShrink": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": chrome.radius, "borderWidth": 1, "borderStyle": "dashed", "borderColor": chrome.dashed},
+        "children": [sentence, cap, actions, lookup_row, error]})
+}
+
+/// The dialog's tree (`gap_3`): one child per state, the plan notice last.
+fn document(ink: &Ink, chrome: &Chrome) -> Value {
+    let sm = |id: &str, text: &str, visible: Value| shown(ink.text(id, json!(text), SM, &ink.muted), visible);
+    let mut not_configured = state_box(ink, chrome, "not_configured", json!(copy::PICKER_NOT_CONFIGURED));
+    not_configured["visible"] = path("/pane/notConfigured");
+
+    let [fix, fix_off] = fix_button(ink, chrome);
+    let [recheck, _] = ink.pill_button("recheck", Some("ui-refresh"), json!(copy::PICKER_CONNECTED_CHECK), json!(false), json!({"name": "recheck"}));
+    let prereq_actions = json!({"id": "prereq_actions", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "gap": ink.r(0.5)}, "children": [fix, fix_off, lowered(recheck)]});
+    let prereq = json!({"id": "prereq", "component": "Box", "visible": path("/pane/missing"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "gap": ink.r(0.75)},
+        "children": [state_box(ink, chrome, "prereq_box", path("/pane/sentence")), prereq_actions]});
+
+    let banner = json!({"id": "banner", "component": "Box", "visible": path("/pane/suspended"),
+        "style": {"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "width": "100%", "minWidth": 0, "flexShrink": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "borderWidth": 1, "borderColor": chrome.alert_stroke, "backgroundColor": chrome.alert_fill},
+        "children": [glyph("banner_icon", json!("ui-warning"), ink.r(0.75), &chrome.danger), grow(ink.text("banner_text", path("/pane/suspendedText"), XS, &chrome.danger))]});
+
+    let plan = json!({"id": "plan", "component": "Box", "visible": path("/pane/planLimited"),
+        "style": {"display": "flex", "flexDirection": "column", "width": "100%", "flexShrink": 0, "gap": ink.r(0.25), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.notice_stroke, "backgroundColor": chrome.notice_wash},
+        "children": [ink.text("plan_message", path("/pane/planMessage"), SM, &ink.foreground), ink.text("plan_note", json!(copy::UPGRADE_ON_THE_WEB), XS, &ink.muted)]});
+
+    let children = vec![
+        ink.skeleton_rows_at("skeleton", &chrome.skeleton, REPO_ROW_H, path("/pane/loading")),
+        failed_state(ink, "failed", "ui-github", NO_REPOSITORIES, path("/pane/failed")),
+        not_configured,
+        prereq,
+        banner,
+        sm("none", copy::NONE_PUSHABLE, path("/pane/none")),
+        search_row(ink, chrome),
+        sm("no_match", copy::NO_MATCH, path("/pane/noMatch")),
+        repo_list(ink, chrome),
+        footer(ink, chrome),
+        plan,
+    ];
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": "100%", "minHeight": 0, "minWidth": 0, "gap": ink.r(0.75)}, "children": children})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_document_raises_no_unexpected_issue() {
+        let ink = super::super::readiness::tests::test_ink();
+        let chrome = Chrome {
+            radius: 10.,
+            danger: "#f87171ff".into(),
+            alert_fill: "#f871711a".into(),
+            alert_stroke: "#f8717180".into(),
+            notice_stroke: "#fafafa66".into(),
+            notice_wash: "#fafafa0d".into(),
+            link: "#a1a1aaff".into(),
+            dashed: "#ffffff14".into(),
+            field_fill: "#ffffff08".into(),
+            field_stroke: "#ffffff26".into(),
+            field_active: "#ffffff29".into(),
+            ghost_hover: "#ffffff0d".into(),
+            skeleton: "#a1a1aa2e".into(),
+        };
+        let tree = document(&ink, &chrome);
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("settings-add-repository", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
     }
 }

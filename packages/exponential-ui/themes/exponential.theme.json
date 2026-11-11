@@ -1046,6 +1046,15 @@
             "color": "$color.mutedForeground",
             "opacity": 0.5
           }
+        },
+        {
+          "when": {
+            "triggerVariant": "row",
+            "disabled": true
+          },
+          "style": {
+            "opacity": 0.35
+          }
         }
       ],
       "placeholder": [
@@ -1098,6 +1107,15 @@
             "height": 10.5,
             "color": "$color.mutedForeground",
             "opacity": 1
+          }
+        },
+        {
+          "when": {
+            "triggerVariant": "row",
+            "disabled": true
+          },
+          "style": {
+            "opacity": 0.35
           }
         }
       ],
@@ -1294,7 +1312,8 @@
           "style": {
             "borderWidth": 1,
             "borderColor": "#00000000",
-            "paddingHorizontal": 7
+            "paddingHorizontal": 7,
+            "paddingVertical": 3.5
           }
         },
         {
@@ -1310,10 +1329,31 @@
         },
         {
           "when": {
+            "joinTop": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderTopWidth": 0,
+            "paddingTop": 5
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderBottomWidth": 0,
+            "paddingBottom": 5
+          }
+        },
+        {
+          "when": {
             "triggerVariant": "pill"
           },
           "style": {
             "height": 24,
+            "minHeight": 24,
             "paddingHorizontal": 7,
             "gap": 7,
             "fontSize": 10.5,
@@ -1528,6 +1568,16 @@
             "boxShadow": "$shadow.none"
           }
         }
+      ],
+      "field": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "paddingTop": 4.25
+          }
+        }
       ]
     },
     "Tabs": {
@@ -1674,6 +1724,30 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "identifier": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 14
+          }
+        }
+      ],
+      "detail": [
+        {
+          "style": {
+            "fontSize": 10.5,
+            "lineHeight": 14
+          }
+        }
+      ],
+      "preview": [
+        {
+          "style": {
+            "width": 144,
+            "padding": 8
           }
         }
       ]

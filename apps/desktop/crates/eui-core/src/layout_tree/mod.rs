@@ -228,6 +228,10 @@ pub struct LayerSpec {
     pub dismissible: bool,
     /// The popup is at least as wide as its anchor (Select, pickers).
     pub match_anchor_width: bool,
+    /// The popup is EXACTLY as wide as its anchor (Popover
+    /// `matchAnchorWidth`: the IDE's typeahead at the composer card's width),
+    /// re-measured every pass against the anchor's frame.
+    pub exact_anchor_width: bool,
     /// The layer's body that scrolls when the content is taller than the
     /// viewport (Dialog/Drawer `body`, a popup list).
     pub scroll_body: Option<u32>,
@@ -374,6 +378,8 @@ pub struct LocalState {
     pub range_anchor: HashMap<String, String>,
     /// The open submenu of a menu (item index).
     pub submenu: HashMap<String, usize>,
+    /// #EXP-1629: each open menu's item `preview` state (which row's shows).
+    pub menu_preview: HashMap<String, crate::menu_preview::MenuPreview>,
     /// EXP-1259: the highlighted row of a SearchList (by its id) or of a
     /// searchable submenu (by its `search` part's id), a position in the
     /// FILTERED rows.
@@ -1387,7 +1393,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     pub(crate) fn push_layer(&mut self, layer: u32, root: u32, owner: &LNode, placement: LayerPlacement, modal: bool, dismissible: bool, match_anchor_width: bool, scroll_body: Option<u32>) {
         let class = if matches!(placement, LayerPlacement::Toast { .. }) { LayerClass::Toast } else { LayerClass::Overlay };
-        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, scroll_body, offset: None, margin: None, inset: None, mirror: false });
+        self.layers.push(LayerSpec { layer, root, kind: owner.component.clone(), owner: owner.id.clone(), placement, class, modal, dismissible, match_anchor_width, exact_anchor_width: false, scroll_body, offset: None, margin: None, inset: None, mirror: false });
     }
 }
 

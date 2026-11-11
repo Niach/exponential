@@ -252,6 +252,10 @@ export function themeSchema(): Record<string, unknown> {
     marginBottom: numOrToken([`spacing`]),
     // #EDE-65: MessageBubble/bubble's leading corner and width cap.
     borderTopLeftRadius: numOrToken([`radius`, `spacing`]),
+    // #EXP-1629: a joined Select multi row squares the corners it shares.
+    borderTopRightRadius: numOrToken([`radius`, `spacing`]),
+    borderBottomRightRadius: numOrToken([`radius`, `spacing`]),
+    borderBottomLeftRadius: numOrToken([`radius`, `spacing`]),
     maxWidth: { anyOf: [...numOrToken([`control`, `spacing`]).anyOf, { type: `string`, pattern: `^[0-9]+(\\.[0-9]+)?%$` }] },
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),

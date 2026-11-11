@@ -37,7 +37,7 @@ use std::collections::HashMap;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
+    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window, WindowId,
 };
@@ -636,51 +636,6 @@ pub(crate) fn rail_trailing_slot() -> gpui::Div {
         .justify_center()
 }
 
-/// A rail section's muted label row ("Agents", "Boards"…); a trailing `+`
-/// child lands in the rows' trailing column.
-pub(crate) fn rail_section_label(text: &'static str, cx: &App) -> gpui::Div {
-    h_flex()
-        .w_full()
-        .h(px(24.))
-        .pl_1p5()
-        // EXP-1477: the `+` sits in the rows' trailing column.
-        .pr_1()
-        .items_center()
-        .child(
-            div()
-                .flex_1()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().sidebar_foreground.opacity(0.5))
-                .child(text),
-        )
-}
-
-/// [`rail_trailing_slot`] holding a row's hover gear over its badge: the
-/// gear shows while `group` is hovered and the badge (if any) yields the
-/// column to it — the web's `yieldsOnHover`.
-pub(crate) fn rail_trailing_hover_action(
-    group: &'static str,
-    badge: Option<gpui::AnyElement>,
-    action: impl IntoElement,
-) -> gpui::Div {
-    rail_trailing_slot()
-        .when_some(badge, |slot, badge| {
-            slot.child(div().group_hover(group, |style| style.invisible()).child(badge))
-        })
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .invisible()
-                .group_hover(group, |style| style.visible())
-                .child(action),
-        )
-}
-
 // ---------------------------------------------------------------------------
 // RailView — the icon strip left of the dock area
 // ---------------------------------------------------------------------------
@@ -695,7 +650,39 @@ pub struct RailView {
     last_branch: Option<String>,
     /// #EXP-1725: the rows, the shared sidebar document.
     region: Entity<crate::shell_regions::SidebarRegion>,
+    /// #LOGS-11: what the rows were last derived from; a render with the
+    /// same inputs (a hover, a glyph's region, the Computer button) does
+    /// not derive them again.
+    derived: Option<RailInputs>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// #LOGS-11: everything the rail's rows read
+/// ([`crate::shell_regions::SidebarRegion::refresh`]): the synced store
+/// (all but the transcripts and the event stream, which no row reads), the
+/// window's screen, team and board, the account and the minute (Needs you's
+/// stuck rows and the list bands move with the clock).
+#[derive(PartialEq)]
+struct RailInputs {
+    revisions: Vec<u64>,
+    screen: Option<Screen>,
+    team: Option<String>,
+    board: Option<String>,
+    account: Option<String>,
+    minute: i64,
+}
+
+impl RailInputs {
+    fn read(nav: &Entity<Navigation>, cx: &App) -> Self {
+        Self {
+            revisions: Store::global(cx).collections().revisions_except(&["messages", "events"], cx),
+            screen: resolved_screen(nav, cx),
+            team: crate::navigation::active_team_id(nav, cx),
+            board: crate::navigation::active_board_id(nav, cx),
+            account: crate::queries::active_account(cx).map(|account| account.id),
+            minute: crate::session_data::now_ms() / 60_000,
+        }
+    }
 }
 
 impl RailView {
@@ -748,7 +735,8 @@ impl RailView {
         ];
         // EXP-1294: the Chats dot, the Agents rows and the Running section
         // are live reads over the session tree (+ the issues that title it).
-        subscriptions.extend(crate::session_data::observe_session_collections(cx));
+        // #LOGS-11: never the transcripts — no row reads a message.
+        subscriptions.extend(crate::session_data::observe_session_rows(cx));
         // #NEW-97: the footer's voice button follows the tray (its host, the
         // wake word's microphone, Mute and the switches).
         if let Some(tray) = etalk_gpui::voice_tray::entity(cx) {
@@ -760,6 +748,7 @@ impl RailView {
             shared,
             last_branch: None,
             region,
+            derived: None,
             _subscriptions: subscriptions,
         }
     }
@@ -901,12 +890,17 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
     domain::session_tree::chat_row_mark_state(needs_you, busy)
 }
 
-impl RailView {
+/// #LOGS-11: the rail's renders, for the bench.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RAIL_RENDERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "RailView").entered();
+        #[cfg(test)]
+        RAIL_RENDERS.with(|n| n.set(n.get() + 1));
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -991,10 +985,19 @@ impl Render for RailView {
             active: matches!(resolved_screen(&self.nav, cx), Some(Screen::Files) | Some(Screen::SourceControl)),
         };
         let nav = self.nav.clone();
+        let inputs = RailInputs::read(&nav, cx);
+        let stale = self.derived.as_ref() != Some(&inputs);
         self.region.update(cx, |region, cx| {
             region.set_computer(computer);
-            region.refresh(&nav, cx);
+            if stale {
+                region.refresh(&nav, cx);
+            } else {
+                region.repaint_computer(cx);
+            }
         });
+        if stale {
+            self.derived = Some(inputs);
+        }
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)

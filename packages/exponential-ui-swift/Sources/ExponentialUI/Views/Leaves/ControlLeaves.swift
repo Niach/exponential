@@ -73,6 +73,14 @@ struct TextFieldLeaf: View {
 struct ComposerLeaf: View {
     let cx: LeafContext
 
+    /// #EXP-1762 (interactions-round1.json composerSlots `field`): a flat
+    /// Composer's text view in a row `row` tall: its text starts `padTop`
+    /// (the field recipe's `paddingTop`) below the row's top, one line or
+    /// grown, and it reaches the row's bottom.
+    static func flatField(row: CGFloat, padTop: CGFloat) -> (y: CGFloat, height: CGFloat) {
+        (padTop, max(row - padTop, 0))
+    }
+
     var body: some View {
         let field = cx.part("Composer", "field")
         let send = cx.part("Composer", "send")
@@ -84,7 +92,24 @@ struct ComposerLeaf: View {
         let lh = field.px("lineHeight") ?? cx.textStyle.lineHeight
         let font = ExponentialUIFonts.font(family: field.fontFamily ?? cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: fs)
         let attachments = cx.props.flag("attachments")
-        VStack(alignment: .leading, spacing: gap) {
+        let (w, h) = (cx.inner.width, cx.inner.height)
+        // #EXP-1762: `flat` = one row: the field between the leading slot and
+        // the controls, spanning the row (the disc's height while one line,
+        // growing upward: the controls stay at the bottom); its text starts
+        // the field recipe's paddingTop below the row's top, one line or
+        // grown (composerSlots `field`; the text view has no inset of its own).
+        let flat = cx.props.str("layout") == "flat"
+        // #EXP-1762: the core lays an `above` slot out at the content top
+        // (it paints over this leaf); the field (and a flat row) start one
+        // gap below it.
+        let top = cx.model.index(of: "\(cx.node.id).above").map { cx.model.frame($0).height + gap } ?? 0
+        let rh = max(h - top, 0)
+        let flatBox = Self.flatField(row: rh, padTop: field.px("paddingTop") ?? 0)
+        let slotW = { (name: String) -> CGFloat in cx.model.index(of: "\(cx.node.id).\(name)").map { cx.model.frame($0).width + gap } ?? 0 }
+        let lead = flat ? slotW("leading") : 0
+        let fieldW = flat ? max(w - lead - slotW("trailing") - (attachments ? SurfaceMeasurer.composerAttachWidth + gap : 0) - sendSize - gap, 0) : w
+        let fieldH = flat ? flatBox.height : max(rh - sendSize - gap, 0)
+        ZStack(alignment: .topLeading) {
             OwnedTextField(
                 index: cx.index,
                 model: cx.model,
@@ -99,7 +124,8 @@ struct ComposerLeaf: View {
                 accessibilityLabel: cx.props.str("placeholder").isEmpty ? cx.model.builtinString("send") : cx.props.str("placeholder"),
                 inputType: ""
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: fieldW, height: fieldH)
+            .offset(x: flat ? (cx.rtl ? w - lead - fieldW : lead) : 0, y: top + (flat ? flatBox.y : 0))
             HStack(spacing: cx.model.spacing("xs")) {
                 Spacer(minLength: 0)
                 // `attachments: true` = the attach control (catalog: "Shows
@@ -145,9 +171,10 @@ struct ComposerLeaf: View {
                 .allowsHitTesting(!empty)
                 .accessibilityLabel(busy ? cx.model.builtinString("stop") : (cx.props.str("submitLabel").isEmpty ? cx.model.builtinString("send") : cx.props.str("submitLabel")))
             }
-            .frame(height: sendSize)
+            .frame(width: w, height: sendSize)
+            .offset(y: h - sendSize)
         }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+        .frame(width: w, height: h, alignment: .topLeading)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
     }
 }

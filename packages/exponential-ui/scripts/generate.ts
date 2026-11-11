@@ -1015,6 +1015,42 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   ColorPicker: [
     { label: `open · the label palette`, node: { id: `color-open-box`, component: `Box`, style: { height: 180 }, children: [{ id: `color-open`, component: `ColorPicker`, props: { value: `#3b82f6`, open: true } }] } },
   ],
+  // #EXP-1629: a status picker's rows: each glyph in its own tint
+  // (`iconColor`), the chosen one checked.
+  Menu: [
+    { label: `items · icon + iconColor`, node: { id: `status_menu`, component: `Menu`, props: { align: `end`, items: [
+      { label: `Backlog`, value: `backlog`, kind: `checkbox`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+      { label: `In Progress`, value: `in_progress`, kind: `checkbox`, icon: `status-in-progress`, iconColor: `$color.warning`, checked: true },
+      { label: `Done`, value: `done`, kind: `checkbox`, icon: `status-done`, iconColor: `$color.success` },
+      { label: `Cancelled`, value: `cancelled`, kind: `checkbox`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+    ] }, children: [{ id: `status_trigger`, component: `Button`, props: { label: `In Progress`, icon: `status-in-progress`, variant: `outline` } }] } },
+    // #EXP-1629: the IDE session composer's "+" menu: Model › with its
+    // current value (`detail`), the Account row's health badge and usage card
+    // (`preview`, beside the row while hovered or highlighted), Issue › rows
+    // led by a status glyph and their mono `identifier`.
+    {
+      label: `items · detail + identifier + preview`,
+      node: {
+        id: `composer_menu`,
+        component: `Menu`,
+        props: {
+          label: `Options`,
+          items: [
+            { label: `Model`, kind: `submenu`, detail: `Opus`, items: [{ label: `Opus`, value: `opus`, kind: `checkbox`, checked: true }, { label: `Sonnet`, value: `sonnet`, kind: `checkbox` }] },
+            {
+              label: `ada@example.com`,
+              value: `account`,
+              icon: `brand-claude`,
+              detail: `Healthy`,
+              preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
+            },
+            { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
+          ],
+        },
+        children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],
+      },
+    },
+  ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
   // email's initials (its local part), a picture in its hairline ring.
@@ -1035,6 +1071,40 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       slots: {
         leading: { id: `options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
         trailing: { id: `context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }, {
+    // #EXP-1762: THE session composer, flat: "+" left, the field growing
+    // upward, the context Ring + send right, all on one bottom-aligned row.
+    label: `layout · flat`,
+    node: {
+      id: `flat`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        leading: { id: `flat_options`, component: `Menu`, props: { items: [{ label: `Attach a file`, value: `attach`, icon: `ui-attach` }, { label: `Plan first`, value: `plan` }] }, children: [{ id: `flat_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }] },
+        trailing: { id: `flat_context`, component: `Ring`, props: { value: 0.42, size: `sm` } },
+      },
+    },
+  }, {
+    // #EXP-1762: the IDE's attachment strip INSIDE the card, over the field
+    // (a wrapping row of chips); it sizes the composer.
+    label: `slots · above`,
+    node: {
+      id: `above`,
+      component: `Composer`,
+      props: { placeholder: `Reply…`, layout: `flat` },
+      slots: {
+        above: {
+          id: `above_strip`,
+          component: `Stack`,
+          props: { direction: `horizontal`, wrap: true, gap: `xs` },
+          children: [
+            { id: `above_file`, component: `Chip`, props: { label: `screenshot.png`, icon: `ui-attach`, removable: true } },
+            { id: `above_team`, component: `Chip`, props: { label: `Design`, removable: true } },
+          ],
+        },
+        leading: { id: `above_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } },
       },
     },
   }],
@@ -1132,6 +1202,44 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         { id: `device`, component: `Select`, props: { label: `Device`, name: `device`, triggerVariant: `row`, popupMinWidth: 170, value: `mint`, options: [{ label: `mint`, value: `mint`, icon: `monitor` }, { label: `build-server`, value: `build`, icon: `server` }, { label: `macbook`, value: `macbook`, icon: `laptop`, description: `Offline` }] } },
       ],
     },
+  }, {
+    // #EXP-1629: a locked row (the IDE's Effort row under ultracode): the
+    // value and the chevron at 0.35 (the 0.7 value tone halved).
+    label: `triggerVariant · row + description, disabled`,
+    node: {
+      id: `agent_effort`,
+      component: `Group`,
+      children: [
+        { id: `effort_locked`, component: `Select`, props: { label: `Effort`, name: `effort`, triggerVariant: `row`, description: `ultracode sets effort`, disabled: true, value: `max`, options: [{ label: `High`, value: `high` }, { label: `Max`, value: `max` }] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: a status picker: each option's glyph in its own tint
+    // (`iconColor`), the chosen one's leading the row's value.
+    label: `option iconColor + triggerIcon`,
+    node: {
+      id: `pr_automation`,
+      component: `Group`,
+      children: [
+        { id: `pr_opened`, component: `Select`, props: { label: `When a PR opens`, name: `prOpened`, triggerVariant: `row`, triggerIcon: true, popupMinWidth: 170, value: `in_review`, options: [
+          { label: `Backlog`, value: `backlog`, icon: `status-backlog`, iconColor: `$color.mutedForeground` },
+          { label: `In Progress`, value: `in_progress`, icon: `status-in-progress`, iconColor: `$color.warning` },
+          { label: `In Review`, value: `in_review`, icon: `status-in-review`, iconColor: `$color.success` },
+          { label: `Cancelled`, value: `cancelled`, icon: `status-cancelled`, iconColor: `$color.destructive` },
+        ] } },
+      ],
+    },
+  }, {
+    // #EXP-1629: the IDE's skills multi picker: two adjacent picks of three,
+    // one bordered block in the open popup (`joinTop` / `joinBottom`).
+    label: `multiple · searchable · row + option icon, description`,
+    node: {
+      id: `agent_skills`,
+      component: `Group`,
+      children: [
+        { id: `skills`, component: `Select`, props: { label: `Skills`, name: `skills`, triggerVariant: `row`, multiple: true, searchable: true, value: `deploy,review`, options: [{ label: `deploy`, value: `deploy`, icon: `ui-docs`, description: `Ship a build to staging` }, { label: `review`, value: `review`, icon: `ui-docs`, description: `Review the open pull request` }, { label: `triage`, value: `triage`, icon: `ui-docs`, description: `Sort the inbox by priority` }] } },
+      ],
+    },
   }],
   // #FEED-201: a dashboard tile and a card that open a detail screen (a
   // button with the Row hover fill; at rest they look like the others).
@@ -1213,6 +1321,24 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
         },
         { id: `start_menu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [text(`files`, `Files`), text(`terminal`, `Terminal`), text(`settings`, `Settings`)] },
         { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, text(`today`, `Friday, 6`)] },
+      ],
+    },
+  }, {
+    // `matchAnchorWidth`: the IDE's `/` typeahead floats above the composer
+    // card at the card's full width (anchor = the card, top-start).
+    label: `matchAnchorWidth`,
+    node: {
+      id: `chat`,
+      component: `Box`,
+      style: { position: `relative`, width: `100%`, height: 260, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      children: [
+        {
+          id: `composer_card`,
+          component: `Box`,
+          style: { position: `absolute`, left: 16, right: 16, bottom: 16, height: 72, padding: `$spacing.md`, borderRadius: `$radius.lg`, borderWidth: `$border.hairline`, borderColor: `$color.border`, backgroundColor: `$color.card` },
+          children: [text(`draft`, `/rev`)],
+        },
+        { id: `commands`, component: `Popover`, props: { anchor: `composer_card`, side: `top`, align: `start`, matchAnchorWidth: true, open: true }, children: [text(`review`, `/review`), text(`revert`, `/revert`)] },
       ],
     },
   }],

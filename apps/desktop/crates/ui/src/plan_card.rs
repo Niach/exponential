@@ -1524,6 +1524,7 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
 mod tests {
     /// #EXP-1698: a long free answer wraps inside the card.
     #[gpui::test]
+    #[cfg_attr(not(debug_assertions), ignore = "debug_bounds reads gpui debug selectors (debug_assertions only)")]
     fn a_long_free_answer_wraps_inside_the_card(cx: &mut gpui::TestAppContext) {
         struct Card;
         impl gpui::Render for Card {

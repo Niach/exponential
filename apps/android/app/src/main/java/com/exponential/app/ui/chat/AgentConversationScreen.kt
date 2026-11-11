@@ -49,7 +49,6 @@ import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
-import com.exponential.app.ui.components.FloatingBarEdge
 import com.exponential.app.ui.components.FloatingComposer
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassTextField
@@ -465,9 +464,10 @@ fun AgentConversationScreen(
                     )
                 }
                 if (row != null) {
-                    FloatingBarEdge(
-                        bottomInset = bottomInset,
-                        visible = !expanded,
+                    // #EXP-1782 (dock.json): the band sits under the body,
+                    // no edge fade, no gradient, no backdrop strip.
+                    Box(
+                        contentAlignment = Alignment.TopCenter,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()

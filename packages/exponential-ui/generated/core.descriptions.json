@@ -9,7 +9,7 @@
           "description": "Makes the box a press target that fires `press`."
         }
       },
-      "description": "Container laid out by its whitelisted style; every macro expands into it. `hover` fires on pointer enter.",
+      "description": "Container laid out by its whitelisted style; macros expand into it. `hover` = pointer enter.",
       "example": {
         "style": {
           "display": "flex",
@@ -28,19 +28,19 @@
           "description": "Space between children."
         },
         "align": {
-          "description": "Unset: `center` in a row, `stretch` in a column."
+          "description": "Unset: row `center`, column `stretch`."
         },
         "justify": {
           "description": "Main-axis distribution."
         },
         "wrap": {
-          "description": "Children wrap onto new lines."
+          "description": "Children wrap."
         },
         "style": {
           "description": "Extra Box styles merged over the stack's own."
         }
       },
-      "description": "Flex container: children in one direction with a gap.",
+      "description": "Flex: children in one direction with a gap.",
       "example": {
         "direction": "horizontal",
         "gap": "sm"
@@ -49,7 +49,7 @@
     "Grid": {
       "props": {
         "columns": {
-          "description": "Equal columns 1–6 (`{base: 1, md: 2, lg: 3}`)."
+          "description": "1–6 (`{base: 1, md: 2, lg: 3}`)."
         },
         "gap": {
           "description": "Space between cells."
@@ -58,7 +58,7 @@
           "description": "Extra Box styles merged over the grid's own."
         }
       },
-      "description": "Equal-column grid for cards and tiles.",
+      "description": "Equal columns of cards or tiles.",
       "example": {
         "columns": 3,
         "gap": "md"
@@ -73,7 +73,7 @@
           "description": "Muted line under the heading."
         },
         "padded": {
-          "description": "Pads the body; off = edge-to-edge rows."
+          "description": "Off = edge-to-edge rows."
         },
         "style": {
           "description": "Extra Box styles merged over the card's own."
@@ -97,7 +97,7 @@
           "description": "Extra Box styles merged over the window's own."
         }
       },
-      "description": "Window frame: three-dot chrome bar (optional caption) over one child filling the body.",
+      "description": "Window frame: three-dot bar (`title` caption) over one child filling the body.",
       "example": {
         "title": "exponential.at"
       }
@@ -108,7 +108,7 @@
           "description": "Horizontal rule or a vertical bar."
         }
       },
-      "description": "Hairline that divides content.",
+      "description": "Dividing hairline.",
       "example": {
         "orientation": "horizontal"
       }
@@ -125,16 +125,16 @@
           "description": "Hairline between items."
         },
         "sectionBy": {
-          "description": "Groups runs of items by this field; slot `section` = header ({value, count})."
+          "description": "Groups item runs by this field; `section` slot = header ({value, count})."
         },
         "stickyHeaders": {
-          "description": "Pins the current section header."
+          "description": "Pins the current header."
         },
         "style": {
           "description": "Extra Box styles for the list frame."
         }
       },
-      "description": "Windowed list for anything past a screen; children may come from a data template.",
+      "description": "Windowed list for anything past a screen; children may be a data template.",
       "example": {
         "direction": "vertical",
         "divided": true
@@ -158,7 +158,7 @@
           "description": "Extra Box styles for the group box (give it a height)."
         }
       },
-      "description": "Panels split by drag handles; each child is a panel.",
+      "description": "Panels split by drag handles, one per child.",
       "example": {
         "direction": "horizontal",
         "sizes": [
@@ -174,13 +174,13 @@
           "description": "Which axis scrolls."
         },
         "maxHeight": {
-          "description": "Px before it scrolls; omit to fill the parent."
+          "description": "Px before scrolling; omit = fill the parent."
         },
         "style": {
           "description": "Extra Box styles merged over the region's own."
         }
       },
-      "description": "Scrolling region of bounded height or width.",
+      "description": "Scroll region of bounded height or width.",
       "example": {
         "direction": "vertical",
         "maxHeight": 240
@@ -195,7 +195,7 @@
           "description": "Column width, px."
         },
         "collapseBelow": {
-          "description": "Hides it below this breakpoint."
+          "description": "Hidden below this breakpoint."
         },
         "collapsed": {
           "description": "Hides the column."
@@ -204,7 +204,7 @@
           "description": "Collapsed = icon rail."
         }
       },
-      "description": "Shell: nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
+      "description": "Shell: nav column (`sidebar` slot) beside children.",
       "example": {
         "side": "left",
         "width": 240,
@@ -220,7 +220,7 @@
           "description": "List column width in px."
         }
       },
-      "description": "List (`list` slot) + detail (children); phones show one, detail with a back button.",
+      "description": "List (`list` slot) + detail (children); phones show one, detail with back.",
       "example": {
         "open": true,
         "width": 320
@@ -238,7 +238,7 @@
           "description": "Back button firing `back`."
         }
       },
-      "description": "Top bar: title, optional subtitle and back button.",
+      "description": "Screen top bar.",
       "example": {
         "title": "Settings",
         "back": true
@@ -256,10 +256,10 @@
           "description": "Back button firing `back`."
         },
         "padded": {
-          "description": "Pads the body; off = edge-to-edge lists."
+          "description": "Off = edge-to-edge lists."
         }
       },
-      "description": "Screen: an AppBar row over a padded scrolling body.",
+      "description": "Screen: AppBar row over a padded scrolling body.",
       "example": {
         "title": "Settings",
         "back": true
@@ -271,7 +271,7 @@
           "description": "Space between controls."
         }
       },
-      "description": "Controls in one row, bottom-aligned, wrapping on phones; `trailing` = end action.",
+      "description": "One row of controls, bottom-aligned, wraps on phones; `trailing` = end action.",
       "example": {
         "gap": "sm"
       }
@@ -282,7 +282,7 @@
           "description": "Band's label; omit it for a bare run of rows."
         },
         "caption": {
-          "description": "Muted text after the title."
+          "description": "Muted, after the title."
         },
         "count": {
           "description": "Count after the title; off unless given."
@@ -297,10 +297,10 @@
           "description": "Whether the rows show; bind it."
         },
         "tint": {
-          "description": "Band's colour tone."
+          "description": "Band tone."
         },
         "tree": {
-          "description": "Rows form a tree: `Row.depth` indents and draws guides."
+          "description": "Rows are a tree: `Row.depth` indents, draws guides."
         },
         "loading": {
           "description": "Refetch is running: a small spinner before the count. The first load is a Skeleton instead."
@@ -309,7 +309,7 @@
           "description": "Extra Box styles for the frame."
         }
       },
-      "description": "Band header (foldable, tinted) over hairline-divided rows; no title = rows only.",
+      "description": "Band header over hairline-divided rows; no title = rows only.",
       "example": {
         "title": "In progress",
         "icon": "nav-issues"
@@ -321,10 +321,10 @@
           "description": "Caption above the group."
         },
         "footer": {
-          "description": "Note under the group."
+          "description": "Note under it."
         }
       },
-      "description": "Rounded group of form rows, optional title and footnote.",
+      "description": "Rounded group of form rows.",
       "example": {
         "title": "Notifications"
       }
@@ -338,7 +338,7 @@
           "description": "Type style."
         },
         "align": {
-          "description": "Horizontal alignment in its box."
+          "description": "Horizontal, in its box."
         },
         "lines": {
           "description": "Truncates to this many lines with an ellipsis."
@@ -347,7 +347,7 @@
           "description": "Colour tone instead of the default foreground."
         },
         "shimmer": {
-          "description": "Highlight sweeps the text while work runs."
+          "description": "Highlight sweep while working."
         },
         "live": {
           "description": "Announces changes (`assertive` interrupts)."
@@ -356,7 +356,7 @@
           "description": "Extra Box styles for the text box."
         }
       },
-      "description": "Text in one type style; prefer components over inline markdown.",
+      "description": "One type style; prefer components over inline markdown.",
       "example": {
         "text": "Hello, world!",
         "variant": "body"
@@ -371,7 +371,7 @@
           "description": "h1 = page title, h4 = smallest."
         }
       },
-      "description": "Section or page heading, four levels.",
+      "description": "Section or page heading.",
       "example": {
         "text": "Welcome",
         "level": "h1"
@@ -383,10 +383,10 @@
           "description": "GFM source."
         },
         "profile": {
-          "description": "`inline` = a text run (no outer gap; paragraphs in `variant`'s type), `document` = full prose."
+          "description": "`inline` = a text run (no outer gap, `variant` paragraphs); `document` = full prose."
         },
         "variant": {
-          "description": "Paragraph type of the inline profile."
+          "description": "Inline profile's paragraph type."
         },
         "lines": {
           "description": "Truncates the rendered body to this many lines with an ellipsis."
@@ -395,7 +395,7 @@
           "description": "Extra Box styles for the markdown box."
         }
       },
-      "description": "GitHub-flavoured markdown, for prose.",
+      "description": "GitHub-flavoured markdown prose.",
       "example": {
         "text": "**Bold** and a list:\n\n- one\n- two"
       }
@@ -415,13 +415,13 @@
           "description": "Line-number gutter."
         },
         "wrap": {
-          "description": "Wraps long lines instead of side-scrolling."
+          "description": "Wraps long lines (else side-scrolls)."
         },
         "copyable": {
           "description": "Copy button."
         },
         "highlight": {
-          "description": "1-based line numbers to emphasise."
+          "description": "1-based lines to emphasise."
         },
         "maxLines": {
           "description": "Lines before it scrolls."
@@ -433,7 +433,7 @@
           "description": "sm = compact."
         }
       },
-      "description": "Mono source code: syntax colouring, line numbers, copy button.",
+      "description": "Mono source code.",
       "example": {
         "code": "const answer = 42 // the answer",
         "language": "ts",
@@ -443,10 +443,10 @@
     "Kbd": {
       "props": {
         "keys": {
-          "description": "Shortcut text (`⌘K`, `Ctrl+Shift+P`)."
+          "description": "`⌘K`, `Ctrl+Shift+P`."
         }
       },
-      "description": "Keyboard shortcut drawn as a key cap.",
+      "description": "Shortcut as a key cap.",
       "example": {
         "keys": "⌘K"
       }
@@ -454,10 +454,10 @@
     "KbdGroup": {
       "props": {
         "keys": {
-          "description": "Keys in order (`⌘`, `K`)."
+          "description": "In order (`⌘`, `K`)."
         }
       },
-      "description": "Key chord: one Kbd cap per key.",
+      "description": "Key chord: a Kbd cap per key.",
       "example": {
         "keys": [
           "⌘",
@@ -471,13 +471,13 @@
           "description": "Caption."
         },
         "for": {
-          "description": "Id of the control it labels."
+          "description": "The control it labels."
         },
         "required": {
           "description": "Required mark."
         }
       },
-      "description": "Caption for an unlabelled control, optional required mark.",
+      "description": "Caption for an unlabelled control.",
       "example": {
         "text": "Visibility",
         "for": "visibility"
@@ -504,16 +504,16 @@
           "description": "Width over height (16:9 when unset and no height); the box never waits for the picture."
         },
         "fallback": {
-          "description": "Icon when the picture fails or is missing."
+          "description": "Icon if missing or failed."
         },
         "loading": {
           "description": "Defer loading until near the viewport, or load at once."
         },
         "focalX": {
-          "description": "Focal x 0..1 kept on crop (0.5)."
+          "description": "0..1 kept on crop (0.5)."
         },
         "focalY": {
-          "description": "Focal y 0..1 kept on crop (0.5)."
+          "description": "0..1 kept on crop (0.5)."
         },
         "style": {
           "description": "Extra Box styles for the image box."
@@ -536,10 +536,10 @@
           "description": "Accessibility description."
         },
         "naturalWidth": {
-          "description": "Pixel width."
+          "description": "In px."
         },
         "naturalHeight": {
-          "description": "Pixel height."
+          "description": "In px."
         },
         "initial": {
           "description": "auto = fitWidth when tall."
@@ -580,7 +580,7 @@
           "description": "Accessibility label when the icon stands alone."
         }
       },
-      "description": "One icon from the shared Lucide registry.",
+      "description": "One Lucide icon (shared registry).",
       "example": {
         "name": "ui-check",
         "size": "default"
@@ -592,7 +592,7 @@
           "description": "Video URL (H.264 + AAC MP4 plays everywhere)."
         },
         "poster": {
-          "description": "Still shown before playback."
+          "description": "Still before playback."
         },
         "durationMs": {
           "description": "Known length for the scrubber."
@@ -607,7 +607,7 @@
           "description": "Extra Box styles for the player box."
         }
       },
-      "description": "Poster until play, then the platform player with controls.",
+      "description": "Poster, then the platform player with controls.",
       "example": {
         "src": "https://example.com/clip.mp4",
         "durationMs": 12000
@@ -625,7 +625,7 @@
           "description": "Known length for the scrubber."
         }
       },
-      "description": "Audio player: title and play control.",
+      "description": "Audio with a play control.",
       "example": {
         "src": "https://example.com/track.mp3",
         "title": "Episode 12"
@@ -646,7 +646,7 @@
           "description": "User id; else the name picks the hue."
         }
       },
-      "description": "Round user picture; falls back to initials on a stable hue.",
+      "description": "Round user picture, else initials on a stable hue.",
       "example": {
         "name": "Jane Doe",
         "seed": "demo-mira",
@@ -668,7 +668,7 @@
           "description": "Caption under it and its accessibility label."
         }
       },
-      "description": "QR code of a value, dark on a light plate.",
+      "description": "QR code, dark on a light plate.",
       "example": {
         "value": "https://exponential.at",
         "label": "Scan to pair"
@@ -677,22 +677,22 @@
     "Carousel": {
       "props": {
         "page": {
-          "description": "Active page index."
+          "description": "Active page."
         },
         "loop": {
-          "description": "Last page wraps to the first."
+          "description": "Wraps last to first."
         },
         "indicators": {
           "description": "Page dots."
         },
         "counter": {
-          "description": "Shows `i / n`."
+          "description": "`i / n`."
         },
         "thumbnails": {
-          "description": "Thumbnail URL per page."
+          "description": "One per page."
         }
       },
-      "description": "Horizontal pager; each child is one page.",
+      "description": "Horizontal pager, a page per child.",
       "example": {
         "page": 0,
         "indicators": true
@@ -701,7 +701,7 @@
     "Mosaic": {
       "props": {
         "pictures": {
-          "description": "Pictures in order."
+          "description": "In order."
         },
         "label": {
           "description": "A11y label."
@@ -732,7 +732,7 @@
     "Tabs": {
       "props": {
         "tabs": {
-          "description": "Tab headers in order."
+          "description": "Headers in order."
         },
         "value": {
           "description": "Active tab's value; bind it for two-way state."
@@ -750,10 +750,10 @@
           "description": "+ button firing `new`."
         },
         "swipeable": {
-          "description": "Touch: swipe pages the panels."
+          "description": "Touch swipe pages panels."
         }
       },
-      "description": "Tab navigation; child i is the panel of tab i.",
+      "description": "Tab navigation; child i is tab i's panel.",
       "example": {
         "tabs": [
           {
@@ -771,22 +771,22 @@
     "Segmented": {
       "props": {
         "items": {
-          "description": "Segments in order."
+          "description": "In order."
         },
         "type": {
-          "description": "One active value or several."
+          "description": "One value or several."
         },
         "value": {
           "description": "Selected value (comma-joined when multiple); bind it."
         },
         "variant": {
-          "description": "Pill track, bare toggles, joined outline buttons, or full-width icon `bar`."
+          "description": "Pill track, bare toggles, joined outline buttons, full-width icon bar."
         },
         "size": {
           "description": "Control height class."
         },
         "fill": {
-          "description": "Segments span the width (a `bar` always does)."
+          "description": "Spans the width (`bar` always)."
         },
         "orientation": {
           "description": "vertical bar = a rail."
@@ -810,16 +810,16 @@
     "Accordion": {
       "props": {
         "items": {
-          "description": "Section headers in order."
+          "description": "Headers in order."
         },
         "type": {
-          "description": "One section open, or any number."
+          "description": "One open, or any number."
         },
         "value": {
           "description": "Open section's value (comma-joined when multiple); bind it."
         }
       },
-      "description": "Collapsible sections; child i is the body of item i.",
+      "description": "Collapsible sections; child i is item i's body.",
       "example": {
         "items": [
           {
@@ -843,7 +843,7 @@
           "description": "Count shown in the header."
         }
       },
-      "description": "One disclosure section: a title row shows or hides its children.",
+      "description": "Disclosure: a title row folds its children.",
       "example": {
         "title": "Advanced",
         "open": false
@@ -855,7 +855,7 @@
           "description": "Line spacing; match the items."
         }
       },
-      "description": "Column of TraceItem lines (an agent's steps).",
+      "description": "TraceItem column (an agent's steps).",
       "example": {
         "size": "default"
       }
@@ -884,7 +884,7 @@
           "description": "Whether the children show; bind it."
         }
       },
-      "description": "One step: icon, title, muted detail; may expand to its children.",
+      "description": "One step: icon, title, muted detail; expands to its children.",
       "example": {
         "title": "Ran bun test",
         "icon": "trace-terminal",
@@ -946,10 +946,10 @@
           "description": "Page count."
         },
         "page": {
-          "description": "Current 1-based page; bind it."
+          "description": "1-based; bind it."
         }
       },
-      "description": "Previous, next, and current page of a total.",
+      "description": "Previous, next, current page of a total.",
       "example": {
         "totalPages": 5,
         "page": 2
@@ -961,7 +961,7 @@
           "description": "Root first."
         }
       },
-      "description": "Path to the current page; all but the last are links firing `select`.",
+      "description": "Path to the current page; all but the last fire `select`.",
       "example": {
         "items": [
           {
@@ -982,7 +982,7 @@
     "Outline": {
       "props": {
         "items": {
-          "description": "Rows in order."
+          "description": "In order."
         },
         "value": {
           "description": "Active row id."
@@ -1016,7 +1016,7 @@
     "Stepper": {
       "props": {
         "steps": {
-          "description": "Steps in order."
+          "description": "In order."
         },
         "current": {
           "description": "Active step, 0-based."
@@ -1059,7 +1059,7 @@
           "description": "Closes on the backdrop or Escape."
         }
       },
-      "description": "Centred modal, opened by its trigger slot or by binding `open`.",
+      "description": "Centred modal, opened by its trigger slot or bound `open`.",
       "example": {
         "title": "Delete board?",
         "description": "This cannot be undone.",
@@ -1084,10 +1084,10 @@
           "description": "Closes on the backdrop or Escape."
         },
         "dragToDismiss": {
-          "description": "Swipe toward its edge closes it."
+          "description": "Swiping to its edge closes."
         }
       },
-      "description": "Panel sliding in from an edge (a bottom sheet on phones).",
+      "description": "Panel sliding from an edge (bottom sheet on phones).",
       "example": {
         "title": "Filters",
         "side": "bottom",
@@ -1103,7 +1103,7 @@
           "description": "One line under the header."
         },
         "caption": {
-          "description": "Muted text after the label."
+          "description": "Muted, after the label."
         },
         "meta": {
           "description": "Muted text at the header's end."
@@ -1137,13 +1137,13 @@
           "description": "What will happen."
         },
         "confirmLabel": {
-          "description": "Confirming button's text."
+          "description": "Confirm button text."
         },
         "cancelLabel": {
-          "description": "Cancelling button's text."
+          "description": "Cancel button text."
         },
         "destructive": {
-          "description": "Confirm button looks dangerous."
+          "description": "Dangerous confirm button."
         },
         "open": {
           "description": "Whether it shows; bind it."
@@ -1168,10 +1168,13 @@
           "description": "Along the side."
         },
         "anchor": {
-          "description": "Node id to open at; it toggles it."
+          "description": "Open-at node; it toggles it."
         },
         "openOn": {
-          "description": "Press, or hover (press on touch)."
+          "description": "`hover` is press on touch."
+        },
+        "matchAnchorWidth": {
+          "description": "Panel exactly as wide as its anchor/trigger."
         }
       },
       "description": "Small panel anchored to its trigger.",
@@ -1188,7 +1191,7 @@
           "description": "Preferred side of the anchor."
         }
       },
-      "description": "Short hint on hover or long-press over its children.",
+      "description": "Hint on hovering or long-pressing its children.",
       "example": {
         "content": "Copy link"
       }
@@ -1202,7 +1205,7 @@
           "description": "Default trigger's icon."
         },
         "items": {
-          "description": "Entries in order."
+          "description": "In order."
         },
         "side": {
           "description": "Preferred side of the trigger."
@@ -1211,13 +1214,13 @@
           "description": "Along the side."
         },
         "anchor": {
-          "description": "Node id to open at; it toggles it."
+          "description": "Open-at node; it toggles it."
         },
         "openOn": {
-          "description": "Press on the child, or the context gesture."
+          "description": "Child's press, or right-click/long-press."
         }
       },
-      "description": "Actions, checkboxes, groups, submenus; opened by pressing its child or right-click/long-press.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "example": {
         "label": "More",
         "items": [
@@ -1248,10 +1251,10 @@
           "description": "Whether it shows; bind it so the host learns of a dismissal."
         },
         "duration": {
-          "description": "Ms until it dismisses; 0 = never."
+          "description": "Ms to dismiss; 0 = never."
         },
         "actionLabel": {
-          "description": "Button label; press fires `action`."
+          "description": "Button firing `action`."
         },
         "dismissible": {
           "description": "Shows the close control."
@@ -1271,7 +1274,7 @@
           "description": "Label or number."
         },
         "variant": {
-          "description": "Filled, secondary, outlined or destructive."
+          "description": "`default` = filled."
         },
         "icon": {
           "description": "Icon before the text."
@@ -1295,7 +1298,7 @@
           "description": "Severity: icon and tone."
         }
       },
-      "description": "Inline banner: icon, title, message.",
+      "description": "Inline banner.",
       "example": {
         "title": "Saved",
         "message": "Your changes have been saved.",
@@ -1308,7 +1311,7 @@
           "description": "Chip text."
         },
         "shape": {
-          "description": "Rounded pill or squarer entity chip."
+          "description": "`rect` = entity chip."
         },
         "selected": {
           "description": "Active choice."
@@ -1317,25 +1320,25 @@
           "description": "Colour tone of the chip."
         },
         "dot": {
-          "description": "Colour dot before the text (label chip)."
+          "description": "Dot before the text (label chip)."
         },
         "icon": {
           "description": "Icon before the text."
         },
         "image": {
-          "description": "Round picture instead of the icon."
+          "description": "Round picture, not the icon."
         },
         "detail": {
-          "description": "Muted text after the label."
+          "description": "Muted, after the label."
         },
         "removable": {
-          "description": "Remove control firing `remove`."
+          "description": "× firing `remove`."
         },
         "pressable": {
           "description": "Makes it a press target that fires `press`."
         }
       },
-      "description": "Small token: a pill (filter, label, state) or a rect naming an entity; removable.",
+      "description": "Small token: a pill (filter, label, state) or an entity rect.",
       "example": {
         "label": "Drafts",
         "selected": true
@@ -1353,7 +1356,7 @@
           "description": "Next step, `page` only."
         },
         "actionLabel": {
-          "description": "Button label (`page` only); press fires `press`."
+          "description": "Button firing `press` (`page` only)."
         },
         "size": {
           "description": "page = a whole screen's empty state with disc, sentence and action; list = one muted line under a bare glyph, no description, no action."
@@ -1378,16 +1381,16 @@
           "description": "Caption above the bar."
         },
         "valueText": {
-          "description": "Text after the label (rate, time left)."
+          "description": "After the label (rate, time left)."
         },
         "detail": {
-          "description": "Muted line under the bar."
+          "description": "Muted line below."
         },
         "tone": {
           "description": "Fill colour tone."
         }
       },
-      "description": "Horizontal progress bar.",
+      "description": "Progress bar.",
       "example": {
         "value": 65,
         "max": 100,
@@ -1398,7 +1401,7 @@
     "Meter": {
       "props": {
         "segments": {
-          "description": "Slices in order."
+          "description": "In order."
         },
         "max": {
           "description": "Full amount."
@@ -1410,7 +1413,7 @@
           "description": "Formatted value after the track."
         }
       },
-      "description": "Usage bar: coloured segments against a maximum, label and value.",
+      "description": "Usage bar: coloured segments against a max.",
       "example": {
         "segments": [
           {
@@ -1477,7 +1480,7 @@
           "description": "Rows instead of a block."
         },
         "rowHeight": {
-          "description": "Row height in px."
+          "description": "In px."
         },
         "dot": {
           "description": "Dot per row."
@@ -1491,7 +1494,7 @@
     "VoiceWave": {
       "props": {
         "activity": {
-          "description": "What the voice is doing."
+          "description": "Voice state."
         },
         "variant": {
           "description": "bars = a level meter."
@@ -1540,7 +1543,7 @@
           "description": "Wave when talking."
         },
         "level": {
-          "description": "Level 0 to 1."
+          "description": "0 to 1."
         },
         "bands": {
           "description": "Band levels."
@@ -1555,10 +1558,10 @@
           "description": "Mic off; bind it."
         },
         "speaker": {
-          "description": "Shows the speaker toggle."
+          "description": "Speaker toggle."
         }
       },
-      "description": "Voice call screen: wave, avatar, name, status, call buttons.",
+      "description": "Voice call screen: wave, avatar, name, status, buttons.",
       "example": {
         "name": "Assistant",
         "seed": "agent-assistant",
@@ -1572,28 +1575,28 @@
     "Table": {
       "props": {
         "columns": {
-          "description": "Columns in order."
+          "description": "In order."
         },
         "rows": {
-          "description": "One object per row, keyed by column key."
+          "description": "One object per row, by column key."
         },
         "rowKey": {
-          "description": "Row field identifying a row."
+          "description": "Field identifying a row."
         },
         "sort": {
-          "description": "Active sort; bound = you order `rows`, else sorted locally."
+          "description": "Bound = you order `rows`; else sorted locally."
         },
         "selectable": {
-          "description": "Row selection (many = a checkbox column)."
+          "description": "`multiple` = a checkbox column."
         },
         "selected": {
-          "description": "Selected row keys; bind them."
+          "description": "Row keys; bind them."
         },
         "caption": {
           "description": "Under the table."
         },
         "emptyText": {
-          "description": "Shown when there are no rows."
+          "description": "Shown with no rows."
         },
         "striped": {
           "description": "Alternates row fills."
@@ -1608,7 +1611,7 @@
           "description": "Totals."
         }
       },
-      "description": "Typed columns: sorting, selection, widths, alignment, windowed; `slot` columns hold components.",
+      "description": "Typed columns, sortable, selectable, windowed; `slot` columns hold components.",
       "example": {
         "columns": [
           {
@@ -1667,10 +1670,10 @@
           "description": "Whole chart's height in px (title, legend, axes inside); the width is the box's."
         },
         "xLabel": {
-          "description": "Caption under the x axis."
+          "description": "Under the x axis."
         },
         "yLabel": {
-          "description": "Caption beside the y axis."
+          "description": "Beside the y axis."
         },
         "min": {
           "description": "Y-axis floor; defaults to 0."
@@ -1685,16 +1688,16 @@
           "description": "Axes with tick labels."
         },
         "showGrid": {
-          "description": "Grid lines at the ticks."
+          "description": "Tick grid lines."
         },
         "showLegend": {
           "description": "Legend (2+ series or slices)."
         },
         "showValues": {
-          "description": "Labels each mark with its value."
+          "description": "Value label on each mark."
         }
       },
-      "description": "Chart of any `kind`, with axes, legend and tooltip.",
+      "description": "Any `kind` of chart, with tooltip.",
       "example": {
         "kind": "bar",
         "categories": [
@@ -1715,7 +1718,7 @@
     "Sparkline": {
       "props": {
         "values": {
-          "description": "Points, oldest first."
+          "description": "Oldest first."
         },
         "tone": {
           "description": "Line colour tone."
@@ -1750,13 +1753,13 @@
           "description": "Change's tone."
         },
         "trend": {
-          "description": "Recent values (sparkline)."
+          "description": "Sparkline values."
         },
         "pressable": {
           "description": "Press target firing `press` (an `on.press` implies it)."
         }
       },
-      "description": "Dashboard tile: label, big value, toned change, trend sparkline.",
+      "description": "Dashboard tile: big value.",
       "example": {
         "label": "Active users",
         "value": "1,284",
@@ -1808,13 +1811,13 @@
           "description": "Submits the enclosing Form."
         },
         "hold": {
-          "description": "holdStart/holdEnd/holdCancel, no press."
+          "description": "hold* events, no press."
         },
         "holdingLabel": {
           "description": "Label while held."
         }
       },
-      "description": "Press target: label and optional icon (or one custom child).",
+      "description": "Press target: label + optional icon, or one custom child.",
       "example": {
         "label": "Submit",
         "variant": "default"
@@ -1826,7 +1829,7 @@
           "description": "Link text."
         },
         "href": {
-          "description": "URL to open; omit to handle `press` yourself."
+          "description": "Omit to handle `press` yourself."
         },
         "external": {
           "description": "Marks it as leaving the app."
@@ -1878,7 +1881,7 @@
           "description": "Also lists failed checks above the fields."
         }
       },
-      "description": "Collects fields by `name`; fires `submit` with their values once every check passes.",
+      "description": "Collects fields by `name`; fires `submit` with their values once all checks pass.",
       "example": {
         "name": "profile"
       }
@@ -1886,10 +1889,10 @@
     "FieldGroup": {
       "props": {
         "columns": {
-          "description": "Columns from md up (1-4)."
+          "description": "From md up (1-4)."
         }
       },
-      "description": "Fields side by side (Starts / Ends) that stack on phones.",
+      "description": "Side-by-side fields (Starts / Ends), stacked on phones.",
       "example": {
         "columns": 2
       }
@@ -1906,7 +1909,7 @@
           "description": "Dangerous submit."
         }
       },
-      "description": "End-aligned button row: children, Cancel, then THE submit (the one primary).",
+      "description": "End-aligned buttons: children, Cancel, then THE submit (the one primary).",
       "example": {
         "submit": "Save",
         "cancel": true
@@ -1921,10 +1924,10 @@
           "description": "Muted line under the label."
         },
         "stackBelow": {
-          "description": "Control under the label below this breakpoint."
+          "description": "Below this, control under the label."
         }
       },
-      "description": "Settings line: label (+ description), then the control (children); stacks on phones.",
+      "description": "Settings line: label (+ description), then the control (children).",
       "example": {
         "label": "Daily digest",
         "description": "One email a day at 8:00."
@@ -1939,7 +1942,7 @@
           "description": "Field's key in the submitted data."
         },
         "type": {
-          "description": "Keyboard and masking kind."
+          "description": "Keyboard and masking."
         },
         "placeholder": {
           "description": "Hint text while empty."
@@ -1948,7 +1951,7 @@
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = a Group row: label, value; `bare` = no chrome, the label unshown; `code` = `bare` in mono; `box` = the boxed field, the label unshown."
+          "description": "`row` = a Group row (label, value); `bare` = chromeless, label hidden; `code` = mono `bare`; `box` = boxed, label hidden."
         },
         "size": {
           "description": "sm = compact."
@@ -1983,19 +1986,19 @@
           "description": "Hint text while empty."
         },
         "rows": {
-          "description": "Visible lines (minimum when autosizing)."
+          "description": "Visible lines (autosize minimum)."
         },
         "autosize": {
-          "description": "Grows from `rows` up to `maxRows`."
+          "description": "Grows `rows` → `maxRows`."
         },
         "maxRows": {
-          "description": "Autosize stops growing here and scrolls."
+          "description": "Autosize cap; then scrolls."
         },
         "value": {
           "description": "Text; bind it to a data path."
         },
         "variant": {
-          "description": "`row` = chromeless in a Group, the label unshown; `code` = `row` in the mono code type."
+          "description": "`row` = chromeless in a Group, label hidden; `code` = `row` in mono."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2053,7 +2056,7 @@
           "description": "When the checks run."
         }
       },
-      "description": "Numeric field: steppers, min/max/step clamping, locale formatting.",
+      "description": "Number field: steppers, clamping, locale format.",
       "example": {
         "label": "Seats",
         "name": "seats",
@@ -2099,7 +2102,7 @@
           "description": "Field's key in the submitted data."
         },
         "options": {
-          "description": "Choices in order."
+          "description": "In order."
         },
         "value": {
           "description": "Chosen value; bind it."
@@ -2111,7 +2114,7 @@
           "description": "Validation rules."
         }
       },
-      "description": "Labelled radio group choosing one value.",
+      "description": "Radio group choosing one value.",
       "example": {
         "label": "Plan",
         "name": "plan",
@@ -2134,7 +2137,7 @@
           "description": "Field's key in the submitted data."
         },
         "options": {
-          "description": "Choices in order."
+          "description": "In order."
         },
         "type": {
           "description": "One pick or several."
@@ -2152,7 +2155,7 @@
           "description": "Validation rules."
         }
       },
-      "description": "Picture tiles picking one or many values (options' `image`, `description`).",
+      "description": "Picture tiles picking one or many (options' `image`, `description`).",
       "example": {
         "name": "design",
         "options": [
@@ -2221,10 +2224,10 @@
           "description": "Leading glyph."
         },
         "endLabel": {
-          "description": "Text after the track."
+          "description": "After the track."
         },
         "showValue": {
-          "description": "false hides the value."
+          "description": "Shows the value."
         }
       },
       "description": "Slider from min to max.",
@@ -2244,13 +2247,13 @@
           "description": "How many stars (1 to 100)."
         },
         "readOnly": {
-          "description": "Display only; no presses."
+          "description": "Display only."
         },
         "size": {
           "description": "Star size."
         }
       },
-      "description": "Row of stars scoring out of `max`.",
+      "description": "Stars scoring out of `max`.",
       "example": {
         "value": 3,
         "max": 5
@@ -2268,10 +2271,10 @@
           "description": "Field's key in the submitted data."
         },
         "options": {
-          "description": "Inline choices or a path the host refills on `search`; omit with `source`."
+          "description": "Inline, or a path the host refills on `search`; omit with `source`."
         },
         "source": {
-          "description": "Host list id for the options (`exp:statuses`)."
+          "description": "Host list id (`exp:statuses`)."
         },
         "placeholder": {
           "description": "Shown while nothing is chosen."
@@ -2283,19 +2286,19 @@
           "description": "Allows several values."
         },
         "searchable": {
-          "description": "A filter field; typing fires `search`."
+          "description": "Filter field; typing fires `search`."
         },
         "emptyText": {
           "description": "Shown on no match."
         },
         "searchPlaceholder": {
-          "description": "Hint in the filter field."
+          "description": "Filter field hint."
         },
         "triggerVariant": {
-          "description": "`row` = a Group row: label, value, chevron; `pill` = a small capsule."
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule."
         },
         "triggerIcon": {
-          "description": "`row`: the chosen option's `icon` before the value."
+          "description": "`row`: chosen option's `icon` before the value."
         },
         "align": {
           "description": "Popup alignment (`row`: `end`)."
@@ -2304,7 +2307,7 @@
           "description": "Px (`row`: 260)."
         },
         "popupMinWidth": {
-          "description": "Px: the popup fits its options, at least this wide (instead of `popupWidth`)."
+          "description": "Px: fits its options, at least this (instead of `popupWidth`)."
         },
         "loading": {
           "description": "Options still loading: skeleton rows in the popup."
@@ -2391,7 +2394,7 @@
           "description": "Entries; bind them."
         },
         "suggestions": {
-          "description": "Completions offered while typing."
+          "description": "Completions while typing."
         },
         "placeholder": {
           "description": "Hint text while empty."
@@ -2428,16 +2431,16 @@
           "description": "Listening for keys; bind it."
         },
         "pending": {
-          "description": "Held modifiers while recording."
+          "description": "Held modifiers."
         },
         "placeholder": {
           "description": "Shown while recording with no key held."
         },
         "error": {
-          "description": "Error under the field."
+          "description": "Under the field."
         }
       },
-      "description": "Shortcut field: press records (`start`), blur stops (`stop`); while recording each key fires `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; the host sets `value`.",
+      "description": "Shortcut field: press records (`start`), blur stops (`stop`); keys then fire `key` {type: down|up|modifiers|mouse, key, button, ctrl, alt, shift, meta}; host sets `value`.",
       "example": {
         "label": "Push to talk",
         "value": [
@@ -2452,7 +2455,7 @@
           "description": "Picked icon name."
         },
         "icons": {
-          "description": "Offered icons; default the board set."
+          "description": "Offered; default the board set."
         },
         "color": {
           "description": "Hex tint of the pick."
@@ -2464,7 +2467,7 @@
           "description": "Grid shows; bind it."
         }
       },
-      "description": "Icon field: a square showing the pick opens a grid of icons.",
+      "description": "Icon field: a square with the pick opens an icon grid.",
       "example": {
         "value": "rocket",
         "color": "#3b82f6",
@@ -2488,10 +2491,10 @@
           "description": "Grid shows; bind it."
         },
         "inline": {
-          "description": "The grid alone, no trigger."
+          "description": "Grid only, no trigger."
         }
       },
-      "description": "Colour field: a swatch (or the child) opens the palette grid.",
+      "description": "Colour field: a swatch (or the child) opens the palette.",
       "example": {
         "value": "#3b82f6",
         "colors": [
@@ -2551,10 +2554,10 @@
           "description": "Field's key in the submitted data (`{start, end}`)."
         },
         "start": {
-          "description": "First day as yyyy-mm-dd, or empty."
+          "description": "First day, or empty."
         },
         "end": {
-          "description": "Last day as yyyy-mm-dd, or empty."
+          "description": "Last day, or empty."
         },
         "min": {
           "description": "Earliest allowed day."
@@ -2569,7 +2572,7 @@
           "description": "0 (Sunday) to 6; else the locale's."
         }
       },
-      "description": "Two-date range field with one calendar (ISO dates).",
+      "description": "Date range field, one calendar (ISO dates).",
       "example": {
         "label": "Sprint",
         "name": "sprint",
@@ -2620,25 +2623,25 @@
           "description": "Field's key in the submitted data."
         },
         "accept": {
-          "description": "Accepted types, comma-separated (`image/*,.pdf`)."
+          "description": "Comma-separated types (`image/*,.pdf`)."
         },
         "multiple": {
           "description": "Allows more than one file."
         },
         "maxSize": {
-          "description": "Max bytes per file; larger are refused."
+          "description": "Bytes per file; larger refused."
         },
         "files": {
-          "description": "Attached files, each removable."
+          "description": "Attached, each removable."
         },
         "hint": {
-          "description": "Text under the drop zone's title."
+          "description": "Under the drop zone's title."
         },
         "disabled": {
           "description": "Shows it inert."
         }
       },
-      "description": "Drop zone + browse button; files go to the host via `upload`, listed back in `files`.",
+      "description": "Drop zone + browse; files go to the host via `upload`, listed back in `files`.",
       "example": {
         "label": "Attachments",
         "name": "attachments",
@@ -2675,7 +2678,7 @@
           "description": "Draft text; bind it."
         },
         "submitLabel": {
-          "description": "Submit button's accessibility label."
+          "description": "Submit button's a11y label."
         },
         "attachments": {
           "description": "Attach control firing `attach` (a pasted image too, {files})."
@@ -2683,11 +2686,14 @@
         "busy": {
           "description": "Turns submit into a stop while a reply streams."
         },
+        "layout": {
+          "description": "stacked: field over the controls row; flat: one row, leading left of the field, trailing + send right, growing upward."
+        },
         "menuKeys": {
-          "description": "ArrowUp, ArrowDown, Enter, Tab, Escape fire `key` {key} instead (a host's menu)."
+          "description": "ArrowUp/Down, Enter, Tab, Escape fire `key` {key} instead (host menu)."
         }
       },
-      "description": "Chat input: growing text field, submit button, optional attachments; slots sit in its controls row.",
+      "description": "Chat input: growing field + submit; leading/trailing join its controls row, above sits over the field.",
       "example": {
         "placeholder": "Ask anything"
       }
@@ -2725,7 +2731,7 @@
           "description": "Row height class."
         },
         "surface": {
-          "description": "Flat, or a padded card (own fill and border)."
+          "description": "`card` = padded, own fill and border."
         },
         "pressable": {
           "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
@@ -2734,13 +2740,13 @@
           "description": "URL a press opens; implies `pressable`."
         },
         "depth": {
-          "description": "Depth under a tree Section (0 = root)."
+          "description": "Under a tree Section (0 = root)."
         },
         "open": {
           "description": "With children: whether they show, indented; bind it."
         }
       },
-      "description": "THE list row: lead glyph or slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nestable; with children it folds.",
+      "description": "THE list row: lead glyph/slot, identifier, title, subtitle, trailing meta/value/slot, chevron; nests; folds with children.",
       "example": {
         "title": "r/selfhosted",
         "meta": "312 posts",
@@ -2865,13 +2871,13 @@
     "Motion": {
       "props": {
         "layers": {
-          "description": "Top layer first, in composition px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the shapes before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
+          "description": "Top layer first, composition px, origin top-left. Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints the earlier shapes of its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* (light/dark), #hex or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on the first pose. No expressions."
         },
         "size": {
           "description": "Composition [width, height] px (with layers)."
         },
         "duration": {
-          "description": "Length in ms (with layers)."
+          "description": "Ms (with layers)."
         },
         "fps": {
           "description": "Frames per second."
@@ -2892,10 +2898,10 @@
           "description": "Plays when visible; false = poster."
         },
         "loop": {
-          "description": "false = play once and hold."
+          "description": "false = once, then hold."
         },
         "plays": {
-          "description": "Plays this many times (overrides loop)."
+          "description": "Play count (overrides loop)."
         },
         "direction": {
           "description": "Forward, reverse, or back and forth."
@@ -2916,7 +2922,7 @@
           "description": "Pauses while false."
         },
         "poster": {
-          "description": "Still frame (ms) for reduced motion and pre-play."
+          "description": "Still frame (ms): reduced motion, pre-play."
         },
         "fit": {
           "description": "How it fills the box."
@@ -2993,7 +2999,7 @@
           "description": "Drawing units [w, h], origin top-left."
         },
         "shapes": {
-          "description": "Motion's shapes without keys, + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
+          "description": "Motion's shapes (no keys) + upright text on top {text, position, size, weight, align start|center|end, baseline top|middle|alphabetic, font sans|mono, color}."
         },
         "fit": {
           "description": "How it fills the box."
@@ -3133,7 +3139,7 @@
           "description": "{root: a nested component, data?: object}."
         }
       },
-      "description": "Nested surface drawn in place, sandboxed (own data and ids); its `event` actions fire `action` {name, context}; a bad one shows an error box.",
+      "description": "Sandboxed nested surface (own data and ids); its `event` actions fire `action` {name, context}; bad = an error box.",
       "example": {
         "surface": {
           "root": {
@@ -3178,7 +3184,7 @@
           "description": "Frame styles."
         }
       },
-      "description": "Month or week of records as coloured bars in lanes; phones: dots and the day's agenda.",
+      "description": "Records as coloured bars in lanes; phones: dots + the day's agenda.",
       "example": {
         "view": "month"
       }
@@ -3195,13 +3201,13 @@
           "description": "Row labels' heading."
         },
         "showCount": {
-          "description": "Each row's count under its label."
+          "description": "Row count under each label."
         },
         "style": {
           "description": "Frame styles."
         }
       },
-      "description": "Records over time: coloured bars across week, month or quarter columns.",
+      "description": "Records over time: coloured bars in week, month or quarter columns.",
       "example": {
         "rowTitle": "Workstream"
       }
@@ -3224,7 +3230,7 @@
           "description": "Outline Cancel firing `cancel`."
         },
         "path": {
-          "description": "Draft data path (default /recordForm/<id>); seed it to edit."
+          "description": "Draft path (default /recordForm/<id>); seed it to edit."
         },
         "fields": {
           "description": "Filled by the host."
@@ -3242,7 +3248,7 @@
           "description": "Filled by the host."
         }
       },
-      "description": "Form for one record kind: a field per schema field, with checks; submit saves.",
+      "description": "One record kind's form: a field per schema field, with checks; submit saves.",
       "example": {
         "kind": "deal",
         "fields": [
@@ -3319,7 +3325,7 @@
           "description": "Package's record kind."
         },
         "query": {
-          "description": "Query (`sort=name&order=asc`, `query=<name>`); default newest first."
+          "description": "`sort=name&order=asc`, `query=<name>`; default newest first."
         },
         "columns": {
           "description": "Fields/columns."
@@ -3521,6 +3527,9 @@
         "icon": {
           "description": "Icon shown before the label."
         },
+        "iconColor": {
+          "description": "Tints the icon (Select popup + `triggerIcon`); bind the host's resolved colour."
+        },
         "disabled": {
           "description": "Shows the option but refuses it."
         },
@@ -3584,8 +3593,20 @@
         "icon": {
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "description": "Key-cap hint after the text (`⌘K`)."
+        },
+        "identifier": {
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
         },
         "checked": {
           "description": "Checkbox entry's state; bind it."

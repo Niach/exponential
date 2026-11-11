@@ -1037,20 +1037,37 @@ impl<'a> GpuiMeasure<'a> {
             Some(x) if x <= 0.0 => 120.0,
             Some(x) => x,
         };
+        // #EXP-1762: `flat` = one row; the field wraps at the width the send
+        // disc (and the attach control) leave (the core already took the
+        // slots' width off `wrap`), the row is the taller of field and disc.
+        let flat = str_prop(props, "layout") == "flat";
+        let fw = if flat {
+            let att = if props.get("attachments").and_then(Value::as_bool) == Some(true) { eui_core::measure::COMPOSER_ATTACH_W + gap } else { 0.0 };
+            (w - send - gap - att).max(1.0)
+        } else {
+            w.max(1.0)
+        };
         let th = if value.is_empty() {
             let text = str_prop(props, "placeholder").to_string();
             // An empty field (no placeholder either) is one line tall.
             let text = if text.is_empty() { " ".to_string() } else { text };
-            self.para(&text, &field_ts, Some(w.max(1.0)), None).1
+            self.para(&text, &field_ts, Some(fw), None).1
         } else {
             // The typed text: the field's own rows (a long URL or hash
             // wraps by character, as the Textarea draws it).
             let font = self.fonts.for_style(&field_ts);
             let mut s = self.shaper();
-            let rows = s.field_lines(&value, &font, fs, w.max(1.0)).len();
+            let rows = s.field_lines(&value, &font, fs, fw).len();
             self.shaped += s.calls;
             rows as f32 * lh
         };
+        if flat {
+            // The field's text starts its recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            let pad = px_prop(&field, "paddingTop").unwrap_or(0.0) + px_prop(&field, "paddingBottom").unwrap_or(0.0);
+            return (w, (th + pad).clamp(min_h, 200.0).max(send));
+        }
         (w, th.clamp(min_h, 200.0) + gap + send)
     }
 

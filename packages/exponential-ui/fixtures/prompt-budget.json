@@ -3,31 +3,31 @@
   "budgetTokens": 10000,
   "full": {
     "components": 104,
-    "chars": 39559,
-    "tokens": 9890
+    "chars": 37933,
+    "tokens": 9484
   },
   "lite": {
     "components": 71,
-    "chars": 28587,
-    "tokens": 7147
+    "chars": 27322,
+    "tokens": 6831
   },
   "terse": {
     "components": 104,
-    "chars": 27330,
-    "tokens": 6833
+    "chars": 26625,
+    "tokens": 6657
   },
   "index": {
     "components": 104,
-    "chars": 12017,
-    "tokens": 3005
+    "chars": 11202,
+    "tokens": 2801
   },
   "rules": {
-    "chars": 2007,
-    "tokens": 502
+    "chars": 1915,
+    "tokens": 479
   },
   "perComponent": {
-    "mean": 353,
-    "max": 2321,
-    "meanTokens": 89
+    "mean": 340,
+    "max": 2278,
+    "meanTokens": 85
   }
 }
