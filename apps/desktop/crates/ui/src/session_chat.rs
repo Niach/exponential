@@ -2382,6 +2382,10 @@ pub(crate) type OnTabPick = Rc<dyn Fn(SessionScreenTab, &mut Window, &mut App)>;
 /// A tree row's pick (an issue or a session of the Issues / Sessions tab).
 pub(crate) type OnTreePick = Rc<dyn Fn(&TreeItem, &mut Window, &mut App)>;
 
+/// #EXP-1785: how long a chip's pick waits for the opened session's feed
+/// to hold its card before it rings alone.
+const WAITING_REVEAL_WAIT: Duration = Duration::from_secs(5);
+
 /// The Segmented's height (the app editor's).
 const SCREEN_TABS_H: f32 = 32.;
 
@@ -3168,6 +3172,10 @@ pub(crate) struct SessionChatScreenView {
     /// #EXP-1562 (`?card=`): a waiting card to scroll to (and ring) in the
     /// root's session view.
     reveal: Option<String>,
+    /// #EXP-1785: a waiting chip's question UNDER the root: the session it
+    /// opened in place and the card to scroll to (and ring) once that
+    /// session's feed holds it; given up after [`WAITING_REVEAL_WAIT`].
+    waiting_reveal: Option<(String, String, Instant)>,
     /// #EXP-1662: the opened plan's body state and the plan it last painted
     /// (a new plan opens from its top).
     plan_state: crate::plan_page::PlanPageState,
@@ -3258,6 +3266,7 @@ impl SessionChatScreenView {
             closed_queue_reads: HashMap::new(),
             probe_timer: None,
             reveal: None,
+            waiting_reveal: None,
             plan_state: Default::default(),
             plan_painted: None,
             _missing_tick: missing_tick,
@@ -3527,6 +3536,51 @@ impl SessionChatScreenView {
         cx.notify();
     }
 
+    /// #EXP-1785 (waiting-cards.json `waitingTarget`): a header chip's pick.
+    /// A plan opens THE plan page as the opened item (any session's plan);
+    /// the root's question scrolls the Chat tab to its card (the IDE is wide:
+    /// the chat is always on show); a question under the root opens THAT
+    /// session in place, scrolled to its card.
+    fn pick_waiting(&mut self, card: &domain::waiting_cards::WaitingCardInput, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use domain::waiting_cards::{waiting_target, WaitingOpen};
+        let target = waiting_target(card.kind, &card.session_id, &self.root_id);
+        match target.open {
+            WaitingOpen::Plan => self.open_item(ChatOpened::Plan(card.id.clone()), window, cx),
+            WaitingOpen::Card => self.select_waiting(&card.id, window, cx),
+            WaitingOpen::Session => {
+                self.waiting_reveal = Some((target.session_id.clone(), card.id.clone(), Instant::now()));
+                self.open_session_here(target.session_id, window, cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// #EXP-1785: the pending reveal in the session opened in place, once
+    /// its feed holds the card (the ring alone once the wait ran out).
+    fn take_waiting_reveal(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some((session_id, card_id, at)) = self.waiting_reveal.clone() else { return };
+        let Some((focus_id, view)) = self.focus.clone() else {
+            if at.elapsed() > WAITING_REVEAL_WAIT {
+                self.waiting_reveal = None;
+            }
+            return;
+        };
+        if focus_id != session_id {
+            if at.elapsed() > WAITING_REVEAL_WAIT {
+                self.waiting_reveal = None;
+            }
+            return;
+        }
+        let inner = view.read(cx).inner().clone();
+        let found = inner.update(cx, |inner, cx| inner.try_reveal_card(&card_id, cx));
+        if found {
+            self.waiting_reveal = None;
+        } else if at.elapsed() > WAITING_REVEAL_WAIT {
+            self.waiting_reveal = None;
+            crate::waiting_cards::highlight(&card_id, cx);
+        }
+    }
+
     /// #EXP-1562 (`?card=`): the pending reveal, scrolled to and ringed in
     /// the root's session view.
     fn take_reveal(&mut self, cx: &mut gpui::Context<Self>) {
@@ -3589,6 +3643,13 @@ impl SessionChatScreenView {
             });
             (on_press, open)
         });
+        // #EXP-1785 (waiting-cards.json): the tree's WAITING plans and
+        // questions, at the START of the trailing slot (after the tabs).
+        let this = cx.entity().downgrade();
+        let on_waiting: crate::waiting_cards::OnWaitingPick = Rc::new(move |card, window, cx| {
+            let _ = this.update(cx, |this, cx| this.pick_waiting(card, window, cx));
+        });
+        let waiting = crate::waiting_cards::header_chips(&crate::waiting_cards::chat_waiting_cards(&model.view.rows), on_waiting, cx);
         let (avatar, title, trailing, menu, agent) = match conversation_agent(model) {
             // An agent's (the Assistant's) conversation: its disc, its NAME,
             // the telephone, THE agent menu.
@@ -3611,6 +3672,7 @@ impl SessionChatScreenView {
         let subtitle = screen_subtitle(Some(&model.root), &model.tree, agent.as_ref(), cx);
         let tone = domain::session_screen::session_screen_tone(&tree_status_word(Some(&model.root), &model.tree), false);
         let subtitle_color = Some(tone_color(tone, cx));
+        let trailing = waiting.into_iter().chain(trailing).collect();
         screen_header(ScreenHeader { avatar, title, subtitle, subtitle_color, trailing, gear, menu, back, tabs }, cx)
     }
 
@@ -4186,6 +4248,7 @@ impl Render for SessionChatScreenView {
         // composer posting to the root. #EXP-1736: its origin = the sender
         // of the prompt that started it.
         self.take_reveal(cx);
+        self.take_waiting_reveal(cx);
         let inner = self.root_view.read(cx).inner().clone();
         let origin = model.view.origin.clone();
         if inner.read(cx).transcript_origin_xref() != origin.as_ref() {
