@@ -477,7 +477,8 @@ mod tests {
     #[test]
     fn colon_lists_emoji_and_a_closed_shortcode_commits() {
         let menu = mention_menu("nice :tad", &[], &[]).expect(":");
-        assert_eq!(menu["rows"][0]["description"], "🎉 :tada:");
+        assert_eq!(menu["rows"][0]["description"], ":tada:");
+        assert_eq!(menu["rows"][0]["emoji"], "🎉");
         assert_eq!(menu["rows"][0]["insert"], "nice 🎉");
         assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
         assert_eq!(commit_emoji("nice :tad"), None);

@@ -87,6 +87,7 @@ fn status_glyph(status: domain::IssueStatus) -> (&'static str, &'static str) {
         S::Done => ("status-done", "info"),
         S::Cancelled => ("status-cancelled", "neutral"),
         S::Duplicate => ("status-duplicate", "neutral"),
+        S::Unknown => ("status-backlog", "neutral"),
     }
 }
 
