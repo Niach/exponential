@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-11-smooth-on-a-busy-team",
+    date: "2026-11-11",
+    title: "The desktop app stays smooth on a busy team",
+    summary: "A team with many running sessions no longer stalls the desktop app, and the edited-files row stays in its column.",
+    body: r##"- **No more stalls**: the desktop app reads synced data off the main thread and refreshes busy lists in small steps, so a team with many running sessions no longer freezes the window.
+- **Faster session titles**: long session lists work out their titles in one pass.
+- **The edited-files row stays put**: a chat's edited-files row keeps its counts in its own column on every platform, however long the file names.
+- **Exponential Desktop 0.2.18**: carries the same shared text measuring."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_251: ChangelogEntry = ChangelogEntry {
     id: "2026-11-11-busy-sessions-stay-online",
     date: "2026-11-11",
     title: "Busy sessions no longer read offline by mistake",
