@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-11-accounts-and-slash-menu`,
+    date: `2026-11-11`,
+    title: `Accounts, the / menu and long first turns read right`,
+    summary: `Account usage and the / menu work in every chat again, the desktop app no longer pauses when an old session reopens, and long first turns show the right context size.`,
+    body: `- **Account usage loads**: the usage popover shows the session's account and numbers instead of staying on "Checking…", and says so when no login or usage is reported.
+- **The / menu is back**: chats started without a coding agent list their slash commands again on every platform.
+- **No pause on reopening**: the desktop app reads a reopened session off the main thread, so a busy sync no longer stalls the window.
+- **1M context from the first turn**: Claude 5 sessions start out with a one-million-token context window instead of 200k.`,
+  },
+  {
     id: `2026-11-11-smooth-on-a-busy-team`,
     date: `2026-11-11`,
     title: `The desktop app stays smooth on a busy team`,
