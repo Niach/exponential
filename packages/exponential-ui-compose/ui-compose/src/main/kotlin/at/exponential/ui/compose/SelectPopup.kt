@@ -90,7 +90,7 @@ private const val POPUP_MARGIN = 8f
  * a plain option's trailing reads on inside [text]). #EXP-1629: a
  * [description] = the muted second line under its label.
  */
-internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null)
+internal data class SelectOption(val value: JsonValue, val text: String, val icon: String?, val disabled: Boolean, val mono: Boolean = false, val trailing: String? = null, val description: String? = null, val iconColor: String? = null, val hint: String? = null)
 
 /**
  * A Select's OBJECT options whose label contains [query] (lowercase; empty
@@ -106,7 +106,7 @@ internal fun selectOptions(owner: Props, query: String): List<SelectOption> = ow
     val trailing = o["trailing"]?.displayText.orEmpty()
     val mono = o["mono"]?.bool == true
     val text = if (trailing.isEmpty() || mono) label else "$label $trailing"
-    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() })
+    SelectOption(v, text, o["icon"]?.string, o["disabled"]?.bool == true, mono, trailing.takeIf { mono && it.isNotEmpty() }, o["description"]?.displayText?.takeIf { it.isNotEmpty() }, o["iconColor"]?.string, o["hint"]?.displayText?.takeIf { it.isNotEmpty() })
 }
 
 /** #EXP-1629: where the cursor starts: the first enabled option (a fresh pick, the IDE's picker); with [chosen] (a `multiple` Select, the IDE's multi picker) the first enabled chosen one; -1 = none. */
@@ -493,7 +493,7 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // #EXP-1629: the `itemIcon` recipe's size; the `itemDescription` under the label.
-        o.icon?.let { IconView(it, cx.part("Select", "itemIcon", states).width ?: 16f, ink, cx.model, rtl = cx.rtl) }
+        o.icon?.let { IconView(it, cx.part("Select", "itemIcon", states).width ?: 16f, o.iconColor?.let(cx::propColor) ?: ink, cx.model, rtl = cx.rtl) }
         if (o.description != null) {
             val dp = cx.part("Select", "itemDescription", states)
             val dts = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = dp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = dp.style.lineHeight ?: cx.textStyle.lineHeight), color = dp.color ?: cx.themeColor("mutedForeground") ?: ink)
@@ -506,6 +506,11 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
             // The trailing: its own muted run in the surface's sans type.
             BasicText(o.text, Modifier.weight(1f, fill = false), style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText(o.trailing, style = cx.composeTextStyle(ts = base.copy(fontSize = sans.fontSize, lineHeight = sans.lineHeight, fontFamily = null), color = cx.themeColor("mutedForeground") ?: ink), maxLines = 1, softWrap = false)
+        }
+        // #EXP-1629: web's picker hint: a small muted run at the row's end.
+        o.hint?.let { hint ->
+            val hp = cx.part("Select", "itemHint", states)
+            BasicText(hint, style = cx.composeTextStyle(ts = cx.textStyle.copy(fontSize = hp.style.fontSize ?: cx.textStyle.fontSize, lineHeight = hp.style.lineHeight ?: cx.textStyle.lineHeight), color = hp.color ?: cx.themeColor("mutedForeground") ?: ink), maxLines = 1)
         }
         // #EXP-1778: a `button` menu row holds the check on the chosen row only.
         if (chosen || !checkOnChosenOnly) Box(Modifier.size(checkSize.dp)) {

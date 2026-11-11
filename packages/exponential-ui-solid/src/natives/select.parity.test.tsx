@@ -144,6 +144,28 @@ describe(`select: open popup`, () => {
       expect(await glyph(render, `none`)).toBeNull()
     }
   })
+  it(`an option's hint is a muted run at the row's end, before the check (#EXP-1629)`, async () => {
+    const hints = async (render: typeof renderReact | typeof renderSolidSurface, wrap: (f: () => Promise<void>) => Promise<void>) => {
+      const r = await render({ tree: sel({ triggerVariant: `button`, value: `tshirt`, options: [{ label: `T-shirt`, value: `tshirt`, hint: `XS, S, M` }, { label: `Not in use`, value: `none` }] }), theme: `exponential`, mode: `dark` })
+      try {
+        await wrap(async () => {
+          openIt(r.root)
+          await settle()
+        })
+        const content = r.root.ownerDocument.querySelector<HTMLElement>(`[data-xui-overlay="Select"]`)!
+        return Array.from(content.querySelectorAll(`.xui-Select-item`)).map((el) => {
+          const hint = el.querySelector(`.xui-Select-itemHint`)
+          return [hint?.textContent ?? null, hint ? hint.nextElementSibling?.classList.contains(`xui-Select-check`) ?? false : null]
+        })
+      } finally {
+        r.cleanup()
+      }
+    }
+    const react = await hints(renderReact, (f) => act(f))
+    const solid = await hints(renderSolidSurface, (f) => f())
+    expect(solid).toEqual(react)
+    expect(react).toEqual([[`XS, S, M`, true], [null, null]])
+  })
   it(`multiple: chosen = selected + check, the cursor (the first CHOSEN option, the IDE's multi picker) = hover`, async () => {
     const { react, solid } = await both({ tree: sel({ multiple: true, value: [`sprint`] }) })
     expect(solid).toEqual(react)
