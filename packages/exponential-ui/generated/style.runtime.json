@@ -373,6 +373,11 @@
         "italic"
       ]
     },
+    "fontVariantNumeric": {
+      "enum": [
+        "tabular-nums"
+      ]
+    },
     "fontFamily": {
       "type": "token",
       "group": "type.family"

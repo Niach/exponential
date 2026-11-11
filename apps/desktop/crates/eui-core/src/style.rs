@@ -128,6 +128,9 @@ pub struct Visual {
     /// `normal | italic`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_style: Option<String>,
+    /// `tabular-nums` (OpenType `tnum`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_variant_numeric: Option<String>,
     /// The recipe's padding on a MEASURED leaf (a Button's label inset): the
     /// painter draws it, the measurer includes it; taffy never sees it.
     /// The averages of the two sides; `padding` has each side.
@@ -697,6 +700,7 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         text_decoration: str_of("textDecoration"),
         text_transform: str_of("textTransform"),
         font_style: str_of("fontStyle"),
+        font_variant_numeric: str_of("fontVariantNumeric"),
         padding_horizontal: pads.map(|p| avg(p[1], p[3])),
         padding_vertical: pads.map(|p| avg(p[0], p[2])),
         padding: pads,

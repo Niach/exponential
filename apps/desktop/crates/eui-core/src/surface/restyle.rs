@@ -341,6 +341,7 @@ impl Surface {
             font_style: visual.font_style.clone().or_else(|| pt.and_then(|t| t.font_style.clone())).filter(|s| s != "normal"),
             text_transform: visual.text_transform.clone().or_else(|| pt.and_then(|t| t.text_transform.clone())).filter(|t| t != "none"),
             letter_spacing: visual.letter_spacing.or(pt.and_then(|t| t.letter_spacing)).filter(|l| *l != 0.0),
+            font_variant_numeric: visual.font_variant_numeric.clone().or_else(|| pt.and_then(|t| t.font_variant_numeric.clone())),
         };
         let pads = visual.padding.unwrap_or([0.0; 4]);
         let control = ControlBox {

@@ -60,7 +60,7 @@ describe(`Box style whitelist`, () => {
 
 describe(`round 1: the whitelist additions`, () => {
   test(`the new keys are in, the per-side widths move layout`, () => {
-    for (const key of [`overflowX`, `overflowY`, `insetBlockStart`, `insetBlockEnd`, `backgroundGradient`, `borderTopWidth`, `borderStyle`, `borderTopLeftRadius`, `letterSpacing`, `textDecoration`, `textTransform`, `fontStyle`, `transition`, `transitionEasing`, `transform`, `visibility`, `pointerEvents`, `userSelect`, `cursor`])
+    for (const key of [`overflowX`, `overflowY`, `insetBlockStart`, `insetBlockEnd`, `backgroundGradient`, `borderTopWidth`, `borderStyle`, `borderTopLeftRadius`, `letterSpacing`, `textDecoration`, `textTransform`, `fontStyle`, `fontVariantNumeric`, `transition`, `transitionEasing`, `transform`, `visibility`, `pointerEvents`, `userSelect`, `cursor`])
       expect(STYLE_KEYS).toContain(key)
     expect(STYLE_LAYOUT_EFFECT_KEYS).toEqual([`borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`])
   })
@@ -68,6 +68,8 @@ describe(`round 1: the whitelist additions`, () => {
   test(`values: enums, token-only motion, paint-only transforms, gradients`, () => {
     expect(validateStyle({ fontWeight: 300, textAlign: `justify`, textDecoration: `line-through`, borderStyle: `dashed`, fontStyle: `italic`, cursor: `pointer`, pointerEvents: `none`, visibility: `hidden`, letterSpacing: -0.5, borderTopLeftRadius: `$radius.lg` })).toEqual([])
     expect(validateStyle({ transition: `$motion.fast`, transitionEasing: `$ease.standard` })).toEqual([])
+    expect(validateStyle({ fontVariantNumeric: `tabular-nums` })).toEqual([])
+    expect(validateStyle({ fontVariantNumeric: `oldstyle-nums` })).toHaveLength(1)
     expect(validateStyle({ transition: 200 })[0].message).toBe(`transition: expected $motion.<name>`)
     expect(validateStyle({ transitionEasing: `$motion.fast` })[0].message).toBe(`transitionEasing: expected $ease.<name>`)
     expect(validateStyle({ transform: `translate(4px, -2px) scale(1.05) rotate(90deg)` })).toEqual([])

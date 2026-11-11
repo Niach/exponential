@@ -6964,6 +6964,11 @@ public struct FfiTextStyle: Equatable, Hashable {
     public var letterSpacing: Float?
     public var textTransform: String?
     public var fontStyle: String?
+    /**
+     * `fontVariantNumeric`: `tabular-nums` = shape with the OpenType `tnum`
+     * feature (measure AND paint); null = the font's own figures.
+     */
+    public var fontVariantNumeric: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -6972,7 +6977,11 @@ public struct FfiTextStyle: Equatable, Hashable {
          * Round 2 (VAPP-100): extra px between glyphs (font scale applied),
          * `uppercase | lowercase | capitalize`, `italic`; null = none. They
          * change the shaped width: measure and paint with them.
-         */letterSpacing: Float? = nil, textTransform: String? = nil, fontStyle: String? = nil) {
+         */letterSpacing: Float? = nil, textTransform: String? = nil, fontStyle: String? = nil, 
+        /**
+         * `fontVariantNumeric`: `tabular-nums` = shape with the OpenType `tnum`
+         * feature (measure AND paint); null = the font's own figures.
+         */fontVariantNumeric: String? = nil) {
         self.fontSize = fontSize
         self.fontWeight = fontWeight
         self.lineHeight = lineHeight
@@ -6980,6 +6989,7 @@ public struct FfiTextStyle: Equatable, Hashable {
         self.letterSpacing = letterSpacing
         self.textTransform = textTransform
         self.fontStyle = fontStyle
+        self.fontVariantNumeric = fontVariantNumeric
     }
 
     
@@ -7004,7 +7014,8 @@ public struct FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer {
                 fontFamily: FfiConverterOptionString.read(from: &buf), 
                 letterSpacing: FfiConverterOptionFloat.read(from: &buf), 
                 textTransform: FfiConverterOptionString.read(from: &buf), 
-                fontStyle: FfiConverterOptionString.read(from: &buf)
+                fontStyle: FfiConverterOptionString.read(from: &buf), 
+                fontVariantNumeric: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -7016,6 +7027,7 @@ public struct FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer {
         FfiConverterOptionFloat.write(value.letterSpacing, into: &buf)
         FfiConverterOptionString.write(value.textTransform, into: &buf)
         FfiConverterOptionString.write(value.fontStyle, into: &buf)
+        FfiConverterOptionString.write(value.fontVariantNumeric, into: &buf)
     }
 }
 

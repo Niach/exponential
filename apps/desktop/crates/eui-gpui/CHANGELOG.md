@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Style key `fontVariantNumeric: tabular-nums`: `Fonts::for_style` adds `tnum` (`with_tabular_nums`), the font both the measurer and the painter shape with. The Carousel counter and Progress/Meter `value` keep their own part rule (`tabular_text`), the same feature.
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
 - Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer (the IDE's `web_icon_xs`: 24 round, a 10.5 glyph from the `icon` part); the muted ink comes from the root recipe's colour.

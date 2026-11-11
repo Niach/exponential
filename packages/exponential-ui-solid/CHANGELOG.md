@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet, React's.
 - Select `button` popup keeps its starting cursor (#EXP-1629), React's.
 - Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only, as React; parity case added (a muted ghost icon-xs).

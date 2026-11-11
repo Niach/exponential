@@ -96,6 +96,25 @@ fn text_clusters_replay() {
     }
 }
 
+/// `fontVariantNumeric: tabular-nums` (`with_tabular_nums`, the font
+/// `Fonts::for_style` hands the measurer and the painter): Inter's `tnum`
+/// sets `1` as wide as `0`, so `11m` and `00m` line up; its default
+/// figures do not.
+#[test]
+fn tabular_nums_set_every_digit_on_one_advance() {
+    let (_, ts) = text_system();
+    let window_ts = WindowTextSystem::new(ts.clone());
+    let width = |font: &Font, text: &str| {
+        let run = TextRun { len: text.len(), font: font.clone(), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+        f32::from(window_ts.shape_line(SharedString::from(text.to_string()), px(14.0), &[run], None).width)
+    };
+    let plain = sans("Inter", None);
+    let tabular = eui_gpui::measure::with_tabular_nums(plain.clone());
+    assert!((width(&plain, "11m") - width(&plain, "00m")).abs() > 0.5, "Inter's default `1` is narrower");
+    assert!((width(&tabular, "11m") - width(&tabular, "00m")).abs() < 0.01, "tnum: one advance per digit");
+    assert!((width(&tabular, "10m") - width(&tabular, "38m")).abs() < 0.01);
+}
+
 /// A run whose face covers a cluster stays whole (no cut, no font change).
 #[test]
 fn covered_text_keeps_its_runs() {

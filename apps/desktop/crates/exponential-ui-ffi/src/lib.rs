@@ -259,6 +259,10 @@ pub struct FfiTextStyle {
     pub text_transform: Option<String>,
     #[uniffi(default = None)]
     pub font_style: Option<String>,
+    /// `fontVariantNumeric`: `tabular-nums` = shape with the OpenType `tnum`
+    /// feature (measure AND paint); null = the font's own figures.
+    #[uniffi(default = None)]
+    pub font_variant_numeric: Option<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -536,6 +540,7 @@ fn text_style(t: &eui_core::measure::TextStyle) -> FfiTextStyle {
         letter_spacing: t.letter_spacing,
         text_transform: t.text_transform.clone(),
         font_style: t.font_style.clone(),
+        font_variant_numeric: t.font_variant_numeric.clone(),
     }
 }
 

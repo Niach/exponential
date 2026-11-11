@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Style key `fontVariantNumeric` (`tabular-nums`): generated catalog; `Visual.font_variant_numeric`, `TextStyle.font_variant_numeric` (inherited like CSS, `TextStyle::tabular_nums()`) on every leaf request, so a measurer shapes with `tnum`.
 - Select `button` popup matches web's picker (#EXP-1629): the layout constants (`SELECT_BUTTON_POPUP_OFFSET` 4, `SELECT_BUTTON_ITEM_GAP` 0) and regenerated themes.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): generated catalog + themes; the recipe index lists Button's `tone`; theme tests pin the 24 px round icon-xs and the muted colour under the ghost hover fill; `catalog_fixtures` counts 743 cases.
 - Select option `hint` (#EXP-1629): the row of parts gains `itemHint` before the check (`tests/select_option_hint.rs`).
