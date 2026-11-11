@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `hint` (#EXP-1629): through the React renderer.
 - Select `row` disabled (#EXP-1629): through the React renderer.
 - Select option `iconColor` (#EXP-1629): through the React renderer.
 - Menu item `iconColor` (#EXP-1629): through the React renderer.

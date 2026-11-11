@@ -17823,6 +17823,10 @@
           "type": "string",
           "description": "Text after the label (Select popup)."
         },
+        "hint": {
+          "type": "string",
+          "description": "Small muted text at the row's end (Select popup)."
+        },
         "mono": {
           "type": "boolean",
           "description": "Label in the mono type (Select popup)."

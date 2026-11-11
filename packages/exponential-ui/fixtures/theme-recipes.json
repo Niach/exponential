@@ -57601,6 +57601,82 @@
       }
     },
     {
+      "component": "Select",
+      "part": "itemHint",
+      "props": {
+        "multiple": false,
+        "searchable": false,
+        "disabled": false,
+        "triggerVariant": "field"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "fontSize": 12,
+              "lineHeight": 16,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 12,
+              "lineHeight": 16,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "fontSize": 10.5,
+              "lineHeight": 16.99,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 10.5,
+              "lineHeight": 16.99,
+              "color": "#a1a1a1"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "fontSize": 12,
+              "lineHeight": 16,
+              "color": "#6b5b8a"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 12,
+              "lineHeight": 16,
+              "color": "#c4b5fd"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "fontSize": 10.5,
+              "lineHeight": 16.99,
+              "color": "#737373"
+            }
+          },
+          "dark": {
+            "default": {
+              "fontSize": 10.5,
+              "lineHeight": 16.99,
+              "color": "#a1a1a1"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "SearchList",
       "part": "root",
       "props": {},
