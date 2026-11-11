@@ -568,6 +568,9 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis_middle()
+                        // The cut run is narrower than its box: the slack goes left,
+                        // so the directory hugs the name.
+                        .text_right()
                         .text_color(theme.muted_foreground)
                         .child(SharedString::from(dir)),
                 )

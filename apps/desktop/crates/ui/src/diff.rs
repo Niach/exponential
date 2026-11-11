@@ -1086,6 +1086,9 @@ fn file_header_row(
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis_middle()
+                        // The cut run is narrower than its box: the slack goes left,
+                        // so the directory hugs the name.
+                        .text_right()
                         .text_color(muted)
                         .child(dir.clone()),
                 )
