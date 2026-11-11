@@ -128,7 +128,7 @@ fn limits_preview(limits: &coding::AccountLimits) -> Value {
                 "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": 5.25, "width": "100%"},
                 "children": [
                     {"id": format!("limit_{index}_label"), "component": "Text", "props": {"text": label, "variant": "muted", "lines": 1}, "style": {"width": 28, "flexShrink": 0, "fontSize": 10}},
-                    {"id": format!("limit_{index}_bar"), "component": "Progress", "props": {"value": (used.clamp(0., 1.) * 100.).round(), "tone": tone}, "style": {"flex": 1, "minWidth": 0}},
+                    {"id": format!("limit_{index}_bar"), "component": "Progress", "props": {"value": (used.clamp(0., 1.) * 100.).round(), "tone": tone}, "style": {"flexGrow": 1, "minWidth": 0}},
                 ],
             })
         })
@@ -1022,10 +1022,10 @@ mod tests {
         let menu = slash_rows(&items, 1);
         assert_eq!(menu["open"], true);
         let rows = menu["rows"].as_array().unwrap();
-        assert_eq!(rows[0], json!({"key": "command:compact", "command": "/compact", "description": "compact it", "hint": "", "icon": null, "insert": "/compact", "prompt": "", "selected": false}));
+        assert_eq!(rows[0], domain::chat_document::plain_row(json!({"key": "command:compact", "command": "/compact", "description": "compact it", "hint": "", "icon": null, "insert": "/compact", "prompt": "", "selected": false})));
         assert_eq!(rows[1]["insert"], "/effort ", "an argument leaves room to type it");
         assert_eq!(rows[1]["selected"], true);
-        assert_eq!(rows[2], json!({"key": "prompt:p1", "command": "", "description": "Triage", "hint": "", "icon": domain::chat_document::PROMPT_ICON, "insert": "", "prompt": "p1", "selected": false}));
+        assert_eq!(rows[2], domain::chat_document::plain_row(json!({"key": "prompt:p1", "command": "", "description": "Triage", "hint": "", "icon": domain::chat_document::PROMPT_ICON, "insert": "", "prompt": "p1", "selected": false})));
         assert_eq!(slash_rows(&[], 0), json!({"open": false, "rows": []}));
         // The same keys as eDE's menu rows.
         let ede = domain::chat_document::slash_menu("/", Some("claude"), &[]);

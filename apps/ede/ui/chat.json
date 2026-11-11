@@ -2902,9 +2902,6 @@
                               "label": {
                                 "@path": "label"
                               },
-                              "image": {
-                                "@path": "image"
-                              },
                               "removable": true
                             },
                             "visible": {
@@ -2926,6 +2923,28 @@
                                       "@path": "key"
                                     }
                                   }
+                                }
+                              }
+                            },
+                            "slots": {
+                              "leading": {
+                                "id": "chat_file_team_mark",
+                                "component": "Image",
+                                "props": {
+                                  "src": {
+                                    "@path": "image"
+                                  },
+                                  "alt": {
+                                    "@path": "label"
+                                  },
+                                  "fit": "cover",
+                                  "width": 12,
+                                  "height": 12,
+                                  "fallback": "ui-team",
+                                  "loading": "eager"
+                                },
+                                "style": {
+                                  "borderRadius": "$radius.full"
                                 }
                               }
                             }
@@ -3097,7 +3116,7 @@
                                   "lines": 1
                                 },
                                 "style": {
-                                  "flex": 1,
+                                  "flexGrow": 1,
                                   "minWidth": 0
                                 }
                               },
