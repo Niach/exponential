@@ -1,4 +1,15 @@
 {
   "$comment": "SnapshotTest.matchesTheSwiftSnapshot: shared cases whose Compose snapshot differs from the Swift one until the Swift snapshot re-records on a Mac (EXPONENTIAL_UI_RECORD=1 rewrites this list; empty it after the re-record).",
-  "cases": []
+  "cases": [
+    "Chip/example",
+    "Chip/pressable=false",
+    "Chip/pressable=true",
+    "Chip/removable=false",
+    "Chip/removable=true",
+    "Chip/selected=false",
+    "Chip/selected=true",
+    "Chip/shape=pill",
+    "Chip/tone=neutral",
+    "Composer/layout=flat"
+  ]
 }

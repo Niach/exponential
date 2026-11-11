@@ -5823,7 +5823,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -5843,7 +5843,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -5851,7 +5852,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -5871,7 +5872,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -5879,7 +5881,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -5899,7 +5901,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -5907,7 +5910,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -5927,7 +5930,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -5935,7 +5939,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -5955,7 +5959,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       },
       {
         "bg" : "#00000000",
@@ -5995,7 +6000,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -6003,7 +6009,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -6023,7 +6029,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -6031,7 +6038,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -6051,7 +6058,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -6143,7 +6151,7 @@
     "height" : 24,
     "nodes" : [
       {
-        "bg" : "#ffffff1c",
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -6163,7 +6171,8 @@
           48,
           20
         ],
-        "id" : "chip.label"
+        "id" : "chip.label",
+        "opacity" : 0.699999988079071
       }
     ]
   },
@@ -10488,7 +10497,7 @@
     "height" : 72,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#252525",
         "border" : 1,
         "component" : "Composer",
         "frame" : [
@@ -10498,7 +10507,7 @@
           72
         ],
         "id" : "composer",
-        "radius" : 12
+        "radius" : 16
       }
     ]
   },

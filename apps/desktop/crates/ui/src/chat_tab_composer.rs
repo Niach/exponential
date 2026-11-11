@@ -1186,6 +1186,9 @@ mod tests {
         assert_eq!(tip["component"], "Tooltip");
         assert_eq!(tip["props"]["content"], crate::chat_screen::PLUS_TOOLTIP);
         let plus = node(tip, "chat_plus_button").expect("the + button");
+        // The Tooltip wraps the Menu: its trigger is the Button itself (a
+        // press opens it).
+        assert_eq!(node(tip, "chat_plus").expect("the + Menu")["children"][0]["id"], "chat_plus_button");
         assert_eq!(plus["props"]["disabled"], json!({"@path": "/chatting/composer/sending"}));
         assert_eq!((plus["props"]["size"].as_str(), plus["props"]["tone"].as_str()), (Some("icon-xs"), Some("muted")));
         let popover = node(&tree, "chat_slash_popover").expect("the / menu's popover");

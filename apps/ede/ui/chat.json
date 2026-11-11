@@ -2951,39 +2951,29 @@
                 },
                 "slots": {
                   "leading": {
-                    "id": "chat_plus",
-                    "component": "Menu",
+                    "id": "chat_plus_tip",
+                    "component": "Tooltip",
                     "props": {
-                      "side": "top",
-                      "align": "start",
-                      "items": []
-                    },
-                    "on": {
-                      "select": {
-                        "event": {
-                          "name": "ede_chat",
-                          "context": {
-                            "action": "plus"
-                          }
-                        }
-                      }
-                    },
-                    "visible": {
-                      "@call": "cond",
-                      "args": {
-                        "if": {
-                          "@path": "/chatting/composer/plus"
-                        },
-                        "then": true,
-                        "else": false
-                      }
+                      "content": "Add"
                     },
                     "children": [
                       {
-                        "id": "chat_plus_tip",
-                        "component": "Tooltip",
+                        "id": "chat_plus",
+                        "component": "Menu",
                         "props": {
-                          "content": "Add"
+                          "side": "top",
+                          "align": "start",
+                          "items": []
+                        },
+                        "on": {
+                          "select": {
+                            "event": {
+                              "name": "ede_chat",
+                              "context": {
+                                "action": "plus"
+                              }
+                            }
+                          }
                         },
                         "children": [
                           {
@@ -3004,7 +2994,17 @@
                           }
                         ]
                       }
-                    ]
+                    ],
+                    "visible": {
+                      "@call": "cond",
+                      "args": {
+                        "if": {
+                          "@path": "/chatting/composer/plus"
+                        },
+                        "then": true,
+                        "else": false
+                      }
+                    }
                   },
                   "trailing": {
                     "id": "chat_ring",
