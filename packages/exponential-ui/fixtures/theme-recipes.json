@@ -55164,7 +55164,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "height": 36
             },
             "hover": {
@@ -55175,7 +55175,7 @@
               "color": "#171717",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#f5f5f5",
               "height": 36
             },
@@ -55187,7 +55187,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "opacity": 0.5,
               "height": 36
             },
@@ -55199,7 +55199,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#00000000",
               "height": 36
             }
@@ -55213,7 +55213,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "height": 36
             },
             "hover": {
@@ -55224,7 +55224,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#ffffff1c",
               "height": 36
             },
@@ -55236,7 +55236,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "opacity": 0.5,
               "height": 36
             },
@@ -55248,7 +55248,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#00000000",
               "height": 36
             }
@@ -55356,7 +55356,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "height": 36
             },
             "hover": {
@@ -55367,7 +55367,7 @@
               "color": "#7c2d12",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#ffedd5",
               "height": 36
             },
@@ -55379,7 +55379,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "opacity": 0.5,
               "height": 36
             },
@@ -55391,7 +55391,7 @@
               "color": "#0a0a0a",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#00000000",
               "height": 36
             }
@@ -55405,7 +55405,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "height": 36
             },
             "hover": {
@@ -55416,7 +55416,7 @@
               "color": "#fed7aa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#431407",
               "height": 36
             },
@@ -55428,7 +55428,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "opacity": 0.5,
               "height": 36
             },
@@ -55440,7 +55440,7 @@
               "color": "#fafafa",
               "gap": 8,
               "minHeight": 36,
-              "paddingVertical": 4,
+              "paddingVertical": 8,
               "backgroundColor": "#00000000",
               "height": 36
             }

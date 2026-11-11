@@ -1408,7 +1408,7 @@
           "style": {
             "height": 36,
             "minHeight": 36,
-            "paddingVertical": 4,
+            "paddingVertical": 8,
             "paddingHorizontal": 8,
             "gap": 8,
             "borderRadius": "$radius.sm",
