@@ -1533,6 +1533,8 @@ impl SurfaceView {
         let send = px_prop(&send_props, "height").unwrap_or(36.0);
         let busy = lcx.bool("busy");
         let send_style = lcx.part("Composer", "send", &[]);
+        // #EDE-65: the send/stop glyph's size is the `sendIcon` recipe part.
+        let send_icon = px_prop(&lcx.part_props("Composer", "sendIcon", &[]), "width").unwrap_or(16.0);
         let field_props = lcx.part_props("Composer", "field", &[]);
         let fs = px_prop(&field_props, "fontSize").unwrap_or(lcx.text_style.font_size);
         let field_ink = crate::paint::color::color_of(field_props.get("color").and_then(Value::as_str)).unwrap_or(lcx.ink);
@@ -1631,7 +1633,7 @@ impl SurfaceView {
                 .child(icons::concept(
                     lcx.host,
                     if busy { eui_core::layout_tree::builtin_icon("Composer.stop").unwrap_or("ui-stop") } else { eui_core::layout_tree::builtin_icon("Composer.send").unwrap_or("ui-submit") },
-                    16.0,
+                    send_icon,
                     send_ink,
                 )),
         );

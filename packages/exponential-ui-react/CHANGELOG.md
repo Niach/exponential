@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Menu: a searchable submenu matches a row's `identifier` as well as its label (`searchMatches`) and its rows draw the `identifier`, `detail` and `iconColor` tint.
+- Composer (#EDE-65): a hidden `above` renders no wrapper (the slot's `visible` re-renders the composer); the send/stop glyph is the `sendIcon` recipe part.
 - Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensWithoutCursor` is `pill` only.
 - Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only (no label part, the label is the `aria-label`), its size, radius, glyph and muted colour from the recipes. Snapshots re-recorded (every Button gains `data-r-tone="default"`; + the three new catalog cases).

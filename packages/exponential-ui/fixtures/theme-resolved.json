@@ -4234,6 +4234,14 @@
                 "opacity": "$opacity.disabled"
               }
             }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            }
           ]
         },
         "List": {
@@ -13787,6 +13795,23 @@
                 "color": "$color.primary"
               }
             }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
+              }
+            }
           ]
         },
         "List": {
@@ -22821,6 +22846,14 @@
             {
               "style": {
                 "borderRadius": "$radius.full"
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
               }
             }
           ]
@@ -32679,6 +32712,23 @@
                 "borderRadius": "$radius.full",
                 "backgroundColor": "#00000000",
                 "color": "$color.primary"
+              }
+            }
+          ],
+          "sendIcon": [
+            {
+              "style": {
+                "width": 16,
+                "height": 16
+              }
+            },
+            {
+              "when": {
+                "layout": "flat"
+              },
+              "style": {
+                "width": 24,
+                "height": 24
               }
             }
           ]

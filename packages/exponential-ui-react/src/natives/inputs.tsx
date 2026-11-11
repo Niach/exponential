@@ -9,8 +9,8 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
-import { useSurfaceContext } from "../context"
-import { boundPath, composerMenuKey, composerPaste, hostPath, switchTravel } from "@exponential_app/eui/web"
+import { resolveContextOf, useSurfaceContext } from "../context"
+import { boundPath, composerMenuKey, composerPaste, hostPath, resolveVisible, switchTravel } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue, useWriteEpoch } from "../inputs"
@@ -556,8 +556,10 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
   const submitLabel = str(props.submitLabel) || ctx.t(`send`)
   const leading = slots.leading ? <div className="xui-composer-leading">{slots.leading}</div> : null
   // #EXP-1762: `above` = one child over the field, inside the card, the
-  // content's full width (a flat root wraps it onto its own line).
-  const above = slots.above ? <div className="xui-composer-above">{slots.above}</div> : null
+  // content's full width (a flat root wraps it onto its own line). #EDE-65: a
+  // hidden child = no slot at all (no wrapper, so no root gap).
+  const aboveNode = node.slots?.above
+  const above = aboveNode && resolveVisible(aboveNode.visible, resolveContextOf(ctx, scope)) ? <div className="xui-composer-above">{slots.above}</div> : null
   return (
     <div {...(rootProps as Record<string, unknown>)} data-busy={busy ? `true` : undefined} data-above={above ? `true` : undefined}>
       {above}
@@ -611,7 +613,7 @@ export function ComposerNative({ node, props, rootProps, emit, slots, scope, dom
         ) : null}
         {slots.trailing ? <div className="xui-composer-trailing">{slots.trailing}</div> : null}
         <button type="button" {...(part(`send`, busy && `pressed`) as Record<string, string>)} aria-label={busy ? ctx.t(`stop`) : submitLabel} disabled={!busy && field.value.trim() === ``} onClick={submit}>
-          {busy ? <BuiltinIcon slot="Composer.stop" /> : <BuiltinIcon slot="Composer.send" />}
+          {busy ? <BuiltinIcon slot="Composer.stop" part={part(`sendIcon`)} /> : <BuiltinIcon slot="Composer.send" part={part(`sendIcon`)} />}
         </button>
       </div>
     </div>

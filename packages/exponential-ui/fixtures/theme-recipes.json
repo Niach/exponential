@@ -69790,6 +69790,140 @@
       }
     },
     {
+      "component": "Composer",
+      "part": "sendIcon",
+      "props": {
+        "attachments": false,
+        "busy": false,
+        "layout": "stacked"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Composer",
+      "part": "sendIcon",
+      "props": {
+        "attachments": false,
+        "busy": false,
+        "layout": "flat"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "width": 24,
+              "height": 24
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 24,
+              "height": 24
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 16,
+              "height": 16
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "width": 24,
+              "height": 24
+            }
+          },
+          "dark": {
+            "default": {
+              "width": 24,
+              "height": 24
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "TreeGuides",
       "part": "line",
       "props": {

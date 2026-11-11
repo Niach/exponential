@@ -1235,11 +1235,12 @@ impl Builder<'_, '_> {
     /// bar last (`space-between` keeps it at the bottom). Unlike the row's
     /// slots it SIZES the composer: the engine adds its height + the root's
     /// gap to the measure (`View::above_extra`); a painter puts the field
-    /// below it.
+    /// below it. #EDE-65: a hidden child (`visible` falsy) = no slot at all:
+    /// no column, no gap, no top offset.
     pub(crate) fn composer_slots(&mut self, index: u32, node: &UiNode, layer: u32, scope: &str) {
         let Some(slots) = &node.slots else { return };
         let owner = self.nodes[index as usize].clone();
-        let above = slots.get("above");
+        let above = slots.get("above").filter(|n| self.visible(n, scope));
         let justify = if above.is_some() { "space-between" } else { "flex-end" };
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("justifyContent", json!(justify))]);
         if let Some(slot) = above {
