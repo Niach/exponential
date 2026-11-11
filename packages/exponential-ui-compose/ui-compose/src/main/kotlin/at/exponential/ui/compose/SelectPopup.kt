@@ -252,7 +252,7 @@ internal fun SelectPopup(cx: LeafContext) {
     val loading = owner.flag("loading")
     var query by remember(cx.node.id) { mutableStateOf("") }
     // #EXP-1765: a pointer-opened pill starts without a cursor.
-    var cursorless by remember(cx.node.id) { mutableStateOf((pill || button) && !model.keyboardDriven) }
+    var cursorless by remember(cx.node.id) { mutableStateOf(pill && !model.keyboardDriven) }
     val q = query.trim().lowercase()
     val options = remember(owner, q) { if (loading) emptyList() else selectOptions(owner, q) }
     var cursor by remember(q) { mutableIntStateOf(if (cursorless) -1 else selectInitialCursor(options, if (multiple && q.isEmpty()) chosen else null)) }

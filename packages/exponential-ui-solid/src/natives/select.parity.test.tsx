@@ -289,6 +289,11 @@ describe(`select: open popup`, () => {
       expect(solid).toEqual(react)
       expect(react).toEqual({ before: [null, `selected`, `disabled`], after: [`hover`, `selected`, `disabled`] })
     })
+  it(`button: opened by the pointer keeps the cursor, web's picker (#EXP-1629)`, async () => {
+    const { react, solid } = await pointerThenKey({ tree: sel({ triggerVariant: `button`, value: `sprint` }), theme: `exponential` })
+    expect(solid).toEqual(react)
+    expect(react.before).toEqual([`hover`, `selected`, `disabled`])
+  })
   it(`field: opened by the pointer keeps the cursor (only a pill drops it)`, async () => {
     const { react, solid } = await pointerThenKey({ tree: sel({ value: `sprint` }), theme: `exponential` })
     expect(solid).toEqual(react)

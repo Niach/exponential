@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensWithoutCursor` is `pill` only.
+- Select `button` popup matches web's picker (#EXP-1629): recipe and layout values.
 - Select option `hint` (#EXP-1629): the `itemHint` part before the check.
 - Select `button` trigger glyph (#EXP-1629): the picked option's `icon` + `iconColor` before the value.
 - Select `button` trigger + Text `truncate` (#EXP-1778): the button is the field trigger with no label part (the label = its `aria-label`) and the `Select.dropdown` glyph; its popup at least `selectButtonPopupMinWidth`, `selectButtonPopupOffset` under it; a `middle` Text cuts its line with `watchMiddleTruncate` (the element's font on a canvas, again on resize).
