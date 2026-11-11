@@ -55,6 +55,7 @@ fn base() -> AgentsIndexShot {
         events_ready: true,
         titles: map(&[("s1", "Fix the build"), ("s2", "A session whose title is much longer than the emitter column could ever hope to show in full")]),
         names: map(&[("u1", "Dennis Example")]),
+        open_lead: false,
     }
 }
 
@@ -118,9 +119,10 @@ fn settings_agents_index_no_team() {
     pane("agents-index-no-team", AgentsIndexShot { team: None, ..base() });
 }
 
-/// The Lead Assistant picker, opened by a click on its row's trigger.
+/// The Lead Assistant menu open (no BEFORE: today's gpui picker does not
+/// open headless).
 #[test]
 #[ignore]
-fn settings_agents_index_lead_open() {
-    shoot_pane_clicked("agents-index-lead-open", AgentsIndexPane::for_shots, |pane, cx| pane.show(AgentsIndexShot { lead: Some(Some("u1".into())), ..base() }, cx), Some(std::time::Duration::from_millis(1200)), &[(690., 46.)]);
+fn settings_after_agents_index_lead_open() {
+    pane("agents-index-lead-open", AgentsIndexShot { lead: Some(Some("u1".into())), open_lead: true, ..base() });
 }
