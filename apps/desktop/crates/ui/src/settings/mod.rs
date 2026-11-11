@@ -92,6 +92,9 @@ pub(crate) mod storage;
 pub(crate) mod team_general;
 pub(crate) mod tools;
 pub(crate) mod widget;
+// #EXP-1629: the detail column's chrome (the route header over the pane).
+pub(crate) mod shell;
+use shell::{empty_pane, pane_of, PaneBuild};
 
 /// EXP-870: the back row's height — the web `SidebarBackRow`'s `h-10`, the
 /// same 40px as the team switcher above it. It was a ~28px text row, which
@@ -748,10 +751,7 @@ pub struct SettingsView {
     /// EXP-771: the ONE scroll offset of the detail column — the header +
     /// pane share a scroll region now, so the handle lives here and resets to
     /// the top on every section switch (the web's route change does the same).
-    scroll: gpui::ScrollHandle,
-    /// EXP-1558 (DEV-ONLY, `EXP_DEV_SCROLL_TO=end`): the column's max offset
-    /// when it was last parked at its end ([`crate::screens::dev_park_at_end`]).
-    dev_parked_end: std::cell::Cell<gpui::Pixels>,
+    shell: shell::DetailShell,
     /// The section shown at the previous render — a transition INTO one of
     /// the Personal server-read panes drops its cache so it refetches
     /// (EXP-369 semantics, re-homed from the old Account screen).
@@ -847,8 +847,7 @@ impl SettingsView {
             voice,
             api_keys,
             about,
-            scroll: gpui::ScrollHandle::new(),
-            dev_parked_end: Default::default(),
+            shell: shell::DetailShell::new(window, cx),
             last_section: None,
             shared,
             _subscriptions: subscriptions,
@@ -864,16 +863,16 @@ impl SettingsView {
         prompt_id: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
+    ) -> PaneBuild {
         if let Some((_, page)) = self.prompt_page.as_ref() {
             if page.read(cx).prompt_id() == Some(prompt_id) {
                 if page.read(cx).is_gone(cx) {
                     self.prompt_page = None;
-                    return self.prompts.clone().into_any_element();
+                    return pane_of(&self.prompts);
                 }
                 let page = page.clone();
                 self.prompt_page = Some((prompt_id.to_string(), page.clone()));
-                return page.into_any_element();
+                return pane_of(&page);
             }
         }
         let collections = Store::global(cx).collections();
@@ -887,12 +886,12 @@ impl SettingsView {
                 let team_id = prompt.team_id.clone();
                 let page = cx.new(|cx| PromptPage::new(team_id, Some(prompt), window, cx));
                 self.prompt_page = Some((prompt_id.to_string(), page.clone()));
-                page.into_any_element()
+                pane_of(&page)
             }
             None if !collections.prompts.read(cx).is_ready() => {
-                settings_skeleton("prompt-page-skeleton", cx)
+                std::rc::Rc::new(|_, cx| settings_skeleton("prompt-page-skeleton", cx))
             }
-            None => self.prompts.clone().into_any_element(),
+            None => pane_of(&self.prompts),
         }
     }
 
@@ -904,16 +903,16 @@ impl SettingsView {
         skill_id: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
+    ) -> PaneBuild {
         if let Some((_, page)) = self.skill_page.as_ref() {
             if page.read(cx).skill_id() == Some(skill_id) {
                 if page.read(cx).is_gone(cx) {
                     self.skill_page = None;
-                    return self.skills.clone().into_any_element();
+                    return pane_of(&self.skills);
                 }
                 let page = page.clone();
                 self.skill_page = Some((skill_id.to_string(), page.clone()));
-                return page.into_any_element();
+                return pane_of(&page);
             }
         }
         let collections = Store::global(cx).collections();
@@ -923,10 +922,10 @@ impl SettingsView {
                 let team_id = skill.team_id.clone();
                 let page = cx.new(|cx| SkillPage::new(team_id, Some(skill), window, cx));
                 self.skill_page = Some((skill_id.to_string(), page.clone()));
-                page.into_any_element()
+                pane_of(&page)
             }
-            None if !collections.skills.read(cx).is_ready() => settings_skeleton("skill-page-skeleton", cx),
-            None => self.skills.clone().into_any_element(),
+            None if !collections.skills.read(cx).is_ready() => std::rc::Rc::new(|_, cx| settings_skeleton("skill-page-skeleton", cx)),
+            None => pane_of(&self.skills),
         }
     }
 
@@ -1002,22 +1001,22 @@ impl Render for SettingsView {
             // EXP-771: one scroll region for header + pane, so a section
             // switch has to rewind it — the web's route change lands at the
             // top of the page, never mid-list.
-            self.scroll.set_offset(gpui::point(px(0.), px(0.)));
+            self.shell.rewind();
             self.last_section = Some(effective.clone());
         }
 
-        let pane: gpui::AnyElement = match &effective {
-            SettingsSection::General => self.general.clone().into_any_element(),
-            SettingsSection::Members => self.members.clone().into_any_element(),
-            SettingsSection::Issues => self.issues.clone().into_any_element(),
-            SettingsSection::Labels => self.labels.clone().into_any_element(),
-            SettingsSection::Statuses => self.statuses.clone().into_any_element(),
-            SettingsSection::Storage => self.storage.clone().into_any_element(),
-            SettingsSection::AllBoards => self.all_boards.clone().into_any_element(),
+        let pane: PaneBuild = match &effective {
+            SettingsSection::General => pane_of(&self.general),
+            SettingsSection::Members => pane_of(&self.members),
+            SettingsSection::Issues => pane_of(&self.issues),
+            SettingsSection::Labels => pane_of(&self.labels),
+            SettingsSection::Statuses => pane_of(&self.statuses),
+            SettingsSection::Storage => pane_of(&self.storage),
+            SettingsSection::AllBoards => pane_of(&self.all_boards),
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
-            SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
-            SettingsSection::Agent(_) => self.agent_detail.clone().into_any_element(),
+            SettingsSection::Board(_) => pane_of(&self.board_detail),
+            SettingsSection::Agent(_) => pane_of(&self.agent_detail),
             SettingsSection::NewAgent => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 if self.new_agent.as_ref().is_none_or(|(id, _)| *id != team_id) {
@@ -1026,10 +1025,10 @@ impl Render for SettingsView {
                 }
                 self.new_agent
                     .as_ref()
-                    .map(|(_, pane)| pane.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, pane)| pane_of(pane))
+                    .unwrap_or_else(empty_pane)
             }
-            SettingsSection::Agents => self.agents_index.clone().into_any_element(),
+            SettingsSection::Agents => pane_of(&self.agents_index),
             // VAPP-177: an app's settings = its editor's Settings tab (the
             // web's redirect): the selection resolved to a synced app hands
             // over to the editor (replace) and Settings falls back to the
@@ -1048,9 +1047,9 @@ impl Render for SettingsView {
                         );
                     });
                 }
-                div().into_any_element()
+                empty_pane()
             }
-            SettingsSection::Prompts => self.prompts.clone().into_any_element(),
+            SettingsSection::Prompts => pane_of(&self.prompts),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
@@ -1060,11 +1059,11 @@ impl Render for SettingsView {
                 }
                 self.prompt_page
                     .as_ref()
-                    .map(|(_, page)| page.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, page)| pane_of(page))
+                    .unwrap_or_else(empty_pane)
             }
             SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
-            SettingsSection::Skills => self.skills.clone().into_any_element(),
+            SettingsSection::Skills => pane_of(&self.skills),
             SettingsSection::NewSkill => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
                 let key = format!("new:{team_id}");
@@ -1074,90 +1073,27 @@ impl Render for SettingsView {
                 }
                 self.skill_page
                     .as_ref()
-                    .map(|(_, page)| page.clone().into_any_element())
-                    .unwrap_or_else(|| div().into_any_element())
+                    .map(|(_, page)| pane_of(page))
+                    .unwrap_or_else(empty_pane)
             }
             SettingsSection::Skill(skill_id) => self.skill_pane(skill_id, window, cx),
-            SettingsSection::Repositories => self.repositories.clone().into_any_element(),
-            SettingsSection::Widget => self.widget.clone().into_any_element(),
-            SettingsSection::Mcp => self.mcp.clone().into_any_element(),
-            SettingsSection::McpActivity => self.mcp_activity.clone().into_any_element(),
-            SettingsSection::Tools => self.tools.clone().into_any_element(),
-            SettingsSection::AgentClis => self.agent_clis.clone().into_any_element(),
-            SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
-            SettingsSection::Sessions => self.sessions.clone().into_any_element(),
-            SettingsSection::Account => self.account.clone().into_any_element(),
-            SettingsSection::Notifications => self.notifications.clone().into_any_element(),
-            SettingsSection::Voice => self.voice.clone().into_any_element(),
-            SettingsSection::ApiKeys => self.api_keys.clone().into_any_element(),
-            SettingsSection::About => self.about.clone().into_any_element(),
+            SettingsSection::Repositories => pane_of(&self.repositories),
+            SettingsSection::Widget => pane_of(&self.widget),
+            SettingsSection::Mcp => pane_of(&self.mcp),
+            SettingsSection::McpActivity => pane_of(&self.mcp_activity),
+            SettingsSection::Tools => pane_of(&self.tools),
+            SettingsSection::AgentClis => pane_of(&self.agent_clis),
+            SettingsSection::LocalRepos => pane_of(&self.local_repos),
+            SettingsSection::Sessions => pane_of(&self.sessions),
+            SettingsSection::Account => pane_of(&self.account),
+            SettingsSection::Notifications => pane_of(&self.notifications),
+            SettingsSection::Voice => pane_of(&self.voice),
+            SettingsSection::ApiKeys => pane_of(&self.api_keys),
+            SettingsSection::About => pane_of(&self.about),
         };
 
-        // EXP-771: the web settings route's own chrome, on EVERY pane —
-        // "Settings" (EXP-1550: no explanatory subtitle), a hairline, then
-        // the pane, all in one centered `max-w-4xl` column.
-        //
-        // This replaces the EXP-277 "no screen header" rule (the center tab
-        // carried the title — but Settings is a TAB-LESS full-page screen, so
-        // nothing named the page) and the EXP-282 "hug the left edge under a
-        // 672px cap" one (the nav is the window's left column now; a column
-        // pinned to its right edge left the rest of a wide window empty).
-        //
-        // The SCROLL REGION stays full width with the scrollbar at the
-        // viewport edge — only the content column is capped and centered, the
-        // page-scaffold recipe every other full-page screen uses
-        // (`scroll_pane::page_scaffold_with`).
-        let header = div()
-            .w_full()
-            .min_w_0()
-            .text_2xl()
-            .font_weight(FontWeight::BOLD)
-            .child("Settings");
-        // `flex_shrink_0`: a 1px child in a flex column is the first thing
-        // the layout eats.
-        let separator = div()
-            .w_full()
-            .h(px(1.))
-            .flex_shrink_0()
-            .bg(row_stroke(cx));
-
-        // EXP-1558 (DEV-ONLY): `settings-assistant-meeting` = the Assistant
-        // pane at its end (the Meeting mode rows), web's `scrollToMeetingMode`.
-        crate::screens::dev_park_at_end(&self.scroll, &self.dev_parked_end, window);
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .min_w_0()
-            .child(crate::scroll_pane::v_scroll_pane(
-                SharedString::from(format!("settings-detail-{effective:?}")),
-                &self.scroll,
-                // EXP-1557: the column lays out at the web's 16px rem, so the
-                // panes' type, rows and controls match web's settings page
-                // size for size (the IDE's 14px rem drew them ~12% small).
-                div().w_full().min_w_0().child(crate::controls::web_rem(
-                    detail_column()
-                        .child(header)
-                        .child(separator)
-                        .child(pane),
-                )),
-            ))
+        self.shell.render(SharedString::from(format!("settings-detail-{effective:?}")), pane, window, cx)
     }
-}
-
-/// EXP-771: the shared settings detail column — the web route's
-/// `mx-auto w-full max-w-4xl space-y-6 p-6` grid. It used to be a
-/// left-aligned 672px column (EXP-282); the nav lives in the window's left
-/// column since EXP-456, so hugging its edge just left the rest of a wide
-/// window blank. The `space-y-6` is the gap between the header, its hairline
-/// and the pane — every pane spaces its OWN sections.
-pub(crate) fn detail_column() -> gpui::Div {
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .max_w(px(896.))
-        .mx_auto()
-        .p(px(24.))
-        .gap(px(24.))
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,6 +1109,8 @@ pub struct SettingsNavPanel {
     /// EXP-630: fold state of the nested entries, keyed by label. Unset =
     /// unfolded while the parent or one of its sub-pages is selected.
     folded: std::collections::HashMap<&'static str, bool>,
+    #[cfg(test)]
+    shot: Option<NavShot>,
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
     _subscriptions: Vec<Subscription>,
@@ -1202,6 +1140,8 @@ impl SettingsNavPanel {
             nav,
             shared,
             folded: Default::default(),
+            #[cfg(test)]
+            shot: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1268,9 +1208,50 @@ impl SettingsNavPanel {
     }
 }
 
-impl Render for SettingsNavPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
+/// The data one nav frame draws: who looks (owner gating), the team, the
+/// lit section and the injected lists.
+pub(crate) struct NavInputs {
+    pub(crate) owner: bool,
+    pub(crate) team_id: Option<String>,
+    pub(crate) effective: SettingsSection,
+    pub(crate) boards: Vec<domain::rows::Board>,
+    pub(crate) agents: Vec<domain::session_tree::AgentRow>,
+    pub(crate) apps: Vec<crate::apps_view::AppEntry>,
+}
+
+/// The bench's nav (#EXP-1629): the inputs pinned instead of read off the
+/// store (`selected` still clamps through [`effective_selection`]).
+#[cfg(test)]
+pub(crate) struct NavShot {
+    pub(crate) owner: bool,
+    pub(crate) team_id: Option<String>,
+    pub(crate) selected: SettingsSection,
+    pub(crate) boards: Vec<domain::rows::Board>,
+    pub(crate) agents: Vec<domain::session_tree::AgentRow>,
+    pub(crate) apps: Vec<crate::apps_view::AppEntry>,
+}
+
+impl SettingsNavPanel {
+    /// The bench's panel showing `shot`.
+    #[cfg(test)]
+    pub(crate) fn show(&mut self, shot: NavShot, cx: &mut gpui::Context<Self>) {
+        self.shot = Some(shot);
+        cx.notify();
+    }
+
+    /// The bench's chevron press: `label`'s sub-pages folded.
+    #[cfg(test)]
+    pub(crate) fn fold_for_shots(&mut self, label: &'static str, cx: &mut gpui::Context<Self>) {
+        self.folded.insert(label, true);
+        cx.notify();
+    }
+
+    fn inputs(&self, cx: &mut gpui::Context<Self>) -> NavInputs {
+        #[cfg(test)]
+        if let Some(shot) = self.shot.as_ref() {
+            let effective = effective_selection(shot.selected.clone(), shot.owner, |_| true, |_| true);
+            return NavInputs { owner: shot.owner, team_id: shot.team_id.clone(), effective, boards: shot.boards.clone(), agents: shot.agents.clone(), apps: shot.apps.clone() };
+        }
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -1306,7 +1287,14 @@ impl Render for SettingsNavPanel {
             .as_deref()
             .map(|team_id| crate::apps_view::app_entries(team_id, cx))
             .unwrap_or_default();
+        NavInputs { owner, team_id, effective, boards, agents, apps }
+    }
+}
 
+impl Render for SettingsNavPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "SettingsNavPanel").entered();
+        let NavInputs { owner, team_id, effective, boards, agents, apps } = self.inputs(cx);
         let mut list = v_flex().p_2().gap_0p5();
         let mut first_group = true;
         for group in NAV_GROUPS {
