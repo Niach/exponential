@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Menu: a searchable submenu matches and draws its rows' `identifier`: the field finds a row by its `label` OR its `identifier`, SearchList's rule (`search_matches`: typing `EXP-12` finds `Fix the tray`), and a row draws its mono `identifier`, its `iconColor` tint and its `detail` like a normal Menu row. Absent fields = unchanged. No catalog change.
 - Select `button` popup keeps its starting cursor (#EXP-1629): opened by the pointer, it starts on the first enabled option like web's picker and the other Selects; only a `pill` still starts without one. `interactions-round1.json` gains `selectPointerOpen`.
 - Select `button` popup matches web's picker (#EXP-1629): rows 36 px (vertical padding 8, so every row's one line sits centred; no gap between rows, 8 px inside a row), the check 14 px, the popup 4 px under the trigger. Recipe and layout values only (exponential theme; `selectButtonPopupOffset`, `selectButtonItemGap`).

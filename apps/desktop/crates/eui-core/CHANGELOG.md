@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Select `button` popup matches web's picker (#EXP-1629): the layout constants (`SELECT_BUTTON_POPUP_OFFSET` 4, `SELECT_BUTTON_ITEM_GAP` 0) and regenerated themes.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): generated catalog + themes; the recipe index lists Button's `tone`; theme tests pin the 24 px round icon-xs and the muted colour under the ghost hover fill; `catalog_fixtures` counts 743 cases.
 - Select option `hint` (#EXP-1629): the row of parts gains `itemHint` before the check (`tests/select_option_hint.rs`).

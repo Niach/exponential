@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
 - Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
 - Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer (the IDE's `web_icon_xs`: 24 round, a 10.5 glyph from the `icon` part); the muted ink comes from the root recipe's colour.

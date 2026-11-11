@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `row` popup option text = 14 px (#EXP-1784): the exponential theme's `row` Select sets its popup `item` text at 14 (web's `text-sm`), up from 12.25. Only the size moves: the row pitch, the check colour and the first-row cursor stay, and `field`, `pill` and `button` popups keep theirs. Recipe data only.
 - Menu: a searchable submenu matches a row's `identifier` as well as its label and lays out its `identifier`, `detail` and `iconColor` tint (from eui-core; painted as a normal Menu row's parts, no view change).
 - Select `button` popup keeps its starting cursor (#EXP-1629): `selectOpensCursorless` is `pill` only.
 - Select `button` popup matches web's picker (#EXP-1629): the regenerated theme and layout values.
