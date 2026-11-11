@@ -277,6 +277,11 @@ extension SurfaceModel {
     /// timer per owner: a new one restarts it).
     func scheduleHoverTimeout(owner: String, delayMs: Double) {
         guard !owner.isEmpty else { return }
+        if let sink = hoverTimerSink {
+            hoverCloseTimers[owner]?.cancel()
+            sink(owner, delayMs)
+            return
+        }
         hoverCloseTimers[owner]?.cancel()
         hoverCloseTimers[owner] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(max(0, delayMs))))
@@ -314,7 +319,7 @@ extension SurfaceModel {
     /// something handled it.
     @discardableResult
     public func escape() -> Bool {
-        if let top = layers.last(where: \.isInteractive) {
+        if let top = layers.last(where: takesFocus) {
             if top.dismissible {
                 justDismissed = nil
                 fire(top.root, "dismiss")
@@ -347,7 +352,7 @@ extension SurfaceModel {
     /// the selected option / day, else its first focusable; never a toast
     /// or a tooltip), focus back to the trigger when one closes.
     func layersChanged(from before: [LayerInfo]) {
-        let interactive = layers.filter(\.isInteractive)
+        let interactive = layers.filter(takesFocus)
         let now = interactive.map { "\($0.owner)#\($0.layer)" }
         if now == openLayerKeys {
             layersSettled()

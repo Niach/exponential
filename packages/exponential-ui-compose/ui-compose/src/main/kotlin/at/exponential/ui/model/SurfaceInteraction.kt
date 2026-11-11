@@ -654,6 +654,14 @@ fun SurfaceModel.setOpen(owner: String, open: Boolean) {
 fun SurfaceModel.isSubmenuLayer(layer: LayerInfo): Boolean =
     layer.kind == "Menu" && node(layer.root)?.id != "${layer.owner}.content"
 
+/**
+ * #EXP-1629: is `layer` a Menu item's `preview` (the core's `preview` part
+ * beside its row while hovered or highlighted)? It never takes the focus or
+ * Escape; the menu under it keeps them (gpui `passive_layer`).
+ */
+fun SurfaceModel.isMenuPreviewLayer(layer: LayerInfo): Boolean =
+    layer.kind == "Menu" && node(layer.root)?.let { it.ownerComponent == "Menu" && it.part == "preview" } == true
+
 /** Close the open submenu of the Menu `owner` (its row toggles it), the menu stays open. */
 fun SurfaceModel.closeSubmenu(owner: String) {
     val row = nodes.firstOrNull { it.owner == owner && it.ownerComponent == "Menu" && it.part == "item" && it.open && it.props.str("kind") == "submenu" } ?: return
@@ -692,7 +700,7 @@ fun SurfaceModel.escape(): Boolean {
         popup = null
         return true
     }
-    val top = layers.lastOrNull { !it.isToast && it.kind != "Tooltip" }
+    val top = layers.lastOrNull { !it.isToast && it.kind != "Tooltip" && !isMenuPreviewLayer(it) }
     if (top != null) {
         if (top.dismissible) {
             justDismissed = null

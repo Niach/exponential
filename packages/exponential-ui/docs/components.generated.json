@@ -3441,11 +3441,12 @@
       "group": "overlay",
       "lite": false,
       "specimenId": "exponential-ui-menu",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "children": "one",
       "slots": [],
       "events": [
-        "select"
+        "select",
+        "action"
       ],
       "basic": [],
       "props": [
@@ -3521,7 +3522,8 @@
           "ArrowRight on a submenu: open it; ArrowLeft or Escape inside: close it",
           "A searchable submenu opens with its filter input focused: typing filters, ArrowDown/ArrowUp move the active row, Enter picks it, ArrowLeft with the caret at the start or Escape closes it",
           "Escape: close and return focus to the trigger",
-          "Typing a letter: the next item starting with it"
+          "Typing a letter: the next item starting with it",
+          "An item's `preview` shows beside it while it is highlighted (at once) or hovered (after 150 ms) and hides 80 ms after both leave; it is not a focus stop"
         ]
       },
       "example": {

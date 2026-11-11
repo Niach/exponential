@@ -199,3 +199,6 @@ export { isIdentifier, mangle } from "./ids"
 // #EDE-65: Embed, a sandboxed nested surface (fixtures/embed.json).
 export { EMBED_ERROR_ROOT, EMBED_EVENT, embedCard, embedMount, embedPayload, embedSurfaceId } from "./embed"
 export type { EmbedCard } from "./embed"
+// #EXP-1629: a Menu item's side preview (interactions-round1.json `menuPreview`).
+export { MENU_PREVIEW_CLOSE_MS, MENU_PREVIEW_IDLE, MENU_PREVIEW_OFFSET, MENU_PREVIEW_OPEN_MS, menuPreviewId, menuPreviewInput, menuPreviewTick, menuPreviewWanted } from "./menu-preview"
+export type { MenuPreviewInput, MenuPreviewState } from "./menu-preview"

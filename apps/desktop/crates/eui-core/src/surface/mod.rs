@@ -1157,6 +1157,23 @@ impl Surface {
     /// unless its trigger or its layer is hovered (or keyboard-focused)
     /// again. Returns the change events (`Relayout` when it closed).
     pub fn hover_timeout(&mut self, owner: &str) -> Vec<OutEvent> {
+        // #EXP-1629: a menu's preview wait (`<menu>.preview`).
+        if let Some(menu) = owner.strip_suffix(crate::menu_preview::TIMER_SUFFIX).filter(|m| self.local.menu_preview.contains_key(*m)) {
+            let menu = menu.to_string();
+            let Some(state) = self.local.menu_preview.get_mut(&menu) else { return vec![] };
+            let before = state.shown.clone();
+            let again = state.timeout();
+            let changed = state.shown != before;
+            let mut out = vec![];
+            if let Some(delay_ms) = again {
+                out.push(OutEvent::HoverTimer { owner: owner.to_string(), delay_ms });
+            }
+            if changed {
+                self.needs_build = true;
+                out.push(OutEvent::Relayout);
+            }
+            return out;
+        }
         if !self.hover_closing.remove(owner) || !self.opens_on_hover(owner) || self.hover_active(owner) {
             return vec![];
         }
@@ -1828,6 +1845,10 @@ impl Surface {
         if n.base_style.contains_key(":hover") {
             return true;
         }
+        // #EXP-1629: the pointer on a Menu item's preview holds it.
+        if n.owner_component.as_deref() == Some("Menu") && n.part.as_deref() == Some("preview") {
+            return true;
+        }
         let Some(theme) = &self.effective else { return false };
         [&n.own_query, &n.part_query].into_iter().flatten().any(|q| crate::theme::recipe_reacts_to(theme, q, "hover"))
     }
@@ -1896,6 +1917,7 @@ impl Surface {
                 self.style_dirty.insert(close);
             }
         }
+        self.menu_preview_states(slot);
         let n = &self.nodes[slot as usize];
         let hovered = self.states.get(&n.id).is_some_and(|s| s.iter().any(|x| x == "hover"));
         // EXP-1259: a pointer over a top-level Menu row opens ITS submenu
@@ -1935,6 +1957,76 @@ impl Surface {
                         self.pending.push(OutEvent::Relayout);
                     }
                 }
+            }
+        }
+    }
+
+    /// #EXP-1629 (`crate::menu_preview`): a Menu row's pointer (`hover`)
+    /// and keyboard highlight (`focus-visible`), and the pointer on a shown
+    /// `preview`, feed the menu's preview state; a wait goes out as a
+    /// `HoverTimer` (owner `<menu>.preview`, [`Self::hover_timeout`]), a
+    /// change of the shown row lays out again.
+    fn menu_preview_states(&mut self, slot: u32) {
+        use crate::menu_preview::{MenuPreviewInput as I, TIMER_SUFFIX};
+        let n = &self.nodes[slot as usize];
+        let (Some(owner), Some("Menu"), Some(part)) = (n.owner.clone(), n.owner_component.as_deref(), n.part.clone()) else { return };
+        let st = self.states.get(&n.id);
+        let hovered = st.is_some_and(|s| s.iter().any(|x| x == "hover"));
+        let keyboard = st.is_some_and(|s| s.iter().any(|x| x == "focus-visible"));
+        let mut inputs = Vec::new();
+        match part.as_str() {
+            "item" => {
+                let Some(key) = n.id.strip_prefix(&format!("{owner}.item.")).map(str::to_string) else { return };
+                let own = (n.props.get("hasPreview").and_then(Value::as_bool) == Some(true)).then(|| key.clone());
+                let Some(state) = self.local.menu_preview.get(&owner) else {
+                    if own.is_some() && (hovered || keyboard) {
+                        self.local.menu_preview.insert(owner.clone(), Default::default());
+                        return self.menu_preview_states(slot);
+                    }
+                    return;
+                };
+                if hovered {
+                    if state.hover != own {
+                        inputs.push(I::Hover(own.clone()));
+                    }
+                } else if own.is_some() && state.hover == own {
+                    inputs.push(I::Hover(None));
+                }
+                if keyboard {
+                    if state.highlight != own {
+                        inputs.push(I::Highlight(own));
+                    }
+                } else if own.is_some() && state.highlight == own {
+                    inputs.push(I::Highlight(None));
+                }
+            }
+            "preview" => {
+                let Some(state) = self.local.menu_preview.get(&owner) else { return };
+                if state.over != hovered {
+                    inputs.push(I::Over(hovered));
+                }
+            }
+            _ => return,
+        }
+        if inputs.is_empty() {
+            return;
+        }
+        let Some(state) = self.local.menu_preview.get_mut(&owner) else { return };
+        let before = state.shown.clone();
+        let mut delay = None;
+        for input in inputs {
+            if let Some(ms) = state.input(input) {
+                delay = Some(ms);
+            }
+        }
+        let changed = state.shown != before;
+        if let Some(delay_ms) = delay {
+            self.pending.push(OutEvent::HoverTimer { owner: format!("{owner}{TIMER_SUFFIX}"), delay_ms });
+        }
+        if changed {
+            self.needs_build = true;
+            if !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+                self.pending.push(OutEvent::Relayout);
             }
         }
     }

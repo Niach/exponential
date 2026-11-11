@@ -977,3 +977,205 @@ fn composer_paste_cases_fire_attach_or_change_like_the_reference() {
         assert_eq!(s.get_data("/draft").cloned().unwrap_or(Value::Null), c["draft"], "{name}: /draft");
     }
 }
+
+/// #EXP-1629 menuRows at the core: an item's `identifier` (its icon then
+/// leads as its own glyph) sits between the icon and the label, its
+/// `detail` after the label (a submenu parent's too), before the shortcut
+/// and the submenu indicator. gpui, SwiftUI and Compose paint these parts.
+#[test]
+fn menu_row_cases_lay_out_identifier_and_detail_like_the_reference() {
+    let f = fixture();
+    for c in f["menuRows"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(json!({"id": "m", "component": "Menu", "props": {"label": "More", "items": c["items"]}}));
+        let mut m = fixed();
+        let _ = s.set_open("m", true);
+        s.layout(&mut m);
+        if let Some(sub) = c["submenu"].as_u64() {
+            let at = s.nodes().iter().position(|n| n.id == format!("m.item.{sub}")).unwrap() as u32;
+            let _ = s.event(at, "press", None);
+            s.layout(&mut m);
+        }
+        let nodes = s.nodes();
+        for r in c["rows"].as_array().unwrap() {
+            let key = r["key"].as_str().unwrap();
+            let row = nodes.iter().find(|n| n.id == format!("m.item.{key}")).unwrap_or_else(|| panic!("{name}: no row {key}"));
+            let mut parts = vec![];
+            for &child in &row.children {
+                let n = &nodes[child as usize];
+                match n.part.as_deref() {
+                    Some("itemLabel") => {
+                        if n.props.get("icon").is_some_and(|i| !i.is_null()) {
+                            parts.push("icon");
+                        }
+                        parts.push("label");
+                        assert_eq!(n.props["text"], r["label"], "{name}: {key} label");
+                    }
+                    Some("itemIcon") => parts.push("icon"),
+                    Some("check") => parts.push("check"),
+                    Some("identifier") => {
+                        parts.push("identifier");
+                        assert_eq!(n.props["text"], r["identifier"], "{name}: {key} identifier");
+                    }
+                    Some("detail") => {
+                        parts.push("detail");
+                        assert_eq!(n.props["text"], r["detail"], "{name}: {key} detail");
+                    }
+                    Some("shortcut") => parts.push("shortcut"),
+                    Some("submenuIndicator") => parts.push("submenuIndicator"),
+                    _ => {}
+                }
+            }
+            assert_eq!(json!(parts), r["parts"], "{name}: {key} parts");
+        }
+    }
+}
+
+/// #EXP-1629 menuPreview at the core (`eui_core::menu_preview`): a row's
+/// `hover` (the pointer) and `focus-visible` (the keyboard highlight)
+/// states, and the pointer's `hover` on the shown preview, decide which
+/// row's preview shows; the waits run through `HoverTimer` (owner
+/// `m.preview`, fired by [`Surface::hover_timeout`] when the clock passes
+/// them). The shown preview is a layer beside its row holding an `Embed`
+/// leaf (`m.preview.<key>.surface`) whose `action` fires the Menu's own.
+/// The nested surface (its texts, the denied host function) is each
+/// painter's Embed: gpui, SwiftUI and Compose replay it.
+#[test]
+fn menu_preview_cases_show_hide_and_forward_like_the_reference() {
+    let f = fixture();
+    let fx = &f["menuPreview"];
+    let items = fx["menu"]["props"]["items"].clone();
+    let item_at = |key: &str| {
+        let mut list = items.clone();
+        let mut item = Value::Null;
+        for i in key.split('.') {
+            item = list[i.parse::<usize>().unwrap()].clone();
+            list = item["items"].clone();
+        }
+        item
+    };
+    for c in fx["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(fx["menu"].clone());
+        let mut m = fixed();
+        let _ = s.set_open("m", true);
+        s.layout(&mut m);
+        if let Some(sub) = c["submenu"].as_u64() {
+            let at = s.nodes().iter().position(|n| n.id == format!("m.item.{sub}")).unwrap() as u32;
+            let _ = s.event(at, "press", None);
+            s.layout(&mut m);
+        }
+        let _ = s.take_events();
+        let mut now = 0.0_f64;
+        let mut timer: Option<f64> = None;
+        let mut hovered: Option<String> = None;
+        let mut highlighted: Option<String> = None;
+        let collect = |events: Vec<OutEvent>, now: f64, timer: &mut Option<f64>| {
+            let mut actions = vec![];
+            for e in events {
+                match e {
+                    OutEvent::HoverTimer { owner, delay_ms } => {
+                        assert_eq!(owner, "m.preview", "{name}: the timer's owner");
+                        *timer = Some(now + delay_ms as f64);
+                    }
+                    OutEvent::Action { name, context, .. } if name != "picked" => actions.push(json!({"name": name, "context": context})),
+                    _ => {}
+                }
+            }
+            actions
+        };
+        for (i, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            let mut fired = vec![];
+            let row_states = |s: &mut Surface, key: &str, hover: bool, kb: bool| {
+                let mut st = vec![];
+                if hover {
+                    st.push("hover".to_string());
+                }
+                if kb {
+                    st.extend(["focus".to_string(), "focus-visible".to_string()]);
+                }
+                s.set_states(&format!("m.item.{key}"), st);
+            };
+            if let Some(h) = step.get("hover") {
+                let next = h.as_str().map(str::to_string);
+                if let Some(prev) = hovered.take() {
+                    let kb = highlighted.as_deref() == Some(prev.as_str());
+                    row_states(&mut s, &prev, false, kb);
+                }
+                if let Some(k) = &next {
+                    let kb = highlighted.as_deref() == Some(k.as_str());
+                    row_states(&mut s, k, true, kb);
+                }
+                hovered = next;
+            }
+            if let Some(h) = step.get("highlight") {
+                let next = h.as_str().map(str::to_string);
+                if let Some(prev) = highlighted.take() {
+                    let hv = hovered.as_deref() == Some(prev.as_str());
+                    row_states(&mut s, &prev, hv, false);
+                }
+                if let Some(k) = &next {
+                    let hv = hovered.as_deref() == Some(k.as_str());
+                    row_states(&mut s, k, hv, true);
+                }
+                highlighted = next;
+            }
+            if let Some(o) = step.get("overPreview").and_then(Value::as_bool) {
+                let shown = s.nodes().iter().find(|n| n.part.as_deref() == Some("preview") && n.owner.as_deref() == Some("m")).map(|n| n.id.clone()).unwrap_or_else(|| panic!("{name}: step {i}: no preview to hover"));
+                s.set_states(&shown, if o { vec!["hover".into()] } else { vec![] });
+            }
+            fired.extend(collect(s.take_events(), now, &mut timer));
+            s.layout(&mut m);
+            if let Some(w) = step.get("wait").and_then(Value::as_f64) {
+                now += w;
+                while let Some(due) = timer.filter(|due| *due <= now) {
+                    timer = None;
+                    let out = s.hover_timeout("m.preview");
+                    fired.extend(collect(out, due, &mut timer));
+                    s.layout(&mut m);
+                }
+            }
+            if let Some(inner) = step.get("press").and_then(Value::as_str) {
+                // The painter's Embed: an inner `event` action reaches the
+                // host as the leaf's `action` {name, context}; a host
+                // function never does.
+                let key = step["shown"].as_str().unwrap();
+                let card = eui_core::embed::embed_mount(&item_at(key)["preview"]).card;
+                let mut stack = vec![card.root.clone()];
+                let mut found = None;
+                while let Some(n) = stack.pop() {
+                    if n["id"] == json!(inner) {
+                        found = Some(n.clone());
+                    }
+                    stack.extend(n["children"].as_array().cloned().unwrap_or_default());
+                }
+                let found = found.unwrap_or_else(|| panic!("{name}: no inner {inner}"));
+                if let Some(event) = found["on"]["press"].get("event") {
+                    let leaf = s.nodes().iter().position(|n| n.id == format!("m.preview.{key}.surface")).unwrap() as u32;
+                    let payload = eui_core::embed::embed_payload(event["name"].as_str().unwrap(), event.get("context"));
+                    fired.extend(collect(s.event(leaf, "action", Some(payload)), now, &mut timer));
+                }
+                s.layout(&mut m);
+            }
+            let out = s.layout(&mut m);
+            let nodes = s.nodes();
+            let previews: Vec<&eui_core::surface::Layer> = out.layers.iter().filter(|l| nodes[l.root as usize].part.as_deref() == Some("preview")).collect();
+            let shown = previews.first().map(|l| nodes[l.root as usize].id.strip_prefix("m.preview.").unwrap().to_string());
+            assert!(previews.len() <= 1, "{name}: step {i}: one preview at most");
+            assert_eq!(json!(shown), step["shown"], "{name}: step {i}: shown");
+            if let Some(key) = &shown {
+                let layer = previews[0];
+                assert_eq!(layer.owner, "m", "{name}: the preview is the menu's layer");
+                let leaf = nodes.iter().find(|n| n.id == format!("m.preview.{key}.surface")).unwrap_or_else(|| panic!("{name}: no Embed leaf"));
+                assert_eq!(leaf.component, "Embed");
+                assert_eq!(leaf.part, None, "{name}: painted as an Embed");
+                assert_eq!(leaf.props["surface"], item_at(key)["preview"], "{name}: the preview surface, untouched");
+                let row = nodes.iter().position(|n| n.id == format!("m.item.{key}")).unwrap();
+                let (rf, pf) = (s.last_frame(row as u32).unwrap(), s.last_frame(layer.root).unwrap());
+                assert!((pf.x - (rf.x + rf.w + eui_core::layout::MENU_PREVIEW_OFFSET)).abs() < 0.5 || (pf.x + pf.w + eui_core::layout::MENU_PREVIEW_OFFSET - rf.x).abs() < 0.5, "{name}: beside its row: {rf:?} {pf:?}");
+            }
+            assert_eq!(json!(fired), step["events"], "{name}: step {i}: events");
+            assert!(out.layers.iter().any(|l| nodes[l.root as usize].id == "m.content"), "{name}: step {i}: the menu stays open");
+        }
+    }
+}

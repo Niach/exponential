@@ -445,11 +445,18 @@ impl SurfaceView {
         self.dismiss_layer_at(root, window, cx);
     }
 
+    /// #EXP-1629: a Menu item's `preview` layer (beside its row while
+    /// hovered or highlighted): it never takes the focus, the Tab order or
+    /// Escape; the menu under it keeps them.
+    pub(crate) fn passive_layer(&self, l: &Layer) -> bool {
+        self.cache.node(l.root).is_some_and(|n| n.owner_component.as_deref() == Some("Menu") && n.part.as_deref() == Some("preview"))
+    }
+
     /// Escape: close the TOP dismissible layer (an AlertDialog presses its
     /// cancel), else hide a tooltip, else dismiss a focused toast. Returns
     /// whether something handled it.
     pub fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if let Some(top) = self.layers.iter().rev().find(|l| l.class == LayerClass::Overlay && l.kind != "Tooltip").cloned() {
+        if let Some(top) = self.layers.iter().rev().find(|l| l.class == LayerClass::Overlay && l.kind != "Tooltip" && !self.passive_layer(l)).cloned() {
             if top.dismissible {
                 self.just_dismissed = None;
                 self.fire(top.root, "dismiss", None, cx);
@@ -594,7 +601,7 @@ impl SurfaceView {
     /// The Tab order in force: the top modal / menu layer's (focus trap),
     /// else the main tree's (paint order, roving stops).
     pub fn focus_order(&self) -> Vec<u32> {
-        let mut order = match self.layers.iter().enumerate().rev().find(|(_, l)| l.class == LayerClass::Overlay && l.kind != "Tooltip") {
+        let mut order = match self.layers.iter().enumerate().rev().find(|(_, l)| l.class == LayerClass::Overlay && l.kind != "Tooltip" && !self.passive_layer(l)) {
             Some((k, l)) => focus_order(&self.cache.nodes, self.layer_orders.get(k).map(Vec::as_slice).unwrap_or(&[]), l.layer),
             None => focus_order(&self.cache.nodes, &self.order, 0),
         };
@@ -1277,7 +1284,8 @@ impl SurfaceView {
                 self.motion.layer_opened(&l.owner, enter_ms, now);
             }
         }
-        let interactive = |l: &&Layer| l.class == LayerClass::Overlay && l.kind != "Tooltip";
+        let passive: std::collections::HashSet<u32> = layers.iter().filter(|l| self.passive_layer(l)).map(|l| l.root).collect();
+        let interactive = |l: &&Layer| l.class == LayerClass::Overlay && l.kind != "Tooltip" && !passive.contains(&l.root);
         let now_open: Vec<String> = layers.iter().filter(interactive).map(|l| format!("{}#{}", l.owner, l.layer)).collect();
         if now_open == self.open_layers {
             if let Some((owner, iso)) = self.pending_day.take() {

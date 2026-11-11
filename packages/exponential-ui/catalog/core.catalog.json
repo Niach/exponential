@@ -519,6 +519,19 @@
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
         },
+        "identifier": {
+          "type": "string",
+          "description": "Mono id before the text (`EXP-12`)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Muted text after the text: a submenu's current value, a status."
+        },
+        "preview": {
+          "type": "object",
+          "bindable": true,
+          "description": "{root, data?} shown beside the row while hovered or highlighted; sandboxed like Embed, its events fire the Menu's `action`."
+        },
         "checked": {
           "type": "boolean",
           "bindable": true,
@@ -3511,7 +3524,7 @@
       "group": "overlay",
       "lite": false,
       "children": "one",
-      "description": "Actions, checkboxes, groups, submenus; opens from its child.",
+      "description": "Actions, checkboxes, groups, submenus; opens from its child. A row's `preview` card's `event` actions fire `action` {name, context}, as Embed's.",
       "props": {
         "label": {
           "type": "string",
@@ -3554,7 +3567,8 @@
         }
       },
       "events": [
-        "select"
+        "select",
+        "action"
       ],
       "example": {
         "label": "More",

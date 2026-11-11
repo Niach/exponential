@@ -1024,6 +1024,32 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       { label: `Done`, value: `done`, kind: `checkbox`, icon: `status-done`, iconColor: `$color.success` },
       { label: `Cancelled`, value: `cancelled`, kind: `checkbox`, icon: `status-cancelled`, iconColor: `$color.destructive` },
     ] }, children: [{ id: `status_trigger`, component: `Button`, props: { label: `In Progress`, icon: `status-in-progress`, variant: `outline` } }] } },
+    // #EXP-1629: the IDE session composer's "+" menu: Model › with its
+    // current value (`detail`), the Account row's health badge and usage card
+    // (`preview`, beside the row while hovered or highlighted), Issue › rows
+    // led by a status glyph and their mono `identifier`.
+    {
+      label: `items · detail + identifier + preview`,
+      node: {
+        id: `composer_menu`,
+        component: `Menu`,
+        props: {
+          label: `Options`,
+          items: [
+            { label: `Model`, kind: `submenu`, detail: `Opus`, items: [{ label: `Opus`, value: `opus`, kind: `checkbox`, checked: true }, { label: `Sonnet`, value: `sonnet`, kind: `checkbox` }] },
+            {
+              label: `ada@example.com`,
+              value: `account`,
+              icon: `brand-claude`,
+              detail: `Healthy`,
+              preview: { root: { id: `usage`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `usage_title`, component: `Text`, props: { text: `5-hour limit`, variant: `caption` } }, { id: `usage_bar`, component: `Progress`, props: { value: 42, label: `42%` } }] } },
+            },
+            { label: `Issue`, kind: `submenu`, items: [{ label: `Fix the login redirect`, value: `EXP-12`, identifier: `EXP-12`, icon: `status-in-progress` }, { label: `Ship the composer menu`, value: `EXP-14`, identifier: `EXP-14`, icon: `status-done` }] },
+          ],
+        },
+        children: [{ id: `composer_plus`, component: `Button`, props: { icon: `ui-add`, label: `Options`, variant: `ghost`, size: `icon` } }],
+      },
+    },
   ],
   // #EXP-1629 / #EXP-1754 (fixtures/avatar.json): no seed = the name keys the
   // hue, nothing at all = the muted fallback, an
@@ -1187,6 +1213,17 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       children: [
         { id: `upstream`, component: `Select`, props: { label: `github`, name: `upstream`, triggerVariant: `button`, value: `s1`, options: [{ label: `Not set up`, value: `none` }, { label: `GitHub`, value: `s1` }, { label: `GitHub (work account)`, value: `s2` }] }, style: { width: 144 } },
         { id: `upstream_busy`, component: `Select`, props: { label: `linear`, name: `upstreamBusy`, triggerVariant: `button`, value: `none`, disabled: true, options: [{ label: `Not set up`, value: `none` }] }, style: { width: 144 } },
+      ],
+    },
+  }, {
+    // #EXP-1629: a locked row (the IDE's Effort row under ultracode): the
+    // value and the chevron at 0.35 (the 0.7 value tone halved).
+    label: `triggerVariant · row + description, disabled`,
+    node: {
+      id: `agent_effort`,
+      component: `Group`,
+      children: [
+        { id: `effort_locked`, component: `Select`, props: { label: `Effort`, name: `effort`, triggerVariant: `row`, description: `ultracode sets effort`, disabled: true, value: `max`, options: [{ label: `High`, value: `high` }, { label: `Max`, value: `max` }] } },
       ],
     },
   }, {

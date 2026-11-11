@@ -6,6 +6,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - Select `button` trigger + Text `truncate` (#EXP-1778), React's: no label part, the `Select.dropdown` glyph, the pointer menu's popup geometry; a `middle` Text cuts its line with `watchMiddleTruncate`.
+- Select `row` disabled (#EXP-1629): the exponential theme's dimmed value + chevron, from the recipes.
+- Menu item `detail`, `identifier`, `preview` (#EXP-1629), React's: the `identifier` / `detail` parts, the preview box beside its row (`natives/menu-preview.tsx`, the keyboard modality from `isUsingKeyboard`), its events the Menu's `action`; `menuRows` + `menuPreview` replay here.
 - Select option `iconColor` (#EXP-1629), React's (parity-tested open).
 - Composer matches the app, like React: the `ui-submit` send glyph (`CircleArrowUp`) and the flat field stretching across the row, its text at the recipe's padding-top.
 - Menu item `iconColor` (#EXP-1629), React's: the tinted glyph, and a `checkbox` entry's `icon`.
