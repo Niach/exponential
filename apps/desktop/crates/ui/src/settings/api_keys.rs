@@ -24,7 +24,7 @@
 use std::rc::Rc;
 
 use gpui::{div, App, AppContext as _, ClipboardItem, Entity, IntoElement, ParentElement, Render, SharedString, Styled, Window};
-use gpui_component::{button::ButtonVariant, input::InputState, v_flex, ActiveTheme as _};
+use gpui_component::{button::ButtonVariant, ActiveTheme as _};
 use serde_json::{json, Value};
 
 use eui_gpui::binding::Binding;
@@ -33,7 +33,6 @@ use eui_gpui::view::SurfaceView;
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
-use crate::controls::{glass_input, WebControl as _};
 use crate::scope_picker::{ScopePicker, ScopeSelection, ScopeTeam};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
@@ -96,7 +95,6 @@ pub struct ApiKeysPane {
     /// The last mint's raw key — the one-time reveal block. Cleared on
     /// [`Self::mark_stale`] (pane re-entry) and by the dismiss button.
     minted: Option<MintedPersonalKey>,
-    name_input: Entity<InputState>,
     /// FEED-79: the load in flight is the person's Retry press (its failure
     /// toasts); a load on entry or after a write fails quietly.
     retry_pressed: bool,
@@ -109,7 +107,6 @@ const PATH: &str = "/pane";
 
 impl ApiKeysPane {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Personal key"));
         // The actions leave the binding for the pane: Create and Revoke
         // confirm in a native alert, Copy writes the clipboard.
         let pane = cx.weak_entity();
@@ -157,7 +154,6 @@ impl ApiKeysPane {
             generation: 0,
             busy: false,
             minted: None,
-            name_input,
             retry_pressed: false,
             binding,
             view,
@@ -328,48 +324,21 @@ impl ApiKeysPane {
     /// off) and surfaces the raw key in the pane's one-time reveal. An
     /// empty pick keeps the dialog open with the refusal under the picker.
     fn open_mint_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.name_input.update(cx, |state, cx| {
-            state.set_value("", window, cx);
-        });
-        // The member's synced teams + live boards — the web dialog's
-        // `mcpGrants.scopeTree`, read off the store instead of the wire.
-        let tree = ScopeTeam::from_store(cx);
-        let picker = cx.new(|_| {
-            ScopePicker::new("api-key-scope", tree, ScopeSelection::everything())
-                .scoped_note(SCOPED_KEY_NOTE)
-                .tree_max_height(gpui::px(168.))
-        });
+        // A fresh body per open: the field starts empty, the pick on
+        // Everything. The member's synced teams + live boards — the web
+        // dialog's `mcpGrants.scopeTree`, read off the store instead of the
+        // wire.
+        let content = cx.new(|cx| MintKeyContent::new(ScopeTeam::from_store(cx), ScopeSelection::everything(), "", window, cx));
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
-        let content_input = self.name_input.clone();
-        let content_picker = picker.clone();
-        let ok_input = self.name_input.clone();
-        let ok_picker = picker.clone();
+        let ok_content = content.clone();
         let spec = AlertSpec::new(
             "Create API key",
             "For scripts and MCP clients. The key acts as you within the \
              teams and boards you choose; revoke it here at any time.",
             "Create key",
         )
-        .content(move |window, cx| {
-            let muted = cx.theme().muted_foreground;
-            v_flex()
-                .gap_4()
-                .mt_2()
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(div().text_xs().text_color(muted).child("Name"))
-                        .child(glass_input(&content_input, window, cx).web_input_sm()),
-                )
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(div().text_xs().text_color(muted).child("Access"))
-                        .child(content_picker.clone()),
-                )
-                .into_any_element()
-        })
+        .content(move |_, _| content.clone().into_any_element())
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
@@ -377,15 +346,16 @@ impl ApiKeysPane {
             // FEED-76: "Everything" sends no scope — the key stays an
             // ordinary full key. An empty pick never mints (the web's
             // `hasScopeSelection` gate).
-            let scope = ok_picker.read(cx).effective();
+            let picker = ok_content.read(cx).picker.clone();
+            let scope = picker.read(cx).effective();
             if !scope.has_selection() {
-                ok_picker.update(cx, |picker, cx| {
+                picker.update(cx, |picker, cx| {
                     picker.set_error(Some(EMPTY_SCOPE_MESSAGE.into()), cx);
                 });
                 return false;
             }
             let scope = (!scope.all_teams).then_some(scope);
-            let typed = ok_input.read(cx).value().trim().to_string();
+            let typed = ok_content.read(cx).typed(cx).trim().to_string();
             let name = if typed.is_empty() {
                 "Personal key".to_string()
             } else {
@@ -543,6 +513,128 @@ impl ApiKeysPane {
             });
         open_alert(window, cx, spec);
     }
+}
+
+/// The Create API key alert's body (#EXP-1629: an eUI document): "Name"
+/// (`text_xs` muted) over the boxed field (`web_input_sm`), "Access" over
+/// the FEED-76 scope picker (`gap_1` each, `gap_4` between, under the
+/// description's `mt_2`). The picker is the IDE's own view in the
+/// document's Embed slot (`host_leaf`), measured at the slot's width before
+/// it paints. Its own entity so the alert reads the typed name and the pick
+/// on Create.
+pub(crate) struct MintKeyContent {
+    view: Entity<SurfaceView>,
+    picker: Entity<ScopePicker>,
+}
+
+/// The document's Embed the scope picker fills.
+const SCOPE_SLOT: &str = "scope_picker";
+
+/// The IDE's plugin plus the picker in [`SCOPE_SLOT`].
+struct MintPlugin {
+    inner: crate::exponential_ui_host::IdePlugin,
+    picker: Entity<ScopePicker>,
+    height: std::cell::Cell<f32>,
+}
+
+impl MintPlugin {
+    /// The picker in the window's own text style (the Root's family and
+    /// ink, gpui's `1rem` / `phi` line), not the surface's 14/20 it would
+    /// otherwise inherit.
+    fn picker(&self, cx: &App) -> gpui::AnyElement {
+        div()
+            .w_full()
+            .font_family(cx.theme().font_family.clone())
+            .text_size(gpui::rems(1.))
+            .line_height(gpui::phi())
+            .text_color(cx.theme().foreground)
+            .child(self.picker.clone())
+            .into_any_element()
+    }
+}
+
+impl eui_gpui::host::HostPlugin for MintPlugin {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        self.inner.icon(name)
+    }
+
+    fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
+        self.inner.on_unknown(node)
+    }
+
+    fn host_leaf_height(&self, component_id: &str, _width: f32, _window: &mut Window, _cx: &mut App) -> Option<f32> {
+        component_id.ends_with(SCOPE_SLOT).then(|| self.height.get())
+    }
+
+    fn host_leaf_prepaint(&self, component_id: &str, width: f32, window: &mut Window, cx: &mut App) -> bool {
+        if !component_id.ends_with(SCOPE_SLOT) {
+            return false;
+        }
+        let height = crate::chat_tab_transcript::measure(self.picker(cx), width, window, cx);
+        let old = self.height.replace(height);
+        (old - height).abs() > 0.01
+    }
+
+    fn host_leaf(&self, component_id: &str, _window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement> {
+        component_id.ends_with(SCOPE_SLOT).then(|| self.picker(cx))
+    }
+}
+
+impl MintKeyContent {
+    /// `typed`: the field's bound text (only the bench writes one).
+    fn new(tree: Vec<ScopeTeam>, value: ScopeSelection, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let picker = cx.new(|_| {
+            ScopePicker::new("api-key-scope", tree, value)
+                .scoped_note(SCOPED_KEY_NOTE)
+                .tree_max_height(gpui::px(168.))
+        });
+        let binding = cx.new(|_| {
+            let mut binding = Binding::new(PATH, json!({"name": typed}), |state: &Value, _| state.clone());
+            binding.set_toasts(Rc::new(IdeToasts));
+            binding
+        });
+        let plugin: Rc<dyn eui_gpui::host::HostPlugin> = Rc::new(MintPlugin { inner: super::doc::ide_plugin(), picker: picker.clone(), height: Default::default() });
+        let view = super::doc::mount_with("api-key-create", mint_document(&Ink::of(cx)), &binding, plugin, false, window, cx);
+        Self { view, picker }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_shots(tree: Vec<ScopeTeam>, value: ScopeSelection, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(tree, value, typed, window, cx)
+    }
+
+    /// The bench's Create press on an empty pick: the refusal.
+    #[cfg(test)]
+    pub(crate) fn refuse(&self, cx: &mut App) {
+        self.picker.update(cx, |picker, cx| picker.set_error(Some(EMPTY_SCOPE_MESSAGE.into()), cx));
+    }
+
+    /// The name as typed (the field's live text, never a debounced echo).
+    fn typed(&self, cx: &App) -> String {
+        self.view.read(cx).field_text("name.field", cx).unwrap_or_default()
+    }
+}
+
+impl Render for MintKeyContent {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let _span = tracing::trace_span!("render", view = "MintKeyContent").entered();
+        div().w_full().min_w_0().child(self.view.clone())
+    }
+}
+
+/// The Create body's tree (`gap_4`, `mt_2` as the root's top padding): the
+/// Name block (the muted label over the `sm` boxed field) and the Access
+/// block (the muted label over the picker's slot). Enter in the single-line
+/// field reaches the alert's confirm, so the Input wires no submit.
+fn mint_document(ink: &Ink) -> Value {
+    let block = |id: &str, children: Vec<Value>| json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)}, "children": children});
+    let input = json!({"id": "name", "component": "Input", "props": {"variant": "box", "size": "sm", "label": "Name", "name": "name", "placeholder": "Personal key", "value": path("/pane/name")},
+        "style": {"width": "100%"}});
+    let slot = json!({"id": SCOPE_SLOT, "component": "Embed", "props": {"surface": {}}, "style": {"width": "100%"}});
+    let name = block("name_block", vec![ink.text("name_label", json!("Name"), XS, &ink.muted), input]);
+    let access = block("access_block", vec![ink.text("access_label", json!("Access"), XS, &ink.muted), slot]);
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(1.), "paddingTop": ink.r(0.5)},
+        "children": [name, access]})
 }
 
 /// The revoke / disconnect alert's body (EXP-771; #EXP-1629: an eUI
@@ -793,6 +885,18 @@ fn local_store(cx: &App) -> Option<(TokenStore, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1629: the Create body raises no issue a debug build's mount
+    /// check refuses (#EXP-1767's class).
+    #[test]
+    fn the_mint_document_raises_no_unexpected_issue() {
+        let tree = mint_document(&super::super::readiness::tests::test_ink());
+        let bound = super::super::doc::bound_values(&tree);
+        let mut surface = eui_core::surface::Surface::new("api-key-create", Default::default());
+        let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
+        let issues = super::super::doc::unexpected_issues(&bound, &outcome.issues);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
 
     /// #EXP-1629: the revoke body raises no issue a debug build's mount
     /// check refuses (#EXP-1767's class).
