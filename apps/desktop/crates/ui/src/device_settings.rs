@@ -54,7 +54,6 @@ use gpui_component::{
     button::{ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    select::Select,
     v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon,
 };
 use sync::Store;
@@ -324,29 +323,15 @@ pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
 }
 
 /// EXP-1236 / NEW-59: the Computer use band's tail while the switch is on:
-/// the Computer use model row, then the Work screen row (`fixtures/
-/// work-screen.json`: the same picker row, directly under it), as the
-/// readiness block's host rows (`settings::readiness::TAIL_SLOTS`). Shared
-/// with the styleguide twin.
-pub(crate) fn computer_use_rows(model: &ChoiceSelect, work_screen: &ChoiceSelect) -> Vec<device_readiness::TailRow> {
-    let (model, work_screen) = (model.clone(), work_screen.clone());
-    vec![
-        Rc::new(move |_window: &mut Window, cx: &mut App| {
-            surface::glass_picker_row("Computer use model", None, surface::glass_picker_select(Select::new(&model), cx).into_any_element(), cx).into_any_element()
-        }),
-        Rc::new(move |_window: &mut Window, cx: &mut App| {
-            let row = surface::glass_picker_row(
-                SharedString::from(domain::work_screen::WORK_SCREEN.copy.row.clone()),
-                None,
-                surface::glass_picker_select(Select::new(&work_screen), cx).into_any_element(),
-                cx,
-            );
-            gpui::InteractiveElement::id(gpui::div(), SharedString::from(domain::work_screen::WORK_SCREEN.test_ids.row.clone()))
-                .w_full()
-                .child(row)
-                .into_any_element()
-        }),
-    ]
+/// the Computer use model row (`model`, over claude's models), then the Work
+/// screen row (`fixtures/work-screen.json`: the same picker row, directly
+/// under it; `work_screen` = its picker key over `screens`), as the readiness
+/// block's picker rows (`settings::readiness::TAIL_SLOTS`, #EXP-1771 genUI
+/// Selects). Shared with the settings bench.
+pub(crate) fn computer_use_tail(model: String, work_screen: String, screens: &[domain::work_screen::WorkScreenOption]) -> Vec<device_readiness::TailPicker> {
+    let models = crate::coding_selects::model_choices_for(CodingAgent::Claude).iter().map(|(label, value)| (label.to_string(), value.to_string())).collect();
+    let screens = screens.iter().map(|option| (option.label.clone(), crate::coding_selects::work_screen_value(option.value.as_deref()).to_string())).collect();
+    vec![device_readiness::TailPicker { value: model, options: models }, device_readiness::TailPicker { value: work_screen, options: screens }]
 }
 
 /// A REMOTE row's defaults baseline: its `launch_defaults` clamped onto a
@@ -871,11 +856,26 @@ impl DeviceSettingsView {
     /// NEW-59 the Work screen picker row under it, drawn only while the
     /// switch is on. The selects' observers save a pick through the launch
     /// defaults, like the switch.
-    fn computer_use_rows(&self) -> Vec<device_readiness::TailRow> {
+    fn computer_use_rows(&self, cx: &App) -> Vec<device_readiness::TailPicker> {
         if !self.computer_use {
             return Vec::new();
         }
-        computer_use_rows(&self.computer_use_model_select, &self.work_screen_select)
+        computer_use_tail(selected(&self.computer_use_model_select, cx), selected(&self.work_screen_select, cx), &self.work_screen_options)
+    }
+
+    /// #EXP-1771: a pick in one of [`Self::computer_use_rows`] lands in its
+    /// select, whose observer saves it (EXP-694 autosave).
+    fn computer_use_pick(cx: &gpui::Context<Self>) -> device_readiness::PickHandler {
+        let view = cx.entity().downgrade();
+        Rc::new(move |slot, value, window, cx| {
+            let _ = view.update(cx, |this, cx| {
+                let select = if slot == 0 { this.computer_use_model_select.clone() } else { this.work_screen_select.clone() };
+                select.update(cx, |select, cx| {
+                    select.set_selected_value(&SharedString::from(value), window, cx);
+                    cx.notify();
+                });
+            });
+        })
     }
 
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>, cx: &mut App) {
@@ -1822,7 +1822,8 @@ impl DeviceSettingsView {
                                 cx.notify();
                             });
                         })),
-                        computer_use_tail: self.computer_use_rows(),
+                        computer_use_tail: self.computer_use_rows(cx),
+                        on_pick: Some(Self::computer_use_pick(cx)),
                         ..device_readiness::BlockProps::default()
                     };
                     let row = device_readiness::bare_switch_row(self.computer_use);
@@ -1876,7 +1877,8 @@ impl DeviceSettingsView {
                 cx.notify();
             });
         }));
-        props.computer_use_tail = self.computer_use_rows();
+        props.computer_use_tail = self.computer_use_rows(cx);
+        props.on_pick = Some(Self::computer_use_pick(cx));
         for agent in CodingAgent::ALL {
             if let Some(message) = self.section_notes.get(&format!("update {}", agent.id())) {
                 props.notes.insert(agent.id().to_string(), message.to_string());

@@ -131,6 +131,8 @@ impl LocalDoctor {
                 let hub = CodingHub::global(cx);
                 CodingHub::refresh_doctor(&hub, cx);
             }
+            // THIS device's block carries no picker rows.
+            Event::Pick { .. } => {}
         }
     }
 
@@ -156,7 +158,7 @@ impl LocalDoctor {
                 paths.insert(item.key.clone(), PathField { open: self.path_open.contains(&agent), value: self.shown.get(&agent).cloned().unwrap_or_default(), placeholder: placeholder.to_string() });
             }
         }
-        let facts = Facts { busy: &busy, toggle: true, notes: &notes, paths: &paths, tail: 0 };
+        let facts = Facts { busy: &busy, toggle: true, notes: &notes, paths: &paths, tail: &[] };
         let mut state = match &doctor {
             None => readiness::project(Shape::Loading, &facts),
             Some(doctor) => readiness::project(Shape::Sections(&device_readiness::sections(doctor, true, None)), &facts),
