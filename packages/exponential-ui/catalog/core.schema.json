@@ -13195,7 +13195,7 @@
             "pill",
             "button"
           ],
-          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button.",
+          "description": "`row` = a Group row (label, value, chevron); `pill` = small capsule; `button` = outline small button led by the picked option's icon.",
           "default": "field"
         },
         "triggerIcon": {
