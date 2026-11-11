@@ -38,7 +38,6 @@ use gpui::{
     ScrollEvent, SharedString, Size, Styled, StyledText, Window,
 };
 use gpui_component::{
-    h_flex,
     scroll::{ScrollableElement as _, ScrollbarAxis, ScrollbarHandle},
     v_flex, v_virtual_list, ActiveTheme as _, ElementExt as _, Sizable as _,
     VirtualListScrollHandle,
@@ -59,20 +58,33 @@ use gpui_component::highlighter::HighlightTheme;
 /// Web renders the patch at `text-[0.6875rem]` (11px) mono — mirrored here.
 const CODE_TEXT_SIZE: f32 = 11.0;
 const LINE_ROW_H: f32 = 18.0;
-const LINE_ROW_H_COMPACT: f32 = 15.0;
+/// #EXP-1789: the edited-files card's patch = web's flush `FileDiffCard`
+/// body, 11px `leading-relaxed` (17.875, the review's 18 rounded); its hunk
+/// and gap bands add web's `py-0.5`.
+const LINE_ROW_H_COMPACT: f32 = 18.0;
+const BAND_ROW_H_COMPACT: f32 = 22.0;
 /// The per-file header is a glass row CARD (a clickable disclosure), so it
 /// needs a control's height.
 const FILE_HEADER_H: f32 = 30.0;
-const FILE_HEADER_H_COMPACT: f32 = 24.0;
+/// #EXP-1789: the edited-files card's row = web's flush `FileDiffCard`
+/// header: `py-1.5` around a 16px `text-xs` line, plus its 1px `border-b`.
+const FILE_HEADER_H_COMPACT: f32 = 29.0;
+/// The file header's type: web's `text-xs` (12px) on every face.
+const HEADER_TEXT_SIZE: f32 = 12.0;
 const NOTE_ROW_H: f32 = 22.0;
 const FILE_GAP_H: f32 = 8.0;
-/// Line-number gutter width — 4 digits + padding at 11px mono.
-const GUTTER_W: f32 = 36.0;
+/// Line-number gutter width = web's `FileDiffCard` grid (`3rem`; #EXP-1789),
+/// right-aligned with web's `pr-2`.
+const GUTTER_W: f32 = 48.0;
+/// The edited-files card's gutters: web's compact `2.5rem`.
+const GUTTER_W_COMPACT: f32 = 40.0;
 /// The virtual list's own inset around the file cards (and the status
 /// lines): hosts that put the cards on an edge subtract it (EXP-1191).
 pub(crate) const LIST_PAD: f32 = 8.;
-/// The `+`/`−`/`` sign column between the gutters and the text.
-const SIGN_W: f32 = 14.0;
+/// The `+`/`−`/`` sign column between the gutters and the text: web's
+/// `1rem`, compact `0.75rem`.
+const SIGN_W: f32 = 16.0;
+const SIGN_W_COMPACT: f32 = 12.0;
 /// Estimated mono advance at 11px — sizes rows for horizontal scrolling
 /// (slightly generous so the longest line never clips at the right edge).
 const CHAR_W: f32 = 6.8;
@@ -171,6 +183,31 @@ impl DiffOptions {
         }
     }
 
+    fn gutter_w(&self) -> f32 {
+        if self.compact {
+            GUTTER_W_COMPACT
+        } else {
+            GUTTER_W
+        }
+    }
+
+    fn sign_w(&self) -> f32 {
+        if self.compact {
+            SIGN_W_COMPACT
+        } else {
+            SIGN_W
+        }
+    }
+
+    /// A hunk header / unchanged-gap band.
+    fn band_h(&self) -> f32 {
+        if self.compact {
+            BAND_ROW_H_COMPACT
+        } else {
+            LINE_ROW_H
+        }
+    }
+
     fn header_h(&self) -> f32 {
         if self.compact {
             FILE_HEADER_H_COMPACT
@@ -179,12 +216,10 @@ impl DiffOptions {
         }
     }
 
+    /// Web's `text-[0.6875rem]` on both faces (#EXP-1789: the card's patch
+    /// was a point smaller).
     fn text_size(&self) -> f32 {
-        if self.compact {
-            CODE_TEXT_SIZE - 1.
-        } else {
-            CODE_TEXT_SIZE
-        }
+        CODE_TEXT_SIZE
     }
 }
 
@@ -242,9 +277,8 @@ impl RenderRow {
         match self {
             RenderRow::FileHeader { .. } => px(options.header_h()),
             RenderRow::Note { .. } => px(NOTE_ROW_H),
-            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } | RenderRow::Line { .. } => {
-                px(options.line_h())
-            }
+            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } => px(options.band_h()),
+            RenderRow::Line { .. } => px(options.line_h()),
             RenderRow::FileGap => px(FILE_GAP_H),
         }
     }
@@ -388,9 +422,8 @@ pub(crate) fn rows_height(rows: &[RenderRow], options: &DiffOptions) -> f32 {
             RenderRow::FileGap => FILE_GAP_H,
             RenderRow::FileHeader { .. } => options.header_h(),
             RenderRow::Note { .. } => NOTE_ROW_H,
-            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } | RenderRow::Line { .. } => {
-                options.line_h()
-            }
+            RenderRow::HunkHeader { .. } | RenderRow::Unchanged { .. } => options.band_h(),
+            RenderRow::Line { .. } => options.line_h(),
         })
         .sum()
 }
@@ -423,6 +456,95 @@ pub(crate) fn split_path(path: &str) -> (String, String) {
         Some(slash) => (path[..=slash].to_string(), path[slash + 1..].to_string()),
         None => (String::new(), path.to_string()),
     }
+}
+
+/// #EXP-1789: a path run's shown (directory, name) in `width` px, the look
+/// web and the phones share: the directory gets the room the name leaves,
+/// never less than 2 characters, cut by the genUI middle rule
+/// (`eui_core::text_truncate`: 4 characters kept or the `…` alone), so a long
+/// name leaves a lone `…` before it; the name end-cuts only once the
+/// directory is down to that `…`. Pure over a per-character `measure`.
+pub(crate) fn path_run_cut(dir: &str, name: &str, width: f64, measure: impl Fn(char) -> f64) -> (String, String) {
+    let run_w = |s: &str| s.chars().map(&measure).sum::<f64>();
+    let name_w = run_w(name);
+    if dir.is_empty() || run_w(dir) + name_w <= width {
+        let shown_dir = dir.to_string();
+        let room = width - run_w(&shown_dir);
+        return (shown_dir, end_cut(name, room, &measure));
+    }
+    let dir_room = (width - name_w).max(2. * measure('0'));
+    let shown_dir = eui_core::text_truncate::middle_truncate_width(dir, dir_room, &measure, "\u{2026}");
+    let room = width - run_w(&shown_dir);
+    (shown_dir, end_cut(name, room, &measure))
+}
+
+/// `text` in `width` px, end-cut with a `…` (CSS `text-overflow: ellipsis`).
+fn end_cut(text: &str, width: f64, measure: &impl Fn(char) -> f64) -> String {
+    if text.chars().map(measure).sum::<f64>() <= width {
+        return text.to_string();
+    }
+    let budget = width - measure('\u{2026}');
+    if budget < 0. {
+        return String::new();
+    }
+    let mut used = 0.;
+    let mut kept = String::new();
+    for ch in text.chars() {
+        let w = measure(ch);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        kept.push(ch);
+    }
+    kept.push('\u{2026}');
+    kept
+}
+
+/// #EXP-1789: the dimmed directory + the file name as ONE painted run that
+/// fills its flex slot ([`path_run_cut`] over the slot's width, measured
+/// with the row's inherited font by per-character advance), left-aligned and
+/// vertically centred. The row keeps the hover tooltip with the full path.
+pub(crate) fn path_run(dir: impl Into<SharedString>, name: impl Into<SharedString>, dir_color: gpui::Hsla, name_color: gpui::Hsla) -> gpui::Canvas<()> {
+    let (dir, name): (SharedString, SharedString) = (dir.into(), name.into());
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let font = style.font();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let line_height = window.line_height();
+            let ts = window.text_system().clone();
+            let id = ts.resolve_font(&font);
+            let measure = |ch: char| match ts.advance(id, size, ch) {
+                Ok(advance) => f64::from(f32::from(advance.width)),
+                Err(_) => f64::from(f32::from(size)) * 0.6,
+            };
+            let (shown_dir, shown_name) = path_run_cut(&dir, &name, f64::from(f32::from(bounds.size.width)), measure);
+            let text = SharedString::from(format!("{shown_dir}{shown_name}"));
+            let run = |len: usize, color: gpui::Hsla| gpui::TextRun {
+                len,
+                font: font.clone(),
+                color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let runs: Vec<gpui::TextRun> = [(shown_dir.len(), dir_color), (shown_name.len(), name_color)]
+                .into_iter()
+                .filter(|(len, _)| *len > 0)
+                .map(|(len, color)| run(len, color))
+                .collect();
+            if runs.is_empty() {
+                return;
+            }
+            let line = ts.shape_line(text, size, &runs, None);
+            let origin = point(bounds.origin.x, bounds.origin.y + (bounds.size.height - line_height) / 2.);
+            window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
+                let _ = line.paint(origin, line_height, gpui::TextAlign::Left, None, window, cx);
+            });
+        },
+    )
 }
 
 /// What a file with NO hunks says instead of rows — web `noHunksNote`, word
@@ -883,6 +1005,8 @@ pub(crate) fn render_diff_row(
             let chevron = gpui_component::Icon::new(crate::icons::registry::UI_CHEVRON_DOWN)
                 .xsmall()
                 .text_color(theme.muted_foreground);
+            // #EXP-1789: the card's chevron is web's `size-3.5`.
+            let chevron = if options.compact { chevron.size(px(14.)) } else { chevron };
             let chevron: AnyElement = if expanded {
                 chevron
                     .transform(gpui::Transformation::rotate(gpui::percentage(0.5)))
@@ -904,7 +1028,7 @@ pub(crate) fn render_diff_row(
         RenderRow::HunkHeader { header } => card_row(shape, options)
             .flex()
             .items_center()
-            .h(px(options.line_h()))
+            .h(px(options.band_h()))
             .bg(theme::tokens::diff::HUNK_BG.to_hsla())
             .text_color(theme::tokens::diff::HUNK_FG.to_hsla())
             .font_family(mono)
@@ -921,7 +1045,7 @@ pub(crate) fn render_diff_row(
             .flex()
             .items_center()
             .justify_center()
-            .h(px(options.line_h()))
+            .h(px(options.band_h()))
             .bg(theme::tokens::diff::HUNK_BG.to_hsla().opacity(0.6))
             .text_color(theme::tokens::diff::GUTTER_FG.to_hsla())
             .font_family(mono)
@@ -953,13 +1077,13 @@ pub(crate) fn render_diff_row(
             };
             let number = |value: Option<u32>| {
                 div()
-                    .w(px(GUTTER_W))
+                    .w(px(options.gutter_w()))
                     .h_full()
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_end()
-                    .px_1()
+                    .pr(px(8.))
                     .text_color(gutter)
                     .child(SharedString::from(
                         value.map(|n| n.to_string()).unwrap_or_default(),
@@ -974,16 +1098,22 @@ pub(crate) fn render_diff_row(
             if let Some(wash) = wash {
                 line = line.bg(wash);
             }
-            // The OLD gutter is the first thing a narrow surface gives up —
-            // the transcript's inline card is ~400px wide and the new-side
-            // number is the one a reader follows.
-            if !options.compact {
-                line = line.child(number(*old_no));
-            }
-            line.child(number(*new_no))
+            // #EXP-1789: both gutters on every face, web's grid (the card's
+            // narrower, `2.5rem 2.5rem 0.75rem`).
+            // Web's text colour: a highlighted patch reads in the foreground
+            // at 90 %; an unhighlighted one (the card) takes the line's kind.
+            let ink = match kind {
+                DiffLineKind::Meta => gutter,
+                _ if options.highlight => theme.foreground.opacity(0.9),
+                DiffLineKind::Add => theme::tokens::diff::ADD_FG.to_hsla(),
+                DiffLineKind::Del => theme::tokens::diff::DEL_FG.to_hsla(),
+                DiffLineKind::Context => theme.muted_foreground,
+            };
+            line.child(number(*old_no))
+                .child(number(*new_no))
                 .child(
                     div()
-                        .w(px(SIGN_W))
+                        .w(px(options.sign_w()))
                         .h_full()
                         .flex_shrink_0()
                         .flex()
@@ -1004,13 +1134,9 @@ pub(crate) fn render_diff_row(
                             div()
                                 .flex_shrink_0()
                                 .ml(shift)
-                                .pr_2()
+                                .pr(px(12.))
                                 .whitespace_nowrap()
-                                .text_color(if *kind == DiffLineKind::Meta {
-                                    gutter
-                                } else {
-                                    theme.foreground.opacity(0.9)
-                                })
+                                .text_color(ink)
                                 .child(
                                     StyledText::new(if text.is_empty() {
                                         SharedString::from(" ")
@@ -1051,7 +1177,10 @@ fn file_header_row(
     let theme = cx.theme();
     let mono = theme.mono_font_family.clone();
     let muted = theme.muted_foreground;
-    let text_size = px(options.text_size() + 1.);
+    let text_size = px(HEADER_TEXT_SIZE);
+    // #EXP-1789: the edited-files card's row takes web's `px-3`; the review
+    // page keeps its own inset.
+    let inset = if options.compact { px(12.) } else { px(8.) };
     let mut header = card_row(shape, options)
         // EXP-916: the file header is the ONE glassy band of a diff — the
         // section-band fill every other grouped list wears, never an opaque
@@ -1060,7 +1189,7 @@ fn file_header_row(
         .flex()
         .items_center()
         .h(px(options.header_h()))
-        .px_2()
+        .px(inset)
         .gap_2()
         .text_size(text_size)
         .font_family(mono)
@@ -1069,27 +1198,18 @@ fn file_header_row(
                 .flex_shrink_0()
                 .w(px(12.))
                 .text_center()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(status_color(*status, cx))
                 .child(status_letter(*status)),
         )
         .child(
-            h_flex()
+            // #EXP-1789: the DIRECTORY gives way, cut in the middle by the
+            // genUI Text `truncate: "middle"` rule; the file name keeps its
+            // full width unless it alone outgrows the row.
+            path_run(dir.clone(), name.clone(), muted, theme.foreground)
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(muted)
-                        .child(dir.clone()),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(theme.foreground)
-                        .child(name.clone()),
-                ),
+                .h_full(),
         );
     if let Some(previous) = previous_path {
         header = header.child(
@@ -1101,17 +1221,33 @@ fn file_header_row(
                 .child(SharedString::from(format!("\u{2190} {previous}"))),
         );
     }
+    let add = theme::tokens::diff::ADD_FG.to_hsla();
+    let del = theme::tokens::diff::DEL_FG.to_hsla();
+    if options.compact {
+        // #EXP-1789: web's `DiffCounts`, ONE mono run `+12 -0` (a space, not
+        // the row's gap, between the two).
+        let added = additions_label(*additions);
+        let text = SharedString::from(format!("{added} {}", deletions_label(*deletions)));
+        let split = added.len();
+        let counts = StyledText::new(text.clone()).with_highlights([
+            (0..split, HighlightStyle { color: Some(add), ..Default::default() }),
+            (split..text.len(), HighlightStyle { color: Some(del), ..Default::default() }),
+        ]);
+        return header
+            .child(div().flex_shrink_0().whitespace_nowrap().child(counts))
+            .child(div().flex_shrink_0().child(chevron));
+    }
     header
         .child(
             div()
                 .flex_shrink_0()
-                .text_color(theme::tokens::diff::ADD_FG.to_hsla())
+                .text_color(add)
                 .child(SharedString::from(additions_label(*additions))),
         )
         .child(
             div()
                 .flex_shrink_0()
-                .text_color(theme::tokens::diff::DEL_FG.to_hsla())
+                .text_color(del)
                 .child(SharedString::from(deletions_label(*deletions))),
         )
         .child(div().flex_shrink_0().child(chevron))
@@ -1247,7 +1383,7 @@ impl DiffView {
     ) {
         self.text_w = required_text_width(&rows);
         self.h_scroll
-            .set_content_width(px(2. * GUTTER_W + SIGN_W + self.text_w));
+            .set_content_width(px(2. * self.options.gutter_w() + self.options.sign_w() + self.text_w));
         self.rows = rows;
         self.files = summaries;
         self.expanded.clear();
@@ -1540,6 +1676,21 @@ impl Render for DiffView {
 mod tests {
     use super::*;
 
+    /// #EXP-1789: the path run in a mono row (every character 1 wide): the
+    /// directory takes the room the name leaves, down to 2 characters, cut by
+    /// the genUI middle rule; the name end-cuts only once it is a lone `…`.
+    #[test]
+    fn the_path_run_cuts_the_directory_first() {
+        let mono = |_: char| 1.;
+        let cut = |dir: &str, name: &str, width: f64| path_run_cut(dir, name, width, mono);
+        assert_eq!(cut("apps/web/", "a.tsx", 20.), ("apps/web/".into(), "a.tsx".into()));
+        assert_eq!(cut("apps/web/src/components/", "agent.tsx", 25.), ("apps/web/s\u{2026}ents/".into(), "agent.tsx".into()));
+        // Fewer than 4 characters kept = the `…` alone, never `/h…/`.
+        assert_eq!(cut("/home/niach/", "a-long-memory-file.md", 26.), ("\u{2026}".into(), "a-long-memory-file.md".into()));
+        assert_eq!(cut("/home/niach/", "a-long-memory-file.md", 12.), ("\u{2026}".into(), "a-long-mem\u{2026}".into()));
+        assert_eq!(cut("", "main.rs", 4.), (String::new(), "mai\u{2026}".into()));
+    }
+
     /// EXP-1142: the pre-layout height IS the render-time height — the
     /// compact card rows at their constants, the note and the gap at theirs.
     #[test]
@@ -1571,7 +1722,7 @@ mod tests {
         let compact = DiffOptions::card();
         assert_eq!(
             rows_height(&rows, &compact),
-            FILE_HEADER_H_COMPACT + 4. * LINE_ROW_H_COMPACT + NOTE_ROW_H + FILE_GAP_H
+            FILE_HEADER_H_COMPACT + 2. * BAND_ROW_H_COMPACT + 2. * LINE_ROW_H_COMPACT + NOTE_ROW_H + FILE_GAP_H
         );
         assert_eq!(
             rows_height(&rows, &DiffOptions::pane()),
@@ -1879,7 +2030,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_rows_are_shorter_and_unhighlighted() {
+    fn compact_headers_are_shorter_and_rows_unhighlighted() {
         let theme = HighlightTheme::default_dark();
         let compact = DiffOptions::card();
         let (rows, _) = build_rows(&files_from_pull(&[rs_file()]), &theme, &compact);
@@ -1891,7 +2042,9 @@ mod tests {
             .iter()
             .find(|row| matches!(row, RenderRow::Line { .. }))
             .expect("a line row");
-        assert!(line.height(&compact) < line.height(&DiffOptions::review()));
+        // #EXP-1789: the card's patch reads at web's 11px leading-relaxed, the
+        // review's line; only its header is shorter.
+        assert_eq!(line.height(&compact), line.height(&DiffOptions::review()));
         let header = &rows[0];
         assert!(header.height(&compact) < header.height(&DiffOptions::review()));
     }

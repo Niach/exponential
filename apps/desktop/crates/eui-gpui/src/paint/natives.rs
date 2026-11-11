@@ -410,12 +410,34 @@ impl LeafCx<'_> {
     }
 }
 
+/// #EXP-1789: `text` cut in the middle to `width` px by the shared genUI
+/// rule (`eui_core::text_truncate::middle_truncate_width`), each character
+/// measured by its advance in `font` at `size` (gpui's own per-character
+/// measure for a middle ellipsis).
+pub fn middle_cut(window: &Window, font: &Font, size: f32, text: &str, width: f32) -> String {
+    let ts = window.text_system();
+    let id = ts.resolve_font(font);
+    let measure = |c: char| ts.advance(id, px(size), c).map(|s| f64::from(f32::from(s.width))).unwrap_or(0.0);
+    eui_core::text_truncate::middle_truncate_width(text, f64::from(width), measure, "…")
+}
+
 /// Text lines (already broken by the measurer's rules) in the content box:
 /// one line truncates with an ellipsis; a `lines` clamp shows `n` lines, the
 /// last one ellipsized. `letterSpacing` paints through [`tracked_text`].
-pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyElement {
+pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>, window: &Window) -> AnyElement {
     let a = cx.align();
     let lh = cx.text_style.line_height;
+    // #EXP-1778/#EXP-1789: `truncate: middle` = the shared genUI cut
+    // (`eui_core::text_truncate`, 4 characters kept or the `…` alone) over
+    // exactly the content box, measured with the leaf's font; the cut line
+    // paints as is (never gpui's `text_ellipsis_middle`, which keeps any
+    // stray glyph).
+    if clamp == Some(1) && cx.str("truncate") == "middle" && cx.style.letter_spacing == 0.0 && cx.shimmer.is_none() {
+        let (x, y, w, h) = cx.inner();
+        let shown = middle_cut(window, &cx.font, cx.text_style.font_size, &lines.join(" "), w);
+        let shown = crate::text::with_paragraph_direction(&shown, cx.rtl).into_owned();
+        return aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().child(SharedString::from(shown)).into_any_element();
+    }
     // Round 2 §2: every line shapes with the node's paragraph direction.
     let marked: Vec<String> = lines.iter().map(|l| crate::text::with_paragraph_direction(l, cx.rtl).into_owned()).collect();
     let lines = &marked[..];
@@ -436,12 +458,6 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
     match clamp {
         // One ellipsized line: 1 px of slack on the trailing side, so a line
         // the measurer fitted exactly (sub-pixel float noise) never ellipsizes.
-        // #EXP-1778: `truncate: middle` = gpui's own middle ellipsis over
-        // exactly the content box (the IDE's `text_ellipsis_middle`).
-        Some(1) if cx.str("truncate") == "middle" => {
-            let (x, y, w, h) = cx.inner();
-            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))), a).overflow_hidden().whitespace_nowrap().text_ellipsis_middle().child(SharedString::from(lines.join(" "))).into_any_element()
-        }
         Some(1) => {
             let (x, y, w, h) = cx.inner();
             let x = match a {

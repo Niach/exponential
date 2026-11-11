@@ -3,7 +3,11 @@
 // every renderer replays. Widths are per character (`measure`), summed: the
 // line fits whole, else the `…` takes its width off the box and the rest
 // splits 2:1, the longest start that fits two thirds, then the longest end
-// that fits the remainder. No room for either = the `…` alone.
+// that fits the remainder. No room for either = the `…` alone, and so is a
+// cut keeping fewer than `MIDDLE_MIN_KEPT` characters (#EXP-1789).
+
+/** #EXP-1789: a cut keeping fewer characters than this shows the `…` alone. */
+export const MIDDLE_MIN_KEPT = 4
 
 /** The shown line of `text` in `width` px, cut in the middle. */
 export function middleTruncateWidth(text: string, width: number, measure: (ch: string) => number, affix = `…`): string {
@@ -22,6 +26,6 @@ export function middleTruncateWidth(text: string, width: number, measure: (ch: s
   let back = chars.length
   let backWidth = 0
   while (back > 0 && backWidth + widths[back - 1]! <= backBudget) backWidth += widths[--back]!
-  if (front >= back) return affix
+  if (front >= back || front + chars.length - back < MIDDLE_MIN_KEPT) return affix
   return `${chars.slice(0, front).join(``)}${affix}${chars.slice(back).join(``)}`
 }

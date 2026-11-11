@@ -70,7 +70,13 @@ export function EditedFilesCard({
 
   return (
     <div
-      className={cn(GLASS_SURFACE, `min-w-0 overflow-clip`, className)}
+      className={cn(
+        GLASS_SURFACE,
+        // #EXP-1789: the card FILLS its column — a transcript's sender column
+        // is `items-start`, which would otherwise size it to its longest path.
+        `w-full min-w-0 overflow-clip`,
+        className
+      )}
       data-testid="edited-files-card"
     >
       <div className="flex min-w-0 items-center gap-2 px-3 py-1.5 text-xs">

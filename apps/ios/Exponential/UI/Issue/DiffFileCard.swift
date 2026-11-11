@@ -1,6 +1,8 @@
 import ExpCore
 import ExpUI
+import ExponentialUI
 import SwiftUI
+import UIKit
 
 /// EXP-895/916 — ONE file's diff, ×4 (web `FileDiffCard`): a glassy
 /// `letter · dimmed dir/basename · +a −b · chevron` header over the collapsible
@@ -184,6 +186,9 @@ struct DiffCountsLabel: View {
                 .foregroundStyle(DesignTokens.Diff.delFg)
         }
         .font(font ?? Font.expMono(compact ? .caption2 : .caption))
+        // #EXP-1789: the counts are pinned whole — a long path (whose name
+        // outranks the rest of the row) never squeezes them to `+1…`.
+        .fixedSize()
         .accessibilityElement(children: .combine)
     }
 }
@@ -198,26 +203,49 @@ struct DiffPathLabel: View {
     /// EXP-916: the edit that never landed — the whole path tints danger.
     var failed = false
 
+    /// #EXP-1789: the width the row hands the label (it fills up to the counts).
+    @State private var width: CGFloat?
+
     var body: some View {
+        let dir = DiffPresentation.pathDirPrefix(path)
+        let base = DiffPresentation.pathBase(path)
         HStack(spacing: 0) {
-            let dir = DiffPresentation.pathDirPrefix(path)
             if !dir.isEmpty {
-                Text(dir)
+                Text(shownDir(dir, base: base))
                     .foregroundStyle(
                         failed
                             ? DesignTokens.Semantic.red.opacity(TextOpacity.secondary)
                             : Color.white.opacity(TextOpacity.tertiary)
                     )
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .fixedSize()
             }
-            Text(DiffPresentation.pathBase(path))
+            Text(base)
                 .foregroundStyle(failed ? DesignTokens.Semantic.red : Color.white)
                 .lineLimit(1)
-                .layoutPriority(1)
+                .truncationMode(.tail)
         }
         .font(Font.expMono(compact ? .caption2 : .caption))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
+        // #EXP-1789: the full path on hover (iPad pointer, Mac).
+        .help(path)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(path)
+    }
+
+    /// #EXP-1789, the web `DiffPath` rule ×4: the DIRECTORY gives way first,
+    /// middle-cut by the genUI Text `truncate: "middle"` rule
+    /// (`middleTruncateWidth`) to what the name leaves, never below 2ch, so a
+    /// name that alone fills the row keeps a lone `…` before it and only then
+    /// cuts at its end.
+    private func shownDir(_ dir: String, base: String) -> String {
+        guard let width else { return dir }
+        let size = UIFontMetrics(forTextStyle: compact ? .caption2 : .caption1)
+            .scaledValue(for: compact ? 11 : 12)
+        let font = UIFont.expMono(size: size)
+        let measure = { (s: String) in Double((s as NSString).size(withAttributes: [.font: font]).width) }
+        let room = max(Double(width) - measure(base), measure("00"))
+        return middleTruncateWidth(dir, width: room, measure: measure)
     }
 }

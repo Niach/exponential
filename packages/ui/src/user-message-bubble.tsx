@@ -273,7 +273,10 @@ export function TranscriptRow({
       <div className="flex size-8 shrink-0 items-start" aria-hidden={layout.avatar ? undefined : true}>
         {layout.avatar ? avatar : null}
       </div>
-      <div className="flex min-w-0 flex-1 flex-col items-start">{children}</div>
+      {/* #EXP-1789: `items-start` sizes a child to its content, so a row
+          whose content cannot wrap (a long path, an opened script) would run
+          past the column: every child is capped at the column's width. */}
+      <div className="flex min-w-0 flex-1 flex-col items-start *:max-w-full">{children}</div>
     </div>
   )
 }

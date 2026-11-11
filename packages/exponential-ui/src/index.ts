@@ -102,7 +102,7 @@ export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, 
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { partitionTabs, tabDropSlot, tabKeySlot, tabReorder, moveTab } from "./tabs-strip"
 export { SWIPE, swipeBlocks, swipeIndicator, swipeLock, swipeOffset, swipeProgress, swipeSettle, swipeStep, type SwipeLock } from "./swipe"
-export { middleTruncateWidth } from "./text-truncate"
+export { MIDDLE_MIN_KEPT, middleTruncateWidth } from "./text-truncate"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
 export type { Direction, PhysicalAlign } from "./direction"
 export { LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, LIMIT_ISSUES } from "./limits"

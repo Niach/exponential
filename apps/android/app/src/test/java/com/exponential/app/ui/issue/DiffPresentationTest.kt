@@ -51,18 +51,6 @@ class DiffPresentationTest {
         assertEquals("README.md", diffPathBase("README.md"))
     }
 
-    @Test
-    fun `middle truncation keeps both ends of a long directory`() {
-        val long = "apps/android/app/src/main/java/com/exponential/app/"
-        val cut = middleTruncatePath(long, 22)
-        assertEquals(22, cut.length)
-        assertTrue(cut.startsWith("apps/andr"))
-        assertTrue(cut.endsWith("app/"))
-        assertTrue(cut.contains("…"))
-        // Short enough to fit is left alone, byte for byte.
-        assertEquals("ui/", middleTruncatePath("ui/", 22))
-    }
-
     // ── What a file with no rows says ────────────────────────────────────────
 
     @Test

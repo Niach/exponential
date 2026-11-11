@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
@@ -95,7 +96,8 @@ fun EditedFilesCard(
         modifier = modifier.fillMaxWidth().glassCard().testTag("edited-files-card"),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            // #EXP-1789: web's title strip, `px-3 py-1.5 text-xs font-medium`.
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -107,7 +109,9 @@ fun EditedFilesCard(
             Spacer(Modifier.width(8.dp))
             Text(
                 card.title,
-                style = MaterialTheme.typography.labelSmall,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                letterSpacing = 0.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
             )

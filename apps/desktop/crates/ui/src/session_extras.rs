@@ -50,7 +50,7 @@ use gpui::{
     div, AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 
 use coding::scm::DiffFile;
 
@@ -319,17 +319,31 @@ pub(crate) fn render_edit_card(
         .w_full()
         .min_w_0()
         .child(
+            // #EXP-1789: web's title row: `px-3 py-1.5 gap-2 text-xs`, the
+            // title `font-medium` in the foreground, its 12px icon muted at 60%.
             h_flex()
                 .w_full()
                 .min_w_0()
-                .gap_1p5()
-                .px_2()
-                .py_1p5()
+                .gap_2()
+                .px(gpui::px(12.))
+                .py(gpui::px(6.))
                 .items_center()
-                .text_2xs()
-                .text_color(muted)
-                .child(Icon::new(registry::CODING_DIFF).xsmall())
-                .child(SharedString::from(view.title.clone())),
+                .text_size(gpui::px(12.))
+                .line_height(gpui::px(16.))
+                .child(
+                    Icon::new(registry::CODING_DIFF)
+                        .size(gpui::px(12.))
+                        .flex_shrink_0()
+                        .text_color(muted.opacity(0.6)),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
+                        .child(SharedString::from(view.title.clone())),
+                ),
         );
     let has_note = view.truncated_lines > 0;
     let has_fold = !live_clamped && domain::edit_card::edit_card_more_label(view.rows.len()).is_some();
@@ -472,7 +486,13 @@ fn edit_row_ready(
         "session-edit-body-{id}-{index}"
     )));
     let clicked = path.to_string();
-    let mut header_slot = div().id(row_id).w_full().min_w_0();
+    // #EXP-1789: the full path on hover — the row may show it cut.
+    let tip = SharedString::from(path.to_string());
+    let mut header_slot = div()
+        .id(row_id)
+        .w_full()
+        .min_w_0()
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx));
     // A collapsed LAST row is the card's bottom edge: its hover wash takes
     // the card's inner corners too.
     if last && !open {
@@ -527,49 +547,51 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     let failed = row.state == domain::edit_card::EditRowState::Failed;
     let pending = row.state == domain::edit_card::EditRowState::Pending;
     let (dir, name) = crate::diff::split_path(&row.path);
-    // A settled row reads like any other file name; only a pending one stays
-    // dim and only a failed one turns.
+    // #EXP-1789: web's stub (`FileDiffCard` over a `modified` stand-in): a
+    // muted `M`, the name in the foreground — a failed card turns the
+    // diff-red (`text-rose-400`), its `M` and directory staying muted.
     let tint = if failed {
-        theme.danger
-    } else if pending {
-        theme.muted_foreground
+        theme::tokens::diff::DEL_FG.to_hsla()
     } else {
         theme.foreground
     };
+    let tip = SharedString::from(row.path.clone());
     let mut line = h_flex()
+        .id(SharedString::from(format!("session-edit-stub-{}", row.path)))
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
-        .h(gpui::px(24.))
-        .px_2()
-        .text_size(gpui::px(11.))
+        // #EXP-1789: the same row metrics as a ready row (web's flush
+        // `FileDiffCard` header: 29 tall, `px-3`, `text-xs`).
+        .h(gpui::px(29.))
+        .px(gpui::px(12.))
+        .text_size(gpui::px(12.))
         .font_family(theme.mono_font_family.clone())
-        .child(div().flex_shrink_0().w(gpui::px(12.)))
         .child(
-            h_flex()
+            div()
+                .flex_shrink_0()
+                .w(gpui::px(12.))
+                .text_center()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.muted_foreground)
+                .child(crate::diff::status_letter(domain::diff::DiffStatus::Modified)),
+        )
+        // #EXP-1789: the same path run as the file header — the directory
+        // cut in the middle by the shared rule, the name kept.
+        .child(
+            crate::diff::path_run(dir, name, theme.muted_foreground, tint)
                 .flex_1()
                 .min_w_0()
-                .overflow_hidden()
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(dir)),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(tint)
-                        .child(SharedString::from(name)),
-                ),
+                .h_full(),
         );
     if failed {
         line = line.child(
             div()
                 .flex_shrink_0()
-                .text_color(theme.danger)
+                .text_size(gpui::px(11.))
+                .text_color(tint)
                 .child("failed"),
         );
     } else if pending {
@@ -577,8 +599,9 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
         line = line.child(
             div().flex_shrink_0().child(
                 Icon::new(registry::UI_CHEVRON_DOWN)
-                    .xsmall()
-                    .text_color(theme.muted_foreground.opacity(0.4)),
+                    .size(gpui::px(14.))
+                    // Web's `text-muted-foreground/40 opacity-50`.
+                    .text_color(theme.muted_foreground.opacity(0.2)),
             ),
         );
     }

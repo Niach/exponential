@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): a cut keeping fewer than `MIDDLE_MIN_KEPT` (4, start + end together) shows the `…` alone, so a nearly-gone run never reads as stray glyphs; `TextTruncateTest` replays the fixture's new cases.
 - `accessibility.selected` / `.expanded` (#EXP-1629): `selected`, the expand / collapse actions (unchanged painter, the core now accepts the keys); `A11yStatesTest` replays the fixture.
 - Input / Textarea `style.color` (#EXP-1787): the typed text takes the field's ink (the core's authored colour); the caret stays the `field` recipe's (`fieldCaretInk`, a `row` at its 70%), the placeholder its part's (`InteractionTest.fieldInkColoursOnlyTheTypedText`).
 - Style key `fontVariantNumeric: tabular-nums`: the leaf's `ResolvedTextStyle` gets `fontFeatures = "tnum"` from `FfiTextStyle.fontVariantNumeric`, so the measurer and the leaves shape with it.

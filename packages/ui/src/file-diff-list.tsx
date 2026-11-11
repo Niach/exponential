@@ -5,7 +5,6 @@ import { cn } from "./cn"
 import { ListEmpty } from "./empty-state"
 import { diffOpensByDefault, FileDiffCard, type DiffDensity } from "./file-diff-card"
 import { FileDiffTree } from "./file-diff-tree"
-import { useIsMobile } from "./use-mobile"
 
 // EXP-895 — the ONE diff view. `DiffFile[]` in, the file column beside the
 // cards, nothing else: the review page, the run's Changes face, an issue's
@@ -63,7 +62,6 @@ export function FileDiffList({
   const sectionRefs = useRef(new Map<string, HTMLDivElement>())
   // ONE matchMedia subscription for the whole list — the path labels below only
   // need the answer (EXP-698).
-  const isMobile = useIsMobile()
 
   const defaults = useMemo(() => {
     const map = new Map<string, boolean>()
@@ -125,7 +123,6 @@ export function FileDiffList({
           >
             <FileDiffCard
               file={file}
-              isMobile={isMobile}
               density={density}
               open={overrides[file.path] ?? defaults.get(file.path) ?? true}
               onOpenChange={(open) =>
