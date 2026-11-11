@@ -2,12 +2,16 @@ name: glitchtip-debug-files
 description: >-
   #LOGS-2: upload the desktop IDE's / CLI's Rust debug files (macOS dSYM,
   Linux ELF debug info, Windows PDB) to GlitchTip with `sentry-cli
-  debug-files upload`, so panics and hangs symbolicate. GlitchTip sits
+  debug-files upload` (.github/scripts/glitchtip-debug-files.sh: the pinned
+  binary, three attempts), so panics and hangs symbolicate. GlitchTip sits
   behind Cloudflare Access: the service-token headers ride every request.
-  Any of the three secrets missing → skipped with a notice; a failed upload only warns (it never
-  fails a release).
+  Any of the three secrets missing → skipped with a notice; a failed upload
+  only warns (it never fails a release).
 
 inputs:
+  project:
+    description: The GlitchTip project (desktop, ede, ...).
+    default: desktop
   paths:
     description: Debug files or directories to upload, one per line.
     required: true
@@ -28,27 +32,14 @@ runs:
       shell: bash
       env:
         SENTRY_AUTH_TOKEN: ${{ inputs.auth-token }}
-        SENTRY_URL: https://glitchtip.exponential.at
-        SENTRY_ORG: exponential
-        SENTRY_PROJECT: desktop
-        CF_ID: ${{ inputs.cf-access-client-id }}
-        CF_SECRET: ${{ inputs.cf-access-client-secret }}
+        CF_ACCESS_CLIENT_ID: ${{ inputs.cf-access-client-id }}
+        CF_ACCESS_CLIENT_SECRET: ${{ inputs.cf-access-client-secret }}
+        PROJECT: ${{ inputs.project }}
         PATHS: ${{ inputs.paths }}
       run: |
         set -uo pipefail
-        # GlitchTip (and its chunk upload) sits behind Cloudflare Access:
-        # without all three secrets an upload cannot get through.
-        if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$CF_ID" ] || [ -z "$CF_SECRET" ]; then
-          echo "::notice::GLITCHTIP_AUTH_TOKEN / CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not all set: debug files not uploaded"
-          exit 0
-        fi
         files=()
         while IFS= read -r path; do
-          [ -z "$path" ] && continue
-          if [ -e "$path" ]; then files+=("$path"); else echo "::warning::debug file missing: $path"; fi
+          [ -n "$path" ] && files+=("$path")
         done <<<"$PATHS"
-        [ ${#files[@]} -eq 0 ] && { echo "::warning::no debug files to upload"; exit 0; }
-        if ! npx --yes @sentry/cli@2.58.6 --header "CF-Access-Client-Id:$CF_ID" --header "CF-Access-Client-Secret:$CF_SECRET" \
-            debug-files upload "${files[@]}"; then
-          echo "::warning::GlitchTip debug-file upload failed (the release continues)"
-        fi
+        "$GITHUB_WORKSPACE/.github/scripts/glitchtip-debug-files.sh" "$PROJECT" "${files[@]}"

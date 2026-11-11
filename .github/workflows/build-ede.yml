@@ -82,24 +82,13 @@ jobs:
       - name: Upload the debug files to GlitchTip
         if: env.PUBLISH == 'true'
         continue-on-error: true
-        env:
-          SENTRY_URL: https://glitchtip.exponential.at
-          SENTRY_ORG: exponential
-          SENTRY_PROJECT: ede
-          SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
-            echo "::notice title=GlitchTip::debug-file upload skipped (GLITCHTIP_AUTH_TOKEN / CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not set)"
-            exit 0
-          fi
-          if ! npx --yes @sentry/cli@2.58.6 \
-              --header "CF-Access-Client-Id:$CF_ACCESS_CLIENT_ID" \
-              --header "CF-Access-Client-Secret:$CF_ACCESS_CLIENT_SECRET" \
-              debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" "$RUNNER_TEMP/debug"; then
-            echo "::warning title=GlitchTip::debug-file upload failed; the release goes on without symbols"
-          fi
+        uses: ./.github/actions/glitchtip-debug-files
+        with:
+          project: ede
+          paths: ${{ runner.temp }}/debug
+          auth-token: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       - name: Pack the .debs
         run: |
           set -euo pipefail

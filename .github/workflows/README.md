@@ -52,7 +52,15 @@ route to it and the Hetzner firewall stays unchanged. Ways in:
   service token. Repo secrets `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`
   (pass both as `sentry-cli --header`) + `GLITCHTIP_AUTH_TOKEN` (a GlitchTip
   token with only `project:releases`). Works with sentry-cli 2.58 and 3.8;
-  without the headers the upload gets a 401.
+  without the headers the upload gets a 401. Desktop, CLI and eDE upload
+  through `.github/scripts/glitchtip-debug-files.sh`: the pinned,
+  sha256-checked sentry-cli binary (the self-hosted Linux runners have no
+  npx) and three attempts 30 s / 90 s apart (a GlitchTip redeploy = ~30 s of
+  Cloudflare 530s). A failed upload only warns, so check a release's
+  annotations; backfill with Actions → `glitchtip-symbols` (product + tag):
+  it rebuilds the tag, uploads only when every build-id matches the published
+  asset, and publishes nothing. The Linux desktop leg must run on the runner
+  that built the release (its checkout path is in the debug info).
 - Event ingest never crosses Cloudflare: clients post to our backend's
   `/api/monitoring` tunnel, and the web app forwards to `http://glitchtip-web:8000`
   over the host's shared `coolify` Docker network (the `glitchtip-web` alias on
