@@ -490,7 +490,7 @@ fn session_card_framed(
             // #EXP-1466 session-card.json: the word stays muted unless amber.
             kind_tint: (card.tone == "amber").then(|| session_tone_color(&card.tone, cx)),
             running: card.running,
-            meta: card.elapsed.clone().map(SharedString::from),
+            meta: crate::session_data::live_card_elapsed(card, cx).map(SharedString::from),
             trailing: chevron.map(|chevron| Icon::new(chevron).xsmall().text_color(muted.opacity(0.7)).into_any_element()),
         },
         cx,

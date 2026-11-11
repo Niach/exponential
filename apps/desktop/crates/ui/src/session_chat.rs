@@ -3282,20 +3282,23 @@ impl SessionChatScreenView {
         this
     }
 
-    /// #EXP-1380: one [`Self::refresh`] per effect cycle, however many
-    /// collections synced in it.
+    /// #EXP-1380: one [`Self::refresh`] per burst of synced deltas, however
+    /// many collections moved in it.
     fn queue_refresh(&mut self, cx: &mut gpui::Context<Self>) {
         if self.refresh_queued {
             return;
         }
         self.refresh_queued = true;
-        let view = cx.entity().downgrade();
-        cx.defer(move |cx| {
-            let _ = view.update(cx, |this, cx| {
+        // #LOGS-3: a task, not `defer`: the sync drain applies every delta
+        // already queued (a burst names several shapes) before the task
+        // runs, so the chat re-derives once per burst, not once per shape.
+        cx.spawn(async move |this, cx| {
+            let _ = this.update(cx, |this, cx| {
                 this.refresh_queued = false;
                 this.refresh(cx);
             });
-        });
+        })
+        .detach();
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {

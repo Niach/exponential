@@ -319,7 +319,9 @@ pub(crate) fn links_of_session(session_id: &str, cx: &App) -> Vec<SessionIssueRo
 fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
-    let row = collections.sessions.read(cx).get(session_id)?.clone();
+    // #LOGS-3: borrowed (a clone carried the row's whole digest).
+    let sessions = collections.sessions.read(cx);
+    let row = sessions.get(session_id)?;
     // NEW-1: a session titles from its OWN rows (the row sits on its holder).
     let links = links_of_session(session_id, cx);
     let all_issues = collections.issues.read(cx);
@@ -330,14 +332,14 @@ fn derive_session_title(session_id: &str, cx: &App) -> Option<String> {
         .collect();
     // Session e4a04d22: the first prompt is the conversation digest's
     // `first` (no read of a long chat's messages at all), off the row itself.
-    let digest = domain::chats::ConversationDigest::decode(row.digest.as_ref());
-    let messages: Vec<MessageRow> = domain::chats::digest_messages(&row.id, digest.as_ref())
-        .into_iter()
+    let messages: Vec<MessageRow> = digest_of(&row.id, cx)
+        .iter()
         .filter(|message| is_first_prompt_candidate(message, session_id))
+        .cloned()
         .collect();
     let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
     let message_refs: Vec<&MessageRow> = messages.iter().collect();
-    Some(domain::session_title::session_title(&row, &link_refs, &issues, &message_refs))
+    Some(domain::session_title::session_title(row, &link_refs, &issues, &message_refs))
 }
 
 // ---------------------------------------------------------------------------
@@ -431,20 +433,76 @@ pub(crate) fn first_issue_identifier(root_id: &str, cx: &App) -> Option<String> 
 /// never the transcript; the open chat, unread marking and pickup stay on
 /// [`keyed_messages`].
 pub(crate) fn digest_messages(cx: &App, keep: impl Fn(&str) -> bool) -> Vec<MessageRow> {
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    // #EXP-1730: the digest lives on the session row (`sessions.digest`).
-    let sessions = store.collections().sessions.read(cx);
+    let digests = digests(cx);
     let mut out: Vec<MessageRow> = Vec::new();
-    for session in sessions.iter() {
-        if !keep(session.id.as_str()) {
-            continue;
+    for (session_id, messages) in digests.iter() {
+        if keep(session_id.as_str()) {
+            out.extend(messages.iter().cloned());
         }
-        let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
-        out.extend(domain::chats::digest_messages(&session.id, digest.as_ref()));
     }
     out
+}
+
+/// One session's [`digest_messages`].
+pub(crate) fn digest_of(session_id: &str, cx: &App) -> Rc<Vec<MessageRow>> {
+    digests(cx).get(session_id).cloned().unwrap_or_default()
+}
+
+type DigestIndex = HashMap<String, Rc<Vec<MessageRow>>>;
+
+thread_local! {
+    /// [`digests`]' memo: the `sessions` collection and revision it holds
+    /// for, and each session's digest read back.
+    static DIGESTS: std::cell::RefCell<(Option<(gpui::EntityId, u64)>, Rc<DigestIndex>)> = Default::default();
+}
+
+/// #LOGS-3: every session's digest read back
+/// ([`domain::chats::digest_messages`]), kept across store changes: a
+/// sessions delta re-decodes only the rows it wrote (the change log), not
+/// every digest of the account four times over (the chat lists, Needs you,
+/// the Chats model, the open chat's names: ~1,500 digests per delta on a
+/// real account).
+fn digests(cx: &App) -> Rc<DigestIndex> {
+    let Some(store) = Store::try_global(cx) else {
+        return Rc::default();
+    };
+    let collection = &store.collections().sessions;
+    let sessions = collection.read(cx);
+    let stamp = (collection.entity_id(), sessions.revision());
+    let decode = |session: &SessionRow| {
+        let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
+        Rc::new(domain::chats::digest_messages(&session.id, digest.as_ref()))
+    };
+    DIGESTS.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        if memo.0 == Some(stamp) {
+            return memo.1.clone();
+        }
+        let changed = memo
+            .0
+            .filter(|(entity, _)| *entity == stamp.0)
+            .and_then(|(_, revision)| sessions.changed_since(revision));
+        let index = match changed {
+            Some(keys) => {
+                let mut index = Rc::unwrap_or_clone(std::mem::take(&mut memo.1));
+                for key in keys {
+                    let sync::protocol::RowKey::Single(id) = key else { continue };
+                    match sessions.get(id) {
+                        Some(session) => {
+                            index.insert(id.clone(), decode(session));
+                        }
+                        None => {
+                            index.remove(id);
+                        }
+                    }
+                }
+                index
+            }
+            None => sessions.iter().map(|session| (session.id.clone(), decode(session))).collect(),
+        };
+        *memo = (Some(stamp), Rc::new(index));
+        memo.1.clone()
+    })
 }
 
 /// #EXP-1730: the synced messages that live in the sessions `ids` (their
@@ -604,15 +662,22 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
                 collections.issues.read(cx).revision(),
                 collections.pull_requests.read(cx).revision(),
             ],
-            now_ms.div_euclid(1000),
+            now_ms.div_euclid(CHAT_VIEW_CLOCK_MS),
         )
     };
     let mut stale: Option<ChatViewMemo> = None;
     if let Some(hit) = MEMO.with(|memo| {
-        let memo = memo.borrow();
-        let entry = memo.get(root_id)?;
+        let mut memo = memo.borrow_mut();
+        let entry = memo.get_mut(root_id)?;
         let stamp = at(messages_at(&entry.groups));
         if entry.stamp == stamp {
+            return Some(entry.view.clone());
+        }
+        // #LOGS-3: a sessions or pull requests delta that touches nothing
+        // this chat reads (another chat's digest moving, a PR it names no
+        // card of) keeps the view.
+        if untouched(root_id, entry, &stamp, cx) {
+            entry.stamp = stamp;
             return Some(entry.view.clone());
         }
         stale = Some(entry.clone());
@@ -639,14 +704,139 @@ pub(crate) fn root_chat_view(root_id: &str, now_ms: i64, cx: &App) -> Option<Rc<
     let groups = chat_view_groups(root_id, cx);
     let stamp = at(messages_at(&groups));
     let tail = chat_tail(root_id, &groups, &messages);
+    let refs = Rc::new(chat_refs(root_id, &groups, &messages, cx));
     MEMO.with(|memo| {
         let mut memo = memo.borrow_mut();
         if memo.len() > 64 {
             memo.clear();
         }
-        memo.insert(root_id.to_string(), ChatViewMemo { stamp, groups, view: view.clone(), tail });
+        memo.insert(root_id.to_string(), ChatViewMemo { stamp, groups, view: view.clone(), tail, refs });
     });
     view
+}
+
+/// #LOGS-3: what of the sessions and pull requests a chat's derive reads,
+/// beyond its own tree: every id its messages name (an author, any string
+/// of a card: the sessions its cards and xrefs show, the PRs its event
+/// lines number) and each named session's root; and the agent whose
+/// conversation started the root (its origin).
+#[derive(Default)]
+struct ChatRefs {
+    ids: HashSet<String>,
+    origin_agent: Option<String>,
+    /// The tree's rows as the derive read them, less their digests (the
+    /// chat reads its own transcript, never its tree's digests: a reply
+    /// streaming in rewrites the root's digest and nothing it shows).
+    tree: HashMap<String, SessionRow>,
+    /// A card of the chat names its root (its card reads the root's
+    /// `updated_at`).
+    root_named: bool,
+}
+
+fn digestless(row: &SessionRow) -> SessionRow {
+    SessionRow { digest: None, ..row.clone() }
+}
+
+fn chat_refs(root_id: &str, groups: &[String], messages: &sync::Collection<MessageRow>, cx: &App) -> ChatRefs {
+    fn strings(value: &serde_json::Value, out: &mut HashSet<String>) {
+        match value {
+            serde_json::Value::String(text) => {
+                out.insert(text.clone());
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+            serde_json::Value::Object(fields) => fields.values().for_each(|field| strings(field, out)),
+            _ => {}
+        }
+    }
+    let mut ids: HashSet<String> = HashSet::new();
+    for message in groups.iter().flat_map(|group| messages.in_group(group)) {
+        ids.extend(message.author_session_id.clone());
+        if let Some(card) = &message.card {
+            strings(card, &mut ids);
+        }
+    }
+    let root_named = ids.contains(root_id);
+    ids.extend(groups.iter().cloned());
+    ids.insert(root_id.to_string());
+    let Some(store) = Store::try_global(cx) else {
+        return ChatRefs { ids, root_named, ..ChatRefs::default() };
+    };
+    let sessions = store.collections().sessions.read(cx);
+    let roots: Vec<String> = ids.iter().filter_map(|id| sessions.get(id)).map(|session| session.root_id_or_self().to_string()).collect();
+    ids.extend(roots);
+    let origin_agent = sessions.get(root_id).and_then(|root| root.started_by_agent_id.clone()).filter(|agent| !agent.is_empty());
+    let tree = sessions
+        .iter()
+        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
+        .map(|session| (session.id.clone(), digestless(session)))
+        .collect();
+    ChatRefs { ids, origin_agent, tree, root_named }
+}
+
+/// Whether the store moved since `entry` only in sessions and pull requests
+/// rows its chat does not read ([`ChatRefs`]): no session of its tree (a
+/// new one included), none it names, no conversation of its origin agent,
+/// no PR it names. A delete it cannot place, or a log that does not reach
+/// back far enough, reads as touched.
+fn untouched(root_id: &str, entry: &ChatViewMemo, stamp: &([u64; 6], i64), cx: &App) -> bool {
+    const SESSIONS: usize = 0;
+    const PULLS: usize = 5;
+    let (was, now) = (&entry.stamp, stamp);
+    if was.1 != now.1 || (0..6).any(|i| i != SESSIONS && i != PULLS && was.0[i] != now.0[i]) {
+        return false;
+    }
+    let Some(store) = Store::try_global(cx) else { return false };
+    let collections = store.collections();
+    let refs = &entry.refs;
+    let id = |key: &sync::protocol::RowKey| match key {
+        sync::protocol::RowKey::Single(id) => Some(id.clone()),
+        _ => None,
+    };
+    if was.0[SESSIONS] != now.0[SESSIONS] {
+        let sessions = collections.sessions.read(cx);
+        let Some(keys) = sessions.changed_since(was.0[SESSIONS]) else { return false };
+        for key in keys {
+            let Some(id) = id(key) else { return false };
+            let row = sessions.get(&id);
+            // A tree row whose digest alone moved (its own reply streaming).
+            if let (Some(row), Some(was)) = (row, refs.tree.get(&id)) {
+                let mut now = digestless(row);
+                // The digest write bumps `updated_at`, which the chat reads
+                // only off a child that is not working (how long a finished
+                // one stays nested, a done card's end) or a root its cards
+                // name.
+                let working = matches!(
+                    domain::session_tree::session_state(row),
+                    domain::session_tree::SessionState::Working | domain::session_tree::SessionState::NeedsYou
+                );
+                if (row.id == root_id && !refs.root_named) || working {
+                    now.updated_at = was.updated_at.clone();
+                }
+                if now == *was {
+                    continue;
+                }
+                return false;
+            }
+            if refs.ids.contains(&id) {
+                return false;
+            }
+            if let Some(row) = row {
+                let in_tree = row.id == root_id || row.root_id_or_self() == root_id;
+                let origin = refs.origin_agent.is_some() && row.agent_id == refs.origin_agent;
+                if in_tree || origin {
+                    return false;
+                }
+            }
+        }
+    }
+    if was.0[PULLS] != now.0[PULLS] {
+        let pulls = collections.pull_requests.read(cx);
+        let Some(keys) = pulls.changed_since(was.0[PULLS]) else { return false };
+        if keys.into_iter().any(|key| id(key).is_none_or(|id| refs.ids.contains(&id))) {
+            return false;
+        }
+    }
+    true
 }
 
 /// [`root_chat_view`]'s memo of one root.
@@ -658,6 +848,7 @@ struct ChatViewMemo {
     groups: Vec<String>,
     view: Option<Rc<SessionChatView>>,
     tail: ChatTail,
+    refs: Rc<ChatRefs>,
 }
 
 /// #LOGS-11: what an append needs of the messages a view was derived from.
@@ -732,7 +923,7 @@ fn appended_view(root_id: &str, entry: &ChatViewMemo, messages: &sync::Collectio
             }
         }
     }
-    Some(ChatViewMemo { stamp: entry.stamp, groups: entry.groups.clone(), view: Some(Rc::new(next)), tail })
+    Some(ChatViewMemo { stamp: entry.stamp, groups: entry.groups.clone(), view: Some(Rc::new(next)), tail, refs: entry.refs.clone() })
 }
 
 /// [`chat_view_groups`]' stand-in for every group: an origin not synced yet
@@ -770,6 +961,24 @@ fn chat_view_groups(root_id: &str, cx: &App) -> Vec<String> {
     groups.sort();
     groups.dedup();
     groups
+}
+
+/// #LOGS-3: how coarse a chat's derive reads the clock. Its only clock
+/// inputs are a session card's elapsed time (painted live, see
+/// [`live_card_elapsed`]) and the minutes a finished child stays nested; a
+/// per-second key re-derived a long chat on every working tick (an 8,000-row
+/// chat: ~40 ms each second while anything in it worked).
+const CHAT_VIEW_CLOCK_MS: i64 = 10_000;
+
+/// A session card's elapsed time as of now (session-card.json: working
+/// counts to now, done to its end), read off the synced row; the derived
+/// card's own when the row is gone.
+pub(crate) fn live_card_elapsed(card: &domain::session_tree::SessionCard, cx: &App) -> Option<String> {
+    let live = Store::try_global(cx).and_then(|store| {
+        let sessions = store.collections().sessions.read(cx);
+        sessions.get(&card.session_id).map(|row| domain::session_tree::session_card(row, &card.name, now_ms()).elapsed)
+    });
+    live.unwrap_or_else(|| card.elapsed.clone())
 }
 
 /// #EXP-1732: a root's suggested-tasks cards (its chat's `Suggestions`
@@ -1028,10 +1237,11 @@ fn chat_view(
         .iter()
         .filter(|session| session.id != root_id && !tree_ids.contains(session.id.as_str()))
         .filter_map(|session| {
-            let digest = domain::chats::ConversationDigest::decode(session.digest.as_ref());
-            domain::chats::digest_messages(&session.id, digest.as_ref())
-                .into_iter()
+            // #LOGS-3: off the shared read-back (no digest decoded here).
+            digest_of(&session.id, cx)
+                .iter()
                 .filter(|message| is_first_prompt_candidate(message, &session.id))
+                .cloned()
                 .min_by_key(|message| (message.created_at.as_deref().and_then(domain::session_tree::iso_ms).unwrap_or(0), message.id.clone()))
         })
         .collect();
@@ -1841,6 +2051,130 @@ mod tests {
             let bodies: Vec<String> = messages_of_session("r1", cx).iter().map(|m| m.body.clone().unwrap_or_default()).collect();
             assert_eq!(bodies[1], "On it, edited");
             assert_eq!(bodies.len(), 6);
+        });
+    }
+
+    /// #LOGS-3: a working session's second ticks re-render its chat; within
+    /// one clock bucket they reuse the derive (no re-read of the chat), and
+    /// the card's elapsed time still follows the clock (painted live).
+    #[gpui::test]
+    fn a_working_tick_reuses_the_chat_and_paints_the_elapsed_live(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let collections = Store::global(cx).collections().clone();
+            let started = "2026-11-01T09:00:00.000Z";
+            let rows: Vec<SessionRow> = vec![
+                row(json!({"id": "r1", "team_id": "t1", "root_id": "r1", "status": "running", "busy": true, "shared": true, "started_at": started, "created_at": started})),
+                row(json!({"id": "c1", "team_id": "t1", "root_id": "r1", "parent_id": "r1", "depth": 1, "status": "running", "busy": true, "shared": true, "started_at": started, "created_at": started})),
+            ];
+            collections.sessions.update(cx, |c, cx| {
+                for row in rows {
+                    c.seed(row.key(), row);
+                }
+                cx.notify();
+            });
+            let start = domain::session_tree::iso_ms(started).unwrap();
+            let bucket = start - start.rem_euclid(CHAT_VIEW_CLOCK_MS) + CHAT_VIEW_CLOCK_MS;
+            let first = root_chat_view("r1", bucket + 1_000, cx).expect("the chat");
+            let ticked = root_chat_view("r1", bucket + 2_000, cx).expect("the chat");
+            assert!(Rc::ptr_eq(&first, &ticked), "a second's tick re-derived the chat");
+            let next = root_chat_view("r1", bucket + CHAT_VIEW_CLOCK_MS + 1_000, cx).expect("the chat");
+            assert!(!Rc::ptr_eq(&first, &next), "the next bucket re-reads the clock");
+            // The card as the derive left it (its clock long past).
+            let child = collections.sessions.read(cx).get("c1").cloned().expect("the child");
+            let card = domain::session_tree::session_card(&child, "Child", bucket);
+            let before = now_ms();
+            let live = live_card_elapsed(&card, cx).expect("a working card counts");
+            let after = now_ms();
+            let at = |now: i64| domain::session_tree::format_elapsed(now - start);
+            assert!(live == at(before) || live == at(after), "{live} is not the live elapsed time");
+        });
+    }
+
+    /// #LOGS-3: deltas a chat reads nothing of keep its derive (another
+    /// chat's session or digest, a PR no card names, its own root's digest
+    /// as a reply streams in); what it shows re-derives it (a tree session's
+    /// state, a PR a card numbers, a session a card names). Each answer
+    /// equals a fresh read of the same store.
+    #[gpui::test]
+    fn a_chat_rederives_only_on_what_it_reads(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let c = Store::global(cx).collections().clone();
+            let sessions = |rows: Vec<serde_json::Value>, cx: &mut App| {
+                c.sessions.update(cx, |c, cx| {
+                    for value in rows {
+                        let row = row(value);
+                        c.seed(row.key(), row);
+                    }
+                    cx.notify();
+                })
+            };
+            let pulls = |rows: Vec<serde_json::Value>, cx: &mut App| {
+                c.pull_requests.update(cx, |c, cx| {
+                    for value in rows {
+                        let row: PullRequestRow = serde_json::from_value(value).unwrap();
+                        c.seed(row.key(), row);
+                    }
+                    cx.notify();
+                })
+            };
+            let at = "2026-11-01T09:00:00.000Z";
+            let digest = |n: u32| json!({"first": {"id": format!("d{n}"), "authorKind": "user", "body": format!("Prompt {n}"), "createdAt": at}});
+            sessions(vec![
+                json!({"id": "r1", "team_id": "t1", "root_id": "r1", "status": "idle", "shared": true, "title": "Mine", "created_at": at, "updated_at": at, "digest": digest(1)}),
+                json!({"id": "c1", "team_id": "t1", "root_id": "r1", "parent_id": "r1", "depth": 1, "status": "running", "busy": true, "shared": true, "created_at": at, "updated_at": at}),
+                json!({"id": "named", "team_id": "t1", "root_id": "named", "status": "idle", "shared": true, "title": "Named", "created_at": at, "updated_at": at}),
+                json!({"id": "other", "team_id": "t1", "root_id": "other", "status": "running", "busy": true, "shared": true, "created_at": at, "updated_at": at, "digest": digest(2)}),
+            ], cx);
+            pulls(vec![
+                json!({"id": "pr-named", "team_id": "t1", "root_session_id": "r1", "number": 7, "state": "open", "created_at": at}),
+                json!({"id": "pr-other", "team_id": "t1", "root_session_id": "other", "number": 8, "state": "open", "created_at": at}),
+            ], cx);
+            c.messages.update(cx, |m, cx| {
+                for value in [
+                    json!({"id": "m1", "session_id": "r1", "author_kind": "user", "body": "Go", "created_at": at}),
+                    json!({"id": "m2", "session_id": "r1", "author_kind": "agent", "body": "", "card": {"kind": "session", "sessionId": "named"}, "created_at": "2026-11-01T09:00:01.000Z"}),
+                    json!({"id": "m3", "session_id": "r1", "author_kind": "agent", "body": "", "card": {"kind": "event", "pullRequestId": "pr-named", "text": "Opened {pr}"}, "created_at": "2026-11-01T09:00:02.000Z"}),
+                ] {
+                    let row: MessageRow = serde_json::from_value(value).unwrap();
+                    m.seed(row.key(), row);
+                }
+                cx.notify();
+            });
+            let now = domain::session_tree::iso_ms(at).unwrap() + 1_000;
+            let fresh = |cx: &App| chat_view("r1", None, now, false, false, cx).map(|(view, _)| view);
+            let first = root_chat_view("r1", now, cx).expect("the chat");
+            assert_eq!(Some(&*first), fresh(cx).as_ref());
+            let kept = |cx: &mut App, what: &str| {
+                let view = root_chat_view("r1", now, cx).expect("the chat");
+                assert!(Rc::ptr_eq(&first, &view), "{what} re-derived the chat");
+                assert_eq!(Some(&*view), fresh(cx).as_ref(), "{what}");
+            };
+            // Another chat streams (its row and digest), a PR no card names moves.
+            sessions(vec![json!({"id": "other", "team_id": "t1", "root_id": "other", "status": "running", "busy": true, "shared": true, "created_at": at, "updated_at": "2026-11-01T09:05:00.000Z", "digest": digest(3)})], cx);
+            pulls(vec![json!({"id": "pr-other", "team_id": "t1", "root_session_id": "other", "number": 8, "state": "merged", "created_at": at})], cx);
+            kept(cx, "another chat");
+            // Its own root's digest (and the bump it brings) as a reply lands.
+            sessions(vec![json!({"id": "r1", "team_id": "t1", "root_id": "r1", "status": "idle", "shared": true, "title": "Mine", "created_at": at, "updated_at": "2026-11-01T09:06:00.000Z", "digest": digest(4)})], cx);
+            kept(cx, "its own digest");
+            // What it shows: a card's session, then a tree session's state.
+            let rederived = |cx: &mut App, what: &str, was: &Rc<SessionChatView>| {
+                let view = root_chat_view("r1", now, cx).expect("the chat");
+                assert!(!Rc::ptr_eq(was, &view), "{what} kept a stale chat");
+                assert_eq!(Some(&*view), fresh(cx).as_ref(), "{what}");
+                view
+            };
+            sessions(vec![json!({"id": "named", "team_id": "t1", "root_id": "named", "status": "idle", "shared": true, "title": "Renamed", "created_at": at, "updated_at": at})], cx);
+            let second = rederived(cx, "a named session", &first);
+            pulls(vec![json!({"id": "pr-named", "team_id": "t1", "root_session_id": "r1", "number": 9, "state": "open", "created_at": at})], cx);
+            let third = rederived(cx, "a numbered PR", &second);
+            sessions(vec![json!({"id": "c1", "team_id": "t1", "root_id": "r1", "parent_id": "r1", "depth": 1, "status": "idle", "busy": false, "shared": true, "created_at": at, "updated_at": at})], cx);
+            rederived(cx, "a tree session's state", &third);
         });
     }
 

@@ -672,10 +672,30 @@ struct RailInputs {
     minute: i64,
 }
 
+/// #LOGS-3: the shapes no rail row reads: the transcripts, the event
+/// stream, and what only an issue page or a settings page shows. CI checks
+/// and issue history change all day long; each change re-derived every row
+/// (a team's titles, Needs you, the chat lists: ~25 ms per CI tick on a real
+/// account).
+const RAIL_UNREAD: &[&str] = &[
+    "messages",
+    "events",
+    "pull_request_checks",
+    "issue_events",
+    "comments",
+    "attachments",
+    "issue_subscribers",
+    "issue_labels",
+    "device_worktrees",
+    "app_versions",
+    "app_records",
+    "team_invites",
+];
+
 impl RailInputs {
     fn read(nav: &Entity<Navigation>, cx: &App) -> Self {
         Self {
-            revisions: Store::global(cx).collections().revisions_except(&["messages", "events"], cx),
+            revisions: Store::global(cx).collections().revisions_except(RAIL_UNREAD, cx),
             screen: resolved_screen(nav, cx),
             team: crate::navigation::active_team_id(nav, cx),
             board: crate::navigation::active_board_id(nav, cx),
@@ -894,6 +914,8 @@ pub(crate) fn running_row_state(busy: bool, needs_you: bool) -> domain::session_
 #[cfg(test)]
 thread_local! {
     pub(crate) static RAIL_RENDERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// #LOGS-3: the rail's row derives.
+    pub(crate) static RAIL_DERIVES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Render for RailView {
@@ -996,6 +1018,8 @@ impl Render for RailView {
             }
         });
         if stale {
+            #[cfg(test)]
+            RAIL_DERIVES.with(|n| n.set(n.get() + 1));
             self.derived = Some(inputs);
         }
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom

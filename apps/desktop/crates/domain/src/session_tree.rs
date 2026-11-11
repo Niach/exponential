@@ -36,7 +36,7 @@ use crate::contract::{
     PR_STATE_MERGED,
 };
 use crate::rows::{AgentDefRow, Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
-use crate::session_title::{session_title, session_titles};
+use crate::session_title::session_titles;
 
 /// A resolved title from [`session_titles`] (`""` when absent, TS `?? ''`).
 fn title_of<'t>(titles: &'t HashMap<String, String>, id: &str) -> &'t str {
@@ -2165,16 +2165,25 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
     let mut buckets: HashMap<ChatsListKey, Vec<ChatsListRow>> = HashMap::new();
-    for root in input.sessions.iter().copied().filter(|session| {
-        is_root(session)
-            // NEW-2: an agent's conversation (a root with `agent_id`) is no
-            // chat; VAPP-110: neither is an app's editor session (`app_id`).
-            && !session.is_agent()
-            && !session.is_app_editor()
-            && input
-                .team_id
-                .is_none_or(|team| session.team_id.as_deref() == Some(team))
-    }) {
+    let roots: Vec<&SessionRow> = input
+        .sessions
+        .iter()
+        .copied()
+        .filter(|session| {
+            is_root(session)
+                // NEW-2: an agent's conversation (a root with `agent_id`) is no
+                // chat; VAPP-110: neither is an app's editor session (`app_id`).
+                && !session.is_agent()
+                && !session.is_app_editor()
+                && input
+                    .team_id
+                    .is_none_or(|team| session.team_id.as_deref() == Some(team))
+        })
+        .collect();
+    // #LOGS-3: every root titled in one pass over the links and messages
+    // (one scan of all of them per root was O(roots × messages)).
+    let mut titles = session_titles(&roots, input.session_issues, input.issues, input.messages);
+    for root in roots {
         let alone = [root];
         let tree: &[&SessionRow] = by_root.get(root.id.as_str()).map_or(&alone[..], Vec::as_slice);
         let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
@@ -2186,7 +2195,7 @@ pub fn partition_chats(input: ChatsListInput<'_>) -> Vec<ChatsListGroup> {
                 activity = session.updated_at.clone().unwrap_or_default();
             }
         }
-        let title = session_title(root, input.session_issues, input.issues, input.messages);
+        let title = titles.remove(root.id.as_str()).unwrap_or_default();
         let key = if needs_you {
             ChatsListKey::NeedsYou
         } else if running {

@@ -101,13 +101,28 @@ pub fn session_issues<'i>(
     links: &[&SessionIssueRow],
     issues: &'i [TreeIssue],
 ) -> Vec<&'i TreeIssue> {
-    let by_id: HashMap<&str, &TreeIssue> =
-        issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
+    own_issues(&session.id, links, &issue_index(issues))
+}
+
+/// `issues` by id (a repeated id: the last one, as a map collect keeps).
+fn issue_index(issues: &[TreeIssue]) -> HashMap<&str, &TreeIssue> {
+    issues.iter().map(|issue| (issue.id.as_str(), issue)).collect()
+}
+
+/// [`session_issues`] over an index built once.
+fn own_issues<'i>(
+    session_id: &str,
+    links: &[&SessionIssueRow],
+    by_id: &HashMap<&str, &'i TreeIssue>,
+) -> Vec<&'i TreeIssue> {
     let mut own: Vec<&SessionIssueRow> = links
         .iter()
         .copied()
-        .filter(|link| link.session_id == session.id)
+        .filter(|link| link.session_id == session_id)
         .collect();
+    if own.is_empty() {
+        return Vec::new();
+    }
     own.sort_by(|a, b| {
         a.sort_order
             .unwrap_or(0.0)
@@ -163,7 +178,12 @@ pub fn session_title(
     issues: &[TreeIssue],
     messages: &[&MessageRow],
 ) -> String {
-    let own: Vec<TitleIssue<'_>> = session_issues(session, links, issues)
+    title_over(session, own_issues(&session.id, links, &issue_index(issues)), messages)
+}
+
+/// The ladder for a session whose own issues are resolved.
+fn title_over(session: &SessionRow, own: Vec<&TreeIssue>, messages: &[&MessageRow]) -> String {
+    let own: Vec<TitleIssue<'_>> = own
         .into_iter()
         .map(|issue| TitleIssue { identifier: &issue.identifier, title: &issue.title })
         .collect();
@@ -173,15 +193,35 @@ pub fn session_title(
 }
 
 /// Every given session's title, keyed by id (the tree's card names).
+///
+/// The same ladder as [`session_title`] per session, over the links and
+/// messages grouped by session ONCE: a team's ~1,500 sessions titled one by
+/// one each re-scanned every link and every message (an open chat
+/// re-derived on every synced delta spent ~110 ms here on a real account,
+/// #LOGS-3).
 pub fn session_titles(
     sessions: &[&SessionRow],
     links: &[&SessionIssueRow],
     issues: &[TreeIssue],
     messages: &[&MessageRow],
 ) -> HashMap<String, String> {
+    let mut links_of: HashMap<&str, Vec<&SessionIssueRow>> = HashMap::new();
+    for link in links {
+        links_of.entry(link.session_id.as_str()).or_default().push(link);
+    }
+    let mut messages_of: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
+    for message in messages {
+        messages_of.entry(message.session_id.as_str()).or_default().push(message);
+    }
+    let by_id = issue_index(issues);
     sessions
         .iter()
-        .map(|session| (session.id.clone(), session_title(session, links, issues, messages)))
+        .map(|session| {
+            let id = session.id.as_str();
+            let links = links_of.get(id).map(Vec::as_slice).unwrap_or_default();
+            let messages = messages_of.get(id).map(Vec::as_slice).unwrap_or_default();
+            (session.id.clone(), title_over(session, own_issues(id, links, &by_id), messages))
+        })
         .collect()
 }
 
@@ -256,6 +296,12 @@ mod tests {
                 case["expected"].as_str().unwrap(),
                 "{name}"
             );
+            // #LOGS-3: the batch (rows grouped by session once) titles the
+            // same, beside a stranger whose rows it must not borrow.
+            let stranger = SessionRow { id: "stranger".into(), ..Default::default() };
+            let titles = session_titles(&[&session, &stranger], &link_refs, &issues, &message_refs);
+            assert_eq!(titles[&session.id], case["expected"].as_str().unwrap(), "{name} (batch)");
+            assert_eq!(titles["stranger"], copy::UNTITLED, "{name} (stranger)");
         }
     }
 

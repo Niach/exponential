@@ -25,10 +25,15 @@ use crate::transcript_bench::percentile;
 const TEAMS: usize = 8;
 /// Roots in the active team; every other team holds a tenth.
 fn roots() -> usize {
-    std::env::var("LOGS11_ROOTS").ok().and_then(|n| n.parse().ok()).unwrap_or(400)
+    SMALL.with(|small| small.get()).map(|(roots, _)| roots).or_else(|| std::env::var("LOGS11_ROOTS").ok().and_then(|n| n.parse().ok())).unwrap_or(400)
 }
 fn messages() -> usize {
-    std::env::var("LOGS11_MESSAGES").ok().and_then(|n| n.parse().ok()).unwrap_or(5_000)
+    SMALL.with(|small| small.get()).map(|(_, messages)| messages).or_else(|| std::env::var("LOGS11_MESSAGES").ok().and_then(|n| n.parse().ok())).unwrap_or(5_000)
+}
+
+thread_local! {
+    /// A test's own account size `(roots, messages)` (the bench reads the env).
+    static SMALL: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
 }
 
 struct Root {
@@ -339,6 +344,60 @@ fn rail_bench() {
         println!("[LOGS-11] {kind:8} delta frame: {} · {} rail renders", Stats(drawn), renders() - before);
     }
     // `Store::open` holds its handles past gpui's exit-time leak check.
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+
+/// #LOGS-3: a delta the rail shows nothing of (a CI check, an issue's
+/// history) re-derives none of its rows; a sessions delta does.
+#[test]
+fn the_rail_derives_only_on_what_it_shows() {
+    use crate::sidebar::RAIL_DERIVES;
+    SMALL.with(|small| small.set(Some((40, 200))));
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().to_path_buf();
+    let me = cx.update(|cx| {
+        crate::init(cx);
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        crate::local_desktops::install(path, cx);
+        assert!(crate::local_desktops::enter_current(cx));
+        crate::queries::active_account(cx).expect("the desktop's account").user_id
+    });
+    cx.update(|cx| seed(&me, cx));
+    let handle = cx
+        .open_window(size(px(272.), px(900.)), |window: &mut Window, cx| {
+            let nav = nav_for_window(window, cx);
+            nav.update(cx, |nav, _| nav.team_id = Some("t0".into()));
+            let rail = cx.new(|cx| RailView::new(window, cx));
+            let region = cx.new(|_| eui_gpui::controls::GlyphRegion::new(vec![rail.clone().into()]));
+            let layer = cx.new(|_| eui_gpui::controls::GlyphLayer);
+            cx.new(|_| Root { rail, region, layer })
+        })
+        .expect("a headless window");
+    let window: AnyWindowHandle = handle.into();
+    frame(window, &mut cx);
+    cx.run_until_parked();
+    let derives = || RAIL_DERIVES.with(|n| n.get());
+    let before = derives();
+    cx.update(|cx| {
+        let c = sync::Store::global(cx).collections().clone();
+        seed_rows(&c.pull_request_checks, vec![json!({"id": "check-1", "team_id": "t0", "pull_request_id": "pr0-0", "name": "gate", "status": "in_progress"})], cx);
+        seed_rows(&c.issue_events, vec![json!({"id": "ie-1", "issue_id": "i0-0", "type": "status", "created_at": at(1)})], cx);
+        let rail = handle.entity(cx).unwrap().read(cx).rail.clone();
+        rail.update(cx, |_, cx| cx.notify());
+    });
+    frame(window, &mut cx);
+    cx.run_until_parked();
+    assert_eq!(derives(), before, "a CI check or an issue's history re-derived the rail");
+    cx.update(|cx| {
+        let c = sync::Store::global(cx).collections().clone();
+        seed_rows(&c.sessions, vec![json!({"id": "s0-new", "team_id": "t0", "root_id": "s0-new", "user_id": me, "status": "running", "busy": true, "shared": true, "created_at": at(1), "updated_at": at(1)})], cx);
+    });
+    frame(window, &mut cx);
+    cx.run_until_parked();
+    assert_eq!(derives(), before + 1, "a sessions delta re-derives the rail once");
     std::mem::forget(cx);
     std::mem::forget(root);
 }

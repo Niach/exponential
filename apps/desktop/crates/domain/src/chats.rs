@@ -1447,6 +1447,37 @@ impl ConversationDigest {
     }
 }
 
+/// The digest's own messages (first, preview, waiting, then the waits),
+/// once each, keyed to `session_id`: [`digest_messages`] without the
+/// bodiless agent-time rows (#LOGS-3: what a first-prompt read needs).
+pub fn digest_kept_messages(session_id: &str, digest: Option<&ConversationDigest>) -> Vec<MessageRow> {
+    let Some(digest) = digest else {
+        return Vec::new();
+    };
+    let mut out: Vec<MessageRow> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    let kept = [&digest.first, &digest.preview, &digest.waiting].into_iter().flatten().chain(digest.waits.iter());
+    for message in kept {
+        if seen.contains(&message.id.as_str()) {
+            continue;
+        }
+        seen.push(&message.id);
+        out.push(MessageRow {
+            id: message.id.clone(),
+            session_id: session_id.to_string(),
+            author_kind: Some(message.author_kind.clone()),
+            author_session_id: message.author_session_id.clone(),
+            body: Some(message.body.clone()),
+            card: message.card.clone(),
+            answered_at: message.answered_at.clone(),
+            created_at: Some(message.created_at.clone()),
+            seal: message.seal,
+            ..MessageRow::default()
+        });
+    }
+    out
+}
+
 /// A digest back as the messages the list's rules read, keyed to
 /// `session_id` (`conversation_id` stays empty): its messages once each,
 /// one bodiless agent message per kept agent time (the one a kept message
@@ -1466,31 +1497,12 @@ pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) ->
         created_at: Some(created_at.to_string()),
         ..MessageRow::default()
     };
-    let mut out: Vec<MessageRow> = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    let mut out = digest_kept_messages(session_id, Some(digest));
     // Kept agent messages by instant (a multiset: two may share a time).
     let mut counted: HashMap<i64, usize> = HashMap::new();
-    let kept = [&digest.first, &digest.preview, &digest.waiting].into_iter().flatten().chain(digest.waits.iter());
-    for message in kept {
-        if seen.contains(&message.id.as_str()) {
-            continue;
-        }
-        seen.push(&message.id);
-        out.push(MessageRow {
-            id: message.id.clone(),
-            session_id: session_id.to_string(),
-            author_kind: Some(message.author_kind.clone()),
-            author_session_id: message.author_session_id.clone(),
-            body: Some(message.body.clone()),
-            card: message.card.clone(),
-            answered_at: message.answered_at.clone(),
-            created_at: Some(message.created_at.clone()),
-            seal: message.seal,
-            ..MessageRow::default()
-        });
-        let event = message.card.as_ref().and_then(|card| card.get("kind")).and_then(Value::as_str) == Some("event");
-        if message.author_kind == "agent" && !event {
-            *counted.entry(at(&message.created_at)).or_default() += 1;
+    for message in &out {
+        if message.author_kind.as_deref() == Some("agent") && card_kind(message) != Some("event") {
+            *counted.entry(at(message.created_at.as_deref().unwrap_or_default())).or_default() += 1;
         }
     }
     for (index, time) in digest.agent_times.iter().enumerate() {
