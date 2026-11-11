@@ -356,6 +356,42 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect((await row(childId)).blocked).toMatchObject({ kind: `device_offline` })
   })
 
+  it(`#FEED-210: a busy run that itself spoke to the server inside the online window is not parked by a late beat; the beat listing it keeps it busy, nothing said`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [talking, silent] = await Promise.all([`mcp call`, `silent`].map((text) => w.child(rootId, text)))
+    for (const id of [talking, silent]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+      await backdateSession(id, `updated_at`, ago(10 * MIN))
+    }
+    // The run's own MCP call 30 s ago (the eMCP gate's sign of life).
+    await touchSessionActivity(eq(sessions.id, talking), ago(30_000))
+    // Its device's beat is late (a slow beat body): past the online window.
+    await backdateDevice(w.deviceId, ago((contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(NOW)
+    expect(await row(talking)).toMatchObject({ status: `running`, busy: true, blocked: null })
+    expect(await row(silent)).toMatchObject({ status: `idle`, busy: false, blocked: { kind: `device_offline`, resume: true } })
+
+    // Past the window its own sign of life no longer vouches for it.
+    const later = new Date(NOW.getTime() + contract.device.onlineWindowSeconds * 1000)
+    await runWatchdog(later)
+    expect(await row(talking)).toMatchObject({
+      busy: false,
+      blocked: { kind: `device_offline`, resume: true, resumeSince: null },
+    })
+
+    // The device seen again, listing both: busy again, flags gone, never on
+    // a person and nothing said to the parent.
+    await db.transaction((tx) =>
+      restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [talking, silent] }, later)
+    )
+    for (const id of [talking, silent]) {
+      expect(await row(id)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+      expect(await lines(rootId, `session_interrupted`, id)).toHaveLength(0)
+    }
+  })
+
   it(`a heartbeat's liveSessionIds flags a busy session its host no longer runs; listed ones and a beat without the field change nothing`, async () => {
     const w = await world({ shared: true })
     const rootId = await w.root()

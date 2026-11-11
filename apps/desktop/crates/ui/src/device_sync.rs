@@ -10,6 +10,12 @@
 //!   `last_seen_at` freshness (`contract::DEVICE_ONLINE_WINDOW_MS`), and the
 //!   beat doubles as the WORK PULL (pending commands + the authoritative
 //!   launch defaults on a stamp mismatch);
+//! * #FEED-210: keeps PRESENCE apart from the beat's slow body (agent
+//!   status collectors, forced usage refreshes, commands, the inventory
+//!   scan): while a body runs past [`PRESENCE_AFTER`], a presence keeper
+//!   sends a bare beat (live sessions + activity only), so a busy body never
+//!   lets the 90s online window lapse and the server park healthy runs as
+//!   `device_offline`;
 //! * reacts to the relay `check_in` nudge with an immediate beat, and
 //!   (EXP-490) raises the same nudge itself when the synced `devices` shape
 //!   moves the own row's launch-defaults stamp — a mobile/web edit converges
@@ -28,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext as _, Global};
 
@@ -39,6 +45,13 @@ use crate::queries;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 /// The nudge-poll granularity inside the beat loop.
 const TICK: Duration = Duration::from_secs(1);
+/// #FEED-210: a presence beat goes out once no heartbeat (the regular one or
+/// an earlier presence beat) left for this long: one interval plus a margin
+/// for an ordinary body, still well inside the server's 90s online window.
+const PRESENCE_AFTER: Duration = Duration::from_secs(45);
+/// #FEED-210: a regular beat whose body runs longer than this is logged with
+/// its duration (the next incident names the slow beat instead of guessing).
+const SLOW_BEAT: Duration = Duration::from_secs(20);
 /// Inventory rescans are git work (one status per worktree) — off-cadence
 /// scans only fire on real triggers; this is the slow safety cadence.
 const INVENTORY_BEATS: u32 = 10;
@@ -170,6 +183,11 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
         }
     });
 
+    // #FEED-210: when the last heartbeat left (either loop's): the presence
+    // keeper beats only while the regular beat is late.
+    let last_sent = Arc::new(Mutex::new(Instant::now()));
+    spawn_presence_keeper(account_id.clone(), stop.clone(), last_sent.clone(), cx);
+
     cx.spawn(async move |cx| {
         let mut ticks_since_beat = u32::MAX / 2; // beat immediately
         let mut beats_since_inventory = INVENTORY_BEATS; // scan on the first beat
@@ -230,7 +248,9 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             let worker_busy = worker_busy.clone();
             let sent_status = sent_status.clone();
             let health = health.clone();
+            let last_sent = last_sent.clone();
             let previous_fp = last_inventory_fp;
+            let started = Instant::now();
             let outcome = cx
                 .background_executor()
                 .spawn({
@@ -248,6 +268,7 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                                 &worker_busy,
                                 &sent_status,
                                 &health,
+                                &last_sent,
                             )
                         }))
                         .unwrap_or_else(|payload| {
@@ -260,6 +281,13 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                     }
                 })
                 .await;
+            let took = started.elapsed();
+            if took >= SLOW_BEAT {
+                log::warn!(
+                    "[device-sync] a beat took {}s (scan_due: {scan_due})",
+                    took.as_secs()
+                );
+            }
             last_inventory_fp = outcome.inventory_fp;
             if scan_due {
                 beats_since_inventory = 0;
@@ -329,6 +357,86 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             } else if outcome.settings_moved {
                 let _ = cx.update(|cx| adopt_disk_settings(cx));
             }
+        }
+    })
+    .detach();
+}
+
+/// #FEED-210: whether the presence keeper beats now: no heartbeat left for
+/// [`PRESENCE_AFTER`] (the regular beat's body is still busy).
+fn presence_due(last_sent: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(last_sent) >= PRESENCE_AFTER
+}
+
+/// #FEED-210: the presence beat's body: the device, its live sessions and
+/// their activity, nothing optional (no agent status, no readiness block:
+/// those ride the regular beat). Its answer is ignored: pending commands
+/// stay pending until the regular beat runs them (they ride every
+/// response), and launch defaults converge there too.
+fn presence_input<'a>(
+    device_id: &'a str,
+    active_sessions: u32,
+    defaults_synced_at: Option<&'a str>,
+    live_session_ids: Option<&'a [String]>,
+    session_activity: &'a [api::devices::SessionActivity],
+) -> api::devices::HeartbeatInput<'a> {
+    api::devices::HeartbeatInput {
+        device_id,
+        active_sessions,
+        defaults_synced_at,
+        live_session_ids,
+        session_activity: Some(session_activity),
+        ..api::devices::HeartbeatInput::default()
+    }
+}
+
+/// #FEED-210: the presence keeper beside the regular loop (same stop flag).
+/// The regular beat runs collectors, commands and the inventory scan in its
+/// body; one that sits for minutes (a forced usage refresh, a slow keychain
+/// or app-server probe) used to stop `last_seen_at` with it, and the server
+/// parked this machine's busy runs `device_offline` while they kept running.
+fn spawn_presence_keeper(
+    account_id: String,
+    stop: Arc<AtomicBool>,
+    last_sent: Arc<Mutex<Instant>>,
+    cx: &mut App,
+) {
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor().timer(TICK).await;
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            if !presence_due(*lock_recover(&last_sent), Instant::now()) {
+                continue;
+            }
+            // Stamped before the send either way: a skipped snapshot (another
+            // account active, no client) or a failed beat waits a full
+            // PRESENCE_AFTER, never retries at the tick.
+            *lock_recover(&last_sent) = Instant::now();
+            let Ok(snapshot) = cx.update(|cx| snapshot_for(&account_id, cx)) else {
+                continue;
+            };
+            cx.background_executor()
+                .spawn(async move {
+                    let synced_at =
+                        coding::read_marker(&snapshot.settings_path, &snapshot.device_id).synced_at;
+                    let input = presence_input(
+                        &snapshot.device_id,
+                        snapshot.active_sessions,
+                        synced_at.as_deref(),
+                        snapshot.heartbeat_live_ids.as_deref(),
+                        &snapshot.session_activity,
+                    );
+                    match api::devices::heartbeat(&snapshot.trpc, &input) {
+                        Ok(_) => log::info!(
+                            "[device-sync] the beat is late — presence sent for {} live session(s)",
+                            snapshot.active_sessions
+                        ),
+                        Err(err) => log::debug!("[device-sync] presence beat failed: {err}"),
+                    }
+                })
+                .await;
         }
     })
     .detach();
@@ -624,6 +732,7 @@ fn beat(
     worker_busy: &Arc<AtomicBool>,
     sent_status: &Mutex<AgentStatusSent>,
     health: &Mutex<coding::logging::HeartbeatHealth>,
+    last_sent: &Mutex<Instant>,
 ) -> BeatOutcome {
     let mut last_fp = last_fp;
     let mut defaults_changed = false;
@@ -679,7 +788,7 @@ fn beat(
     let carried_optional =
         writes.accounts.is_some() || writes.usage.is_some() || doctor_write.is_some();
 
-    match api::devices::heartbeat(
+    let sent = api::devices::heartbeat(
         &snapshot.trpc,
         &api::devices::HeartbeatInput {
             device_id: &snapshot.device_id,
@@ -696,7 +805,11 @@ fn beat(
             // EXP-1374: skipped when empty.
             session_activity: Some(&snapshot.session_activity),
         },
-    ) {
+    );
+    // #FEED-210: presence is current again (sent or failed alike: a failing
+    // network fails the keeper's bare beat too, so it waits a full window).
+    *lock_recover(last_sent) = Instant::now();
+    match sent {
         Ok(result) => {
             voice = result.voice.clone();
             lock_recover(health).on_ok("[device-sync]", carried_optional);
@@ -1444,6 +1557,45 @@ fn reload_hub_settings(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #FEED-210: the keeper beats only once the regular beat is late, and
+    /// early enough that the server's online window never lapses: a keeper
+    /// beat leaves at most PRESENCE_AFTER + a tick after the last beat, with
+    /// a whole beat interval of the window to spare for the request.
+    #[test]
+    fn presence_is_due_only_when_the_beat_is_late_and_inside_the_window() {
+        let start = Instant::now();
+        assert!(!presence_due(start, start));
+        assert!(!presence_due(start, start + HEARTBEAT_INTERVAL));
+        assert!(!presence_due(start, start + PRESENCE_AFTER - Duration::from_millis(1)));
+        assert!(presence_due(start, start + PRESENCE_AFTER));
+        // A clock read before the stamp never underflows into "due".
+        assert!(!presence_due(start + Duration::from_secs(5), start));
+        assert!(PRESENCE_AFTER > HEARTBEAT_INTERVAL);
+        let window = Duration::from_millis(domain::contract::DEVICE_ONLINE_WINDOW_MS as u64);
+        assert!(PRESENCE_AFTER + TICK + HEARTBEAT_INTERVAL < window, "a late beat never lapses the online window");
+    }
+
+    /// #FEED-210: the presence beat says the device and its live runs only:
+    /// the list is present (a busy run missing from it reads dead, so it
+    /// must be the real list), nothing optional rides.
+    #[test]
+    fn presence_beat_carries_the_live_runs_and_nothing_optional() {
+        let live = vec!["11111111-1111-4111-8111-111111111111".to_string()];
+        let activity = vec![api::devices::SessionActivity {
+            session_id: live[0].clone(),
+            at: "2026-11-09T00:31:00Z".to_string(),
+        }];
+        let body = serde_json::to_value(presence_input("dev-1", 1, Some("s1"), Some(&live), &activity)).unwrap();
+        assert_eq!(body["deviceId"], "dev-1");
+        assert_eq!(body["activeSessions"], 1);
+        assert_eq!(body["defaultsSyncedAt"], "s1");
+        assert_eq!(body["liveSessionIds"], serde_json::json!(live));
+        assert_eq!(body["sessionActivity"][0]["sessionId"], live[0].as_str());
+        for optional in ["agentAccounts", "agentUsage", "doctor"] {
+            assert!(body.get(optional).is_none(), "{optional} rides the regular beat only");
+        }
+    }
 
     /// EXP-490: the anti-feedback-loop lock — heartbeats mutate the devices
     /// row (`last_seen_at`/`active_sessions`) every ~30s per device, and the

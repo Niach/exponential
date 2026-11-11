@@ -1396,6 +1396,14 @@ fn online(ctx: &Ctx, device_id: &str) -> bool {
     ctx.state.devices.get(device_id).is_some_and(|d| d.last_seen_at >= ctx.now - rules().watchdog.online_window_seconds * 1000)
 }
 
+/// #FEED-210: the run itself spoke to the server inside the online window
+/// (an MCP call, a push: `last_activity_at`): it and its device are up,
+/// whatever the device's beat says.
+fn spoke_lately(ctx: &Ctx, row: &HubSession) -> bool {
+    row.last_activity_at
+        .is_some_and(|at| at >= ctx.now - rules().watchdog.online_window_seconds * 1000 && at <= ctx.now)
+}
+
 fn liveness(row: &HubSession) -> i64 {
     row.updated_at.max(row.last_activity_at.unwrap_or(row.updated_at))
 }
@@ -1458,7 +1466,7 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
     // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
     for id in watched.clone() {
         let row = ctx.row(&id);
-        if !is_working(row) || !row.busy || row.blocked.is_some() || online(ctx, &row.device_id) {
+        if !is_working(row) || !row.busy || row.blocked.is_some() || online(ctx, &row.device_id) || spoke_lately(ctx, row) {
             continue;
         }
         let row = ctx.row_mut(&id);
