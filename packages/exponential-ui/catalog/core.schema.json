@@ -25247,6 +25247,11 @@
           ],
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "$ref": "common_types.json#/$defs/DynamicString",
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."

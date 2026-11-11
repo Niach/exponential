@@ -3590,6 +3590,9 @@
         "icon": {
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "description": "Key-cap hint after the text (`⌘K`)."
         },

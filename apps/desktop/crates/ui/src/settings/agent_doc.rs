@@ -17,8 +17,13 @@ use super::doc::{faded, hex, not, path, Ink, SM, VALUE_ALPHA, XS};
 /// The colours the agent documents need beyond [`Ink`].
 pub(super) struct Chrome {
     pub(super) radius: f32,
+    pub(super) danger_bg: String,
+    pub(super) danger_fg: String,
+    pub(super) danger_hover: String,
     pub(super) danger_text: String,
     pub(super) list_hover: String,
+    /// The Assistant's mark disc (`muted`).
+    pub(super) disc: String,
     /// `feedback::skeleton_fill`.
     pub(super) skeleton: String,
     /// The `+ Add` outline button: its fill, stroke, hover fill and ink.
@@ -37,8 +42,12 @@ impl Chrome {
         let theme = cx.theme();
         Self {
             radius: f32::from(theme.radius),
+            danger_bg: hex(theme.button_danger),
+            danger_fg: hex(theme.button_danger_foreground),
+            danger_hover: hex(theme.button_danger_hover),
             danger_text: hex(theme.danger),
             list_hover: hex(theme.list_hover),
+            disc: hex(theme.muted),
             skeleton: hex(theme.muted_foreground.opacity(0.18)),
             outline_fill: hex(theme.input_background()),
             outline: hex(theme.input),
@@ -56,7 +65,7 @@ impl Chrome {
     /// Plain colours for the document checks.
     pub(super) fn test() -> Self {
         let c = || "#808080".to_string();
-        Self { radius: 6., danger_text: c(), list_hover: c(), skeleton: c(), outline_fill: c(), outline: c(), outline_hover: c(), outline_fg: c(), primary: c(), primary_hover: c(), primary_fg: c() }
+        Self { radius: 6., danger_bg: c(), danger_fg: c(), danger_hover: c(), danger_text: c(), list_hover: c(), disc: c(), skeleton: c(), outline_fill: c(), outline: c(), outline_hover: c(), outline_fg: c(), primary: c(), primary_hover: c(), primary_fg: c() }
     }
 }
 

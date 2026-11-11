@@ -888,6 +888,44 @@ fn a_flat_composer_measures_its_field_at_the_width_the_slots_leave() {
     }
 }
 
+/// #EXP-1762 composerSlots `field` at the core: every built-in theme gives a
+/// flat Composer's field a `paddingTop` (where its text starts below the
+/// row's top), and the fixture's row grows past the send disc exactly when
+/// paddingTop + its lines (+ paddingBottom) are taller (neutral: 8 + n × 20
+/// against 36). The painters place the text (gpui, SwiftUI, Compose, web).
+#[test]
+fn a_flat_composer_field_starts_its_text_at_the_recipe_top_padding() {
+    use eui_core::theme::{recipe_style, resolve_token, Mode, RecipeQuery};
+    let f = fixture();
+    let k = &f["composerSlots"];
+    let flat = |part: &str| RecipeQuery { component: "Composer".into(), part: part.into(), props: serde_json::from_value(json!({"layout": "flat", "attachments": false, "busy": false})).unwrap(), states: vec![] };
+    for id in ["neutral", "exponential", "playful", "orange"] {
+        let theme = eui_core::themes::builtin_theme(id).unwrap();
+        let px = |part: &str, key: &str| recipe_style(&theme, &flat(part)).get(key).and_then(|v| if v.is_number() { Some(v.clone()) } else { resolve_token(&theme, v, Mode::Light) }).and_then(|v| v.as_f64()).map(|v| v as f32);
+        let pad = px("field", "paddingTop").unwrap_or_else(|| panic!("{id}: a flat field has a paddingTop"));
+        assert!(pad > 0.0, "{id}: paddingTop {pad}");
+        if id == "exponential" {
+            assert!((pad - 4.25).abs() < 1e-4, "exponential: the IDE's 4.25, got {pad}");
+        }
+        if id != "neutral" {
+            continue;
+        }
+        assert!((pad - 8.0).abs() < 1e-4, "neutral: $spacing.sm, got {pad}");
+        let line = px("field", "lineHeight").unwrap();
+        let disc = px("send", "height").unwrap();
+        let mut seen = 0;
+        for c in k["cases"].as_array().unwrap().iter().filter(|c| c.get("field").is_some()) {
+            let rows = c["field"]["rows"].as_f64().unwrap() as f32;
+            let lines = c["data"]["draft"].as_str().unwrap().split('\n').count() as f32;
+            assert_eq!(rows, lines, "{}: rows = the draft's lines", c["name"]);
+            let bottom = px("field", "paddingBottom").unwrap_or(0.0);
+            assert_eq!(pad + rows * line + bottom > disc + 0.5, c["field"]["grown"] == true, "{}: grown", c["name"]);
+            seen += 1;
+        }
+        assert_eq!(seen, 2, "a one-line and a grown case");
+    }
+}
+
 /// #EDE-65 R composerPaste at the core: what a painter sends for a paste
 /// (image files = `attach` {files: the images}; files without one =
 /// nothing; else the field's own edit = `change`) fires like the reference. Which clipboard a paste carries and
