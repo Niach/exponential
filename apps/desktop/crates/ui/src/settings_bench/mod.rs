@@ -203,6 +203,7 @@ mod row_parity;
 mod select_button_glyph;
 mod select_icon_color;
 mod select_multi;
+mod select_option_hint;
 mod select_row_disabled;
 mod select_variants;
 mod sessions;

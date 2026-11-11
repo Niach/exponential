@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select option `hint` (#EXP-1629): the core's `itemHint` part, painted and measured as a Text leaf.
 - Select `button` trigger glyph (#EXP-1629): `select_trigger` paints the `valueIcon` in its `iconColor` before the value; the measurer adds it.
 - Text `truncate: "middle"` paints through gpui's `text_ellipsis_middle` over its content box; a pointer-opened `button` Select opens with no cursor (#EXP-1778).
 - Select `row` disabled (#EXP-1629): the dimmed value + chevron from the theme (Settings → Coding CLIs' locked Effort row).
