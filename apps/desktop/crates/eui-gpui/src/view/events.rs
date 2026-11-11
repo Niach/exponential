@@ -1323,7 +1323,7 @@ impl SurfaceView {
                 // #EXP-1765: a POINTER-opened `pill` (the IDE's popover
                 // picker) shows no cursor until the pointer moves or a key
                 // is pressed; a keyboard-opened one keeps it.
-                let pill = self.cache.index_of(&top.owner).and_then(|i| self.cache.node(i)).is_some_and(|o| matches!(o.props.get("triggerVariant").and_then(Value::as_str), Some("pill" | "button")));
+                let pill = self.cache.index_of(&top.owner).and_then(|i| self.cache.node(i)).is_some_and(|o| matches!(o.props.get("triggerVariant").and_then(Value::as_str), Some("pill")));
                 let first_item = first_item.filter(|_| self.keyboard || !pill);
                 if let Some(first) = &first_item {
                     self.move_select_cursor(first, cx);

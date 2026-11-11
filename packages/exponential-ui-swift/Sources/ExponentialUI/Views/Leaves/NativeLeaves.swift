@@ -155,6 +155,12 @@ struct PickerTriggerLeaf: View {
         let ink = isPlaceholder ? (ph.color ?? cx.muted) : (value.color ?? cx.ink)
         let inkOpacity = isPlaceholder ? (pill ? ph.style.opacity ?? 1 : 1) : (value.style.opacity ?? 1)
         HStack(spacing: pill ? SelectTrigger.pillGap(cx.style.gap, sm: cx.spacing("sm")) : cx.spacing("sm")) {
+            // #EXP-1629: a `button` leads with the picked option's glyph, in its tint.
+            if select, let picked = cx.props["valueIcon"]?.string, !picked.isEmpty {
+                let size = SelectTrigger.glyphSize(cx.part("Select", "valueIcon"))
+                ConceptIcon(name: picked, size: size, color: cx.props["iconColor"]?.string.flatMap(cx.propColor) ?? ink, model: cx.model)
+                    .frame(width: size, height: size)
+            }
             TextLabel(text(isPlaceholder), cx.textStyle, color: ink, align: cx.style.textAlign, lines: 1)
                 .opacity(inkOpacity)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -60,6 +60,8 @@ export interface SelectOption {
   description?: string
   /** #EXP-1629: the glyph's tint (`$color.<name>`, or the host's colour). */
   iconColor?: string
+  /** #EXP-1629: a small muted run at the row's end (web's picker hint). */
+  hint?: string
 }
 
 /** #EXP-1629: an option's `trailing` after its label, one space apart (the
@@ -210,7 +212,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
       children
     )
   // #EXP-1764: `triggerIcon`: the chosen option's `icon` leads the row's value.
-  const chosenIcon = row && bool(props.triggerIcon) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
+  const chosenIcon = ((row && bool(props.triggerIcon)) || str(props.triggerVariant) === `button`) && !multiple ? str(options.find((o) => o.value === str(value))?.icon) : ``
   const chosenTint = chosenIcon ? propColor(options.find((o) => o.value === str(value))?.iconColor) : undefined
   const hint: Hint = {
     end: (children) => (described ? <div {...(part(`control`) as Record<string, string>)}>{button(children)}</div> : button(children)),
@@ -434,6 +436,7 @@ function PlainSelect({ node, props, rootProps, part, id, options, value, commit,
                       <SelectPrimitive.ItemText>{str(o.label)}</SelectPrimitive.ItemText>
                     )}
                     <TrailingRun o={o} />
+                    {str(o.hint) ? <span {...(part(`itemHint`) as Record<string, string>)}>{str(o.hint)}</span> : null}
                     <SelectPrimitive.ItemIndicator {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>
                       <BuiltinIcon slot="Select.check" size={16} />
                     </SelectPrimitive.ItemIndicator>
@@ -661,6 +664,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
                       <span>{str(o.label)}{trailingText(o)}</span>
                     )}
                     <TrailingRun o={o} />
+                    {str(o.hint) ? <span {...(part(`itemHint`) as Record<string, string>)}>{str(o.hint)}</span> : null}
                     {isSel ? (
                       <span {...(part(`check`) as Record<string, string>)} className={`${part(`check`).className as string} xui-Select-check`}>
                         <BuiltinIcon slot="Select.check" size={16} />

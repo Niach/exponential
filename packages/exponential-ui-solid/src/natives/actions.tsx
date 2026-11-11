@@ -67,7 +67,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   // Round 9 §6.6: a failing `error` check disables it (warning / info never do).
   const disabled = () => bool(props.props.disabled) || failingChecks(props.props.checks).length > 0
   const inert = () => disabled() || loading()
-  const iconOnly = () => props.props.size === `icon`
+  const iconOnly = () => props.props.size === `icon` || props.props.size === `icon-xs`
   const hasChild = () => props.node.children.length > 0
   const shown = createPendingShown(loading)
   const pendingLabel = () => str(props.props.pendingLabel)

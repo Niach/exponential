@@ -5,6 +5,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Select `button` popup keeps its starting cursor (#EXP-1629): only a pointer-opened `pill` starts without one.
+- Select `button` popup matches web's picker (#EXP-1629): from the core's layout and the theme's recipes.
+- Button `size: "icon-xs"` + `tone: "muted"` (#EXP-1629): `icon-xs` is icon-only in the face and the measurer (the IDE's `web_icon_xs`: 24 round, a 10.5 glyph from the `icon` part); the muted ink comes from the root recipe's colour.
+- Select option `hint` (#EXP-1629): the core's `itemHint` part, painted and measured as a Text leaf.
+- Select `button` trigger glyph (#EXP-1629): `select_trigger` paints the `valueIcon` in its `iconColor` before the value; the measurer adds it.
 - Text `truncate: "middle"` paints through gpui's `text_ellipsis_middle` over its content box; a pointer-opened `button` Select opens with no cursor (#EXP-1778).
 - Select `row` disabled (#EXP-1629): the dimmed value + chevron from the theme (Settings → Coding CLIs' locked Effort row).
 - Menu item `detail`, `identifier`, `preview` (#EXP-1629): the parts and the preview layer come from the core (its Embed leaf mounted like any Embed); a preview layer is passive (`passive_layer`): never the Tab order, Escape or the focus a newly opened layer takes.

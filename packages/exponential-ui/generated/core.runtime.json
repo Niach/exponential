@@ -17,7 +17,8 @@
       "sm",
       "default",
       "lg",
-      "icon"
+      "icon",
+      "icon-xs"
     ],
     "tone": [
       "neutral",
@@ -392,6 +393,10 @@
       "default",
       "sm"
     ],
+    "buttonTone": [
+      "default",
+      "muted"
+    ],
     "textareaVariant": [
       "field",
       "row",
@@ -424,6 +429,9 @@
           "type": "string"
         },
         "trailing": {
+          "type": "string"
+        },
+        "hint": {
           "type": "string"
         },
         "mono": {
@@ -3496,6 +3504,11 @@
         "size": {
           "type": "enum",
           "enum": "size",
+          "default": "default"
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "buttonTone",
           "default": "default"
         },
         "disabled": {

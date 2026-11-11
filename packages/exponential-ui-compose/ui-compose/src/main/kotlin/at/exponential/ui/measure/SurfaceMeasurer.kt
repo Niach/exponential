@@ -442,7 +442,7 @@ class SurfaceMeasurer(
         val label = shown(props.shownText("label"), leaf)
         val loading = props.flag("loading")
         val hasIcon = props.str("icon").isNotEmpty() || loading
-        val iconOnly = props.str("size") == "icon"
+        val iconOnly = props.str("size").let { it == "icon" || it == "icon-xs" }
         val icon = if (hasIcon || iconOnly) (part(leaf.component, "icon", props).width ?: control("iconSm", 16f)) else 0f
         val labelW = if (iconOnly || label.isEmpty()) 0f else line(label, ts)
         val gap = if (hasIcon && labelW > 0f) leaf.control.gap else 0f
@@ -613,7 +613,9 @@ class SurfaceMeasurer(
         if (leaf.component != "Select") return Content(line(shown(text, leaf), ts) + gap + 16f, ts.lineHeight, baseline(ts))
         // #EXP-1629: the `chevron` part's size (a `row` trigger is the core's container of parts).
         val glyph = part("Select", "chevron", leaf.props).let { it.width ?: it.height } ?: 16f
-        return Content(line(shown(text, leaf), ts) + gap + glyph, ts.lineHeight, baseline(ts))
+        // #EXP-1629: a `button`'s picked-option glyph.
+        val picked = if (leaf.props.str("valueIcon").isEmpty()) 0f else (part("Select", "valueIcon", leaf.props).let { it.width ?: it.height } ?: 16f) + gap
+        return Content(line(shown(text, leaf), ts) + gap + glyph + picked, ts.lineHeight, baseline(ts))
     }
 
     /**

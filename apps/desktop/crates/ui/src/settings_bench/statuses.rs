@@ -5,7 +5,7 @@ fn status(id: &str, category: &str, name: &str, color: Option<&str>, order: f64,
 }
 
 /// The builtins plus two custom statuses (Unstarted stays empty).
-fn status_rows() -> Vec<domain::rows::IssueStatusRow> {
+pub(super) fn status_rows() -> Vec<domain::rows::IssueStatusRow> {
     vec![
         status("s-backlog", "backlog", "Backlog", None, 0., Some("backlog")),
         status("s-progress", "started", "In Progress", None, 0., Some("in_progress")),

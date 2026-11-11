@@ -9496,6 +9496,7 @@ public object ExpIcons {
         "action-suggestion" -> `lightbulb`
         "app-editor-chat" -> `message-square`
         "auth-passkey" -> `fingerprint`
+        "automation-off" -> `ban`
         "call-end" -> `phone-off`
         "call-incoming" -> `phone-incoming`
         "call-mute" -> `mic`
@@ -9826,6 +9827,8 @@ public object ExpIcons {
     public val appEditorChat: ImageVector get() = `message-square`
     /** Concept `auth-passkey`. */
     public val authPasskey: ImageVector get() = `fingerprint`
+    /** Concept `automation-off`. */
+    public val automationOff: ImageVector get() = `ban`
     /** Concept `call-end`. */
     public val callEnd: ImageVector get() = `phone-off`
     /** Concept `call-incoming`. */

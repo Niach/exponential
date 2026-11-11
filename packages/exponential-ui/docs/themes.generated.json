@@ -3775,7 +3775,8 @@
         "variant",
         "size",
         "disabled",
-        "loading"
+        "loading",
+        "tone"
       ]
     },
     {
@@ -4018,7 +4019,8 @@
         "itemIcon",
         "itemText",
         "itemLabel",
-        "itemDescription"
+        "itemDescription",
+        "itemHint"
       ],
       "props": [
         "multiple",
