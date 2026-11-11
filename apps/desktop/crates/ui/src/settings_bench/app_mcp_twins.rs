@@ -23,7 +23,7 @@ fn options() -> Vec<(String, String)> {
 /// The IDE twin; `open` draws the trigger's menu (`upstream_menu`) in
 /// place where its popover hangs it (a headless frame never paints the
 /// trigger's popover): under the trigger by the popover's offset (a
-/// quarter rem), start-aligned, at the menu's 16 px rem, no row selected
+/// quarter rem, rounded to whole px as gpui's `Anchored` does), start-aligned, at the menu's 16 px rem, no row selected
 /// (a pointer open).
 pub(super) struct Ide {
     open: bool,
@@ -66,7 +66,7 @@ impl Render for Ide {
             }))
             .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(&MidText { text: URL.into(), sm: false, muted: true }, cx)))
             .child(div().w(px(NARROW)).flex().flex_col().child(crate::settings::app_mcp::mid_text(&MidText { text: SECRET.into(), sm: true, muted: false }, cx)))
-            .children(menu.map(|menu| div().absolute().left_0().top(px(32.) + offset).child(crate::controls::with_pointer_layer(menu))))
+            .children(menu.map(|menu| div().absolute().left_0().top((px(32.) + offset).round()).child(crate::controls::with_pointer_layer(menu))))
     }
 }
 
