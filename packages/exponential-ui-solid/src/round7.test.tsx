@@ -147,6 +147,28 @@ describe(`hosted popups (VAPP-281)`, () => {
   })
 })
 
+describe(`menu item iconColor (#EXP-1629)`, () => {
+  it(`tints the item's glyph: a token as its variable, the host's bound colour as is; checkbox rows keep their glyph`, async () => {
+    const tree = {
+      id: `root`,
+      component: `Box`,
+      children: [{ id: `m`, component: `Menu`, props: { label: `Status`, items: [
+        { label: `In Progress`, value: `p`, kind: `checkbox`, checked: true, icon: `status-in-progress`, iconColor: `$color.warning` },
+        { label: `Blocked`, value: `b`, icon: `status-in-progress`, iconColor: { "@path": `/blocked` } },
+        { label: `Plain`, value: `q`, icon: `status-backlog` },
+      ] } }],
+    } as unknown as NestedNode
+    const r = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
+    expect(r.issues).toEqual([])
+    const { container } = render(() => <ExponentialSurface root={r.root} theme="neutral" id="menu" data={{ blocked: `#ef4444` }} />)
+    fireEvent.pointerDown(byId(container, `m.trigger`)!, { button: 0, ctrlKey: false, pointerType: `mouse` })
+    fireEvent.click(byId(container, `m.trigger`)!)
+    await tick()
+    const glyphs = [...content(`Menu`)!.querySelectorAll<SVGElement>(`svg[data-icon^="status-"]`)]
+    expect(glyphs.map((g) => g.style.color)).toEqual([`var(--xui-color-warning)`, `rgb(239, 68, 68)`, ``])
+  })
+})
+
 // `matchAnchorWidth`: the panel takes the popper's anchor width (the anchor
 // node by id, else the trigger); unset, the content keeps its own width.
 describe(`Popover matchAnchorWidth`, () => {

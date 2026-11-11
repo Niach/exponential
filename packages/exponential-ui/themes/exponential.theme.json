@@ -1292,7 +1292,8 @@
           "style": {
             "borderWidth": 1,
             "borderColor": "#00000000",
-            "paddingHorizontal": 7
+            "paddingHorizontal": 7,
+            "paddingVertical": 3.5
           }
         },
         {
@@ -1304,6 +1305,26 @@
           "style": {
             "backgroundColor": "$color.accent",
             "borderColor": "#ffffff29"
+          }
+        },
+        {
+          "when": {
+            "joinTop": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderTopWidth": 0,
+            "paddingTop": 5
+          }
+        },
+        {
+          "when": {
+            "joinBottom": true,
+            "triggerVariant": "row"
+          },
+          "style": {
+            "borderBottomWidth": 0,
+            "paddingBottom": 5
           }
         },
         {
@@ -1524,6 +1545,16 @@
             "backgroundColor": "$color.card",
             "borderColor": "$color.border",
             "boxShadow": "$shadow.none"
+          }
+        }
+      ],
+      "field": [
+        {
+          "when": {
+            "layout": "flat"
+          },
+          "style": {
+            "paddingTop": 4.25
           }
         }
       ]

@@ -504,6 +504,11 @@
           "type": "icon",
           "description": "Icon before the text."
         },
+        "iconColor": {
+          "type": "color",
+          "bindable": true,
+          "description": "Tints the icon (a status glyph); bind it to the host's resolved colour."
+        },
         "shortcut": {
           "type": "string",
           "description": "Key-cap hint after the text (`⌘K`)."
@@ -1399,7 +1404,7 @@
     "CodeBlock.copy": "ui-copy",
     "CodeBlock.copied": "ui-check",
     "Composer.attachment": "ui-attach",
-    "Composer.send": "ui-send",
+    "Composer.send": "ui-submit",
     "Composer.stop": "ui-stop",
     "DatePicker.trigger": "calendar",
     "DatePicker.previousMonth": "ui-chevron-left",

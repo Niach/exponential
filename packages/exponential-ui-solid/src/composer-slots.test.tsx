@@ -19,6 +19,8 @@ interface SlotsCase {
   slots: Record<string, NestedNode>
   direction?: `rtl`
   order: string[]
+  data?: Record<string, unknown>
+  field?: { rows: number; grown: boolean }
   steps: { press: string }[]
   events: Fired[]
 }
@@ -49,6 +51,22 @@ function rowOrder(root: ParentNode): string[] {
   })
 }
 
+/** #EXP-1762: the value the surface's stylesheets give `el` for `prop` (jsdom
+ *  computes no cascade: the last matching rule's declaration). */
+function cascaded(el: Element, prop: string): string {
+  let value = ``
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSStyleRule) {
+        const v = rule.style.getPropertyValue(prop)
+        if (v && el.matches(rule.selectorText)) value = v
+      } else if (`cssRules` in rule) walk((rule as CSSGroupingRule).cssRules)
+    }
+  }
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules)
+  return el instanceof HTMLElement && el.style.getPropertyValue(prop) ? el.style.getPropertyValue(prop) : value
+}
+
 describe(`fixtures/interactions-round1.json composerSlots`, () => {
   for (const c of fx.composerSlots.cases) {
     it(`composerSlots: ${c.name}`, () => {
@@ -56,8 +74,18 @@ describe(`fixtures/interactions-round1.json composerSlots`, () => {
       const s = fx.composerSlots.surface
       const composer = { ...s, props: { ...s.props, ...c.props }, ...(Object.keys(c.slots).length > 0 ? { slots: c.slots } : {}) } as NestedNode
       const tree = { id: `root`, component: `Box`, style: { direction: c.direction ?? `ltr` }, children: [composer] } as NestedNode
-      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `cs`, data: {}, initial: tree })} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />)
+      const { container } = render(() => <ExponentialSurface surface={createSurface({ surfaceId: `cs`, data: structuredClone(c.data ?? {}), initial: tree })} theme="neutral" id="cs" host={{ onAction: (e: Fired) => void actions.push(e) }} />)
       expect(rowOrder(container)).toEqual(c.order)
+      if (c.field) {
+        // The field stretches across the row (grown by its min-height, never
+        // a height) and its text starts at the recipe's padding-top
+        // (neutral `$spacing.sm`).
+        const field = container.querySelector(`[data-xui-id="c"] textarea`) as HTMLTextAreaElement
+        expect(field.value.split(`\n`)).toHaveLength(c.field.rows)
+        expect(cascaded(field, `align-self`)).toBe(`stretch`)
+        expect(cascaded(field, `padding-top`)).toBe(`var(--xui-spacing-sm)`)
+        expect(field.style.height).toBe(``)
+      }
       for (const step of c.steps) fireEvent.click(container.querySelector(`[data-xui-id="${step.press}"]`)!)
       expect(actions.map((a) => ({ name: a.name, context: a.context }))).toEqual(c.events)
     })

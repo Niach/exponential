@@ -518,7 +518,11 @@ class SurfaceMeasurer(
         // slots' width off `wrap`), the row is the taller of field and disc.
         if (props.str("layout") == "flat") {
             val att = if (props.flag("attachments")) at.exponential.ui.compose.COMPOSER_ATTACH_W + gap else 0f
-            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height
+            // The text starts the field recipe's paddingTop below the row's
+            // top (composerSlots `field`): the row grows past the disc once
+            // the padding and the lines are taller.
+            val pad = (field.px("paddingTop") ?: 0f) + (field.px("paddingBottom") ?: 0f)
+            val fh = shaper.measure(text, fieldTs, max(w - send - gap - att, 1f), null).height + pad
             return Size(w, max(min(max(fh, minH), 200f), send))
         }
         val th = shaper.measure(text, fieldTs, max(w, 1f), null).height

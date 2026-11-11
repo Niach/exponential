@@ -130,6 +130,15 @@ impl LeafCx<'_> {
         theme_color(self.theme, self.mode, name)
     }
 
+    /// A colour-typed prop: a `$color.<name>` token of the theme, else the
+    /// host's resolved colour (`#rrggbb[aa]`, bound data).
+    pub fn prop_color(&self, value: &str) -> Option<Hsla> {
+        match value.strip_prefix("$color.") {
+            Some(name) => self.theme_color(name),
+            None => crate::paint::color::parse_hex(value),
+        }
+    }
+
     /// The physical text alignment: the style's, else the `align` prop
     /// (start/end by the direction), else the direction's start.
     pub fn align(&self) -> &'static str {

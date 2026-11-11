@@ -1,7 +1,6 @@
 package at.exponential.ui.compose
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -153,6 +153,16 @@ internal fun selectPopupX(align: String, rtl: Boolean, left: Int, right: Int, w:
 
 /** #EXP-1629: does the list have options below its visible end (the IDE picker's `has_more_below`)? */
 internal fun selectMoreBelow(offset: Int, max: Int): Boolean = max > 0 && offset < max - 1
+
+/**
+ * #EXP-1629: a `multiple` Select's run of adjacent picked SHOWN rows is ONE
+ * block (web's Picker, the IDE's `multi_row_edges`): row [index]'s
+ * `joinTop` (the row above is picked too) and `joinBottom` (the row below).
+ */
+internal fun selectItemJoins(multiple: Boolean, picked: List<Boolean>, index: Int): Pair<Boolean, Boolean> {
+    if (!multiple || picked.getOrNull(index) != true) return false to false
+    return (index > 0 && picked[index - 1]) to (picked.getOrNull(index + 1) == true)
+}
 
 /** #EXP-1629: the popup's fixed width (`popupWidth`, else a row's layout width); null = at least the trigger's. */
 internal fun selectPopupWidth(owner: Props, row: Boolean): Float? =
@@ -336,8 +346,9 @@ internal fun SelectPopup(cx: LeafContext) {
             Box(Modifier.weight(1f, fill = false).fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().verticalScroll(scroll)) {
                     if (loading) SelectSkeletonRows(cx)
+                    val picked = options.map { chosen.contains(it.value.displayText) }
                     for ((i, o) in options.withIndex()) {
-                        SelectOptionRow(cx, o, i == cursor, chosen.contains(o.value.displayText), itemH, popupTs, popupInk, onHover = {
+                        SelectOptionRow(cx, o, i == cursor, picked[i], selectItemJoins(multiple, picked, i), itemH, popupTs, popupInk, onHover = {
                             cursorless = false
                             cursor = i
                         }, onPick = { pick(o) })
@@ -428,13 +439,19 @@ private fun SelectSearch(cx: LeafContext, query: String, hint: String, pill: Boo
 
 /** One option: the `item` recipe under its states (`hover` = the cursor, `selected` = chosen), icon, label, the check slot. */
 @Composable
-private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, height: Float, base: ResolvedTextStyle, popupInk: Color, onHover: () -> Unit, onPick: () -> Unit) {
+private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, chosen: Boolean, joins: Pair<Boolean, Boolean>, height: Float, base: ResolvedTextStyle, popupInk: Color, onHover: () -> Unit, onPick: () -> Unit) {
     val states = buildList {
         if (cursor) add("hover")
         if (chosen) add("selected")
         if (o.disabled) add("disabled")
     }
-    val item = cx.part("Select", "item", states)
+    // #EXP-1629: a joined edge's recipe drops its stroke and corners and
+    // pads it (`paddingTop` / `paddingBottom`).
+    val joinProps = buildMap {
+        if (joins.first) put("joinTop", JsonValue.Bool(true))
+        if (joins.second) put("joinBottom", JsonValue.Bool(true))
+    }
+    val item = if (joinProps.isEmpty()) cx.part("Select", "item", states) else cx.part("Select", "item", cx.ownerProps + joinProps, states)
     val hover by rememberUpdatedState(onHover)
     val s = item.style
     val ink = item.color ?: popupInk
@@ -443,15 +460,16 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
     val sans = base.copy(fontSize = s.fontSize ?: base.fontSize, lineHeight = s.lineHeight ?: base.lineHeight, fontFamily = item.fontFamily ?: base.fontFamily)
     // #EXP-1765: a mono option's label in the theme's mono type.
     val ts = cx.composeTextStyle(ts = if (o.mono) sans.copy(fontFamily = cx.model.effectiveTheme?.monoFamily ?: "ui-monospace") else sans, color = ink)
-    val shape = RoundedCornerShape(s.radius.dp)
+    val (tl, tr, br, bl) = s.corners
+    val shape = AbsoluteRoundedCornerShape(tl.dp, tr.dp, br.dp, bl.dp)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = height.dp)
             .alpha(s.opacity ?: 1f)
             .clip(shape)
-            .background(s.background ?: Color.Transparent, shape)
-            .then(if (s.borderWidth > 0f) s.borderColor?.let { Modifier.border(s.borderWidth.dp, it, shape) } ?: Modifier else Modifier)
+            // The fill and the stroke per side and corner (a joined edge has neither).
+            .paintedSurface(s)
             .pointerInput(o.value) {
                 awaitPointerEventScope {
                     while (true) {
@@ -461,7 +479,7 @@ private fun SelectOptionRow(cx: LeafContext, o: SelectOption, cursor: Boolean, c
                 }
             }
             .selectable(selected = chosen, interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !o.disabled, role = Role.DropdownList, onClick = onPick)
-            .padding(horizontal = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, vertical = (item.px("paddingVertical") ?: 0f).dp),
+            .padding(start = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, end = (item.px("paddingHorizontal") ?: s.paddingHorizontal).dp, top = (item.px("paddingTop") ?: item.px("paddingVertical") ?: 0f).dp, bottom = (item.px("paddingBottom") ?: item.px("paddingVertical") ?: 0f).dp),
         horizontalArrangement = Arrangement.spacedBy((s.gap.takeIf { it > 0f } ?: cx.spacing("sm")).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

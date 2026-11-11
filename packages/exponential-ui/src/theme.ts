@@ -102,6 +102,10 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   paddingBottom: [`spacing`],
   // #EXP-1765: a text part's alignment (the pill popup's centred `empty`).
   textAlign: [],
+  // #EXP-1629: a joined Select multi row squares the corners it shares.
+  borderTopRightRadius: [`radius`, `spacing`],
+  borderBottomRightRadius: [`radius`, `spacing`],
+  borderBottomLeftRadius: [`radius`, `spacing`],
 }
 /** #EDE-65: the recipe keys that also take a percentage of the parent (`"62%"`). */
 const PERCENT_KEYS = new Set([`maxWidth`])
