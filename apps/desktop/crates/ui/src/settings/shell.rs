@@ -271,8 +271,10 @@ impl Entries<'_> {
         if item.get("indent").is_none() {
             item["indent"] = json!(self.paint.rem * 0.5);
         }
-        if item.get("lit").is_none() {
-            item["lit"] = json!(false);
+        for key in ["lit", "foldOpen"] {
+            if item.get(key).is_none() {
+                item[key] = json!(false);
+            }
         }
         self.items.push(item);
     }
@@ -383,6 +385,7 @@ pub(crate) fn nav_entries(inputs: &NavInputs, folded: &HashMap<&'static str, boo
                 last["fold"] = json!(if open { "open" } else { "closed" });
                 last["chevron"] = json!(if open { "ui-chevron-down" } else { "ui-chevron-right" });
                 last["foldKey"] = json!(format!("fold:{}", item.id));
+                last["foldOpen"] = json!(open);
                 last["foldLabel"] = json!(if open { format!("Collapse {}", item.label) } else { format!("Expand {}", item.label) });
                 out.actions.insert(format!("fold:{}", item.id), NavAction::Fold(item.label, open));
             }
@@ -423,7 +426,7 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
     index_style["cursor"] = json!("pointer");
     index_style[":hover"] = json!({"color": p.foreground});
     let index = json!({"id": "nav_index", "component": "Box", "visible": kind("index"), "props": {"pressable": true},
-        "accessibility": {"label": path("label")},
+        "accessibility": {"label": path("label"), "selected": path("lit")},
         "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "column"},
         "children": [{"id": "nav_index_text", "component": "Text", "props": {"text": path("label")}, "style": index_style}]});
@@ -431,12 +434,12 @@ pub(crate) fn nav_document(p: &NavPaint) -> Value {
     // lit fill, the hover wash; the `xsmall` glyph, the truncated label,
     // the fold chevron (`size_3`, muted).
     let chevron = json!({"id": "nav_fold", "component": "Box", "visible": not(eq(path("fold"), json!("none"))), "props": {"pressable": true},
-        "accessibility": {"label": path("foldLabel")},
+        "accessibility": {"label": path("foldLabel"), "expanded": path("foldOpen")},
         "on": {"press": {"event": {"name": "pick", "context": {"key": path("foldKey")}}}},
         "style": {"display": "flex", "flexShrink": 0, "cursor": "pointer"},
         "children": [{"id": "nav_fold_icon", "component": "Icon", "props": {"name": path("chevron")}, "style": {"width": glyph, "height": glyph, "color": p.muted, "flexShrink": 0}}]});
     let row = json!({"id": "nav_row", "component": "Box", "visible": kind("row"), "props": {"pressable": true},
-        "accessibility": {"label": path("label")},
+        "accessibility": {"label": path("label"), "selected": path("lit")},
         "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "gap": r(0.5), "paddingLeft": path("indent"), "paddingRight": r(0.5), "paddingVertical": r(0.25),
             "borderRadius": p.radius, "backgroundColor": path("fill"), "cursor": "pointer", ":hover": {"backgroundColor": p.fill_row}},

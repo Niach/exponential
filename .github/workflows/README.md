@@ -31,6 +31,47 @@ coolify deploy uuid <app-uuid>
 
 Or click "Deploy" in the Coolify UI.
 
+GlitchTip (#LOGS-1, error tracking, performance, uptime monitors and logs) runs
+on the Hetzner host as the Coolify service `glitchtip` (project `exponential`):
+`glitchtip/glitchtip:6.2.6` web + worker, a one-shot `migrate` job, Postgres 17
+and Valkey on persistent volumes, plus a `cloudflared` sidecar. Nothing
+publishes a host port and no service has an FQDN, so the Coolify proxy has no
+route to it and the Hetzner firewall stays unchanged. Ways in:
+
+- `https://glitchtip.exponential.at`: Cloudflare Tunnel `glitchtip-hetzner`
+  (ingress `http://web:8000`) behind the Cloudflare Access app "GlitchTip (owner
+  only)": the One-time PIN login, ONE allowed email, a 1 h session, HttpOnly +
+  SameSite=lax + binding cookies (never strict: the login's cross-site
+  redirect back drops a strict cookie and loops on the team domain). Every path redirects to the Access login
+  (`/`, `/api/0/`, `/admin/`, and the ingest `/api/<id>/envelope/` too).
+  GlitchTip's own login (registration and org creation off, one admin) is the
+  second factor.
+- CI debug-file uploads (`sentry-cli`, #LOGS-2): a second Access app scoped to
+  `/api/0/organizations/exponential/chunk-upload`, `.../releases` and
+  `/api/0/projects/exponential/`, with a non-identity policy for one Access
+  service token. Repo secrets `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`
+  (pass both as `sentry-cli --header`) + `GLITCHTIP_AUTH_TOKEN` (a GlitchTip
+  token with only `project:releases`). Works with sentry-cli 2.58 and 3.8;
+  without the headers the upload gets a 401.
+- Event ingest never crosses Cloudflare: clients post to our backend's
+  `/api/monitoring` tunnel, and the web app forwards to `http://glitchtip-web:8000`
+  over the host's shared `coolify` Docker network (the `glitchtip-web` alias on
+  the web container). Web env (runtime, server-only, set on cloud + next):
+  `GLITCHTIP_INTERNAL_URL`, `SENTRY_DSN_{WEB,SERVER,DESKTOP,EDE,IOS,ANDROID}`,
+  `SENTRY_ENVIRONMENT` (`prod` / `staging`).
+
+Server settings: org `exponential`, projects web, web-server, desktop, ede, ios,
+android; IP addresses and PII scrubbed at ingest (org + project
+`scrub_ip_addresses`, `scrub_config` with `ip_address`/`ip`/`remote_addr` keys
+and emails); retention `GLITCHTIP_RETENTION_DAYS=30`. Uptime monitors (60 s):
+app + next, both `/api/health` (`"ok":true`), the teams shape
+(`snapshot-end`) and the site. Backups: a systemd timer on the host
+(`glitchtip-backup.timer`, 00:15 UTC) `pg_dump -Fc` into
+`/data/coolify/backups/databases/root-team-0/glitchtip-postgres-*`, 14 days.
+The DSNs, admin login, tunnel and token values live in the operations notes,
+never here. Upgrade: bump the image tag in the service compose (Coolify), the
+`migrate` job runs before web and worker start.
+
 Electric (cloud and next) is a Coolify dockerimage app PINNED to the same
 `electricsql/electric:<version>` tag as `docker-compose.yaml` and
 `selfhost/docker-compose.yaml` (1.8.1 since #2394), never a floating `latest`:

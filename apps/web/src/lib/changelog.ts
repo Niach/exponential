@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-11-busy-sessions-stay-online`,
+    date: `2026-11-11`,
+    title: `Busy sessions no longer read offline by mistake`,
+    summary: `A session your device is still running no longer flips to "device offline" while the desktop app is busy with background work, and comes back as soon as the device is seen.`,
+    body: `- **Stays running**: the desktop app keeps telling the server it is online while it refreshes usage or scans worktrees, so a long turn is never shown as cut off.
+- **A run that talks counts**: a session that just called Exponential itself is never marked offline, even when its device's check-in is late.
+- **Back at once**: when the device is seen again, a session it still runs reads running again with no flag left behind.`,
+  },
+  {
     id: `2026-11-11-one-chat-composer`,
     date: `2026-11-11`,
     title: `One chat composer for the desktop app and Exponential Desktop`,

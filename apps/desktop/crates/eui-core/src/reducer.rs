@@ -21,7 +21,10 @@ use crate::validate::validate_props;
 /// `visible`, `checks` are declared props of the core components now).
 pub const RESERVED_KEYS: &[&str] = &["id", "component", "catalogId", "accessibility", "metadata"];
 /// Round 9 §5.1: the closed `accessibility` object.
-pub const ACCESSIBILITY_KEYS: &[&str] = &["label", "description", "live", "hidden"];
+pub const ACCESSIBILITY_KEYS: &[&str] = &["label", "description", "live", "hidden", "selected", "expanded"];
+
+/// #EXP-1629: the state keys (DynamicBoolean: a boolean or a binding).
+pub const ACCESSIBILITY_STATES: &[&str] = &["selected", "expanded"];
 const LIVE_VALUES: &[&str] = &["off", "polite", "assertive"];
 const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
 const UNALLOWED_CHILD: &str = "UNALLOWED_CHILD";
@@ -104,6 +107,10 @@ fn accessibility_of(value: &Value, id: &str, issues: &mut Vec<ReduceIssue>) -> O
         }
         if k == "live" && !v.as_str().is_some_and(|l| LIVE_VALUES.contains(&l)) {
             issues.push(ReduceIssue::at(id, format!("accessibility.live: expected one of {}", LIVE_VALUES.join("|")), "/accessibility/live", VALIDATION_FAILED));
+            continue;
+        }
+        if ACCESSIBILITY_STATES.contains(&k.as_str()) && !v.is_boolean() && !crate::expr::is_dynamic(v) {
+            issues.push(ReduceIssue::at(id, format!("accessibility.{k}: expected a boolean"), &format!("/accessibility/{k}"), VALIDATION_FAILED));
             continue;
         }
         out.insert(k.clone(), v.clone());

@@ -921,6 +921,13 @@ const online = (ctx: Ctx, deviceId: string) => {
   const device = ctx.state.devices[deviceId]
   return !!device && device.lastSeenAt >= ctx.now - rules.watchdog.onlineWindowSeconds * 1000
 }
+/** #FEED-210: the run itself spoke to the server inside the online window
+ *  (an MCP call, a push: `lastActivityAt`): it and its device are up,
+ *  whatever the device's beat says. */
+const spokeLately = (ctx: Ctx, row: HubSession) =>
+  row.lastActivityAt != null &&
+  row.lastActivityAt >= ctx.now - rules.watchdog.onlineWindowSeconds * 1000 &&
+  row.lastActivityAt <= ctx.now
 const liveness = (row: HubSession) => Math.max(row.updatedAt, row.lastActivityAt ?? row.updatedAt)
 
 function tick(ctx: Ctx): StepResult {
@@ -958,7 +965,7 @@ function tick(ctx: Ctx): StepResult {
   }
   // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
   for (const row of watched) {
-    if (!isWorking(row) || !row.busy || row.blocked || online(ctx, row.deviceId)) continue
+    if (!isWorking(row) || !row.busy || row.blocked || online(ctx, row.deviceId) || spokeLately(ctx, row)) continue
     Object.assign(row, {
       status: `idle`,
       busy: false,

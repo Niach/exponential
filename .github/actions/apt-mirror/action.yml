@@ -1,0 +1,16 @@
+name: apt-mirror
+description: >-
+  Run `apt-get update` so a dead Ubuntu mirror costs a retry instead of a
+  failed job (2026-11-11: GitHub runners could not resolve
+  azure.archive.ubuntu.com, 61× per update, ede-v0.2.16 never published).
+  When Canonical's hosts resolve, moves the sources off the Azure mirror to
+  archive.ubuntu.com (security stays); otherwise, or when that still fails,
+  EVERY source (security too) goes to mirrors.edge.kernel.org, then
+  ftp.halifax.rwth-aachen.de. Every later apt download of the job retries. Use it in place of
+  `sudo apt-get update`, before the job's `apt-get install`. Linux only.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: '"$GITHUB_ACTION_PATH/apt-mirror.sh"'

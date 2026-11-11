@@ -396,7 +396,7 @@ closed (`unevaluatedProperties: false`):
 | `id` | identifier | required |
 | `component` | identifier, not `Surface` | required |
 | `catalogId` | string | optional; overrides the surface default (§5.5) |
-| `accessibility` | `{label?: DynamicString, description?: DynamicString, live?: "off"\|"polite"\|"assertive" (default off), hidden?: DynamicBoolean}` | closed object; another key = a reducer issue VALIDATION_FAILED (the key is ignored) |
+| `accessibility` | `{label?: DynamicString, description?: DynamicString, live?: "off"\|"polite"\|"assertive" (default off), hidden?: DynamicBoolean, selected?: DynamicBoolean, expanded?: DynamicBoolean}` (#EXP-1629: `selected` / `expanded`, fixtures/a11y-states.json) | closed object; another key = a reducer issue VALIDATION_FAILED (the key is ignored) |
 | `metadata` | `{extensions?: {<identifier>: any}}` | closed; stored and exposed (`UiNode.metadata`, Rust `UiNode::metadata`), never painted |
 | everything else | declared props of the resolved catalog component | §5.3 |
 

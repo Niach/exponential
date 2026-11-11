@@ -19,6 +19,7 @@ on:
     paths:
       - apps/ede/packaging/**
       - .github/workflows/build-ede.yml
+      - .github/actions/apt-mirror/**
   workflow_dispatch:
     inputs:
       publish:
@@ -39,9 +40,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
       - name: Linux system deps (udev backend + the shell's gpui)
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
             libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev
@@ -194,13 +196,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: apps/ede/packaging
+          sparse-checkout: |
+            apps/ede/packaging
+            .github/actions/apt-mirror
       - uses: actions/download-artifact@v4
         with:
           pattern: pkg-*
           path: incoming
           merge-multiple: true
-      - run: sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c rpm gnupg rsync
+      - uses: ./.github/actions/apt-mirror
+      - run: sudo apt-get install -y apt-utils createrepo-c rpm gnupg rsync
       - name: The signing key
         env:
           PKG_SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}

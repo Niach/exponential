@@ -230,10 +230,12 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+        if: runner.os == 'Linux'
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config clang
       - uses: dtolnay/rust-toolchain@stable

@@ -54,11 +54,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: ./.github/actions/apt-mirror
+        if: runner.environment == 'github-hosted'
       - name: Linux system deps
         if: runner.environment == 'github-hosted'
         # No GUI: rustls on ring only (emcp turns no aws-lc on).
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

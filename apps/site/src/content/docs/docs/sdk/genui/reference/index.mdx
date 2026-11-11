@@ -29,3 +29,18 @@ Every package publishes together from one `eui-v*` tag.
 | `eui-gpui` | git | The gpui painter. It stays a git dependency until gpui itself is on crates.io. | a git dependency on `github.com/Niach/exponential` |
 | `ExponentialUI` | SwiftPM | The SwiftUI painter (iOS 17, macOS 14), from `github.com/Niach/exponential-ui-swift`. | `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.21.0")` |
 | `at.exponential:eui-compose` | Maven Central | The Compose painter (minSdk 26), with `ui-compose-primitives`. | `implementation("at.exponential:eui-compose:0.21.0")` |
+
+## Accessibility
+
+Every node takes an `accessibility` object beside its props. It is closed: any other key is a reducer issue.
+
+| Key | Type | What the platforms report |
+|---|---|---|
+| `label` | string or binding | The accessible name; it overrides the computed one. |
+| `description` | string or binding | The accessible description. |
+| `live` | `off`, `polite` or `assertive` | Announces a change of the node's text; it wins over a Text's own `live`. |
+| `hidden` | boolean or binding | Hides the node and its subtree from assistive technology; it still paints. |
+| `selected` | boolean or binding | A selected node, such as the lit row of a nav: `aria-selected`, plus `aria-current` on a node with no selection role of its own. SwiftUI `.isSelected`, Compose `selected`, AccessKit `selected`. |
+| `expanded` | boolean or binding | A disclosure's open state: `aria-expanded`, the SwiftUI value expanded or collapsed, Compose expand or collapse, AccessKit `expanded`. |
+
+An unset `selected` or `expanded` reports no state at all, never `false`. A nav row or a disclosure should always set its state.

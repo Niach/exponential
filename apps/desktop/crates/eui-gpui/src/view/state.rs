@@ -378,6 +378,12 @@ pub fn a11y_current(n: &PlacedNode) -> bool {
     }
 }
 
+/// #EXP-1629: the author's `accessibility.selected` / `.expanded`
+/// (fixtures/a11y-states.json): `None` = unset (no state reported).
+pub fn a11y_state(n: &PlacedNode, key: &str) -> Option<bool> {
+    n.accessibility.as_ref().and_then(|a| a.get(key)).and_then(Value::as_bool)
+}
+
 fn str_of<'a>(n: &'a PlacedNode, key: &str) -> Option<&'a str> {
     n.props.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -585,6 +591,42 @@ mod tests {
         assert_eq!(role_of(&cache.nodes[tab as usize], None, None), Some(Role::Tab));
         assert_eq!(a11y_label(&cache.nodes[cache.index_of("a").unwrap() as usize], s.strings()).as_deref(), Some("A"));
         assert!(NodeFlags::of(&cache.nodes[tab as usize]).selected);
+    }
+
+    /// #EXP-1629 (fixtures/a11y-states.json): the author's
+    /// `accessibility.selected` / `.expanded` reach the painter resolved per
+    /// template instance; an unset key reports no state.
+    #[test]
+    fn the_a11y_state_fixture_replays() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/a11y-states.json");
+        let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("the fixture")).expect("parses");
+        for case in fixture["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or_default();
+            let mut s = Surface::new("t", SurfaceOptions::default());
+            let outcome = s.set_nested(serde_json::from_value::<NestedNode>(case["tree"].clone()).unwrap());
+            assert!(outcome.issues.is_empty(), "{name}: {:?}", outcome.issues);
+            s.set_data("", Some(case["data"].clone())).unwrap();
+            s.set_viewport(600.0, 0.0, None);
+            s.layout(&mut FixedMeasure::default());
+            let cache = NodeCache::build(&mut s);
+            let node = |id: &str| &cache.nodes[cache.index_of(id).unwrap_or_else(|| panic!("{name}: no {id}")) as usize];
+            for (id, states) in case["expect"].as_object().unwrap() {
+                for key in ["selected", "expanded"] {
+                    assert_eq!(a11y_state(node(id), key), states.get(key).and_then(Value::as_bool), "{name}: {id} {key}");
+                }
+            }
+            for id in case["unset"].as_array().unwrap() {
+                let id = id.as_str().unwrap();
+                assert_eq!((a11y_state(node(id), "selected"), a11y_state(node(id), "expanded")), (None, None), "{name}: {id}");
+            }
+        }
+        for bad in fixture["invalid"].as_array().unwrap() {
+            let mut s = Surface::new("t", SurfaceOptions::default());
+            let outcome = s.set_nested(serde_json::from_value::<NestedNode>(bad["node"].clone()).unwrap());
+            let id = bad["node"]["id"].as_str().unwrap();
+            let paths: Vec<&str> = outcome.issues.iter().map(|i| i.path.as_str()).collect();
+            assert_eq!(paths, [format!("/components/{id}{}", bad["path"].as_str().unwrap())]);
+        }
     }
 
     #[test]
