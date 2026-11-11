@@ -13120,16 +13120,11 @@
                 "id": "specimen_select_case_9_label",
                 "component": "Text",
                 "props": {
-<<<<<<< HEAD
                   "text": "triggerVariant · row + description, disabled",
-=======
-                  "text": "multiple · searchable · row + option icon, description",
->>>>>>> origin/master
                   "variant": "caption"
                 }
               },
               {
-<<<<<<< HEAD
                 "id": "c9_agent_effort",
                 "component": "Group",
                 "children": [
@@ -13151,12 +13146,37 @@
                         {
                           "label": "Max",
                           "value": "max"
-=======
-                "id": "c9_agent_skills",
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen_select_case_10",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen_select_case_10_label",
+                "component": "Text",
+                "props": {
+                  "text": "multiple · searchable · row + option icon, description",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c10_agent_skills",
                 "component": "Group",
                 "children": [
                   {
-                    "id": "c9_skills",
+                    "id": "c10_skills",
                     "component": "Select",
                     "props": {
                       "label": "Skills",
@@ -13183,7 +13203,6 @@
                           "value": "triage",
                           "icon": "ui-docs",
                           "description": "Sort the inbox by priority"
->>>>>>> origin/master
                         }
                       ]
                     }

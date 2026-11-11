@@ -1164,6 +1164,8 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
       component: `Group`,
       children: [
         { id: `effort_locked`, component: `Select`, props: { label: `Effort`, name: `effort`, triggerVariant: `row`, description: `ultracode sets effort`, disabled: true, value: `max`, options: [{ label: `High`, value: `high` }, { label: `Max`, value: `max` }] } },
+      ],
+    },
   }, {
     // #EXP-1629: the IDE's skills multi picker: two adjacent picks of three,
     // one bordered block in the open popup (`joinTop` / `joinBottom`).
