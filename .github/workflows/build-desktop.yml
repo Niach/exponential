@@ -196,6 +196,7 @@ jobs:
             NOTICE
             apps/desktop/assets/licenses/NOTICES.txt
             .github/actions/updater-feed
+            .github/actions/apt-mirror
           sparse-checkout-cone-mode: false
       - name: Add LICENSE, NOTICE and NOTICES.txt to the release
         run: |
@@ -259,7 +260,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: repo
-          sparse-checkout: .github/actions/updater-feed
+          sparse-checkout: |
+            .github/actions/updater-feed
+            .github/actions/apt-mirror
           sparse-checkout-cone-mode: false
       # EXP-1430: the .exe line joins the sums, and the WHOLE file is re-signed.
       - name: Append the .exe and re-sign

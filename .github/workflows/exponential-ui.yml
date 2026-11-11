@@ -272,9 +272,10 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
       - name: Linux system deps (wgpu/gpui)
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang \
