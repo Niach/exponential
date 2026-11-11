@@ -6,8 +6,9 @@ import Foundation
 /// widths are summed; a line that fits shows whole, else the `…` takes its
 /// width off the box and the rest splits 2:1 between the longest start and
 /// the longest end that fit; no room for either = the `…` alone. Characters
-/// = code points.
-func middleTruncateWidth(_ text: String, width: Double, affix: String = "…", measure: (String) -> Double) -> String {
+/// = code points. Public: the app's path labels cut by the same rule
+/// (#EXP-1789).
+public func middleTruncateWidth(_ text: String, width: Double, affix: String = "…", measure: (String) -> Double) -> String {
     let chars = text.unicodeScalars.map { String($0) }
     let widths = chars.map(measure)
     if widths.reduce(0, +) <= width { return text }
