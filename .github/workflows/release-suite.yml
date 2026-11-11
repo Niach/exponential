@@ -157,7 +157,7 @@ jobs:
     # exponential.at (apps/site): the same Astro build + Chromium paint check
     # as test.yml's `site` job, on every release regardless of paths — the
     # site deploys straight from Coolify, so this is its pre-deploy gate.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # no --with-deps: apt to Ubuntu's archives fails DNS from GitHub runners (#2661); the image ships Chrome's libs
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
@@ -167,7 +167,7 @@ jobs:
       - name: Build site
         run: bun run build:site
       - name: Chromium for the paint check
-        run: bunx playwright install --with-deps chromium
+        run: bunx playwright install chromium || (sleep 20 && bunx playwright install chromium)
       - name: Paint check
         run: |
           bun run apps/site/scripts/serve.ts 4391 &
@@ -327,7 +327,7 @@ jobs:
     # Postgres + Electric + Garage + Caddy (https://localhost:3000 -> vite
     # :5173, which playwright.config.ts starts). No mail transport, so sign-up
     # takes the password form. Other specs join by adding their file below.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # no --with-deps: apt to Ubuntu's archives fails DNS from GitHub runners (#2661); the image ships Chrome's libs
     timeout-minutes: 30
     env:
       CI: 'true'
@@ -360,7 +360,7 @@ jobs:
       - name: Build the widget (the spec loads public/widget/v1)
         run: bun run build:widget
       - name: Playwright browser
-        run: cd apps/web && bunx playwright install --with-deps chromium
+        run: cd apps/web && (bunx playwright install chromium || (sleep 20 && bunx playwright install chromium))
       - name: Feedback widget e2e
         run: cd apps/web && bunx playwright test tests/e2e/feedback-widget.spec.ts
       - name: Keep the Playwright report

@@ -637,7 +637,7 @@ jobs:
   site:
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # no --with-deps: apt to Ubuntu's archives fails DNS from GitHub runners (#2661); the image ships Chrome's libs
     steps:
       - uses: actions/checkout@v4
       # Astro needs Node >= 22.23.4; the runner image ships 22.23.3.
@@ -648,7 +648,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun --filter @exp/site test
       - run: bun --filter @exp/site build
-      - run: bunx playwright install --with-deps chromium
+      - run: bunx playwright install chromium || (sleep 20 && bunx playwright install chromium)
       - name: Paint check
         run: |
           bun run apps/site/scripts/serve.ts 4391 &
