@@ -173,7 +173,7 @@ internal fun McpSettingsPage(
     McpPageScaffold(McpSettings.TITLE, onBack, McpSettings.TestIds.PAGE) {
         endpoint?.let { EndpointSection(it) }
         ServersSection(servers = servers, pending = pending, onConnect = onConnect, onDisconnect = onDisconnect)
-        ClientsSection(isOwner = isOwner, scope = scope, onScope = onScope, data = clients, onRevoke = onRevoke)
+        ClientsSection(isOwner = isOwner, scope = scope, onScope = onScope, data = clients, pending = pending, onRevoke = onRevoke)
         access?.takeIf { it.apps.isNotEmpty() }?.let { data ->
             AccessSection(data, onLevel = onLevel, onOpenActivity = onOpenActivity)
         }
@@ -204,7 +204,7 @@ internal fun McpActivityList(data: McpActivityList?) {
     Column {
         SectionHeader(McpSettings.ACTIVITY)
         when {
-            data == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
+            data == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp), rowHeight = MCP_ROW_HEIGHT)
             data.calls.isEmpty() -> EmptyState(EmptyStateCopy.mcpActivity)
             else -> McpGroup {
                 data.calls.forEachIndexed { i, call ->
@@ -238,6 +238,16 @@ private fun McpGroup(modifier: Modifier = Modifier, content: @Composable ColumnS
 }
 
 /** One row of a group (web `ListRow className="gap-3 px-3 py-2"`). */
+/** #EXP-1788: a skeleton row = the real [McpRow]'s height, measured on the
+ *  emulator: a server row (its Default pill / Connect button) 55 dp, a
+ *  client or activity row (name over caption) 50 dp. */
+private val MCP_SERVER_ROW_HEIGHT = 55.dp
+private val MCP_ROW_HEIGHT = 50.dp
+
+/** #EXP-1788: a member without a name reads as their email (web + IDE). */
+internal fun memberLabel(name: String?, email: String?): String =
+    name?.takeIf { it.isNotBlank() } ?: email.orEmpty()
+
 @Composable
 private fun McpRow(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable RowScope.() -> Unit) {
     Row(
@@ -353,7 +363,7 @@ private fun ServersSection(
     Column(Modifier.testTag(McpSettings.TestIds.SERVERS)) {
         SectionHeader(McpSettings.LABELS.getValue("servers"))
         when {
-            servers == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
+            servers == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp), rowHeight = MCP_SERVER_ROW_HEIGHT)
             servers.isEmpty() -> EmptyState(EmptyStateCopy.mcpServers)
             else -> McpGroup {
                 servers.forEachIndexed { i, server ->
@@ -437,9 +447,12 @@ private fun ClientsSection(
     scope: String,
     onScope: (String) -> Unit,
     data: McpClientsList?,
+    pending: String?,
     onRevoke: (McpClientRow) -> Unit,
 ) {
     var target by remember { mutableStateOf<McpClientRow?>(null) }
+    // #EXP-1788: every Revoke is off while one revoke is in flight (the IDE's `revoking`).
+    val revoking = pending != null && data?.clients?.any { it.clientId == pending } == true
     Column(Modifier.testTag(McpSettings.TestIds.CLIENTS)) {
         SectionHeader(McpSettings.LABELS.getValue("clients"))
         if (isOwner) {
@@ -453,7 +466,7 @@ private fun ClientsSection(
             Spacer(Modifier.height(8.dp))
         }
         when {
-            data == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
+            data == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp), rowHeight = MCP_ROW_HEIGHT)
             data.clients.isEmpty() -> EmptyState(EmptyStateCopy.mcpClients)
             else -> McpGroup {
                 data.clients.forEachIndexed { i, client ->
@@ -468,13 +481,13 @@ private fun ClientsSection(
                             title = client.name,
                             caption = McpSettings.clientCaption(
                                 scope = scope,
-                                userName = client.userName ?: client.userEmail.orEmpty(),
+                                userName = memberLabel(client.userName, client.userEmail),
                                 kinds = client.kinds,
                                 appsAccess = client.appsAccess,
                                 lastUsed = client.lastUsedAt?.let { compactRelativeTime(it) },
                             ),
                         )
-                        GlassPill(McpSettings.REVOKE, size = PillSize.Sm, onClick = { target = client })
+                        GlassPill(McpSettings.REVOKE, size = PillSize.Sm, onClick = { if (!revoking) target = client }, enabled = !revoking)
                     }
                 }
             }
@@ -519,7 +532,7 @@ private fun AccessSection(data: AppAccessList, onLevel: (appId: String, userId: 
                     }
                     data.rows.forEach { member ->
                         GroupDivider()
-                        val name = member.name ?: member.email.orEmpty()
+                        val name = memberLabel(member.name, member.email)
                         val level = member.levels[app.id] ?: "write"
                         if (data.canEdit) {
                             Picker(

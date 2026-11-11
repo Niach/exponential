@@ -839,6 +839,9 @@ private struct TeamAgentsPage: View {
         /// bumps it, so the lead is re-read whenever it moves (iOS does not
         /// store `lead_assistant_id`).
         var teamUpdatedAt: String?
+        /// #EXP-1788: false until the first local read lands (the bands
+        /// draw skeleton rows, feedback-states.json `placeholder`).
+        var loaded = false
     }
 
     @Environment(AppDependencies.self) private var deps
@@ -848,8 +851,9 @@ private struct TeamAgentsPage: View {
     @State private var agentTarget: AgentPageTarget?
     @State private var showAssistant = false
     /// #EXP-1735: the lead's member as an option id (`leadNone` = none),
-    /// from `agents.lead`.
-    @State private var leadUserId = AgentSettings.leadNone
+    /// from `agents.lead`; nil = not read yet (#EXP-1788: the row stays
+    /// disabled, like the IDE's agents_index).
+    @State private var leadUserId: String?
     /// #EXP-1735: the Lead Assistant pick while its write is in flight.
     @State private var leadPending: String?
 
@@ -865,10 +869,11 @@ private struct TeamAgentsPage: View {
             TeamAgentsSection(
                 agents: data.agents,
                 isOwner: data.isOwner,
+                loading: !data.loaded,
                 onOpen: { agentTarget = AgentPageTarget(agentId: $0) },
                 onOpenAssistant: { showAssistant = true }
             )
-            TeamEventsSection(events: data.events, sessionTitles: data.sessionTitles, users: data.users)
+            TeamEventsSection(events: data.events, sessionTitles: data.sessionTitles, users: data.users, loading: !data.loaded)
         }
         .navigationDestination(item: $agentTarget) { target in
             AgentSettingsPage(teamId: teamId, agentId: target.agentId, isOwner: data.isOwner)
@@ -915,7 +920,8 @@ private struct TeamAgentsPage: View {
                     ),
                     users: try UserEntity.fetchAll(db),
                     members: try Self.leadMembers(db, teamId: teamId),
-                    teamUpdatedAt: try TeamEntity.fetchOne(db, key: teamId)?.updatedAt
+                    teamUpdatedAt: try TeamEntity.fetchOne(db, key: teamId)?.updatedAt,
+                    loaded: true
                 )
             }, apply: { data = $0 })
         }
@@ -934,7 +940,8 @@ private struct TeamAgentsPage: View {
             let lead = try await deps.agentsApi.lead(accountId: accountId, teamId: teamId)
             leadUserId = lead?.userId ?? AgentSettings.leadNone
         } catch {
-            // A failed read keeps the last value; the next team change retries.
+            // A failed read keeps the last value (nil = still disabled, never
+            // a false None); the next team change retries.
         }
     }
 
@@ -945,21 +952,21 @@ private struct TeamAgentsPage: View {
         return GlassPickerRow(
             AgentSettings.LeadCopy.label,
             selection: Binding(
-                get: { leadPending ?? leadUserId },
+                get: { leadPending ?? leadUserId ?? AgentSettings.leadNone },
                 set: { saveLead($0) }
             ),
             options: AgentSettings.leadOptions(data.members),
             label: { id in
                 id == AgentSettings.leadNone ? AgentSettings.LeadCopy.none : names[id] ?? memberPseudonym(userId: id)
             },
-            enabled: data.isOwner && leadPending == nil
+            enabled: data.isOwner && leadPending == nil && leadUserId != nil
         )
     }
 
     /// #EXP-1735: `agents.setLeadAssistant {teamId, userId | null}`,
     /// owner-only; a failure toasts and keeps the previous lead.
     private func saveLead(_ next: String) {
-        guard data.isOwner, leadPending == nil, next != leadUserId else { return }
+        guard data.isOwner, leadPending == nil, let current = leadUserId, next != current else { return }
         leadPending = next
         let userId = next == AgentSettings.leadNone ? nil : next
         Task {

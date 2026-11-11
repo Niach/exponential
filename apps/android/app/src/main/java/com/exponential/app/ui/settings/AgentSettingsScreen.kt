@@ -134,7 +134,7 @@ fun AgentsSettingsList(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
         // #EXP-1735: the Lead Assistant row heads the group where the
         // Coordinator row was (owners pick it).
-        LeadAssistantRow(lead, enabled = isOwner && !busy, onPick = viewModel::setLeadAssistant)
+        LeadAssistantRow(lead, enabled = isOwner && !busy && lead.known, onPick = viewModel::setLeadAssistant)
         AgentsSettingsListContent(
             agents = agents,
             canCreate = isOwner,
@@ -246,9 +246,13 @@ internal fun AgentEventsBand(events: List<AgentEventRow>?, modifier: Modifier = 
  * `AgentsListBand`, iOS `TeamAgentsSection`): the `New agent` pill rides the
  * band header (owner-only), gapless rows, the list-size empty state.
  */
+/** #EXP-1788: an agent row's height (10 dp padding ×2 + bodyLarge 24). */
+private val AGENT_ROW_HEIGHT = 44.dp
+
 @Composable
 internal fun AgentsSettingsListContent(
-    agents: List<SessionTree.AgentRow>,
+    /** null = not read yet (#EXP-1788: skeleton rows in the rows' geometry). */
+    agents: List<SessionTree.AgentRow>?,
     canCreate: Boolean,
     onOpenAgent: (agentId: String) -> Unit,
     onNewAgent: () -> Unit,
@@ -266,14 +270,16 @@ internal fun AgentsSettingsListContent(
                 )
             }
         }
-        if (agents.isEmpty()) {
+        if (agents == null) {
+            com.exponential.app.ui.components.SkeletonRows(modifier = Modifier.padding(vertical = 4.dp), rowHeight = AGENT_ROW_HEIGHT)
+        } else if (agents.isEmpty()) {
             EmptyState(
                 title = AgentSettings.Copy.NO_AGENTS,
                 icon = ExpIcons.settingsAgents,
                 size = EmptyStateSize.List,
             )
         }
-        agents.forEach { row ->
+        agents.orEmpty().forEach { row ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

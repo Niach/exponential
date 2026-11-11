@@ -38,6 +38,8 @@ struct McpSettingsPage: View {
     @State private var clients: McpClientsList?
     @State private var revokeTarget: McpClientRow?
     @State private var showRevoke = false
+    /// #EXP-1788: a revoke is in flight (every Revoke is off, the IDE's `revoking`).
+    @State private var revoking = false
     @State private var access: McpAppAccess?
     @State private var builtinQuery = ""
 
@@ -128,7 +130,7 @@ struct McpSettingsPage: View {
                     }
                 }
             } else {
-                SkeletonRows(rows: 2, rowHeight: 52)
+                SkeletonRows(rows: 2, rowHeight: McpSettingsPage.serverRowHeight)
             }
         }
     }
@@ -272,7 +274,7 @@ struct McpSettingsPage: View {
                         }
                     }
                 } else {
-                    SkeletonRows(rows: 2, rowHeight: 52)
+                    SkeletonRows(rows: 2, rowHeight: McpSettingsPage.rowHeight)
                 }
             }
             .glassSection()
@@ -291,7 +293,7 @@ struct McpSettingsPage: View {
                     .lineLimit(1)
                 Text(McpSettings.clientCaption(
                     scope: scope,
-                    userName: client.userName,
+                    userName: Self.memberLabel(client.userName, email: client.userEmail),
                     kinds: client.kinds,
                     appsAccess: client.appsAccess,
                     lastUsed: client.lastUsedAt.map { RelativeTime.compact(wire: $0) }
@@ -302,9 +304,10 @@ struct McpSettingsPage: View {
             }
             Spacer(minLength: 0)
             GlassPill(McpSettings.revoke, mode: .action {
+                guard !revoking else { return }
                 revokeTarget = client
                 showRevoke = true
-            })
+            }, enabled: !revoking)
             .fixedSize()
         }
         .padding(.horizontal, 12)
@@ -330,7 +333,9 @@ struct McpSettingsPage: View {
     }
 
     private func revoke() async {
-        guard let target = revokeTarget else { return }
+        guard let target = revokeTarget, !revoking else { return }
+        revoking = true
+        defer { revoking = false }
         do {
             try await api.revokeClient(
                 accountId: accountId,
@@ -343,6 +348,18 @@ struct McpSettingsPage: View {
         } catch {
             toaster.error(FeedbackStates.Errors.title(verb: "revoke", thing: "the client"))
         }
+    }
+
+    /// #EXP-1788: a skeleton row = the real row's height, measured on the
+    /// simulator: a server row (its Default pill / Connect button) 57 pt, a
+    /// client or activity row (name over caption) 54 pt.
+    static let serverRowHeight: CGFloat = 57
+    static let rowHeight: CGFloat = 54
+
+    /// #EXP-1788: a member without a name reads as their email (web + IDE).
+    nonisolated static func memberLabel(_ name: String, email: String?) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? (email ?? name) : name
     }
 
     // MARK: - Access
@@ -396,9 +413,10 @@ struct McpSettingsPage: View {
     @ViewBuilder
     private func accessRow(app: McpAppAccess.App, member: McpAppAccess.Row, canEdit: Bool) -> some View {
         let level = member.level(app.id)
+        let name = Self.memberLabel(member.name, email: member.email)
         let avatar = UserAvatar(
             image: member.image,
-            initials: memberInitials(forDisplayName: member.name),
+            initials: memberInitials(forDisplayName: name),
             hueKey: avatarHueKey(id: member.userId, name: member.name, email: member.email),
             size: 20
         )
@@ -411,11 +429,11 @@ struct McpSettingsPage: View {
                     guard let next = picked.first, next != level else { return }
                     Task { await setLevel(app: app, userId: member.userId, level: next) }
                 },
-                title: member.name
+                title: name
             ) {
                 HStack(spacing: 12) {
                     avatar
-                    GlassPickerRowLabel(member.name, value: level.label)
+                    GlassPickerRowLabel(name, value: level.label)
                         .font(.subheadline)
                 }
                 .padding(.horizontal, 12)
@@ -426,7 +444,7 @@ struct McpSettingsPage: View {
         } else {
             HStack(spacing: 12) {
                 avatar
-                GlassPickerRowLabel(member.name, value: level.label, chevron: false)
+                GlassPickerRowLabel(name, value: level.label, chevron: false)
                     .font(.subheadline)
             }
             .padding(.horizontal, 12)
@@ -602,7 +620,8 @@ struct McpSettingsSpecimen: View {
                 apps: [McpAppAccess.App(id: "a-admin", slug: "customer-admin", name: "Customer admin", icon: "server", color: "#3b82f6", toolCount: 3)],
                 rows: [
                     .init(userId: "u-alex", name: "Alex", levels: [:]),
-                    .init(userId: "u-mia", name: "Mia", levels: ["a-admin": .read]),
+                    // #EXP-1788: a member without a name reads as their email.
+                    .init(userId: "u-mia", name: "", email: "mia@acme.dev", levels: ["a-admin": .read]),
                 ]
             )
         )
@@ -650,7 +669,7 @@ struct McpActivityPage: View {
                                 }
                             }
                         } else {
-                            SkeletonRows(rowHeight: 52)
+                            SkeletonRows(rowHeight: McpSettingsPage.rowHeight)
                         }
                     }
                     .glassSection()

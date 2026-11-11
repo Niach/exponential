@@ -18,6 +18,9 @@ struct TeamAgentsSection: View {
     /// order. Assistants in it are dropped (the viewer's own is its row).
     let agents: [AgentDefinitionEntity]
     let isOwner: Bool
+    /// #EXP-1788: the agents have not synced yet: skeleton rows in the
+    /// rows' geometry (feedback-states.json `placeholder`).
+    var loading = false
     /// nil = a new agent.
     let onOpen: (String?) -> Void
     /// The `@assistant` row; nil hides it (the styleguide specimen).
@@ -38,7 +41,9 @@ struct TeamAgentsSection: View {
                 }
             }
 
-            if let onOpenAssistant {
+            if loading {
+                SkeletonRows(rows: 2, rowHeight: Self.rowHeight)
+            } else if let onOpenAssistant {
                 Button(action: onOpenAssistant) {
                     HStack(spacing: 10) {
                         AssistantAvatar(size: 20)
@@ -57,7 +62,7 @@ struct TeamAgentsSection: View {
                 .accessibilityIdentifier("assistant-settings-row")
             }
 
-            ForEach(teamAgents) { agent in
+            ForEach(loading ? [] : teamAgents) { agent in
                 Button {
                     onOpen(agent.id)
                 } label: {
@@ -83,6 +88,9 @@ struct TeamAgentsSection: View {
         .accessibilityIdentifier(AgentSettings.TestIds.list)
     }
 
+    /// A row's height: `.subheadline` (20 pt) + 2 × 10 pt padding.
+    static let rowHeight: CGFloat = 40
+
     /// The agent's curated glyph, else the contract default (`bot`).
     static func iconName(_ agent: AgentDefinitionEntity) -> String {
         BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon
@@ -102,6 +110,8 @@ struct TeamEventsSection: View {
     /// An emitting session's title, by id.
     let sessionTitles: [String: String]
     let users: [UserEntity]
+    /// #EXP-1788: the stream has not been read yet (skeleton rows).
+    var loading = false
 
     static let title = "Events"
     /// Web `AGENT_EVENTS_CAP`.
@@ -110,7 +120,9 @@ struct TeamEventsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassSectionBand(Self.title)
-            if events.isEmpty {
+            if loading {
+                SkeletonRows(rows: 2, rowHeight: TeamAgentsSection.rowHeight)
+            } else if events.isEmpty {
                 EmptyState(title: "No events yet", icon: AppIcons.triggerEvent, size: .list)
                     .padding(.vertical, 8)
             }
