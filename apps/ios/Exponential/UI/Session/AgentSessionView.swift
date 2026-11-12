@@ -2486,7 +2486,7 @@ struct AgentSessionView: View {
 
     /// A started item's session (inbox-route.json `sessionTarget`).
     private func openSuggestionSession(_ sessionId: String) {
-        pushRoute(AppRoute.openingSession(sessionId, accountId: accountId, deps: deps))
+        Task { pushRoute(await AppRoute.openingSession(sessionId, accountId: accountId, deps: deps)) }
     }
 
     private func startSuggestion(

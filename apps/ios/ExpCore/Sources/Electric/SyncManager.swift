@@ -106,7 +106,7 @@ public final class SyncManager: @unchecked Sendable {
         try? await Task.sleep(for: .milliseconds(250))
         URLCache.shared.removeAllCachedResponses()
         do {
-            try db.clearAllData(forAccountId: accountId)
+            try await db.clearAllData(forAccountId: accountId)
         } catch {
             logger.error("Resync: clearAllData failed for \(accountId, privacy: .public): \(error.localizedDescription)")
             SyncDebug.shared.log("[resync] clearAllData failed: \(error.localizedDescription)")
