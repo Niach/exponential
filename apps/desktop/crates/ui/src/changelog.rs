@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-issue-trash-on-phones",
+    date: "2026-11-12",
+    title: "Deleted issues come back on phones",
+    summary: "iPhone, iPad and Android move a deleted issue to the team's trash, and team settings › Boards lists it with Restore.",
+    body: r##"- **Trash on phones**: deleting an issue on iPhone, iPad or Android moves it to the team's trash with its comments, files and relations, for 30 days.
+- **Deleted issues**: team settings › Boards on a phone lists the deleted issues with Restore for every member, and Delete forever for owners."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_263: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-issue-trash",
     date: "2026-11-12",
     title: "Deleted issues go to a trash",
