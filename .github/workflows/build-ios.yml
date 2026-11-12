@@ -172,38 +172,28 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             clean archive | tail -40
 
-      # #LOGS-2: the archive's dSYMs to GlitchTip (Sentry protocol, project
-      # `ios`), so crash reports symbolicate. Its host sits behind Cloudflare
-      # Access: the service-token headers ride on every sentry-cli request.
-      # Skipped without the secrets (forks, self-hosters); a failed upload
-      # only warns, it never fails the release.
+      # #LOGS-2: the archive's dSYMs to GlitchTip (project `ios`), so crash
+      # reports and hangs symbolicate, by the shared script (pinned
+      # sentry-cli, three attempts, a ::warning on failure). The old inline
+      # npm upload failed silently under continue-on-error: GlitchTip had no
+      # iOS dSYM at all. No secrets = a notice; never fails the release.
       - name: Upload dSYMs to GlitchTip
-        continue-on-error: true
         env:
-          SENTRY_CLI_VERSION: 3.8.2
-          SENTRY_URL: https://glitchtip.exponential.at
-          SENTRY_ORG: exponential
-          SENTRY_PROJECT: ios
           SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
-            echo "GlitchTip secrets not set: skipping the dSYM upload"
-            exit 0
-          fi
-          DSYMS="$RUNNER_TEMP/$XC_ARCHIVE/dSYMs"
-          if [ ! -d "$DSYMS" ] || [ -z "$(ls -A "$DSYMS")" ]; then
-            echo "::warning::the archive has no dSYMs to upload"
-            exit 0
-          fi
-          npm install --silent --no-save --prefix "$RUNNER_TEMP/sentry-cli" "@sentry/cli@$SENTRY_CLI_VERSION" \
-            || { echo "::warning::could not install sentry-cli $SENTRY_CLI_VERSION"; exit 0; }
-          "$RUNNER_TEMP/sentry-cli/node_modules/.bin/sentry-cli" \
-            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            debug-files upload --include-sources "$DSYMS" \
-            || echo "::warning::the dSYM upload to GlitchTip failed"
+        run: .github/scripts/glitchtip-debug-files.sh ios "$RUNNER_TEMP/$XC_ARCHIVE/dSYMs"
+
+      # The same dSYMs kept with the run, so a release whose upload failed
+      # can be backfilled by hand (an App Store build cannot be rebuilt to
+      # the same UUIDs).
+      - name: Keep the dSYMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsyms-${{ github.ref_name }}
+          path: ${{ runner.temp }}/${{ env.XC_ARCHIVE }}/dSYMs
+          retention-days: 90
+          if-no-files-found: warn
 
       - name: Export the App Store ipa
         env:
