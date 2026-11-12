@@ -3,7 +3,7 @@
 import LegalPage from "../components/landing/LegalPage.astro"
 ---
 
-<LegalPage title="Privacy Policy" description="How Exponential collects, uses and protects your data." meta="Exponential · exponential.at · last updated 2026-11-09">
+<LegalPage title="Privacy Policy" description="How Exponential collects, uses and protects your data." meta="Exponential · exponential.at · last updated 2026-11-12">
   <p>This privacy policy covers the Exponential service and its apps for web, Android, iOS, and desktop (together “Exponential”, “the service”). It describes what data they collect, how it is used, stored, shared, and deleted. Exponential is operated by Dennis Strähhuber, Germany (“we”). It applies to the hosted cloud service at <code>app.exponential.at</code>. If you connect the apps to a self-hosted Exponential instance instead, the operator of that instance is responsible for the data it stores; this policy then applies only to what the apps themselves do on your device.</p>
 
   <h2>1. Data we collect</h2>
@@ -55,6 +55,9 @@ import LegalPage from "../components/landing/LegalPage.astro"
 
   <h2>9. Your rights</h2>
   <p>You have the right to access the personal data we hold about you, to have it corrected or erased, to restrict or object to its processing, and to receive it in a portable format. Much of this you can do yourself in the app: edit or delete your content, or delete your account outright (see section 5). For anything else, email <a href="mailto:support@exponential.at">support@exponential.at</a> from the address tied to your account; requests are honoured within 30 days. You also have the right to lodge a complaint with a data protection supervisory authority, typically the one where you live or work.</p>
+
+  <h2>Claude and other MCP clients</h2>
+  <p>You can connect an AI assistant such as Claude (through the Exponential connector or the Claude Code plugin) or another MCP client to your Exponential account. When you connect one, Exponential’s consent screen asks which teams or boards it may reach; the client can then read and change only the content of those teams and boards (issues, comments, boards, sessions, apps and the other data covered by section 1), acting as you and never beyond your own permissions. Exponential receives only the tool calls the client sends, with the arguments it chose for them (for example an issue title to create); it never receives your conversation with the assistant. Every tool call is recorded in your team’s MCP audit log (Settings → MCP → Activity) with the tool name, the member, the client, the outcome, its duration and a hash of its arguments, never the arguments themselves; these entries are deleted after 90 days. You can revoke a client at any time under Settings → MCP → Clients, which ends its access immediately; team owners can revoke any member’s client for their team. What the assistant’s provider does with your conversation, including the results of those tool calls, is governed by that provider’s own privacy policy; for Claude, that is <a href="https://www.anthropic.com/legal/privacy">Anthropic’s Privacy Policy</a>.</p>
 
   <h2>Limited Use disclosure</h2>
   <p>Exponential’s use and transfer to any other app of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" >Google API Services User Data Policy</a>, including the Limited Use requirements.</p>

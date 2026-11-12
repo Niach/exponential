@@ -95,8 +95,18 @@ function TraceDescription({
   )
 }
 
+/** #PERF-9: whether the content paints without Radix's Content. Radix
+ *  measures its content on mount (`getBoundingClientRect` in a layout
+ *  effect, 33–60 ms over a page of open groups mounting at once); content
+ *  that mounts OPEN has nothing to animate, so it paints as a plain column
+ *  until the group first closes. */
+const TracePlainContext = React.createContext(false)
+
 function TraceCollapsible({
   className,
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: Omit<React.ComponentProps<typeof Collapsible>, `asChild` | `open`> &
   (
@@ -108,12 +118,34 @@ function TraceCollapsible({
         >
       }
   )) {
+  const [own, setOwn] = React.useState(defaultOpen ?? false)
+  const open = openProp ?? own
+  // Radix takes over once the group has closed (it mounts measured, while
+  // still open, so the first close animates like every later one).
+  const [radix, setRadix] = React.useState(!open)
+  React.useEffect(() => {
+    if (radix || open) return
+    // After Radix's own mount frame (its mount-animation guard).
+    const frame = requestAnimationFrame(() => setRadix(true))
+    return () => cancelAnimationFrame(frame)
+  }, [radix, open])
+  const change = React.useCallback(
+    (next: boolean) => {
+      if (openProp === undefined) setOwn(next)
+      onOpenChange?.(next)
+    },
+    [openProp, onOpenChange]
+  )
   return (
-    <Collapsible
-      data-slot="trace-collapsible"
-      className={cn(`flex w-full min-w-0 flex-col`, className)}
-      {...props}
-    />
+    <TracePlainContext.Provider value={!radix && open}>
+      <Collapsible
+        data-slot="trace-collapsible"
+        className={cn(`flex w-full min-w-0 flex-col`, className)}
+        open={radix ? open : true}
+        onOpenChange={change}
+        {...props}
+      />
+    </TracePlainContext.Provider>
   )
 }
 
@@ -147,21 +179,35 @@ function TraceCollapsibleContent({
   children,
   ...props
 }: Omit<React.ComponentProps<typeof CollapsibleContent>, `asChild`>) {
+  const inner = (
+    <div
+      data-slot="trace-collapsible-content-inner"
+      className={cn(
+        `mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 text-sm leading-5 wrap-break-word text-muted-foreground group-data-[size=sm]/trace:mt-1.5 group-data-[size=sm]/trace:ml-[calc(--spacing(1.75)-1px)] group-data-[size=sm]/trace:pl-[calc(--spacing(3.25))] group-data-[size=sm]/trace:text-xs group-data-[size=sm]/trace:leading-4.5`,
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+  if (React.useContext(TracePlainContext)) {
+    return (
+      <div
+        data-slot="trace-collapsible-content"
+        data-state="open"
+        className="min-w-0 overflow-hidden"
+      >
+        {inner}
+      </div>
+    )
+  }
   return (
     <CollapsibleContent
       data-slot="trace-collapsible-content"
       className="min-w-0 overflow-hidden duration-standard data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none"
       {...props}
     >
-      <div
-        data-slot="trace-collapsible-content-inner"
-        className={cn(
-          `mt-2 mb-1 ml-[calc(--spacing(2)-1px)] min-w-0 border-l pr-1 pl-4 text-sm leading-5 wrap-break-word text-muted-foreground group-data-[size=sm]/trace:mt-1.5 group-data-[size=sm]/trace:ml-[calc(--spacing(1.75)-1px)] group-data-[size=sm]/trace:pl-[calc(--spacing(3.25))] group-data-[size=sm]/trace:text-xs group-data-[size=sm]/trace:leading-4.5`,
-          className
-        )}
-      >
-        {children}
-      </div>
+      {inner}
     </CollapsibleContent>
   )
 }

@@ -1,0 +1,20 @@
+{
+  "name": "exponential",
+  "displayName": "Exponential",
+  "version": "1.0.0",
+  "description": "Exponential, the open-source realtime issue tracker with coding agents: read and change issues, boards, comments and pull requests, open the interactive issue list and inbox, start coding agents on your own devices, and build genUI cards, apps and Motion animations.",
+  "author": {
+    "name": "Exponential",
+    "email": "support@exponential.at",
+    "url": "https://exponential.at"
+  },
+  "homepage": "https://exponential.at/docs/using/claude",
+  "repository": "https://github.com/Niach/exponential-claude-plugin",
+  "license": "Apache-2.0",
+  "keywords": ["issue-tracker", "issues", "coding-agents", "pull-requests", "mcp", "genui"],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://exponential.at/docs/using/claude",
+  "supportUrl": "https://github.com/Niach/exponential-claude-plugin/issues",
+  "privacyPolicyUrl": "https://exponential.at/privacy",
+  "termsOfServiceUrl": "https://exponential.at/terms"
+}

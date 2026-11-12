@@ -23,6 +23,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { and, eq, isNull } from "drizzle-orm"
 import { actionGrantable, canonicalAction, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { nounCall } from "@exp/mcp-apps/tool-names"
 import {
   effectiveAccess,
   grantErrors,
@@ -396,7 +397,9 @@ async function runAction(ctx: BrokerContext, tool: BrokerTool, input: Record<str
   }
   const target = parseActionName(run.action)!
   try {
-    const result = await callExponentialTool(ctx, tool.app.id, target.tool, target.op ? { ...args, op: target.op } : args)
+    // #VAPP-293: a write op runs on the noun's `_write` twin.
+    const call = nounCall(target.tool, target.op ? { ...args, op: target.op } : args)
+    const result = await callExponentialTool(ctx, tool.app.id, call.name, call.args)
     return withProvenance(tool, result)
   } catch (e) {
     return brokerError(tool, `toolError`, e instanceof Error ? e.message.slice(0, 500) : `the operation failed`)

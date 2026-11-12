@@ -1,0 +1,233 @@
+{
+  "size": [
+    60,
+    20
+  ],
+  "duration": 1200,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "dot3",
+      "transform": {
+        "position": [
+          0,
+          0
+        ],
+        "opacity": 100
+      },
+      "shapes": [
+        {
+          "type": "group",
+          "transform": {
+            "position": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": [
+                    45,
+                    10
+                  ],
+                  "ease": "hold"
+                },
+                {
+                  "t": 300,
+                  "v": [
+                    45,
+                    10
+                  ],
+                  "ease": "ease-out"
+                },
+                {
+                  "t": 500,
+                  "v": [
+                    45,
+                    4
+                  ],
+                  "ease": "ease-in"
+                },
+                {
+                  "t": 700,
+                  "v": [
+                    45,
+                    10
+                  ]
+                },
+                {
+                  "t": 1200,
+                  "v": [
+                    45,
+                    10
+                  ]
+                }
+              ]
+            }
+          },
+          "shapes": [
+            {
+              "type": "ellipse",
+              "position": [
+                0,
+                0
+              ],
+              "size": [
+                8,
+                8
+              ]
+            },
+            {
+              "type": "fill",
+              "color": "$color.muted"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "dot2",
+      "transform": {
+        "position": [
+          0,
+          0
+        ],
+        "opacity": 100
+      },
+      "shapes": [
+        {
+          "type": "group",
+          "transform": {
+            "position": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": [
+                    30,
+                    10
+                  ],
+                  "ease": "hold"
+                },
+                {
+                  "t": 150,
+                  "v": [
+                    30,
+                    10
+                  ],
+                  "ease": "ease-out"
+                },
+                {
+                  "t": 350,
+                  "v": [
+                    30,
+                    4
+                  ],
+                  "ease": "ease-in"
+                },
+                {
+                  "t": 550,
+                  "v": [
+                    30,
+                    10
+                  ]
+                },
+                {
+                  "t": 1200,
+                  "v": [
+                    30,
+                    10
+                  ]
+                }
+              ]
+            }
+          },
+          "shapes": [
+            {
+              "type": "ellipse",
+              "position": [
+                0,
+                0
+              ],
+              "size": [
+                8,
+                8
+              ]
+            },
+            {
+              "type": "fill",
+              "color": "$color.muted"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "dot1",
+      "transform": {
+        "position": [
+          0,
+          0
+        ],
+        "opacity": 100
+      },
+      "shapes": [
+        {
+          "type": "group",
+          "transform": {
+            "position": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": [
+                    15,
+                    10
+                  ],
+                  "ease": "ease-out"
+                },
+                {
+                  "t": 200,
+                  "v": [
+                    15,
+                    4
+                  ],
+                  "ease": "ease-in"
+                },
+                {
+                  "t": 400,
+                  "v": [
+                    15,
+                    10
+                  ]
+                },
+                {
+                  "t": 1200,
+                  "v": [
+                    15,
+                    10
+                  ]
+                }
+              ]
+            }
+          },
+          "shapes": [
+            {
+              "type": "ellipse",
+              "position": [
+                0,
+                0
+              ],
+              "size": [
+                8,
+                8
+              ]
+            },
+            {
+              "type": "fill",
+              "color": "$color.muted"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -3083,7 +3083,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_unlink`,
     {
-      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its tree holds it). Errors when none held it. An already-open PR keeps it: exponential_pr {op: "unlink"}.`,
+      description: `Unlink an issue from a session (sessionId, default your own; else whichever session of its tree holds it). Errors when none held it. An already-open PR keeps it: exponential_pr_write {op: "unlink"}.`,
       inputSchema: strictInput({
         id: z.string().min(1),
         sessionId: uuidString.optional(),
@@ -5278,7 +5278,7 @@ export function registerExponentialTools(
           // link stays out: it is a credential and transcripts persist.
           return ok({
             ...result,
-            next: `Follow up on ${result.identifier}: exponential_issues {op: "get"} and exponential_comments {op: "list" | "create"} show you its reporter conversation and reply to the team.`,
+            next: `Follow up on ${result.identifier}: exponential_issues {op: "get"}, exponential_comments {op: "list"} and exponential_comments_write {op: "create"} show you its reporter conversation and reply to the team.`,
           })
         } catch (e) {
           return err(e)

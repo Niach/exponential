@@ -566,6 +566,30 @@ impl<T: ShapeRow> Hydrated<T> {
 /// last-known teams and boards; readers of these check `is_ready`.
 const HYDRATE_OFF_MAIN: &[&str] = &["messages", "conversations", "sessions", "issues", "issue_events", "pull_request_checks", "events"];
 
+/// #PERF-9: a heavy shape read off the main thread, ready to swap in
+/// (main thread); answers what it replaced, to drop off the main thread
+/// (a dropped installer frees its rows wherever it is dropped).
+type Installer = Box<dyn FnOnce(&mut App) -> Box<dyn Send> + Send>;
+
+fn read_off_main<T: ShapeRow>(entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, cx: &mut App) -> gpui::Task<Option<Installer>> {
+    let (entity, sqlite) = (entity.clone(), Arc::clone(sqlite));
+    cx.background_executor().spawn(async move {
+        let name = T::spec().name;
+        let rows = Hydrated::<T>::read(&sqlite)?;
+        let phase = phase_from_store(&sqlite, name);
+        let install: Installer = Box::new(move |cx: &mut App| {
+            let replaced = entity.update(cx, |collection, cx| {
+                let replaced = collection.install(rows);
+                collection.set_phase(phase);
+                cx.notify();
+                replaced
+            });
+            Box::new(replaced) as Box<dyn Send>
+        });
+        Some(install)
+    })
+}
+
 fn entity_spec<T: ShapeRow>(_: &Entity<Collection<T>>) -> &'static ShapeSpec {
     T::spec()
 }
@@ -808,6 +832,35 @@ impl Collections {
         }
     }
 
+    /// #PERF-9 (benches): re-read `shape` and install it as the boot's
+    /// off-main hydrate does, the read done before; the caller times the
+    /// install and what it wakes. Answers the read's milliseconds.
+    #[doc(hidden)]
+    pub fn reinstall_for_bench(&self, shape: &str, sqlite: &ShapeStore, cx: &mut App) -> f64 {
+        fn one<T: ShapeRow>(entity: &Entity<Collection<T>>, sqlite: &ShapeStore, cx: &mut App) -> f64 {
+            let started = Instant::now();
+            let rows = Hydrated::<T>::read(sqlite).expect("the table");
+            let read = started.elapsed().as_secs_f64() * 1e3;
+            let replaced = entity.update(cx, |collection, cx| {
+                let replaced = collection.install(rows);
+                cx.notify();
+                replaced
+            });
+            std::mem::forget(replaced);
+            read
+        }
+        match shape {
+            "messages" => one(&self.messages, sqlite, cx),
+            "sessions" => one(&self.sessions, sqlite, cx),
+            "conversations" => one(&self.conversations, sqlite, cx),
+            "issues" => one(&self.issues, sqlite, cx),
+            "issue_events" => one(&self.issue_events, sqlite, cx),
+            "pull_request_checks" => one(&self.pull_request_checks, sqlite, cx),
+            "events" => one(&self.events, sqlite, cx),
+            other => panic!("not a heavy shape: {other}"),
+        }
+    }
+
     /// #PERF-9: no startup hydrate is pending for `shape` (its collection
     /// holds the store's rows, not an empty placeholder).
     pub fn is_hydrated(&self, shape: &str) -> bool {
@@ -908,46 +961,49 @@ impl Collections {
     fn hydrate_all(&self, sqlite: &Arc<ShapeStore>, cx: &mut App) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         for_each_collection!(self, entity => {
-            if HYDRATE_OFF_MAIN.contains(&entity_spec(entity).name) {
-                self.hydrate_off_main(entity, sqlite, generation, cx);
+            let name = entity_spec(entity).name;
+            if HYDRATE_OFF_MAIN.contains(&name) {
+                self.hydrate_off_main(name, read_off_main(entity, sqlite, cx), sqlite, generation, cx);
             } else {
                 hydrate_collection(entity, sqlite, cx);
             }
         });
     }
 
-    fn hydrate_off_main<T: ShapeRow>(&self, entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, generation: u64, cx: &mut App) {
-        let name = T::spec().name;
+    /// One heavy shape: its read runs on the background executor (all of
+    /// them in parallel), its install is ONE short main-thread update of its
+    /// own. (Installing them all in one update woke every derived view over
+    /// the whole store at once: 115–145 ms on a real store, against ≤ 41 ms
+    /// for the largest single shape.)
+    fn hydrate_off_main(&self, name: &'static str, read: gpui::Task<Option<Installer>>, sqlite: &Arc<ShapeStore>, generation: u64, cx: &mut App) {
         let (done, pending) = flume::bounded::<()>(1);
         self.hydrating.lock().expect("hydrating poisoned").insert(name, pending);
-        let (entity, sqlite, current) = (entity.clone(), Arc::clone(sqlite), Arc::clone(&self.generation));
+        let (collections, sqlite, current) = (self.clone(), Arc::clone(sqlite), Arc::clone(&self.generation));
         cx.spawn(async move |cx| {
-            let read = {
-                let sqlite = Arc::clone(&sqlite);
-                cx.background_executor().spawn(async move { Hydrated::<T>::read(&sqlite).map(|rows| (rows, phase_from_store(&sqlite, name))) })
-            };
-            let Some((rows, phase)) = read.await else {
+            let Some(install) = read.await else {
                 drop(done);
                 return;
             };
             if current.load(Ordering::SeqCst) != generation {
                 // Signed out or switched accounts while it read.
-                cx.background_executor().spawn(async move { drop(rows) }).detach();
+                cx.background_executor().spawn(async move { drop(install) }).detach();
                 drop(done);
                 return;
             }
-            let replaced = entity.update(cx, |collection, cx| {
+            let replaced = cx.update(|cx| {
                 let _span = tracing::debug_span!("sync.install", shape = name).entered();
-                let replaced = collection.install(rows);
-                collection.set_phase(phase);
-                cx.notify();
-                replaced
+                install(cx)
             });
             cx.background_executor().spawn(async move { drop(replaced) }).detach();
             drop(done);
             // EXP-1459: keys that arrived while it read re-open what stayed
             // closed (the reopen pass then saw an empty collection).
-            reopen_closed(&entity, &sqlite, cx).await;
+            match name {
+                "sessions" => reopen_closed(&collections.sessions, &sqlite, cx).await,
+                "messages" => reopen_closed(&collections.messages, &sqlite, cx).await,
+                "conversations" => reopen_closed(&collections.conversations, &sqlite, cx).await,
+                _ => {}
+            }
         })
         .detach();
     }

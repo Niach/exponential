@@ -343,9 +343,10 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             // Capture credentials BEFORE clearInstanceUrl drops the row.
             val active = activeAccount()
+            val accountId = auth.activeAccountId.value
             // Awaited before the credentials drop — the unregister request
             // needs the bearer token that clearInstanceUrl removes.
-            auth.activeAccountId.value?.let {
+            accountId?.let {
                 pushTokenManager.unregisterToken(it)
                 enetNodeManager.signOut(it, revoke = true)
             }
@@ -354,6 +355,8 @@ class AppViewModel @Inject constructor(
             revokeSession(active)
             syncManager.signOut()
             steerConnectionStore.closeAll()
+            // #PERF-9: signing out deletes the account's stored steer tails.
+            accountId?.let { steerConnectionStore.forgetTails(it) }
             auth.clearInstanceUrl()
         }
     }
@@ -363,13 +366,16 @@ class AppViewModel @Inject constructor(
             // EXP-1275 (D8.5): signing out runs behind the blocking overlay.
             Blocking.whileBlocking(FeedbackStates.BLOCKING_SIGN_OUT) {
                 val active = activeAccount()
-                auth.activeAccountId.value?.let {
+                val accountId = auth.activeAccountId.value
+                accountId?.let {
                     pushTokenManager.unregisterToken(it)
                     enetNodeManager.signOut(it, revoke = true)
                 }
                 revokeSession(active)
                 syncManager.signOut()
                 steerConnectionStore.closeAll()
+                // #PERF-9: signing out deletes the account's stored steer tails.
+                accountId?.let { steerConnectionStore.forgetTails(it) }
                 auth.clearToken()
             }
         }
@@ -442,6 +448,7 @@ class AppViewModel @Inject constructor(
         enetNodeManager.signOut(id, revoke = true)
         revokeSession(account)
         steerConnectionStore.closeAll()
+        steerConnectionStore.forgetTails(id)
         auth.removeAccount(id)
         databaseHolder.deleteFiles(id)
     }

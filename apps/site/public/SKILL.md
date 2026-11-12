@@ -58,24 +58,30 @@ Two ways in:
 
 ## Tools
 
-22 tools in 7 groups, one per noun, all named `exponential_<noun>`. Every call carries an
-`op` and that op's fields beside it, e.g. `exponential_issues {op: "get", id:
-"ABC-12"}`; each tool's description (from `tools/list`) lists its ops with
-their parameters, so read it instead of a static list. The groups: **Work**
+41 tools in 7 groups. Each noun is two tools: `exponential_<noun>` takes its
+read ops (`list`, `get`, ...; read-only) and `exponential_<noun>_write` takes
+every other op (create, update, delete, ...). Every call carries an `op` and
+that op's fields beside it, e.g. `exponential_issues {op: "get", id:
+"ABC-12"}` or `exponential_issues_write {op: "create", boardId, title}`; each
+tool's description (from `tools/list`) lists its ops with their parameters
+and names its twin, so read it instead of a static list. The two verbs
+(`exponential_sessions_send`, `exponential_show`) and `exponential_session_self`
+(writes only) are one tool each. Below, each noun's read ops come first;
+the rest are on its `_write` tool. The groups: **Work**
 (issues, comments, pr, sessions_send, show; always loaded), **Tracker**
 (boards, labels, statuses, attachments), **Team** (teams, people,
 repositories, devices), **Agents** (agents, prompts, skills, mcp_servers),
 **Sessions** (sessions, session_self), **Apps** (apps), **Activity** (events,
 notifications).
 
-- **issues**: `list` (filters: boards, `status`/`statusId`/`statusCategory`
+- **issues**: reads `list` (filters: boards, `status`/`statusId`/`statusCategory`
   each with an `exclude*` twin, priority, assignee, labels any/all/unlabeled,
   `source`, comment activity, created/updated/due ranges, text and
   identifier `search`, plus `sort`; OPEN work only unless `includeClosed` or
   a status filter), `get`
   (UUID or identifier "ABC-12"), `show` (the interactive list in MCP Apps
-  hosts), `create`, `update`, `delete`, `activity`, `update_status`,
-  `subscribe`, `unsubscribe`, `labels_add`, `labels_remove`,
+  hosts), `activity`; writes `create`, `update`, `delete`, `update_status`,
+  `subscribe`, `unsubscribe`, `unlink`, `labels_add`, `labels_remove`,
   `relations_add`, `relations_remove` (`blocks`, `parent`, `duplicate`,
   `related`; `inverse: true` states it the other way round). List ops
   paginate: 50 by default, 200 at most (1000 for issues; comments `list`
@@ -85,17 +91,17 @@ notifications).
   comment is emailed, `reporterEmailed` says whether the mail went out.
 - **attachments**: `list`, `get`, `upload` (bytes, or a signed URL then a
   finalize call; returns the embeddable markdown), `delete`.
-- **pr**: `open` (links the session's issues; a stacked base is inferred),
+- **pr**: reads `files`; writes `open` (links the session's issues; a stacked base is inferred),
   `merge` (queues it in the merge train, which tests and lands it by
   itself; `force: true` = Merge now, owners and team agents), `close`, `retarget`, `update`,
-  `unlink`, `files`. A PR is named by `pullRequestId`, `issueId` or
+  `unlink`. A PR is named by `pullRequestId`, `issueId` or
   `repositoryId` + `prNumber`.
 - **boards** (`list`, `get`, `create`, `update`, `delete` = the 48-hour
   trash, `set_repository`), **labels** (`list`, `get`, `create`, `update`,
   `delete`), **statuses** (`list`, `create`, `update`, `delete`; builtins
   are locked, deleting one in use needs `reassignToId`).
-- **teams** (`list`, `get`, `create`, `update`), **people** (`list`, `add`,
-  `invites_list`, `invites_create`, `invites_revoke`), **repositories**
+- **teams** (`list`, `get`, `create`, `update`), **people** (`list`,
+  `invites_list`, `add`, `invites_create`, `invites_revoke`), **repositories**
   (`list`, `create`).
 - **agents** (`list`, `get`), **prompts** (`list`, `get`;
   `create`/`update`/`delete` are owner-only), **skills** (`list`, `get` by
@@ -103,10 +109,11 @@ notifications).
   `create`, `delete`; the team's MCP servers for coding sessions).
 - **apps**: a team's Exponential apps (declarative Exponential UI packages
   rendered in every client): `list`, `get` (the head or a `version`'s
-  package), `upsert` (`slug` + `package` publishes a new version; a new slug
-  creates the app, `name` required), `delete` (to the trash), `catalog` (the
-  components, bindings and functions a package may use; read it before
-  writing one).
+  package), `catalog` (the components, bindings and functions a package may
+  use; read it before writing one), `records_list`, `records_history`;
+  writes `upsert` (`slug` + `package` stores a new draft version; a new slug
+  creates the app, `name` required), `publish`, `delete` (to the trash),
+  `records_upsert`, `records_delete`, `records_restore`, `handoff`.
 - **sessions_send**: THE session verb, no op. `{teamId, deviceId, issueIds?,
   text}` starts a new root session on an ONLINE device (`exponential_devices
   {op: "list"}` first); `{sessionId, text}` messages a running or idle one;
@@ -122,7 +129,7 @@ notifications).
   `configure`, `escalate`, `end`.
 - **session_self** (inside a launcher-started session only): `suggest`,
   `compact`, `report_bug` (cloud).
-- **devices** (`list`, `account_login`), **events** (`emit`, `list`),
+- **devices** (`list`, `account_login`), **events** (`list`, `emit`),
   **notifications** (`list`, `mark_read`).
 ## Core concepts
 
@@ -136,7 +143,7 @@ notifications).
   `#<IDENTIFIER>` issue refs, image embeds), a priority (`none`, `urgent`,
   `high`, `medium`, `low`), labels, an assignee, a due date, comments, and
   attachments. A `#<IDENTIFIER>` ref in a description or comment auto-links
-  the two issues as related; `exponential_issues {op: "create"}` takes
+  the two issues as related; `exponential_issues_write {op: "create"}` takes
   `parentId` to file a sub-issue, and the other relations (blocks,
   duplicate, related) are set with `op: "relations_add"`.
 - **Statuses** are per-team rows in six categories (backlog, unstarted,
@@ -147,7 +154,7 @@ notifications).
   reach the custom rows.
 - **Pull requests**: one branch per session: `exp/<IDENTIFIER>` when the
   session holds exactly one issue, else `exp/session-<id>`. Several issues
-  fixed on one pushed branch share one PR via `exponential_pr {op: "open"}`
+  fixed on one pushed branch share one PR via `exponential_pr_write {op: "open"}`
   with `issueIds` + `head`. PR open moves linked issues to the team's
   configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
@@ -162,7 +169,7 @@ notifications).
   login; optional), Triggers (each a schedule or an event name; none = the
   agent only waits for messages), and Instructions. Each member talks to an
   agent in their own conversation (`exponential_sessions_send {agentId}`);
-  `exponential_events {op: "emit"}` wakes every agent with a trigger on that
+  `exponential_events_write {op: "emit"}` wakes every agent with a trigger on that
   event name.
 - **Coding agents**: sessions run Claude Code or Codex locally with the
   Exponential MCP server wired in automatically; from the agent's point of
@@ -171,7 +178,7 @@ notifications).
   an issue on the widget's board (title from the message's first line,
   screenshot and pictures attached, page context in the description,
   `source: "widget"`). A reporter who left an email gets a private link to
-  their report; a `comments_create` with `audience: "reporter"` emails them
+  their report; `exponential_comments_write {op: "create"}` with `audience: "reporter"` emails them
   a reply, and their answers come back as comments on the issue (a
   `reporter_reply` notification; an answer on a done issue reopens it).
 

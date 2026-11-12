@@ -58,7 +58,7 @@ Tools the app exposes over MCP appear under **MCP tools**, and the team MCP serv
 
 ## Build over MCP
 
-Any coding agent can do what the editor does through the [`exponential_apps`](/docs/build/mcp/) tool: `catalog` reads the genUI catalog, `upsert` writes a version, and `records_list`, `records_upsert` and `records_delete` work on the data.
+Any coding agent can do what the editor does through the [`exponential_apps`](/docs/build/mcp/) tool and its `exponential_apps_write` twin: `catalog` reads the genUI catalog, `upsert` (on `_write`) writes a version, `records_list` reads the data and `records_upsert` and `records_delete` (on `_write`) change it.
 
 ## Run a package in your own host
 
