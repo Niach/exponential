@@ -83,6 +83,7 @@ export const RENDERER_ENTRIES: readonly string[] = [
   `@exponential_app/eui/index`,
   `@exponential_app/eui/host`,
   `@exponential_app/eui/web`,
+  `@exponential_app/eui/web/motion`,
   `@exponential_app/eui/web/primitives`,
   `@exponential_app/eui-react/index`,
   `@exponential_app/eui-react/primitives`,
