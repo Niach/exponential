@@ -60,4 +60,12 @@ if [ -n "$own_target" ]; then
   export CARGO_TARGET_DIR
   echo "lane.sh: building into $CARGO_TARGET_DIR (own target)" >&2
 fi
-"$@"
+# PERF-4: a lane's build is the machine's background work: nice 19 and, on
+# Linux, idle IO, so the desktop keeps its cores and disk while it runs
+# (.github/runners/README.md "Desktop first"). Not exec'd: the lock holder
+# above must outlive the command.
+if command -v ionice >/dev/null 2>&1; then
+  nice -n 19 ionice -c 3 "$@"
+else
+  nice -n 19 "$@"
+fi
