@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-large-chats-desktop`,
+    date: `2026-11-12`,
+    title: `Large chats open fast in the desktop app`,
+    summary: `The desktop app opens long chats at once and starts without a pause, and Settings › MCP shows every server, built-ins included, in one list.`,
+    body: `- **Large chats open fast**: the desktop app and the CLI load a long chat in windows from the device instead of all at once, start without blocking the window, and Results covers the whole chat. On the web, long chats scroll smoothly.
+- **Settings › MCP**: one Servers list with the built-in servers; every row unfolds to its tools, and the clients come last. The phones' MCP picker shows the same rows as the web, with each service's mark.
+- **Smaller crash symbols**: debug files for crash reports upload in a smaller form.`,
+  },
+  {
     id: `2026-11-12-mcp-read-and-write-tools`,
     date: `2026-11-12`,
     title: `Exponential's MCP tools come as reads and writes`,
