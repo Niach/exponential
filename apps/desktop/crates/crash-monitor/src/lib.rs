@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-pub use report::{discard_pending, pending, send_pending, Crash};
+pub use report::{discard_pending, panic_path, pending, pending_panics, send_pending, write_panic, Crash, PANIC_EXTENSION};
 pub use wire::native_debug_images;
 
 /// `argv[1]` of a monitor process.
