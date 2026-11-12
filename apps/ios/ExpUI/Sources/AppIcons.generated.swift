@@ -759,6 +759,35 @@ public enum AppIcons {
         return allNames.contains(name) ? name : nil
     }
 
+    /// #EXP-1795: the MCP catalog's brand marks (icons.json `brand`,
+    /// contract `mcpCatalog` marks), shipped as `brand-<slug>` imagesets in
+    /// their own colours (never tinted).
+    public static let brandSlugs: Set<String> = [
+        "airtable",
+        "box",
+        "cloudflare",
+        "dropbox",
+        "figma",
+        "github",
+        "gitlab",
+        "jira",
+        "linear",
+        "netlify",
+        "notion",
+        "paypal",
+        "posthog",
+        "sentry",
+        "slack",
+        "stripe",
+        "supabase",
+        "todoist"
+    ]
+
+    /// Brand slug -> its imageset name; nil for an unknown slug.
+    public static func brandAssetName(_ slug: String) -> String? {
+        brandSlugs.contains(slug) ? "brand-\(slug)" : nil
+    }
+
     /// Concept `action-chat`.
     public static let actionChat: String = "message-circle"
     /// Concept `action-create`.

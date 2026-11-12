@@ -51,6 +51,9 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
     /// is `IDENT Title`: the row draws it mono + muted with the title after
     /// a gap. The label stays the contract's one line.
     public let identifier: String?
+    /// #EXP-1795: a brand mark slug (`AppIcons.brandSlugs`) the row leads
+    /// with in its own fills; wins over `icon`.
+    public let brand: String?
 
     public init(
         value: Value,
@@ -61,7 +64,8 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         disabled: Bool = false,
         keywords: [String] = [],
         checked: PickerChecked? = nil,
-        identifier: String? = nil
+        identifier: String? = nil,
+        brand: String? = nil
     ) {
         self.value = value
         self.label = label
@@ -72,6 +76,7 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         self.keywords = keywords
         self.checked = checked
         self.identifier = identifier
+        self.brand = brand
     }
 
     /// The label split for an issue row: the identifier and the title after
@@ -95,6 +100,7 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
     /// label row a coloured dot and a board row a tinted glyph without any
     /// call site choosing a shape.
     public var mark: PickerRowMark {
+        if let brand { return .brand(brand) }
         if let icon { return .glyph(icon, color) }
         if let color { return .dot(color) }
         return .plain
@@ -105,6 +111,8 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
 /// a caller (`PickerItem.mark`).
 public enum PickerRowMark: Equatable {
     case glyph(String, Color?)
+    /// A brand mark slug, drawn untinted.
+    case brand(String)
     case dot(Color)
     case plain
 }
@@ -955,6 +963,9 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
             case let .glyph(name, color):
                 AppIcon(name, size: AppIcon.Size.medium)
                     .foregroundStyle(color ?? .white.opacity(TextOpacity.secondary))
+                    .frame(width: GlassPickerTokens.markWidth)
+            case let .brand(slug):
+                AppIcon(brand: slug, size: AppIcon.Size.medium)
                     .frame(width: GlassPickerTokens.markWidth)
             case let .dot(color):
                 Circle()
