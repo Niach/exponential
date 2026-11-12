@@ -184,6 +184,7 @@ export function IssueTimeline({
     [boards]
   )
 
+  const commentTeamId = boardMap.get(issue.boardId)?.teamId
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   // EXP-741: the top-level card whose inline reply composer is open (one at
   // a time, like the edit form).
@@ -469,7 +470,12 @@ export function IssueTimeline({
             issueId={issue.id}
             users={users}
             onSubmit={handleSubmit}
-            draft={{ target: { kind: `comment`, id: issue.id }, teamId: issue.teamId }}
+            draft={
+              // The issues shape carries no `team_id`: the board names it.
+              commentTeamId
+                ? { target: { kind: `comment`, id: issue.id }, teamId: commentTeamId }
+                : undefined
+            }
             reporter={
               submission?.reporterEmail
                 ? { name: reporterDisplayName(submission.reporterName) }
