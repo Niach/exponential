@@ -25,6 +25,7 @@ import androidx.room.TypeConverters
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
+        ComposerDraftEntity::class,
         SessionEntity::class,
         SessionIssueEntity::class,
         MessageEntity::class,
@@ -90,7 +91,9 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_121_122]; only the agents shape refetches.
     // v123 (large chats): messages index (root_id, created_at, id) replaces
     //      (root_id), explicit [MIGRATION_122_123]; nothing refetches.
-    version = 123,
+    // v124 (#FEED-219): the `composer_drafts` table (every composer's synced
+    //      draft), explicit [MIGRATION_123_124]; the new shape starts fresh.
+    version = 124,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -114,6 +117,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
+    abstract fun composerDraftDao(): ComposerDraftDao
     abstract fun sessionDao(): SessionDao
     abstract fun sessionIssueDao(): SessionIssueDao
     abstract fun messageDao(): MessageDao

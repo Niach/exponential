@@ -321,6 +321,26 @@ interface IssueDraftDao {
     suspend fun clear()
 }
 
+// #FEED-219: the caller's composer drafts (the shape is `user_id = me`), one
+// per target key; a composer reads only its own key.
+@Dao
+interface ComposerDraftDao {
+    @Query("SELECT * FROM composer_drafts WHERE `key` = :key ORDER BY updated_at DESC LIMIT 1")
+    fun observeByKey(key: String): Flow<ComposerDraftEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ComposerDraftEntity)
+
+    @Query("DELETE FROM composer_drafts WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM composer_drafts WHERE `key` = :key")
+    suspend fun deleteByKey(key: String)
+
+    @Query("DELETE FROM composer_drafts")
+    suspend fun clear()
+}
+
 // EXP-1291: the session tree. Roots (`parent_id IS NULL`) are
 // chats (`kind = thread`) and team agents (`kind = agent`); every session
 // of one tree shares `root_id`.

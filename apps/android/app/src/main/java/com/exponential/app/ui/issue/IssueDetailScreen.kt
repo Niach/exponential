@@ -870,7 +870,7 @@ fun IssueFace(
                         showMentionButton = soloMemberId == null,
                         otherEditorFocused = otherEditorFocused,
                         replyTarget = commentReplyTarget,
-                        onClearReply = { commentViewModel.setReplyTarget(null) },
+                        onClearReply = commentViewModel::cancelReply,
                         reporterToggle = reporterToggle,
                     )
                   }
