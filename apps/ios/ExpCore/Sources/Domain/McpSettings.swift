@@ -28,7 +28,7 @@ public enum McpSettings {
 
     /// The muted line at the top of the page (`overview`).
     public static let overview =
-        "MCP servers your team's sessions, agents and apps can call. Built-ins are always on; connect your own account to the others."
+        "MCP servers your team's sessions, agents and apps can call."
 
     public static let copy = "Copy"
     public static let copied = "Copied"

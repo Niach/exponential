@@ -121,10 +121,11 @@ struct McpSettingsPage: View {
     // MARK: - Servers
 
     /// ONE group (`serverOrder`): the built-ins first, then the team's
-    /// servers (no team server = the built-ins only).
+    /// servers (no team server = the built-ins only). FLAT rows under the
+    /// band (web, desktop): no filled box.
     private var serversSection: some View {
         let hasAppTools = !(access?.apps.isEmpty ?? true)
-        return section(.servers) {
+        return section(.servers, boxed: false) {
             VStack(spacing: 0) {
                 ForEach(McpSettings.serverOrder(appTools: hasAppTools, servers: servers ?? [])) { entry in
                     switch entry {
@@ -171,7 +172,7 @@ struct McpSettingsPage: View {
                 ) {
                     ExpLogoMark(size: 16, color: .white.opacity(TextOpacity.secondary))
                 }
-                GlassPill(McpSettings.copy, icon: AppIcons.uiCopy, mode: .action {
+                GlassPill(McpSettings.copy, mode: .action {
                     UIPasteboard.general.string = url
                     toaster.success(McpSettings.copied)
                 })
@@ -713,13 +714,18 @@ struct McpSettingsPage: View {
     /// A section = its label band over one glass group.
     private func section<Content: View>(
         _ section: McpSettings.Section,
+        boxed: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if let label = section.label {
                 GlassSectionBand(label)
             }
-            content().glassSection()
+            if boxed {
+                content().glassSection()
+            } else {
+                content()
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(section.testId)
