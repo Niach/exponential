@@ -8,7 +8,8 @@ import { generateTxId } from "@/lib/trpc"
 import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
-import { busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "@/lib/sessions/bus"
+import { busListeners, busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "@/lib/sessions/bus"
+import { lockSessionRows, lockTreeRows } from "@/lib/sessions/locks"
 import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
@@ -287,8 +288,20 @@ export async function endSession(args: {
     const live = session.status !== `ended`
     const summaryDropped =
       !sealedReport && live && !!closing && !isSealedBody(closing) && (await treeIsKeyed(tx, session.rootId))
+    // #ERR-5: the closing words, every End and every report below write
+    // the subtree, its parent and the named session's watchers: all of them
+    // locked first, ancestors first (a child's reply racing this End took
+    // the child's rows, then the parent's: the opposite order deadlocked).
+    const subtree = await liveSubtree(tx, session)
+    const listeners = await busListeners(tx, session)
+    await lockSessionRows(tx, [
+      session.id,
+      session.parentId,
+      ...subtree.map((row) => row.id),
+      ...listeners.map((listener) => listener.id),
+    ])
     if (!sealedReport && live && closing && !summaryDropped) await postAgentMessage(tx, session, closing)
-    const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session), {
+    const endedIds = await endRowsInTx(tx, subtree, {
       id: session.id,
       summary: summaryDropped ? null : args.summary,
       sealedReport,
@@ -326,6 +339,8 @@ export async function deleteSession(args: { userId: string; sessionId: string })
   }
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    // #ERR-5: the whole tree, ancestors first, before its first write.
+    await lockTreeRows(tx, session.id)
     const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session))
     const tree = await tx.select({ id: sessions.id }).from(sessions).where(eq(sessions.rootId, session.id))
     await forgetWatched(tx, tree.map((row) => row.id))
