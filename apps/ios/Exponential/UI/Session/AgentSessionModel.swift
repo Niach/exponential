@@ -236,9 +236,8 @@ final class AgentSessionModel {
 
     /// EXP-1324: first sight per background-task id (epoch ms).
     @ObservationIgnored private var backgroundFirstSeen: [String: Int64] = [:]
-    /// EXP-1321: the Queue's two open states — the reader's toggle sticks for
-    /// the session ("to do" open, "completed" collapsed by default).
-    var queueTodoOpen = true
+    /// EXP-1321: the Queue's "completed" open state — the reader's toggle
+    /// sticks for the session (collapsed by default).
     var queueCompletedOpen = false
     /// EXP-927 §2c: the agent's own task list — a latest-wins slot (the FULL
     /// list in order; an empty one hides the block above the strip).

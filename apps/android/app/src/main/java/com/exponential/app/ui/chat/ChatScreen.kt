@@ -448,7 +448,6 @@ fun ChatScreen(
         }
     }
     val treeNames = remember(items) { items.sessions.associate { it.sessionId to it.name } }
-    var childTodoOpen by rememberSaveable { mutableStateOf(true) }
     var childCompletedOpen by rememberSaveable { mutableStateOf(false) }
     val chatDock: (com.exponential.app.ui.session.SessionDock) -> com.exponential.app.ui.session.SessionDock = { sd ->
         val rootQueue = sd.sources.filterIsInstance<Dock.Source.Tasks>().firstOrNull()?.queue
@@ -481,8 +480,6 @@ fun ChatScreen(
                                 if (queue != null) {
                                     com.exponential.app.ui.components.TaskQueueView(
                                         queue = queue,
-                                        todoOpen = childTodoOpen,
-                                        onTodoOpenChange = { childTodoOpen = it },
                                         completedOpen = childCompletedOpen,
                                         onCompletedOpenChange = { childCompletedOpen = it },
                                         modifier = Modifier.fillMaxWidth(),

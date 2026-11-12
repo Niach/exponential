@@ -110,14 +110,8 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let completed = queue.completed.as_ref().expect("two completed");
     let queue_block = trace_stack(
         vec![
-            trace_collapsible(
-                TraceLine::new("sg-queue-todo", Icon::from(trace_icon(&queue.todo.icon)), queue.todo.title.clone()),
-                true,
-                noop,
-                Some(trace_stack(items, TraceSize::Sm).into_any_element()),
-                window,
-                cx,
-            ),
+            // The todo items sit under the sheet's header (the todo title).
+            trace_stack(items, TraceSize::Sm).into_any_element(),
             trace_collapsible(
                 TraceLine::new("sg-queue-completed", Icon::from(trace_icon(&completed.icon)), completed.title.clone()),
                 false,

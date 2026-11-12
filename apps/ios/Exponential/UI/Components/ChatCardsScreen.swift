@@ -149,7 +149,6 @@ struct ChatCardsScreen: View {
 
     // MARK: - Trace (EXP-1324)
 
-    @State private var todoOpen = true
     @State private var completedOpen = false
 
     private static let profileOutput = """
@@ -237,7 +236,7 @@ struct ChatCardsScreen: View {
                 waits: [],
                 now: 130_000
             )) {
-                TaskQueueBlock(queue: queue, todoOpen: $todoOpen, completedOpen: $completedOpen)
+                TaskQueueBlock(queue: queue, completedOpen: $completedOpen)
             }
             TraceStack {
                 TraceLine(Trace.tool(toolKind: "search", name: "Grep", detail: "persistOnStop", settled: true, failed: false))
