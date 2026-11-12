@@ -40,6 +40,33 @@
       { "name": "no ident", "input": { "identifier": null, "title": "Release web 0.20.47", "number": 44 }, "expected": "Release web 0.20.47 (#44)" }
     ]
   },
+  "trash": {
+    "$comment": "#EXP-1797: an issue's DELETE is a soft delete into the team's issue trash, on every surface (tRPC issues.delete + bulkDelete, MCP issues_write {op: delete}, an app's exponential.issues.delete: they all reach the same writer). Delete stamps `issues.deleted_at` + `deleted_by` (the member) + `deleted_by_agent_id` (the acting agent, null for a person) and NOTHING cascades: comments, files, labels, relations, subscribers, activity, session and PR links stay attached. A trashed issue is hidden from every read: the issues shape (static predicate `deleted_at IS NULL`), every child shape (the child rows' `board_deleted_at` trash mirror now means 'its container is in the trash': the board's OR the issue's own deleted_at; an issue relation is hidden while EITHER side is trashed), search, boards, inbox, chats' issue strips and MCP reads (an identifier or id of a trashed issue answers Issue not found), except the explicit trash reads: tRPC issues.listDeleted, MCP issues {op: trash}. `retentionDays` after deleted_at the watchdog's trash sweep (every tick, beside the app-records purge) PURGES it: the hard delete that cascades like the old delete and reclaims its files. RESTORE (members, `access.restore`; tRPC issues.restore, MCP issues_write {op: restore}) clears the three columns: the issue comes back with its identifier (numbers are never reused), comments, relations and links intact. DELETE FOREVER (`access.purge` = owners only; tRPC issues.purge, from the trash only) purges it now, after the `purge-issue` prompt (prompts.json). A trashed board's issues are not listed (the board's own trash restores them). EVENTS on the team stream (contract events.builtinNames), payload = `eventPayload`: `issue.deleted` and `issue.restored` (emittedBy the session when an MCP call speaks for one, else the person; viaMcp = the call came over MCP; actorAgentId = the acting agent), `issue.purged` (emittedBy the person for Delete forever, the server for the sweep, actor fields null then). THE TRASH VIEW ×4 = the team settings Boards page (where the board trash already lives, settings-boards): a `copy.band` band under the board bands, drawn only while non-empty, for EVERY member (the board bands stay owner-only), the same put-away row as a trashed board: the issue's board glyph, `copy.row` (flex, truncates), the caption `trashCaption(purgeAt, now)` (re-rendered every minute), then the `copy.restore` pill and, for owners only (`trashActions(role)`), the `copy.purge` pill. Rows newest deleted first. Loaded when the page opens and after every Restore / Delete forever; a failed load is quiet (the band keeps its rows), a failed Restore / Delete forever = the platform's toast, and the list reloads either way. Issue delete confirms = prompts.json delete-issue / delete-issues (Move to trash), Delete forever = purge-issue.",
+    "retentionDays": 30,
+    "events": { "deleted": "issue.deleted", "restored": "issue.restored", "purged": "issue.purged" },
+    "eventPayload": ["issueId", "identifier", "title", "boardId", "actorUserId", "actorAgentId", "sessionId", "viaMcp"],
+    "access": { "delete": "member", "restore": "member", "purge": "owner" },
+    "copy": { "band": "Deleted issues", "row": "{identifier} {title}", "restore": "Restore", "purge": "Delete forever" },
+    "captionCases": [
+      { "name": "no purge time", "input": { "purgeAt": null, "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purges soon" },
+      { "name": "just deleted: 30 days", "input": { "purgeAt": "2026-12-12T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purges in ~30d" },
+      { "name": "days round up", "input": { "purgeAt": "2026-11-20T13:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purges in ~9d" },
+      { "name": "exactly two days reads in hours", "input": { "purgeAt": "2026-11-14T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purges in ~48h" },
+      { "name": "hours round up", "input": { "purgeAt": "2026-11-12T14:30:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purges in ~3h" },
+      { "name": "due now", "input": { "purgeAt": "2026-11-12T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purging soon" },
+      { "name": "overdue", "input": { "purgeAt": "2026-11-12T11:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": "Purging soon" }
+    ],
+    "actionCases": [
+      { "name": "an owner restores or deletes forever", "input": { "role": "owner" }, "expected": ["restore", "purge"] },
+      { "name": "a member restores", "input": { "role": "member" }, "expected": ["restore"] }
+    ],
+    "purgeDueCases": [
+      { "name": "not trashed", "input": { "deletedAt": null, "now": "2026-11-12T12:00:00.000Z" }, "expected": false },
+      { "name": "29 days in", "input": { "deletedAt": "2026-10-14T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": false },
+      { "name": "exactly 30 days", "input": { "deletedAt": "2026-10-13T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": true },
+      { "name": "past 30 days", "input": { "deletedAt": "2026-10-01T12:00:00.000Z", "now": "2026-11-12T12:00:00.000Z" }, "expected": true }
+    ]
+  },
   "cases": [
     { "name": "a worker takes a backlog issue", "input": { "event": "taken", "status": "backlog", "openPr": false, "workers": 1 }, "expected": "in_progress" },
     { "name": "a worker takes it again while its PR is open", "input": { "event": "taken", "status": "in_review", "openPr": true, "workers": 1 }, "expected": "in_progress" },

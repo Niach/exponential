@@ -93,6 +93,8 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       create: `issues_create`,
       update: `issues_update`,
       delete: `issues_delete`,
+      restore: `issues_restore`,
+      trash: `issues_trash`,
       activity: `issues_activity`,
       update_status: `issues_update_status`,
       subscribe: `issues_subscribe`,

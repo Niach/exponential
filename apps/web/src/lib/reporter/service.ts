@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from "drizzle-orm"
+import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm"
 import { UUID_RE } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import {
@@ -93,7 +93,7 @@ async function loadReporterIssue(
     .innerJoin(boards, eq(boards.id, issues.boardId))
     .leftJoin(teams, eq(teams.id, issues.teamId))
     .leftJoin(issueStatuses, eq(issueStatuses.id, issues.statusId))
-    .where(and(where, boardVisible()))
+    .where(and(where, boardVisible(), isNull(issues.deletedAt)))
     .orderBy(desc(issues.createdAt))
     .limit(1)
   if (!row) return null

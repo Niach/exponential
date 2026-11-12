@@ -56,7 +56,7 @@ async function sessionIssueRows(session: Pick<Session, `id`>) {
     .select({ identifier: issues.identifier, title: issues.title, description: issues.description })
     .from(sessionIssues)
     .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
-    .where(eq(sessionIssues.sessionId, session.id))
+    .where(and(eq(sessionIssues.sessionId, session.id), isNull(issues.deletedAt)))
     .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
 }
 

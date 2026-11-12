@@ -93,6 +93,7 @@ class PromptsTest {
             Prompts.DeleteIssue.prompt("EXP-12"),
             Prompts.DeleteIssues.prompt(1),
             Prompts.DeleteIssues.prompt(3),
+            Prompts.PurgeIssue.prompt("EXP-12"),
             Prompts.DeleteFile.prompt("a.png"),
             Prompts.MoveIssue.prompt("EXP-12", "Web"),
             Prompts.MergeIssuePr.prompt(7),
@@ -130,10 +131,14 @@ class PromptsTest {
 
     @Test
     fun `the variants pick the right keys`() {
-        assertEquals("Delete EXP-12?", Prompts.DeleteIssue.prompt("EXP-12").title)
-        assertEquals("Delete 1 issue?", Prompts.DeleteIssues.prompt(1).title)
-        assertEquals("Their comments and files are deleted with them.", Prompts.DeleteIssues.prompt(2).body)
-        assertEquals("Delete 2 issues?", Prompts.DeleteIssues.prompt(2).title)
+        assertEquals("Move EXP-12 to trash?", Prompts.DeleteIssue.prompt("EXP-12").title)
+        assertEquals("Move 1 issue to trash?", Prompts.DeleteIssues.prompt(1).title)
+        assertEquals(
+            "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.",
+            Prompts.DeleteIssues.prompt(2).body,
+        )
+        assertEquals("Move 2 issues to trash?", Prompts.DeleteIssues.prompt(2).title)
+        assertEquals("Delete EXP-12?", Prompts.PurgeIssue.prompt("EXP-12").title)
         assertEquals("Merge PR #7?", Prompts.MergeIssuePr.prompt(7).title)
         assertEquals("It is squash-merged.", Prompts.MergeIssuePr.prompt(7).body)
         assertEquals("It is squash-merged. It covers 3 issues.", Prompts.MergeIssuePr.prompt(7, 3).body)

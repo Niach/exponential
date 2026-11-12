@@ -3241,11 +3241,42 @@ async function main() {
       .where(eq(apikeys.id, created.id))
   }
 
+  // #EXP-1797: one issue in the team's trash for the Boards page's `Deleted
+  // issues` band (settings-boards-archived), deleted three days ago so its
+  // caption reads a stable `Purges in ~27d`. Inserted LAST so no other seeded
+  // identifier shifts; its comment shows the trash keeps the thread.
+  const [trashedIssue] = await db
+    .insert(issues)
+    .values({
+      boardId: board.id,
+      teamId: board.teamId,
+      title: `Old onboarding carousel copy`,
+      status: `backlog`,
+      priority: `low`,
+      creatorId: demoId,
+      sortOrder: 9_990,
+      createdAt: daysAgo(12),
+    })
+    .returning()
+  await db.insert(comments).values({
+    issueId: trashedIssue.id,
+    teamId: ws.id,
+    boardId: board.id,
+    authorId: demoId,
+    body: `Superseded by the new onboarding flow.`,
+    createdAt: daysAgo(4),
+  })
+  await db
+    .update(issues)
+    .set({ deletedAt: daysAgo(3), deletedBy: demoId })
+    .where(eq(issues.id, trashedIssue.id))
+
   console.log(`
 Seeded screenshot demo data:
   team        ${ws.name} (/${ws.slug})
   board       ${board.name} (APP), ${inserted.length} issues (1 on custom status "In QA", 1 duplicate)
   boards      3 live + 1 archived + 1 trashed (48h pending deletion)
+  trash       1 deleted issue (team settings › Boards, Deleted issues)
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
   newcomer    ${NEWCOMER_EMAIL} / ${NEWCOMER_PASSWORD} (no team — onboarding + invite views)
   starter     ${STARTER_EMAIL} / ${STARTER_PASSWORD} (owns ${STARTER_TEAM_NAME}, no board — the wizard's invite + devices steps)

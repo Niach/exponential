@@ -70,6 +70,8 @@ export interface WatchdogRun {
   checksSwept: number
   /** EXP-1706: live PRs whose state the reconciler re-read. */
   prsReconciled: number
+  /** #EXP-1797: issues purged from the trash past its retention. */
+  issuesPurged: number
   /** EXP-1709: repositories the merge train passed. */
   mergeTrainRepos: number
   commitChecksPruned: number
@@ -714,6 +716,14 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
       .then((m) => m.reconcileStaleLivePullRequests(now))
       .catch((err) => {
         console.error(`[watchdog] PR reconcile failed`, err)
+        return 0
+      }),
+    // #EXP-1797 (issue-lifecycle.json `trash`): issues trashed past the
+    // retention window are purged (cascade + their files).
+    issuesPurged: await import(`@/lib/issue-trash`)
+      .then((m) => m.runIssuePurgeSweep(now))
+      .catch((err) => {
+        console.error(`[watchdog] issue trash purge failed`, err)
         return 0
       }),
   }

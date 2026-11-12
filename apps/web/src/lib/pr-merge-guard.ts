@@ -15,7 +15,7 @@
 // (`basedOnMergedPr` + `awaitRebaseOffMergedBranch`).
 import { squashTitle } from "@exp/domain-contract/issue-lifecycle"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNotNull, ne } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm"
 import {
   boards,
   issues,
@@ -191,7 +191,7 @@ export async function prIssueIdentifiers(
     .select({ pullRequestId: pullRequestIssues.pullRequestId, identifier: issues.identifier })
     .from(pullRequestIssues)
     .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-    .where(and(inArray(pullRequestIssues.pullRequestId, pullRequestIds), eq(pullRequestIssues.closes, true)))
+    .where(and(inArray(pullRequestIssues.pullRequestId, pullRequestIds), eq(pullRequestIssues.closes, true), isNull(issues.deletedAt)))
     .orderBy(asc(pullRequestIssues.createdAt))
   const out = new Map<string, string>()
   for (const row of rows) if (!out.has(row.pullRequestId)) out.set(row.pullRequestId, row.identifier)

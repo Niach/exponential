@@ -102,6 +102,12 @@ export const deleteIssuesPrompt = (count: number) => {
     : copyOf(entry, entry.titleMany, entry.bodyMany, { count })
 }
 
+/** #EXP-1797: Delete forever from the issue trash (owners). */
+export const purgeIssuePrompt = (identifier: string) =>
+  copyOf(P[`purge-issue`], P[`purge-issue`].title, P[`purge-issue`].body, {
+    identifier,
+  })
+
 export const deleteFilePrompt = (filename: string) =>
   copyOf(P[`delete-file`], P[`delete-file`].title, P[`delete-file`].body, {
     filename,

@@ -5,7 +5,7 @@ import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { boards, issues, pins, sessions } from "@/db/schema"
 import { pinKindSchema, type PinKind } from "@exp/db-schema/domain"
 import { assertTeamMember } from "@/lib/team-membership"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 
 // EXP-778: personal pins — the sidebar's "Pinned" group. One `toggle`
 // endpoint: a pin exists or it doesn't, and every client renders the row from
@@ -42,7 +42,7 @@ async function assertTargetInTeam(
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
       .where(
-        and(eq(issues.id, targetId), eq(boards.teamId, teamId), boardVisible())
+        and(eq(issues.id, targetId), eq(boards.teamId, teamId), boardVisible(), issueVisible())
       )
       .limit(1)
     found = !!row

@@ -421,11 +421,11 @@ describe(`IssueContextMenuProvider`, () => {
 
     expect(mockState.deleteMutate).not.toHaveBeenCalled()
     const prompt = screen.getByTestId(`issue-delete-confirm`)
-    expect(prompt.textContent).toContain(`Delete APP-1?`)
+    expect(prompt.textContent).toContain(`Move APP-1 to trash?`)
     expect(prompt.textContent).toContain(
-      `Its comments and files are deleted with it.`
+      `After 30 days it is deleted with its comments and files.`
     )
-    fireEvent.click(screen.getByRole(`button`, { name: `Delete` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Move to trash` }))
     await Promise.resolve()
 
     expect(mockState.deleteMutate).toHaveBeenCalledTimes(1)

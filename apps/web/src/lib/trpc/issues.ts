@@ -24,9 +24,16 @@ import {
   assertIssueAccess,
   assertTeamMember,
   getBoardTeamId,
+  getIssueTeamContext,
   getSoleHumanMemberId,
 } from "@/lib/team-membership"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
+import {
+  listTrashedIssues,
+  purgeIssueInTx,
+  restoreIssueInTx,
+  trashIssuesInTx,
+} from "@/lib/issue-trash"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import { issueWireColumns } from "@/lib/issue-columns"
 import { recordConversionEvent } from "@/lib/conversion/events"
@@ -54,7 +61,6 @@ import {
   hasMarkdownImages,
 } from "@/lib/storage/issue-attachments"
 import {
-  collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects,
 } from "@/lib/storage/issue-attachment-cleanup"
 import {
@@ -488,7 +494,7 @@ export const issuesRouter = router({
           .select({ teamId: boards.teamId })
           .from(issues)
           .innerJoin(boards, eq(boards.id, issues.boardId))
-          .where(and(eq(issues.id, input.parentId), boardVisible()))
+          .where(and(eq(issues.id, input.parentId), boardVisible(), issueVisible()))
           .limit(1)
         if (!parent || parent.teamId !== board.teamId) {
           throw new TRPCError({
@@ -910,7 +916,7 @@ export const issuesRouter = router({
               .select({ teamId: boards.teamId })
               .from(issues)
               .innerJoin(boards, eq(boards.id, issues.boardId))
-              .where(and(eq(issues.id, updates.duplicateOfId), boardVisible()))
+              .where(and(eq(issues.id, updates.duplicateOfId), boardVisible(), issueVisible()))
               .limit(1)
             if (!canonical || canonical.teamId !== issueContext.teamId) {
               throw new TRPCError({
@@ -1355,7 +1361,7 @@ export const issuesRouter = router({
         })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, issueIds), boardVisible()))
+        .where(and(inArray(issues.id, issueIds), boardVisible(), issueVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1498,8 +1504,8 @@ export const issuesRouter = router({
     }),
 
   // Bulk delete for the multi-select action bar. Same gates as bulkUpdate
-  // (write == delete == membership); attachment blobs are reclaimed from S3
-  // after commit like the single delete.
+  // (write == delete == membership). #EXP-1797: a SOFT delete into the
+  // issue trash (issue-lifecycle.json `trash`), one `issue.deleted` each.
   bulkDelete: authedProcedure
     .input(
       z.object({
@@ -1512,7 +1518,7 @@ export const issuesRouter = router({
         .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, issueIds), boardVisible()))
+        .where(and(inArray(issues.id, issueIds), boardVisible(), issueVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1529,29 +1535,16 @@ export const issuesRouter = router({
       }
       await assertTeamMember(ctx.session.user.id, eligible[0].teamId)
 
-      const storageKeys: string[] = []
-      const result = await ctx.db.transaction(async (tx) => {
+      const actor = { userId: ctx.session.user.id, origin: await eventOrigin(ctx) }
+      return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        for (const row of eligible) {
-          storageKeys.push(
-            ...(await collectIssueAttachmentStorageKeysInTx(tx, row.id))
-          )
-        }
-        const deleted = await tx
-          .delete(issues)
-          .where(
-            inArray(
-              issues.id,
-              eligible.map((row) => row.id)
-            )
-          )
-          .returning({ id: issues.id })
-        return { txId, deleted: deleted.length }
+        const trashed = await trashIssuesInTx(
+          tx,
+          eligible.map((row) => row.id),
+          actor
+        )
+        return { txId, deleted: trashed.length }
       })
-
-      await deleteStorageObjects(storageKeys)
-
-      return result
     }),
 
   // Point read of ONE issue by row UUID or human identifier ("EXP-42").
@@ -1668,6 +1661,10 @@ export const issuesRouter = router({
       }))
     }),
 
+  // #EXP-1797: a SOFT delete into the issue trash (issue-lifecycle.json
+  // `trash`): nothing cascades, `issue.deleted` goes to the team stream.
+  // MCP issues_write {op: delete} and the apps' exponential.issues.delete
+  // land here too.
   delete: authedProcedure
     // EXP-707: UUID or human identifier ("EXP-42"), like issues.get.
     .input(z.object({ id: z.string().trim().min(1).max(64) }))
@@ -1677,33 +1674,81 @@ export const issuesRouter = router({
         input.id
       )
       await assertIssueAccess(ctx.session.user.id, issueId, `delete`)
+      const actor = { userId: ctx.session.user.id, origin: await eventOrigin(ctx) }
 
-      const storageKeys: Array<string> = []
-
-      const result = await ctx.db.transaction(async (tx) => {
+      return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-
-        storageKeys.push(
-          ...(await collectIssueAttachmentStorageKeysInTx(tx, issueId))
-        )
-
-        const deleted = await tx
-          .delete(issues)
-          .where(eq(issues.id, issueId))
-          .returning({ id: issues.id })
-
-        if (deleted.length === 0) {
+        const [trashed] = await trashIssuesInTx(tx, [issueId], actor)
+        if (!trashed) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `Issue not found`,
           })
         }
-
-        return { txId, id: deleted[0].id }
+        return { txId, id: trashed.id }
       })
+    }),
 
-      await deleteStorageObjects(storageKeys)
+  // #EXP-1797: the team's issue trash (the Boards settings page's `Deleted
+  // issues` band ×4, MCP issues {op: trash}). Any member: members delete,
+  // so members restore.
+  listDeleted: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeamMember(ctx.session.user.id, input.teamId)
+      return listTrashedIssues(input.teamId)
+    }),
 
-      return result
+  // #EXP-1797: back out of the trash with its identifier, comments,
+  // relations and links (they never left). Any member.
+  restore: authedProcedure
+    .input(z.object({ id: z.string().trim().min(1).max(64) }))
+    .mutation(async ({ ctx, input }) => {
+      const issueId = await resolveIssueReference(ctx.session.user.id, input.id, {
+        includeTrashed: true,
+      })
+      const { teamId } = await getIssueTeamContext(issueId, { includeTrashed: true })
+      await assertTeamMember(ctx.session.user.id, teamId)
+      const actor = { userId: ctx.session.user.id, origin: await eventOrigin(ctx) }
+      return ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const restored = await restoreIssueInTx(tx, issueId, actor)
+        if (!restored) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Issue is not in the trash`,
+          })
+        }
+        return { txId, id: restored.id, identifier: restored.identifier }
+      })
+    }),
+
+  // #EXP-1797: Delete forever, owners only, from the trash only (a live
+  // issue goes through delete first). The cascade the old delete had, then
+  // its files are reclaimed.
+  purge: authedProcedure
+    .input(z.object({ id: z.string().trim().min(1).max(64) }))
+    .mutation(async ({ ctx, input }) => {
+      const issueId = await resolveIssueReference(ctx.session.user.id, input.id, {
+        includeTrashed: true,
+      })
+      const { teamId } = await getIssueTeamContext(issueId, { includeTrashed: true })
+      await resolveTeamAccess(ctx.session.user.id, teamId, `mutate_resources`, {
+        roles: [`owner`],
+      })
+      const actor = { userId: ctx.session.user.id, origin: await eventOrigin(ctx) }
+      const result = await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const { purged, storageKeys } = await purgeIssueInTx(tx, issueId, { actor })
+        if (!purged) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Issue is not in the trash`,
+          })
+        }
+        return { txId, id: purged.id, storageKeys }
+      })
+      await deleteStorageObjects(result.storageKeys)
+      return { txId: result.txId, id: result.id }
     }),
 })

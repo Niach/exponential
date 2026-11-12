@@ -1891,6 +1891,13 @@
       "when": 1794457098573,
       "tag": "0269_square_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1794498831476,
+      "tag": "0270_third_moonstone",
+      "breakpoints": true
     }
   ]
 }

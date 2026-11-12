@@ -30,7 +30,7 @@ import { getUserTeamIds } from "@/lib/team-membership"
 export async function resolveIssueReference(
   userId: string,
   idOrIdentifier: string,
-  opts?: { grantedBoardIds?: string[] }
+  opts?: { grantedBoardIds?: string[]; includeTrashed?: boolean }
 ): Promise<string> {
   if (UUID_RE.test(idOrIdentifier)) return idOrIdentifier
   const notFound = () =>
@@ -46,6 +46,9 @@ export async function resolveIssueReference(
     isNull(issues.boardDeletedAt),
     isNull(issues.boardArchivedAt),
   ]
+  // #EXP-1797: a trashed issue's identifier answers Issue not found except
+  // to the trash's own procedures (restore, purge).
+  if (!opts?.includeTrashed) scope.push(isNull(issues.deletedAt))
   if (opts?.grantedBoardIds) {
     if (opts.grantedBoardIds.length === 0) throw notFound()
     scope.push(inArray(issues.boardId, opts.grantedBoardIds))

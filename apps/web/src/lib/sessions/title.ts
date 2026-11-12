@@ -34,7 +34,7 @@ export async function deriveSessionTitles(
           })
           .from(sessionIssues)
           .innerJoin(issues, sql`${issues.id} = ${sessionIssues.issueId}`)
-          .where(inArray(sessionIssues.sessionId, ids)),
+          .where(and(inArray(sessionIssues.sessionId, ids), isNull(issues.deletedAt))),
         database
           .select({
             id: messages.id,

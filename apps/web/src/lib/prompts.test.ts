@@ -32,6 +32,7 @@ import {
   rotateWebhookSecretPrompt,
   resumeRunPrompt,
   stopRunPrompt,
+  purgeIssuePrompt,
   trashBoardPrompt,
   unlinkSignInMethodPrompt,
   WEB_PROMPTS,
@@ -56,6 +57,7 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
     titleOne: () => deleteIssuesPrompt(1),
     titleMany: () => deleteIssuesPrompt(`{count}` as unknown as number),
   },
+  "purge-issue": { title: () => purgeIssuePrompt(`{identifier}`) },
   "delete-file": { title: () => deleteFilePrompt(`{filename}`) },
   "move-issue": { title: () => moveIssuePrompt(`{identifier}`, `{board}`) },
   "merge-issue-pr": {
@@ -197,7 +199,7 @@ describe(`prompts (contract fixture)`, () => {
       title: `Merge PR #12?`,
       body: `It is squash-merged. It covers 3 issues.`,
     })
-    expect(deleteIssuesPrompt(4).title).toBe(`Delete 4 issues?`)
+    expect(deleteIssuesPrompt(4).title).toBe(`Move 4 issues to trash?`)
   })
 
   it(`never focuses a destructive answer`, () => {

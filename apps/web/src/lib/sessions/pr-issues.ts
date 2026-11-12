@@ -118,7 +118,7 @@ export async function prDefaultIssueIds(
     })
     .from(sessionIssues)
     .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
-    .where(inArray(sessionIssues.sessionId, tree.map((node) => node.id)))
+    .where(and(inArray(sessionIssues.sessionId, tree.map((node) => node.id)), isNull(issues.deletedAt)))
     .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
   if (links.length === 0) return []
 

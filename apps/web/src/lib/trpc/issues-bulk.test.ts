@@ -26,6 +26,9 @@ const h = vi.hoisted(() => ({
     async (..._args: unknown[]) => [] as string[]
   ),
   deleteStorageObjects: vi.fn(),
+  trashIssuesInTx: vi.fn(async (_tx: unknown, ids: string[], _actor: unknown) =>
+    ids.map((id) => ({ id }))
+  ),
   fireAndForgetAssignmentNotify: vi.fn(),
   fireAndForgetStatusChangeNotify: vi.fn(),
   fireAndForgetReporterResolution: vi.fn(),
@@ -65,6 +68,13 @@ vi.mock(`@/lib/storage/issue-attachments`, () => ({
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   collectIssueAttachmentStorageKeysInTx: h.collectIssueAttachmentStorageKeysInTx,
   deleteStorageObjects: h.deleteStorageObjects,
+}))
+// #EXP-1797: bulkDelete is a soft delete into the issue trash.
+vi.mock(`@/lib/issue-trash`, () => ({
+  trashIssuesInTx: h.trashIssuesInTx,
+  listTrashedIssues: vi.fn(),
+  purgeIssueInTx: vi.fn(),
+  restoreIssueInTx: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
@@ -534,30 +544,27 @@ describe(`issues.bulkDelete`, () => {
     expect((error as TRPCError).message).toBe(`No deletable issues`)
   })
 
-  it(`deletes in one statement and reclaims every issue's attachment blobs post-commit`, async () => {
+  // #EXP-1797: a SOFT delete: one trash write for the whole batch, nothing
+  // hard-deleted, no blobs reclaimed (the purge does that later).
+  it(`moves the batch to the trash in one transaction`, async () => {
     selectQueue.push([
       { id: ID_A, teamId: WS },
       { id: ID_B, teamId: WS },
     ])
-    h.collectIssueAttachmentStorageKeysInTx
-      .mockResolvedValueOnce([`key-a`])
-      .mockResolvedValueOnce([`key-b1`, `key-b2`])
 
     const result = await caller.bulkDelete({ issueIds: [ID_A, ID_B] })
 
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 77, deleted: 2 })
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
-    expect(fakeDb.execute).toHaveBeenCalledTimes(1)
-    // In-tx key collection ran per issue, delete is ONE inArray statement.
-    expect(h.collectIssueAttachmentStorageKeysInTx).toHaveBeenCalledTimes(2)
-    expect(deletes).toHaveLength(1)
-    expect(collectParams(deletes[0]!.where)).toEqual([ID_A, ID_B])
-    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
-      `key-a`,
-      `key-b1`,
-      `key-b2`,
-    ])
+    expect(h.trashIssuesInTx).toHaveBeenCalledTimes(1)
+    expect(h.trashIssuesInTx.mock.calls[0]![1]).toEqual([ID_A, ID_B])
+    expect(h.trashIssuesInTx.mock.calls[0]![2]).toMatchObject({
+      userId: `actor`,
+      origin: { viaMcp: false },
+    })
+    expect(deletes).toHaveLength(0)
+    expect(h.deleteStorageObjects).not.toHaveBeenCalled()
   })
 
   // EXP-707's `ids` alias went with the desktop 0.14.31 floor (EXP-730):

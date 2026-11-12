@@ -3,7 +3,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import type { SessionIssueSource } from "@exp/db-schema/domain"
 import { linksIssues } from "@exp/domain-contract/session-kind"
 import { boards, issues, sessionIssues, sessions, type Session } from "@/db/schema"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
 import { applyIssuesTakenInTx, applyIssuesUnlinkedInTx } from "@/lib/sessions/issue-lifecycle"
 import { postSystemCard } from "@/lib/sessions/messages"
@@ -66,7 +66,7 @@ export async function assertIssuesInTeam(
     .select({ id: issues.id, boardId: issues.boardId })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
-    .where(and(inArray(issues.id, unique), eq(boards.teamId, teamId), boardVisible()))
+    .where(and(inArray(issues.id, unique), eq(boards.teamId, teamId), boardVisible(), issueVisible()))
   if (rows.length !== unique.length) {
     throw new TRPCError({
       code: `BAD_REQUEST`,

@@ -479,3 +479,57 @@ public final class IssuesApi: Sendable {
         )
     }
 }
+
+// MARK: - #EXP-1797: the issue trash
+
+/// A trashed issue, as `issues.listDeleted` returns it (trashed issues are out
+/// of every synced shape). Dates are ISO strings (no transformer).
+public struct TrashedIssue: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let identifier: String
+    public let title: String
+    public let boardId: String
+    public let deletedAt: String?
+    public let deletedBy: String?
+    public let deletedByAgentId: String?
+    public let purgeAt: String?
+
+    public init(
+        id: String,
+        identifier: String,
+        title: String,
+        boardId: String,
+        deletedAt: String? = nil,
+        deletedBy: String? = nil,
+        deletedByAgentId: String? = nil,
+        purgeAt: String? = nil
+    ) {
+        self.id = id
+        self.identifier = identifier
+        self.title = title
+        self.boardId = boardId
+        self.deletedAt = deletedAt
+        self.deletedBy = deletedBy
+        self.deletedByAgentId = deletedByAgentId
+        self.purgeAt = purgeAt
+    }
+}
+
+public extension IssuesApi {
+    /// `issues.listDeleted` (any member): the team's issue trash, newest
+    /// deleted first, each with its `purgeAt`.
+    func listDeleted(accountId: String, teamId: String) async throws -> [TrashedIssue] {
+        try await trpc.query(accountId: accountId, path: "issues.listDeleted", input: TeamIdInput(teamId: teamId))
+    }
+
+    /// `issues.restore` (any member): back out of the trash, identifier,
+    /// comments and links intact; the row returns through Electric.
+    func restore(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.restore", input: DeleteIssueInput(id: id))
+    }
+
+    /// `issues.purge` (owners only): Delete forever, from the trash only.
+    func purge(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.purge", input: DeleteIssueInput(id: id))
+    }
+}
