@@ -29,7 +29,7 @@ describe(`RunsListView`, () => {
 })
 
 describe(`DevicesView`, () => {
-  it(`lists a machine's logins; a teammate's machine offers no sign-in`, () => {
+  it(`draws collapsed cards: a press on a login opens its panel; a teammate's machine offers no sign-in`, () => {
     const devices = [
       {
         deviceId: `d1`,
@@ -49,10 +49,16 @@ describe(`DevicesView`, () => {
     render(<DevicesView devices={devices} />)
     expect(screen.getByText(`My devices`)).toBeTruthy()
     expect(screen.getByText(`Team devices`)).toBeTruthy()
+    // #VAPP-292: collapsed by default — the icon wears the attention badge.
+    expect(screen.queryByText(`me@x.test`)).toBeNull()
+    expect(screen.getByTestId(`device-login-chip-claude:p1`).getAttribute(`data-attention`)).toBe(`needs_relogin`)
+    expect(screen.getByText(`No account`)).toBeTruthy()
+    fireEvent.click(screen.getByTestId(`device-login-chip-claude:p1`))
     expect(screen.getByText(`me@x.test`)).toBeTruthy()
-    expect(screen.getAllByText(`Needs re-login`).length).toBe(2)
-    expect(screen.getByText(`No login reported`)).toBeTruthy()
-    expect(screen.getAllByText(/add account/i).length).toBe(1)
+    expect(screen.getByText(`Needs re-login`)).toBeTruthy()
+    // Your own online Studio takes another account; Ann's box does not.
+    expect(screen.getAllByLabelText(/add account/i).length).toBe(1)
+    expect(screen.getByText(`Sign in`)).toBeTruthy()
   })
 })
 
@@ -108,7 +114,8 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
     await waitFor(() => expect(screen.getByText(`Signing in…`)).toBeTruthy())
     expect(calls[1]).toEqual([`exponential_devices_account_login`, { deviceId: `d1`, agent: `claude`, code: `abc` }])
     await vi.advanceTimersByTimeAsync(5_000)
-    await waitFor(() => expect(screen.getByText(`Signed in`)).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId(`device-login-chip-claude:p2`)).toBeTruthy())
+    fireEvent.click(screen.getByTestId(`device-login-chip-claude:p2`))
     expect(screen.getByText(`work@x.test`)).toBeTruthy()
     vi.useRealTimers()
   })
@@ -135,7 +142,8 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
         <DevicesView devices={[device] as unknown as DeviceRow[]} />
       </McpActionsProvider>
     )
-    fireEvent.click(screen.getByTestId(`sign-in-codex:p9`))
+    fireEvent.click(screen.getByTestId(`device-login-chip-codex:p9`))
+    fireEvent.click(screen.getByText(`Sign in`))
     await waitFor(() => expect(screen.getByText(`WDJB-MJHT`)).toBeTruthy())
     expect(calls[0]).toEqual({ deviceId: `d1`, agent: `codex`, profileId: `p9` })
     expect(screen.queryByLabelText(`Code from the browser`)).toBeNull()

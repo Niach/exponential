@@ -6,6 +6,7 @@ import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
+import { compactViewResult, isViewListOp } from "./view-results"
 
 // NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
@@ -72,7 +73,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `issues`,
     group: `work`,
-    blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
+    blurb: `Issues (id = UUID or identifier: EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
     alwaysLoad: true,
     ops: {
       list: `issues_list`,
@@ -556,7 +557,13 @@ export function registerNounTools(
             .join(`; `)
           return err(new Error(`Invalid arguments for ${spec.name}.${String(op)}: ${issues}`))
         }
-        return tool.handler(parsed.data as Record<string, unknown>, extra)
+        const data = parsed.data as Record<string, unknown>
+        const result = await tool.handler(data, extra)
+        // #VAPP-292: outside a session a view list op answers the model with
+        // a summary and the view with the rows (view-results.ts).
+        return sessionId === null && isViewListOp(spec.name, String(op))
+          ? compactViewResult(spec.name, data, result)
+          : result
       }) as never
     )
   }

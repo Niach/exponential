@@ -21,6 +21,7 @@ import {
   SurfaceCard,
   Toaster,
   appReactExtension,
+  cn,
   conceptIcon,
   getActionIcon,
   toast,
@@ -28,7 +29,7 @@ import {
   type PromptActionRole,
 } from "@exp/ui"
 import { actionConsent } from "@exp/domain-contract/app-actions"
-import { AppBridge } from "../bridge"
+import { AppBridge, type DisplayMode, type HostContext } from "../bridge"
 import { createConsentGate, createMcpAppHost, type CallTool, type ConsentGate } from "./mcp-host"
 import { decodeGenuiResult, type GenuiAppRead, type GenuiAppRow, type GenuiScreen } from "./result"
 
@@ -270,10 +271,27 @@ export function GenuiApp() {
   const origin = useMemo(() => instanceOrigin(), [])
   const [width, setWidth] = useState(() => (typeof window === `undefined` ? 800 : window.innerWidth))
 
+  const [mode, setMode] = useState<DisplayMode>(`inline`)
   useEffect(() => {
-    const instance = new AppBridge({ onToolResult: (result) => setScreen(decodeGenuiResult(result)) })
+    let available: readonly DisplayMode[] = []
+    const context = (next: HostContext) => {
+      if (next.availableDisplayModes) available = next.availableDisplayModes
+      if (next.displayMode) setMode(next.displayMode)
+    }
+    const instance = new AppBridge({
+      onHostContext: context,
+      onToolResult: (result) => {
+        const next = decodeGenuiResult(result)
+        setScreen(next)
+        // #VAPP-292: a team app runs full size (the host's side pane or full
+        // page) where the host offers it; a card stays in the conversation.
+        if (next.kind === `app` && available.includes(`fullscreen`)) {
+          void instance.requestDisplayMode(`fullscreen`).then((set) => set && setMode(set))
+        }
+      },
+    })
     bridge.current = instance
-    instance.connect().catch(() => {
+    instance.connect().then(context).catch(() => {
       // No host answered: the view stays on its waiting state.
     })
     return () => {
@@ -326,7 +344,7 @@ export function GenuiApp() {
 
   return (
     <CardLinksProvider value={links}>
-      <div ref={root} className="font-sans text-foreground antialiased" style={overlay ? { minHeight: overlay } : undefined} data-testid="genui-view" data-screen={screen.kind}>
+      <div ref={root} className={cn(`font-sans text-foreground antialiased`, mode === `fullscreen` && `h-screen overflow-y-auto bg-background`)} style={overlay ? { minHeight: overlay } : undefined} data-testid="genui-view" data-screen={screen.kind} data-display-mode={mode}>
         {screen.kind === `waiting` && (
           <div className="flex flex-col gap-2 p-4">
             <Skeleton className="h-6 w-1/3" />
