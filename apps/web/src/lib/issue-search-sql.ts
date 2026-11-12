@@ -47,14 +47,18 @@ const ISSUE_TSVECTOR = sql`to_tsvector('english', coalesce(i.title, '') || ' ' |
 
 function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
   const col = (name: string) => sql.raw(`${alias}.${name}`)
+  // #EXP-1797: a trashed issue never matches: its own deleted_at on `i`, the
+  // container-trash mirror (board_deleted_at, which carries the issue's
+  // trash) on a comment `c`.
+  const trash = alias === `i` ? sql`${col(`deleted_at`)} is null` : sql`${col(`board_deleted_at`)} is null`
   if (`teamId` in scope) {
-    return sql`${col(`team_id`)} = ${scope.teamId}::uuid and ${col(`board_deleted_at`)} is null and ${col(`board_archived_at`)} is null`
+    return sql`${col(`team_id`)} = ${scope.teamId}::uuid and ${col(`board_deleted_at`)} is null and ${col(`board_archived_at`)} is null and ${trash}`
   }
   if (scope.boardIds.length === 0) return sql`false`
   return sql`${col(`board_id`)} in (${sql.join(
     scope.boardIds.map((id) => sql`${id}::uuid`),
     sql`, `
-  )})`
+  )}) and ${trash}`
 }
 
 /** The FTS query text: the client's scored words re-joined (no `by:`

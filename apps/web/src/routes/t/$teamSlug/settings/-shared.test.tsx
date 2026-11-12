@@ -149,7 +149,7 @@ describe(`SETTINGS_NAV follows settings-nav.json nav (S-3)`, () => {
 
   it(`keeps the owner-only pages and New entries from members`, () => {
     const team: SettingsNavContext = { isCloud: true }
-    for (const id of [`general`, `widget`, `storage`, `import`, `all-boards`, `billing`]) {
+    for (const id of [`general`, `widget`, `storage`, `import`, `billing`]) {
       const item = items.find((entry) => entry.id === id)!
       expect(item.visible(permissionsFor(`owner`), team), id).toBe(true)
       expect(item.visible(permissionsFor(`member`), team), id).toBe(false)

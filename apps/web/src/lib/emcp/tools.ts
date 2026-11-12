@@ -1,4 +1,5 @@
 import { AGENT_MCP_ROW } from "@exp/domain-contract/agent-settings"
+import { listTrashedIssues } from "@/lib/issue-trash"
 import { insertMcpServer, secretValuesFor } from "@/lib/trpc/mcp-servers"
 import { storeSecret } from "@/lib/emcp/upstream/credentials"
 import { probeMcpServer } from "@/lib/emcp/upstream/mcp-client"
@@ -114,7 +115,7 @@ import {
   getUserTeamIds,
   resolveTeamAccess,
 } from "@/lib/team-membership"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import {
   canonicalizeRelation,
   loadIssueRelations,
@@ -307,7 +308,8 @@ export function caller(user: McpUser, request: Request) {
 async function resolveIssueId(
   idOrIdentifier: string,
   userId: string,
-  access: McpAccess
+  access: McpAccess,
+  opts?: { includeTrashed?: boolean }
 ): Promise<string> {
   if (UUID_RE.test(idOrIdentifier)) return idOrIdentifier
   let grantedBoardIds: string[] | undefined
@@ -324,7 +326,7 @@ async function resolveIssueId(
       .filter((r) => isBoardGranted(access, r.id, r.teamId))
       .map((r) => r.id)
   }
-  return resolveIssueReference(userId, idOrIdentifier, { grantedBoardIds })
+  return resolveIssueReference(userId, idOrIdentifier, { grantedBoardIds, ...opts })
 }
 
 // Comment id → its issue's team/board context, for grant checks on
@@ -1104,6 +1106,7 @@ export function registerExponentialTools(
 
       const conditions: Array<SQL> = [
         inArray(issues.boardId, allowedBoardIds),
+        issueVisible(),
       ]
 
       // Status: the builtin anchor enum, the precise per-team row, or the
@@ -1560,7 +1563,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_delete`,
     {
-      description: `Permanently delete an issue (by UUID or identifier). Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
+      description: `Move an issue (UUID or identifier) to the team's trash: hidden everywhere, restorable for 30 days with its comments and links (op restore), then purged.`,
       inputSchema: strictInput({ id: z.string().min(1) }),
     },
     async (rawInput) => {
@@ -1574,6 +1577,51 @@ export function registerExponentialTools(
         }
         await caller(user, request).issues.delete(input)
         return ok({ ok: true, id: input.id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #EXP-1797 (issue-lifecycle.json `trash`): the trash's MCP half.
+  server.registerTool(
+    `exponential_issues_restore`,
+    {
+      description: `Bring an issue (UUID or identifier) back from the team's trash with its identifier, comments, relations and links.`,
+      inputSchema: strictInput({ id: z.string().min(1) }),
+    },
+    async (rawInput) => {
+      try {
+        const id = await resolveIssueId(rawInput.id, user.id, access, { includeTrashed: true })
+        if (!access.full) {
+          const ctxIssue = await getIssueTeamContext(id, { includeTrashed: true })
+          assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+        }
+        const restored = await caller(user, request).issues.restore({ id })
+        return ok({ ok: true, id: restored.id, identifier: restored.identifier })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_issues_trash`,
+    {
+      annotations: READ_ONLY,
+      description: `The team's deleted issues, newest first: {id, identifier, title, boardId, deletedAt, deletedBy, deletedByAgentId, purgeAt}. Restore one with issues_write {op: restore}.`,
+      inputSchema: strictInput({ teamId: uuidString }),
+    },
+    async ({ teamId }) => {
+      try {
+        assertTeamVisible(access, teamId)
+        await resolveTeamAccess(user.id, teamId)
+        const rows = await listTrashedIssues(teamId)
+        return ok(
+          access.full
+            ? rows
+            : rows.filter((row) => isBoardGranted(access, row.boardId, teamId))
+        )
       } catch (e) {
         return err(e)
       }

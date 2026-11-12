@@ -68,7 +68,7 @@ public extension SettingsNav {
     static let pages: [String: Page] = [
         "storage": Page(label: "Storage", icon: "settings-storage", visible: .owner, platforms: nil),
         "import": Page(label: "Import", icon: "settings-import", visible: .owner, platforms: [.web]),
-        "all-boards": Page(label: "All boards", icon: "settings-boards", visible: .owner, platforms: nil),
+        "all-boards": Page(label: "All boards", icon: "settings-boards", visible: .all, platforms: nil),
         "tools": Page(label: "Tools", icon: "settings-tools", visible: .all, platforms: [.desktop]),
         "coding-clis": Page(label: "Coding CLIs", icon: "settings-agents", visible: .all, platforms: [.desktop]),
         "worktrees": Page(label: "Worktrees", icon: "settings-local-repos", visible: .all, platforms: [.desktop]),

@@ -521,7 +521,7 @@
   },
   "events": {
     "$comment": "NEW-2: the team's event stream (`events` shape). builtinNames = what the server emits itself; any other name is a custom event (MCP events_emit). Rows older than retentionDays are pruned.",
-    "builtinNames": ["issue.created", "issue.status_changed", "issue.assigned", "pr.opened", "pr.merged", "session.ended"],
+    "builtinNames": ["issue.created", "issue.status_changed", "issue.assigned", "issue.deleted", "issue.restored", "issue.purged", "pr.opened", "pr.merged", "session.ended"],
     "emitterValues": ["session", "user", "server"],
     "nameMax": 128,
     "payloadMaxBytes": 16384,
@@ -654,12 +654,34 @@
       {
         "name": "issues_delete",
         "title": "Delete issue",
-        "blurb": "Removes an issue and everything on it.",
+        "blurb": "Moves an issue to the team's trash; it can be restored for 30 days.",
         "progressive": "Deleting issue",
         "done": "Deleted issue",
         "progressiveMany": "Deleting {n} issues",
         "doneMany": "Deleted {n} issues",
         "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "issues_restore",
+        "title": "Restore issue",
+        "blurb": "Brings an issue back from the team's trash.",
+        "progressive": "Restoring issue",
+        "done": "Restored issue",
+        "progressiveMany": "Restoring {n} issues",
+        "doneMany": "Restored {n} issues",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
+        "name": "issues_trash",
+        "title": "Read issue trash",
+        "blurb": "Lists the team's deleted issues and when each is purged.",
+        "progressive": "Reading trash",
+        "done": "Read trash",
+        "progressiveMany": "Reading trash {n} times",
+        "doneMany": "Read trash {n} times",
+        "subjectKey": "",
         "result": "none"
       },
       {
@@ -2057,6 +2079,8 @@
       { "name": "issues_create", "refs": "issue@" },
       { "name": "issues_update", "refs": "issue@" },
       { "name": "issues_delete", "refs": "" },
+      { "name": "issues_restore", "refs": "issue@$id" },
+      { "name": "issues_trash", "refs": "list:issue@" },
       { "name": "issues_activity", "refs": "issue@$issueId" },
       { "name": "issues_update_status", "refs": "issue@ status@" },
       { "name": "issues_subscribe", "refs": "issue@" },

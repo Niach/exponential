@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { createFileRoute } from "@tanstack/react-router"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments, issues } from "@/db/schema"
 import { errorToResponse } from "@/lib/http-errors"
@@ -154,14 +154,14 @@ async function uploadSignedAttachment({
     .limit(1)
   if (existing) throw alreadyLanded(payload.a)
 
-  // The issue may have gone (trash purge, delete) inside the token's window;
+  // The issue may have gone (trash, purge, delete; #EXP-1797) inside the token's window;
   // a 404 beats the FK violation the insert would otherwise surface as a 500.
   // EXP-1516: a token without one is a LOOSE upload (no issue, no board).
   if (payload.i !== undefined) {
     const [issue] = await db
       .select({ id: issues.id })
       .from(issues)
-      .where(eq(issues.id, payload.i))
+      .where(and(eq(issues.id, payload.i), isNull(issues.deletedAt)))
       .limit(1)
     if (!issue) {
       throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })

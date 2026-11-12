@@ -1,5 +1,5 @@
 import { and, isNull } from "drizzle-orm"
-import { boards } from "@/db/schema"
+import { boards, issues } from "@/db/schema"
 
 /**
  * A board that is neither trashed nor archived — the ONLY kind any read
@@ -22,4 +22,15 @@ import { boards } from "@/db/schema"
  */
 export function boardVisible() {
   return and(isNull(boards.deletedAt), isNull(boards.archivedAt))
+}
+
+/**
+ * #EXP-1797: an issue that is not in the issue trash (its own `deleted_at`,
+ * issue-lifecycle.json `trash`). Every issue read surface pairs it with the
+ * board predicates above; the issues shape enforces the same rule with its
+ * static `deleted_at IS NULL`. Only the trash's own procedures (listDeleted,
+ * restore, purge) and the sweep read trashed rows.
+ */
+export function issueVisible() {
+  return isNull(issues.deletedAt)
 }

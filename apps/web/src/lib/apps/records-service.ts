@@ -262,7 +262,7 @@ async function assertTeamRefs(executor: Pick<Tx, `select`>, app: Pick<App, `team
       const [row] = await executor.select({ userId: teamMembers.userId }).from(teamMembers).where(and(eq(teamMembers.teamId, app.teamId), eq(teamMembers.userId, ref.id))).limit(1)
       if (!row) problems.push(`/${ref.field}: no member ${ref.id} in the team`)
     } else if (ref.target === `issue`) {
-      const [row] = await executor.select({ id: issues.id }).from(issues).where(and(eq(issues.teamId, app.teamId), eq(issues.identifier, ref.id), isNull(issues.boardDeletedAt))).limit(1)
+      const [row] = await executor.select({ id: issues.id }).from(issues).where(and(eq(issues.teamId, app.teamId), eq(issues.identifier, ref.id), isNull(issues.boardDeletedAt), isNull(issues.deletedAt))).limit(1)
       if (!row) problems.push(`/${ref.field}: no issue ${ref.id} in the team`)
     }
   }
@@ -955,7 +955,7 @@ export async function readRefLookups(app: { id: string; teamId: string }, kind: 
     const found = await executor
       .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status })
       .from(issues)
-      .where(and(eq(issues.teamId, app.teamId), inArray(issues.identifier, identifiers), isNull(issues.boardDeletedAt)))
+      .where(and(eq(issues.teamId, app.teamId), inArray(issues.identifier, identifiers), isNull(issues.boardDeletedAt), isNull(issues.deletedAt)))
     for (const i of found) out.issues[i.identifier] = { id: i.id, identifier: i.identifier, title: i.title, status: i.status }
   }
   const targetIds = [...new Set(followed.flatMap((f) => (typeof f.target === `object` && f.target.kind !== kind ? ids(f.field) : [])))].filter((id) => UUID_TEXT.test(id)).slice(0, RECORDS_SERVER_READ_MAX)

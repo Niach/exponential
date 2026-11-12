@@ -125,10 +125,17 @@ final class PromptsTests: XCTestCase {
     }
 
     func testCountVariants() {
-        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 1).title, "Delete 1 issue?")
-        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 1).body, "Its comments and files are deleted with it.")
-        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 3).title, "Delete 3 issues?")
-        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 3).body, "Their comments and files are deleted with them.")
+        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 1).title, "Move 1 issue to trash?")
+        XCTAssertEqual(
+            Prompts.DeleteIssues.copy(count: 1).body,
+            "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings."
+        )
+        XCTAssertEqual(Prompts.DeleteIssues.copy(count: 3).title, "Move 3 issues to trash?")
+        XCTAssertEqual(
+            Prompts.DeleteIssues.copy(count: 3).body,
+            "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings."
+        )
+        XCTAssertEqual(Prompts.PurgeIssue.copy(identifier: "EXP-12").title, "Delete EXP-12?")
     }
 
     func testMergeVariants() {

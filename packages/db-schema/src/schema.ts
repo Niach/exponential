@@ -573,10 +573,37 @@ export const issues = pgTable(
     // "created elsewhere" and lands on this issue instead of resurrecting
     // the draft; `issueDrafts.upsert` refuses a consumed id.
     draftId: uuid(`draft_id`),
+    // #EXP-1797 (issue-lifecycle.json `trash`): the issue's own trash.
+    // Non-null = deleted: hidden from the issues shape (static predicate
+    // `deleted_at IS NULL`) and every read; its child rows' board_deleted_at
+    // mirror carries it (propagate_issue_deleted_at). Nothing cascades until
+    // the trash sweep purges it after the retention window or an owner
+    // deletes it forever. `deleted_by` = the member, `deleted_by_agent_id` =
+    // the acting agent (null for a person). Server-only, shape-excluded.
+    deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
+    deletedBy: text(`deleted_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    deletedByAgentId: uuid(`deleted_by_agent_id`).references(
+      (): AnyPgColumn => agents.id,
+      { onDelete: `set null` }
+    ),
     ...timestamps,
   },
   (table) => [
     index(`idx_issues_board_status`).on(table.boardId, table.status),
+    // #EXP-1797: the trash sweep + issues.listDeleted; only trashed rows.
+    index(`idx_issues_deleted`)
+      .on(table.teamId, table.deletedAt)
+      .where(sql`deleted_at IS NOT NULL`),
+    // The deleted_by / deleted_by_agent_id SET NULL sweeps on a user or
+    // agent delete (partial: only trashed rows carry them).
+    index(`idx_issues_deleted_by`)
+      .on(table.deletedBy)
+      .where(sql`deleted_by IS NOT NULL`),
+    index(`idx_issues_deleted_by_agent`)
+      .on(table.deletedByAgentId)
+      .where(sql`deleted_by_agent_id IS NOT NULL`),
     // EXP-1231: "was this draft already created?" — the upsert guard and
     // the clients' created-elsewhere lookup. Partial — most issues have none.
     index(`idx_issues_draft_id`)

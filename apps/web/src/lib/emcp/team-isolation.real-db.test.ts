@@ -337,6 +337,9 @@ const CASES: Record<string, Case> = {
   [`issues.create parent B in A`]: wr(`issues.create`, (w) => ({ op: `create`, boardId: w.boardA, title: `leak`, parentId: w.b.issueId })),
   [`issues.update`]: wr(`issues.update`, (w) => ({ op: `update`, id: w.b.identifier, title: `hijacked` })),
   [`issues.delete`]: wr(`issues.delete`, (w) => ({ op: `delete`, id: w.b.issueId })),
+  // #EXP-1797: the issue trash's two ops.
+  [`issues.restore`]: wr(`issues.restore`, (w) => ({ op: `restore`, id: w.b.issueId })),
+  [`issues.trash`]: r(`issues.trash`, (w) => ({ op: `trash`, teamId: w.b.teamId })),
   [`issues.activity`]: r(`issues.activity`, (w) => ({ op: `activity`, issueId: w.b.issueId })),
   [`issues.update_status`]: wr(`issues.update_status`, (w) => ({ op: `update_status`, id: w.b.issueId, status: `done` })),
   [`issues.update_status B status on A`]: wr(`issues.update_status`, (w) => ({ op: `update_status`, id: w.issueA.id, statusId: w.b.statusId })),

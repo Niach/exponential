@@ -134,10 +134,10 @@ public enum Prompts {
         public static let entry = destructive(
             "delete-issue",
             texts: [
-                "title": "Delete {identifier}?",
-                "body": "Its comments and files are deleted with it.",
+                "title": "Move {identifier} to trash?",
+                "body": "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
             ],
-            params: ["identifier"], answer: "delete", label: "Delete"
+            params: ["identifier"], answer: "delete", label: "Move to trash"
         )
         public static func copy(identifier: String) -> PromptCopy {
             entry.copy(["identifier": identifier])
@@ -148,12 +148,12 @@ public enum Prompts {
         public static let entry = destructive(
             "delete-issues",
             texts: [
-                "titleOne": "Delete 1 issue?",
-                "titleMany": "Delete {count} issues?",
-                "bodyOne": "Its comments and files are deleted with it.",
-                "bodyMany": "Their comments and files are deleted with them.",
+                "titleOne": "Move 1 issue to trash?",
+                "titleMany": "Move {count} issues to trash?",
+                "bodyOne": "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+                "bodyMany": "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.",
             ],
-            params: ["count"], answer: "delete", label: "Delete"
+            params: ["count"], answer: "delete", label: "Move to trash"
         )
         public static func copy(count: Int) -> PromptCopy {
             let one = count == 1
@@ -162,6 +162,21 @@ public enum Prompts {
                 body: one ? "bodyOne" : "bodyMany",
                 ["count": "\(count)"]
             )
+        }
+    }
+
+    /// #EXP-1797: Delete forever, from the team's issue trash (owners only).
+    public enum PurgeIssue {
+        public static let entry = destructive(
+            "purge-issue",
+            texts: [
+                "title": "Delete {identifier}?",
+                "body": "Its comments and files are deleted with it.",
+            ],
+            params: ["identifier"], answer: "delete", label: "Delete"
+        )
+        public static func copy(identifier: String) -> PromptCopy {
+            entry.copy(["identifier": identifier])
         }
     }
 
@@ -606,7 +621,7 @@ public enum Prompts {
 
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
-        DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
+        DeleteIssue.entry, DeleteIssues.entry, PurgeIssue.entry, DeleteFile.entry, MoveIssue.entry,
         MergeIssuePr.entry, MergeRunPr.entry, MergeNowPr.entry, StopRun.entry, ResumeRun.entry,
         DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, RemoveDeviceShare.entry,
         DeleteTeam.entry, TrashBoard.entry,

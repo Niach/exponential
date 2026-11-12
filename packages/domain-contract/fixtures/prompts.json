@@ -9,6 +9,54 @@
   ],
   "prompts": {
     "delete-issue": {
+      "title": "Move {identifier} to trash?",
+      "body": "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+      "params": [
+        {
+          "name": "identifier",
+          "meaning": "the issue identifier, e.g. EXP-12"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "delete",
+          "label": "Move to trash",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
+    "delete-issues": {
+      "titleOne": "Move 1 issue to trash?",
+      "titleMany": "Move {count} issues to trash?",
+      "bodyOne": "After 30 days it is deleted with its comments and files. Until then anyone on the team can restore it in team settings.",
+      "bodyMany": "After 30 days they are deleted with their comments and files. Until then anyone on the team can restore them in team settings.",
+      "params": [
+        {
+          "name": "count",
+          "meaning": "how many issues are selected in the list"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "delete",
+          "label": "Move to trash",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
+        "purge-issue": {
       "title": "Delete {identifier}?",
       "body": "Its comments and files are deleted with it.",
       "params": [
@@ -31,32 +79,7 @@
       ],
       "focus": "cancel"
     },
-    "delete-issues": {
-      "titleOne": "Delete 1 issue?",
-      "titleMany": "Delete {count} issues?",
-      "bodyOne": "Its comments and files are deleted with it.",
-      "bodyMany": "Their comments and files are deleted with them.",
-      "params": [
-        {
-          "name": "count",
-          "meaning": "how many issues are selected in the list"
-        }
-      ],
-      "actions": [
-        {
-          "id": "cancel",
-          "label": "Cancel",
-          "role": "cancel"
-        },
-        {
-          "id": "delete",
-          "label": "Delete",
-          "role": "destructive"
-        }
-      ],
-      "focus": "cancel"
-    },
-    "delete-file": {
+"delete-file": {
       "title": "Delete \"{filename}\"?",
       "body": "A description or comment that embeds it shows a deleted image note instead.",
       "params": [

@@ -78,7 +78,9 @@ import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.data.api.DeletedIssue
 import com.exponential.app.data.api.PutAwayBoard
+import com.exponential.app.domain.IssueTrash
 import com.exponential.app.domain.PutAwayBoardCaption
 import com.exponential.app.ui.components.boardIconName
 import androidx.compose.runtime.produceState
@@ -149,6 +151,8 @@ private sealed interface SettingsConfirm {
     // SLOP-26: disconnect the viewer's OWN GitHub account (the ✕ beside
     // "Connected as …"). Repositories already added keep working.
     data object DisconnectGithub : SettingsConfirm
+    // #EXP-1797: Delete forever, from the issue trash (owners).
+    data class PurgeIssue(val issue: DeletedIssue) : SettingsConfirm
 }
 
 private fun installationLabel(inst: GithubInstallation) =
@@ -175,6 +179,7 @@ private fun SettingsConfirmDialog(
             Prompts.RemoveMember.prompt(userDisplayName(confirm.row.user, confirm.row.member.userId))
         }
         is SettingsConfirm.RemoveRepo -> Prompts.RemoveRepository.prompt(confirm.repo.fullName)
+        is SettingsConfirm.PurgeIssue -> Prompts.PurgeIssue.prompt(confirm.issue.identifier)
         is SettingsConfirm.DisconnectGithub -> Prompts.Prompt(
             title = GithubCopy.DISCONNECT_TITLE,
             body = GithubCopy.DISCONNECT_BODY,
@@ -201,6 +206,7 @@ private fun SettingsConfirmDialog(
             is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
             is SettingsConfirm.RemoveRepo -> viewModel.removeRepo(confirm.repo.id)
             is SettingsConfirm.DisconnectGithub -> viewModel.disconnectGithub()
+            is SettingsConfirm.PurgeIssue -> viewModel.purgeIssue(confirm.issue)
         }
         onDismiss()
     }
@@ -269,6 +275,7 @@ fun TeamSettingsScreen(
             if (all || section == SettingsNav.BOARDS) {
                 BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
                 if (isOwner) PutAwayBoardsBands(viewModel)
+                DeletedIssuesBand(state, viewModel, isOwner, onConfirm = { confirm = it })
             }
             if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             if (all || section == SettingsNav.MEMBERS) {
@@ -484,36 +491,112 @@ private fun PutAwayBand(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(title)
         rows.forEach { board ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 8.dp),
+            PutAwayRow(
+                iconName = boardIconName(board.icon, board.repositoryId),
+                color = board.color,
+                text = board.name,
+                caption = caption(board),
             ) {
-                Icon(
-                    checkNotNull(ExpIcons.byName(boardIconName(board.icon, board.repositoryId))),
-                    contentDescription = null,
-                    tint = parseColor(board.color ?: "#888888"),
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    board.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    caption(board),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                )
                 GlassPill(
                     action,
                     size = PillSize.Sm,
                     enabled = pendingId != board.id,
                     onClick = { onAction(board) },
                 )
+            }
+        }
+    }
+}
+
+/** The put-away row: the board glyph, the flex name, the caption, then the pills. */
+@Composable
+private fun PutAwayRow(
+    iconName: String?,
+    color: String?,
+    text: String,
+    caption: String,
+    pills: @Composable () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        iconName?.let { name ->
+            Icon(
+                checkNotNull(ExpIcons.byName(name)),
+                contentDescription = null,
+                tint = parseColor(color ?: "#888888"),
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            caption,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+        )
+        pills()
+    }
+}
+
+/**
+ * #EXP-1797 (issue-lifecycle.json `trash`): the team's issue trash under the
+ * board bands, drawn only while non-empty, for EVERY member (web
+ * `DeletedIssues`): the put-away row with the issue's board glyph, Restore,
+ * and for owners Delete forever behind the `purge-issue` prompt.
+ */
+@Composable
+private fun DeletedIssuesBand(
+    state: TeamSettingsState,
+    viewModel: TeamSettingsViewModel,
+    isOwner: Boolean,
+    onConfirm: (SettingsConfirm) -> Unit,
+) {
+    val putAway by viewModel.putAway.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshDeletedIssues() }
+    // The purge countdown re-renders every minute.
+    val now by produceState(java.time.Instant.now()) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            value = java.time.Instant.now()
+        }
+    }
+    if (putAway.deletedIssues.isEmpty()) return
+    val actions = IssueTrash.actions(if (isOwner) DomainContract.teamRoleOwner else DomainContract.teamRoleMember)
+    val boardById = state.boards.associateBy { it.id }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(IssueTrash.BAND)
+        putAway.deletedIssues.forEach { issue ->
+            val board = boardById[issue.boardId]
+            val busy = putAway.pendingId == issue.id
+            PutAwayRow(
+                iconName = board?.let { boardIconName(it.icon, it.repositoryId) },
+                color = board?.color,
+                text = IssueTrash.rowText(issue.identifier, issue.title),
+                caption = IssueTrash.caption(issue.purgeAt, now),
+            ) {
+                GlassPill(
+                    IssueTrash.RESTORE,
+                    size = PillSize.Sm,
+                    enabled = !busy,
+                    onClick = { viewModel.restoreIssue(issue) },
+                )
+                if (IssueTrash.Action.Purge in actions) {
+                    GlassPill(
+                        IssueTrash.PURGE,
+                        size = PillSize.Sm,
+                        enabled = !busy,
+                        onClick = { onConfirm(SettingsConfirm.PurgeIssue(issue)) },
+                    )
+                }
             }
         }
     }

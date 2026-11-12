@@ -36,7 +36,7 @@ object SettingsNavGroups {
     val PAGES: Map<String, Page> = linkedMapOf(
         "storage" to Page("Storage", "settings-storage", "owner"),
         "import" to Page("Import", "settings-import", "owner", listOf("web")),
-        "all-boards" to Page("All boards", "settings-boards", "owner"),
+        "all-boards" to Page("All boards", "settings-boards", "all"),
         "tools" to Page("Tools", "settings-tools", "all", listOf("desktop")),
         "coding-clis" to Page("Coding CLIs", "settings-agents", "all", listOf("desktop")),
         "worktrees" to Page("Worktrees", "settings-local-repos", "all", listOf("desktop")),

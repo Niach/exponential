@@ -34,7 +34,7 @@ const h = vi.hoisted(() => {
 
 vi.mock(`@/db/connection`, () => ({ db: h.db }))
 vi.mock(`@/lib/auth/access`, () => ({ resolveTeamAccess: vi.fn(async () => ({ kind: `member` })) }))
-vi.mock(`@/lib/board-visibility`, () => ({ boardVisible: () => undefined }))
+vi.mock(`@/lib/board-visibility`, () => ({ boardVisible: () => undefined, issueVisible: () => undefined }))
 vi.mock(`@/lib/sessions/access`, () => ({ loadSessionForUser: vi.fn() }))
 vi.mock(`@/lib/notification-email-policy`, () => ({
   appBaseUrl: () => `https://exp.example`,

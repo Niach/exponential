@@ -1969,7 +1969,7 @@
       "id": "settings-boards-archived",
       "group": "settings",
       "title": "Settings · All boards",
-      "blurb": "#NEW-37: ONE list of the team's boards: the live boards under the Boards band, then the archived boards (Unarchive) and the 48h trash (Restore, the purge time) under their own bands, owners only. Web's /settings/boards (the phones' Team row lands here too), the sidebars' All boards entry.",
+      "blurb": "#NEW-37: ONE list of the team's boards: the live boards under the Boards band, then the archived boards (Unarchive) and the 48h trash (Restore, the purge time) under their own bands, owners only, then #EXP-1797's Deleted issues band (every member: Restore, owners also Delete forever, the purge countdown). Web's /settings/boards (the phones' Team row lands here too), the sidebars' All boards entry.",
       "order": 19,
       "web": {
         "route": "/t/$teamSlug/settings/boards",

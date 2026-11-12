@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { promptActions, trashBoardPrompt, WEB_PROMPTS } from "@/lib/prompts"
+import {
+  promptActions,
+  purgeIssuePrompt,
+  trashBoardPrompt,
+  WEB_PROMPTS,
+} from "@/lib/prompts"
+import {
+  ISSUE_TRASH_COPY,
+  issueTrashActions,
+  issueTrashCaption,
+  issueTrashRowText,
+} from "@exp/domain-contract/issue-lifecycle"
 import { useNavigate } from "@tanstack/react-router"
 import { Archive, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -327,6 +338,7 @@ export function BoardsListBand({
         )}
       </div>
       {canManage && <PutAwayBoards teamId={team.id} />}
+      <DeletedIssues teamId={team.id} boards={boards} isOwner={canManage} />
       {canManage && (
         <CreateBoardDialog
           open={createOpen}
@@ -478,6 +490,126 @@ function PutAwayBand({
           </ListRow>
         ))}
       </div>
+    </div>
+  )
+}
+
+type TrashedIssue = Awaited<
+  ReturnType<typeof trpc.issues.listDeleted.query>
+>[number]
+
+// #EXP-1797 (issue-lifecycle.json `trash`): the team's issue trash, the same
+// put-away band as the board trash, for EVERY member (members delete, so
+// members restore); owners also Delete forever (the `purge-issue` prompt).
+// Loaded on open and after every Restore / Delete forever; a failed load is
+// quiet, a failed action toasts (the tRPC client's default) and reloads.
+function DeletedIssues({
+  teamId,
+  boards,
+  isOwner,
+}: {
+  teamId: string
+  boards: readonly Board[]
+  isOwner: boolean
+}) {
+  const [trashed, setTrashed] = useState<TrashedIssue[]>([])
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [purging, setPurging] = useState<TrashedIssue | null>(null)
+  const [, setTick] = useState(0)
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      setTrashed(await trpc.issues.listDeleted.query({ teamId }, SKIP_ERROR_TOAST))
+    } catch {
+      // Quiet: the band keeps the rows it last had.
+    }
+  }, [teamId])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((tick) => tick + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const run = async (id: string, action: () => Promise<unknown>) => {
+    setPendingId(id)
+    try {
+      await action()
+    } finally {
+      setPendingId(null)
+      await refresh()
+    }
+  }
+
+  if (trashed.length === 0) return null
+  const actions = issueTrashActions(isOwner ? `owner` : `member`)
+  const boardById = new Map(boards.map((board) => [board.id, board]))
+  const purgeCopy = purging ? purgeIssuePrompt(purging.identifier) : null
+
+  return (
+    <div>
+      <GlassSectionHeader label={ISSUE_TRASH_COPY.band} />
+      <div className={SETTINGS_LIST_CLASS}>
+        {trashed.map((issue) => {
+          const board = boardById.get(issue.boardId)
+          const busy = pendingId === issue.id
+          return (
+            <ListRow
+              key={issue.id}
+              className="gap-3 px-3 py-2 text-sm"
+              data-testid={`deleted-issue-row-${issue.id}`}
+            >
+              {board && <BoardGlyph board={board} />}
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {issueTrashRowText(issue.identifier, issue.title)}
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {issueTrashCaption(issue.purgeAt)}
+              </span>
+              <Pill
+                mode="action"
+                disabled={busy}
+                aria-busy={busy || undefined}
+                onClick={() =>
+                  void run(issue.id, () => trpc.issues.restore.mutate({ id: issue.id }))
+                }
+              >
+                {busy && <Spinner className="text-current" />}
+                {ISSUE_TRASH_COPY.restore}
+              </Pill>
+              {actions.includes(`purge`) && (
+                <Pill mode="action" disabled={busy} onClick={() => setPurging(issue)}>
+                  {ISSUE_TRASH_COPY.purge}
+                </Pill>
+              )}
+            </ListRow>
+          )
+        })}
+      </div>
+      {purgeCopy && purging && (
+        <Prompt
+          open
+          onOpenChange={(open) => {
+            if (!open) setPurging(null)
+          }}
+          busy={pendingId === purging.id}
+          title={purgeCopy.title}
+          body={purgeCopy.body}
+          actions={promptActions(purgeCopy, {
+            delete: {
+              busy: pendingId === purging.id,
+              onSelect: async () => {
+                const target = purging
+                await run(target.id, () => trpc.issues.purge.mutate({ id: target.id }))
+                setPurging(null)
+              },
+            },
+          })}
+        />
+      )}
     </div>
   )
 }

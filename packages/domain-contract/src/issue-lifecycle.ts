@@ -146,3 +146,60 @@ export const SQUASH_TITLE_CASES = fixture.squashTitle.cases as {
   input: { identifier: string | null; title: string; number: number }
   expected: string
 }[]
+
+// ── #EXP-1797: the issue trash (fixture `trash`) ──────────────────────────
+
+export const ISSUE_TRASH = fixture.trash
+
+/** How long a deleted issue stays restorable before the sweep purges it. */
+export const ISSUE_TRASH_RETENTION_MS = fixture.trash.retentionDays * 24 * 60 * 60 * 1000
+
+/** The trash's team-stream event names. */
+export const ISSUE_TRASH_EVENTS = fixture.trash.events
+
+/** The trash band's copy ×4. */
+export const ISSUE_TRASH_COPY = fixture.trash.copy
+
+const HOUR_MS = 60 * 60 * 1000
+
+/** A trashed issue's row caption: the purge countdown, in hours inside the
+ *  last two days, else in whole days (both rounded up). */
+export function issueTrashCaption(purgeAt: Date | string | null, now: Date = new Date()): string {
+  if (purgeAt == null) return `Purges soon`
+  const ms = new Date(purgeAt).getTime() - now.getTime()
+  if (ms <= 0) return `Purging soon`
+  if (ms <= 48 * HOUR_MS) return `Purges in ~${Math.ceil(ms / HOUR_MS)}h`
+  return `Purges in ~${Math.ceil(ms / (24 * HOUR_MS))}d`
+}
+
+/** The trash row's pills for a member of `role`, display order. */
+export function issueTrashActions(role: string): (`restore` | `purge`)[] {
+  return role === fixture.trash.access.purge ? [`restore`, `purge`] : [`restore`]
+}
+
+/** The row text: `{identifier} {title}`. */
+export function issueTrashRowText(identifier: string, title: string): string {
+  return fixture.trash.copy.row.replace(`{identifier}`, identifier).replace(`{title}`, title)
+}
+
+/** The sweep's rule: due once deletedAt + retention has passed. */
+export function isIssuePurgeDue(deletedAt: Date | string | null, now: Date = new Date()): boolean {
+  if (deletedAt == null) return false
+  return new Date(deletedAt).getTime() + ISSUE_TRASH_RETENTION_MS <= now.getTime()
+}
+
+export const ISSUE_TRASH_CAPTION_CASES = fixture.trash.captionCases as {
+  name: string
+  input: { purgeAt: string | null; now: string }
+  expected: string
+}[]
+export const ISSUE_TRASH_ACTION_CASES = fixture.trash.actionCases as {
+  name: string
+  input: { role: string }
+  expected: string[]
+}[]
+export const ISSUE_PURGE_DUE_CASES = fixture.trash.purgeDueCases as {
+  name: string
+  input: { deletedAt: string | null; now: string }
+  expected: boolean
+}[]

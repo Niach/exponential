@@ -8,7 +8,7 @@ import {
   assertIssueLabelTeamMatch,
   assertTeamMember,
 } from "@/lib/team-membership"
-import { boardVisible } from "@/lib/board-visibility"
+import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { eventOrigin } from "@/lib/integrations/event-origin"
 
@@ -128,7 +128,8 @@ export const issueLabelsRouter = router({
             and(
               inArray(issues.id, input.issueIds),
               eq(boards.teamId, label.teamId),
-              boardVisible()
+              boardVisible(),
+              issueVisible()
             )
           )
         if (eligible.length === 0) {
@@ -189,7 +190,8 @@ export const issueLabelsRouter = router({
             and(
               inArray(issues.id, input.issueIds),
               eq(boards.teamId, label.teamId),
-              boardVisible()
+              boardVisible(),
+              issueVisible()
             )
           )
         if (eligible.length === 0) {

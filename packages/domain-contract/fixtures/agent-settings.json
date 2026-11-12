@@ -53,6 +53,9 @@
       "issue.created": "When an issue is created",
       "issue.status_changed": "When an issue's status changes",
       "issue.assigned": "When an issue is assigned",
+      "issue.deleted": "When an issue is deleted",
+      "issue.restored": "When an issue is restored",
+      "issue.purged": "When a deleted issue is purged",
       "pr.opened": "When a pull request opens",
       "pr.merged": "When a pull request merges",
       "session.ended": "When a session ends"

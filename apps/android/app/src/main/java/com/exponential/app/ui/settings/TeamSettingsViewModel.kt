@@ -17,6 +17,8 @@ import com.exponential.app.domain.membersInJoinOrder
 import com.exponential.app.domain.pendingInvites
 import com.exponential.app.domain.placeholderStatuses
 import com.exponential.app.data.api.BoardsApi
+import com.exponential.app.data.api.DeletedIssue
+import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PutAwayBoard
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.GithubStatusResult
@@ -126,6 +128,8 @@ data class TeamSettingsState(
 data class PutAwayBoards(
     val archived: List<PutAwayBoard> = emptyList(),
     val trashed: List<PutAwayBoard> = emptyList(),
+    // #EXP-1797: the team's issue trash (every member), newest deleted first.
+    val deletedIssues: List<DeletedIssue> = emptyList(),
     val pendingId: String? = null,
 )
 
@@ -141,6 +145,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val teamsApi: TeamsApi,
     private val repositoriesApi: RepositoriesApi,
     private val boardsApi: BoardsApi,
+    private val issuesApi: IssuesApi,
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
     private val connectStarter: GithubConnectStarter,
@@ -511,6 +516,8 @@ class TeamSettingsViewModel @Inject constructor(
         runCatching { teamsApi.deleteBoard(accountId, boardId) }
             .onFailure { fail("delete", "the board", it) }
         refreshPutAway()
+        // A trashed board's issues leave the issue trash with it.
+        refreshDeletedIssues()
     }
 
     // --- #NEW-37: the archived boards and the 48h trash (owner-only tRPC
@@ -546,6 +553,39 @@ class TeamSettingsViewModel @Inject constructor(
         runCatching { action(accountId) }.onFailure { fail(verb, board.name, it) }
         _putAway.value = _putAway.value.copy(pendingId = null)
         refreshPutAway().join()
+        refreshDeletedIssues().join()
+    }
+
+    // --- #EXP-1797 (issue-lifecycle.json `trash`): the issue trash, a
+    // member read (`issues.listDeleted`). Loaded when the Boards page opens
+    // and after every Restore / Delete forever; a failed load is quiet (the
+    // band keeps its rows), a failed action is the toast, and the list
+    // reloads either way. ---
+
+    fun refreshDeletedIssues(): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = selection.selectedId.value ?: return@launch
+        runCatching { issuesApi.listDeleted(accountId, teamId) }
+            .onSuccess { rows ->
+                _putAway.value = _putAway.value.copy(deletedIssues = rows.sortedByDescending { it.deletedAt.orEmpty() })
+            }
+    }
+
+    fun restoreIssue(issue: DeletedIssue) = runIssueTrash(issue, "restore") { accountId ->
+        issuesApi.restore(accountId, issue.id)
+    }
+
+    /** Delete forever (owners), after the `purge-issue` prompt. */
+    fun purgeIssue(issue: DeletedIssue) = runIssueTrash(issue, "delete") { accountId ->
+        issuesApi.purge(accountId, issue.id)
+    }
+
+    private fun runIssueTrash(issue: DeletedIssue, verb: String, action: suspend (String) -> Unit) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        _putAway.value = _putAway.value.copy(pendingId = issue.id)
+        runCatching { action(accountId) }.onFailure { fail(verb, issue.identifier, it) }
+        _putAway.value = _putAway.value.copy(pendingId = null)
+        refreshDeletedIssues().join()
     }
 
     // --- Repositories registry (server-only; the list is re-fetched after

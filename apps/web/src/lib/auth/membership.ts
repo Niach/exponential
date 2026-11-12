@@ -261,7 +261,13 @@ export async function assertBoardMember(
   return board
 }
 
-export async function getIssueTeamContext(issueId: string) {
+// #EXP-1797: a trashed issue (its own deleted_at) 404s like a trashed
+// board's; only the trash's own procedures (restore, purge) pass
+// `includeTrashed`.
+export async function getIssueTeamContext(
+  issueId: string,
+  opts?: { includeTrashed?: boolean }
+) {
   const db = await getDb()
   const [issueContext] = await db
     .select({
@@ -274,7 +280,13 @@ export async function getIssueTeamContext(issueId: string) {
     // Trashed or archived board ⇒ its issues 404 for all
     // issue/comment/label/subscribe reads + mutations (restored automatically
     // on restore/unarchive).
-    .where(and(eq(issues.id, issueId), boardVisible()))
+    .where(
+      and(
+        eq(issues.id, issueId),
+        boardVisible(),
+        opts?.includeTrashed ? undefined : isNull(issues.deletedAt)
+      )
+    )
     .limit(1)
 
   if (!issueContext) {
@@ -308,7 +320,7 @@ export async function getAttachmentTeamContext(attachmentId: string) {
     .innerJoin(boards, eq(issues.boardId, boards.id))
     // Trashed or archived board ⇒ block attachment byte reads for as long as
     // it stays hidden (restored automatically on restore/unarchive).
-    .where(and(eq(attachments.id, attachmentId), boardVisible()))
+    .where(and(eq(attachments.id, attachmentId), boardVisible(), isNull(issues.deletedAt)))
     .limit(1)
 
   if (!attachmentContext) {

@@ -89,7 +89,8 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
     .innerJoin(teams, eq(teams.id, boards.teamId))
-    .where(eq(issues.id, issueId))
+    // #EXP-1797: a trashed issue notifies no one.
+    .where(and(eq(issues.id, issueId), isNull(issues.deletedAt)))
     .limit(1)
   return row ?? null
 }
