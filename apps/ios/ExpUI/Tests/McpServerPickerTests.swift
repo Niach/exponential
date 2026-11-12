@@ -1,5 +1,6 @@
 import ExpCore
 @testable import ExpUI
+import SwiftUI
 import XCTest
 
 // #EXP-1795: the MCP picker rows lead with the catalog brand mark (untinted),
@@ -18,10 +19,11 @@ final class McpServerPickerTests: XCTestCase {
             McpServerRow(id: "c", name: "Local", command: "npx srv", connection: .init(status: "not_needed")),
             McpServerRow(id: "d", name: "Docs", url: "https://docs.acme.dev/mcp", connection: .init(status: "connected")),
         ])
-        XCTAssertEqual(items.map(\.mark), [
+        let marks: [PickerRowMark] = items.map { $0.mark }
+        XCTAssertEqual(marks, [
             .brand("linear"), .brand("gitlab"), .glyph(AppIcons.sessionShell, nil), .glyph(AppIcons.uiMcp, nil),
         ])
-        XCTAssertEqual(items.map(\.description), ["mcp.linear.app", "Connect first", "npx srv", "docs.acme.dev"])
-        XCTAssertEqual(items.map(\.disabled), [false, true, false, false])
+        XCTAssertEqual(items.map { $0.description }, ["mcp.linear.app", "Connect first", "npx srv", "docs.acme.dev"])
+        XCTAssertEqual(items.map { $0.disabled }, [false, true, false, false])
     }
 }
