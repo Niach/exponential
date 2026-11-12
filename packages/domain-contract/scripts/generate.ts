@@ -67,6 +67,7 @@ interface Contract {
     window: number
     windowStep: number
     historyPageMax: number
+    replayTail: number
     toolDiffMaxLines: number
     toolDiffMaxBytes: number
     toolOutputMaxLines: number
@@ -634,6 +635,7 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let steerFeedWindow: Int = ${steerFeed.window}
     public static let steerFeedWindowStep: Int = ${steerFeed.windowStep}
     public static let steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
+    public static let steerFeedReplayTail: Int = ${steerFeed.replayTail}
     public static let steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
     public static let steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
     public static let steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
@@ -812,6 +814,7 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val steerFeedWindow: Int = ${steerFeed.window}
     const val steerFeedWindowStep: Int = ${steerFeed.windowStep}
     const val steerFeedHistoryPageMax: Int = ${steerFeed.historyPageMax}
+    const val steerFeedReplayTail: Int = ${steerFeed.replayTail}
     const val steerFeedToolDiffMaxLines: Int = ${steerFeed.toolDiffMaxLines}
     const val steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
     const val steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
@@ -997,6 +1000,7 @@ pub const STEER_FEED_ITEM_OVERHEAD_BYTES: usize = ${steerFeed.itemOverheadBytes}
 pub const STEER_FEED_WINDOW: usize = ${steerFeed.window};
 pub const STEER_FEED_WINDOW_STEP: usize = ${steerFeed.windowStep};
 pub const STEER_FEED_HISTORY_PAGE_MAX: u32 = ${steerFeed.historyPageMax};
+pub const STEER_FEED_REPLAY_TAIL: usize = ${steerFeed.replayTail};
 pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = ${steerFeed.toolDiffMaxLines};
 pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = ${steerFeed.toolDiffMaxBytes};
 pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLines};

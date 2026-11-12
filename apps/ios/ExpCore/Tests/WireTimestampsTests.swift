@@ -64,4 +64,34 @@ final class WireTimestampsTests: XCTestCase {
         XCTAssertNil(WireTimestamps.parse(""))
         XCTAssertNil(WireTimestamps.parse("   "))
     }
+
+    // Large chats: the formatter-free fast path reads every shape it accepts
+    // to the same millisecond the formatter path does, and leaves the rest
+    // (nil) to it.
+    func testFastPathMatchesTheFormatters() {
+        let corpus = [
+            "2026-07-01 10:00:00+00", "2026-07-01 10:00:00.123456+00", "2026-07-01 10:00:00.5+00",
+            "2026-07-01 10:00:00.12+00", "2026-07-01 10:00:00+05:30", "2026-07-01 10:00:00-0800",
+            "2026-07-01 10:00:00", "2026-07-01T10:00:00Z", "2026-07-01T10:00:00.123Z",
+            "2026-07-01T23:59:59.999-03:00", "2024-02-29T12:00:00Z", "2000-03-01 00:00:00+00",
+            "1999-12-31T23:59:59Z", "2026-10-23 11:11:13.264807+00", "2026-11-08 21:41:04.115+00",
+            "1970-01-01T00:00:00Z", "2100-02-28 01:02:03.004+14",
+        ]
+        for value in corpus {
+            let fast = WireTimestamps.fastParse(value)
+            let slow = WireTimestamps.tolerantParse(value)
+            XCTAssertNotNil(fast, value)
+            XCTAssertNotNil(slow, value)
+            guard let fast, let slow else { continue }
+            XCTAssertEqual(
+                (fast.timeIntervalSince1970 * 1000).rounded(), (slow.timeIntervalSince1970 * 1000).rounded(), value
+            )
+        }
+        for value in ["2026-02-30T10:00:00Z", "2026-13-01T10:00:00Z", " 2026-07-01T10:00:00Z",
+                      "2026-07-01T10:00:00.Z", "2026-07-01T10:00:00+5", "2026-07-01T10:00Z", "garbage"] {
+            XCTAssertNil(WireTimestamps.fastParse(value), value)
+        }
+        // Surrounding whitespace still parses (the tolerant path).
+        XCTAssertEqual(WireTimestamps.parse(" 2026-07-01T10:00:00Z "), utcTen)
+    }
 }

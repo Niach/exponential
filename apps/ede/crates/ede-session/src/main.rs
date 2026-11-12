@@ -23,13 +23,18 @@ extern "C" fn on_terminate(_: libc::c_int) {
 }
 
 fn main() -> ExitCode {
+    // #ERR-12: the crash monitor (this binary) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
     // #LOGS-2: the log as before (stdout), plus Sentry when diagnostics are on.
     let _observability = ede_observability::init("session", "info", ede_observability::Output::Stdout);
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--ready") => ready(),
         Some("--device") => device(),
-        None | Some("--safe-mode") => run(!args.is_empty()),
+        None | Some("--safe-mode") => {
+            ede_observability::watch_native_crashes("session");
+            run(!args.is_empty())
+        }
         Some(other) => {
             eprintln!("unknown argument {other:?}; usage: exponential-session [--safe-mode|--ready|--device]");
             ExitCode::FAILURE

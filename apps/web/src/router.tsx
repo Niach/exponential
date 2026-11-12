@@ -4,6 +4,7 @@ import { createRouter as createTanstackRouter } from "@tanstack/react-router"
 import { routeTree } from "./routeTree.gen"
 import { getFirstTouch } from "@/lib/conversion/first-touch"
 import { captureClientError } from "@/lib/observability/client"
+import { recoverFromChunkError } from "@/lib/stale-build"
 
 import "./styles.css"
 
@@ -18,7 +19,10 @@ export function getRouter() {
     defaultPreload: `viewport`,
     scrollRestoration: true,
     // #LOGS-2: every error a route's boundary catches is reported (a no-op
-    // until diagnostics are on; lib/observability/client.ts).
-    defaultOnCatch: (error) => captureClientError(error),
+    // until diagnostics are on; lib/observability/client.ts). #ERR-13: a
+    // route chunk deleted by a deploy reloads the page once instead.
+    defaultOnCatch: (error) => {
+      if (!recoverFromChunkError(error)) captureClientError(error)
+    },
   })
 }

@@ -1348,6 +1348,12 @@ impl SessionCtx {
         }
     }
 
+    /// Large chats: this run RESUMES a session (its agent streams the
+    /// conversation back before the host seeds the `turn` slot).
+    pub fn resumes(&self) -> bool {
+        self.resume.is_some()
+    }
+
     /// EXP-873: is this agent one that replays every user message it takes
     /// in (claude's `--replay-user-messages`)? Only then can a mid-turn
     /// message wait in the bar for its replay; an agent that never echoes

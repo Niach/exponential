@@ -28,6 +28,8 @@ final class ChatScreenModel {
     @ObservationIgnored private var observationTask: Task<Void, Never>?
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var missingTask: Task<Void, Never>?
+    /// #EXP-1380: the chat's message limit widened (Load earlier): reload.
+    @ObservationIgnored private var limitObserver: NSObjectProtocol?
 
     init(rootId: String, accountId: String, db: DatabaseManager) {
         self.rootId = rootId
@@ -37,6 +39,15 @@ final class ChatScreenModel {
 
     func start() {
         startObserving()
+        if limitObserver == nil {
+            let rootId = rootId
+            limitObserver = NotificationCenter.default.addObserver(
+                forName: Chats.MessageLimits.changed, object: nil, queue: .main
+            ) { [weak self] note in
+                guard (note.object as? String) == rootId else { return }
+                MainActor.assumeIsolated { self?.restartObserving() }
+            }
+        }
         guard clockTask == nil else { return }
         // #EXP-1380 PERF: the clock ticks only while a session of the chat
         // is live, and a tick re-reads the live cards' elapsed alone (the
@@ -56,10 +67,20 @@ final class ChatScreenModel {
     func stop() {
         observationTask?.cancel()
         observationTask = nil
+        if let limitObserver { NotificationCenter.default.removeObserver(limitObserver) }
+        limitObserver = nil
         clockTask?.cancel()
         clockTask = nil
         missingTask?.cancel()
         missingTask = nil
+    }
+
+    /// A widened message limit is a new snapshot: the observation's first
+    /// emission re-reads the root at the new limit.
+    private func restartObserving() {
+        observationTask?.cancel()
+        observationTask = nil
+        startObserving()
     }
 
     func isFresh(issueId: String) -> Bool {
@@ -87,7 +108,7 @@ final class ChatScreenModel {
                             self?.apply(nil)
                             continue
                         }
-                        let snapshot = try await Self.snapshot(pool: pool, rootId: rootId)
+                        let snapshot = try await Self.snapshot(pool: pool, rootId: rootId, signature: signature)
                         guard !Task.isCancelled else { return }
                         self?.apply(snapshot)
                     }
@@ -103,9 +124,14 @@ final class ChatScreenModel {
 
     /// The snapshot and its view, read and built off the main actor.
     nonisolated private static func snapshot(
-        pool: DatabasePool, rootId: String
+        pool: DatabasePool, rootId: String, signature: String?
     ) async throws -> (rows: ChatRows, view: SessionChatView, now: Date)? {
-        guard let rows = try await pool.read({ db in try ChatRows.load(db: db, rootId: rootId) }) else { return nil }
+        let limit = Chats.MessageLimits.shared.limit(rootId)
+        guard let rows = try await ChatRowsLoads.shared.load(
+            pool: pool, rootId: rootId, signature: signature, limit: limit
+        ) else {
+            return nil
+        }
         return await Task.detached(priority: .userInitiated) {
             let now = Date()
             return (rows, rows.view(now: now), now)

@@ -31,6 +31,8 @@ fn failure_file() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
+    // #ERR-12: the crash monitor (this binary) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
     if let Err(e) = run() {
         eprintln!("exponential-compositor: {e}");
         std::process::exit(1);
@@ -57,6 +59,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(ede_observability::init("compositor", default_log, ede_observability::Output::Stderr))
     };
+    if !doctor && !recovery {
+        ede_observability::watch_native_crashes("compositor");
+    }
 
     if doctor {
         let checks = ede_compositor::doctor::run_checks();

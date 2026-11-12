@@ -13,6 +13,11 @@
 //! `EXP_FRAME_STATS=1` turns on the lag instrumentation ([`lag`]) with a
 //! stderr summary, with or without Sentry.
 //!
+//! Native crashes (#ERR-12, [`crash_monitor`]): with `Setup::native_crashes`
+//! and the person's consent, a monitor process writes a report of every
+//! signal/abort/SEH crash; the next launch sends it once its client is up
+//! (or deletes it unsent when diagnostics are off).
+//!
 //! Never a dependency of `crates/eagent` or the Engine runner.
 
 pub mod config;
@@ -59,6 +64,17 @@ pub struct Setup {
     pub version: String,
     pub data_dir: PathBuf,
     pub http: HttpClient,
+    /// Report native crashes (a monitor process per launch): the desktop
+    /// app and the CLI daemon, not one-shot CLI commands.
+    pub native_crashes: bool,
+}
+
+/// First thing in `main`: a crash-monitor process runs and exits here.
+pub use crash_monitor::run_monitor_if_requested as run_crash_monitor_if_requested;
+
+/// `{data_dir}/crashes`: walked native crashes waiting for the next launch.
+fn crashes_dir(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("crashes")
 }
 
 struct State {
@@ -101,6 +117,13 @@ pub fn init(setup: Setup) {
     let frame_stats = frame_stats_requested();
     let file = config::load(&setup.data_dir);
     let server = file.last_server.clone();
+    if setup.native_crashes && file.send_diagnostics && !config::env_opt_out() {
+        crash_monitor::install(crash_monitor::Setup {
+            dir: crashes_dir(&setup.data_dir),
+            release: format!("{}@{}", setup.product.release_name(), setup.version),
+            component: setup.product.platform().to_string(),
+        });
+    }
     let _ = STATE.set(Mutex::new(State {
         product: setup.product,
         version: setup.version,
@@ -254,6 +277,10 @@ fn apply(remote: RemoteConfig) {
         (true, Some(dsn)) => Some(RemoteConfig { dsn: Some(dsn), ..remote }),
         _ => None,
     };
+    if !consent {
+        // Off: a crash report is never sent later either.
+        crash_monitor::discard_pending(&crashes_dir(&state.data_dir));
+    }
     let key = wanted.clone().map(|config| (server.clone(), config));
     if state.built_from == key && (key.is_some() == sentry_enabled()) {
         return;
@@ -293,8 +320,24 @@ fn apply(remote: RemoteConfig) {
     let client = Arc::new(sentry::Client::from(options));
     hub.bind_client(Some(client));
     SENTRY_ON.store(true, Ordering::Relaxed);
+    let crashes = crashes_dir(&state.data_dir);
     drop(state);
     apply_user();
+    // #ERR-12: the last launches' native crashes, each with its own
+    // release; deleted once flushed (off the UI thread).
+    let _ = std::thread::Builder::new().name("exp-crash-reports".into()).spawn(move || {
+        let hub = sentry::Hub::main();
+        let sent = crash_monitor::send_pending(
+            &crashes,
+            |event| {
+                hub.capture_event(event);
+            },
+            || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10)))),
+        );
+        if sent > 0 {
+            log::info!(target: "observability", "diagnostics: sent {sent} native crash report(s)");
+        }
+    });
     // The lag data feeds Sentry's hang and long-frame transactions too.
     set_levels(true);
     lag::activate(frame_stats_requested());

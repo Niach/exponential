@@ -1105,12 +1105,15 @@ pub(crate) fn chip_actions(
 
 /// The confirm "Remove account" asks, pinned ×4 (web `removeAccountConfirmCopy`):
 /// it names the login and the machine, and says in the same breath that the
-/// ACCOUNT survives — only this machine's copy of the login goes.
-pub(crate) fn remove_account_confirm(account_label: &str, device_label: &str) -> String {
-    format!(
-        "Delete {account_label} on {device_label}? The login is removed from this device \
-         only; the account itself is untouched."
-    )
+/// ACCOUNT survives — only this machine's copy of the login goes. EXP-1794: a
+/// claude login's conversations live in the device's one store, so the claude
+/// sentence says they stay.
+pub(crate) fn remove_account_confirm(account_label: &str, device_label: &str, agent: coding::CodingAgent) -> String {
+    let kept = match agent {
+        coding::CodingAgent::Claude => "its conversations stay on this device, and the account itself is untouched.",
+        coding::CodingAgent::Codex => "the account itself is untouched.",
+    };
+    format!("Delete {account_label} on {device_label}? The login is removed from this device only; {kept}")
 }
 
 /// EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`): the
@@ -2053,9 +2056,14 @@ mod tests {
     #[test]
     fn remove_confirm_is_the_pinned_sentence() {
         assert_eq!(
-            remove_account_confirm("dev@acme.test", "Studio"),
+            remove_account_confirm("dev@acme.test", "Studio", coding::CodingAgent::Codex),
             "Delete dev@acme.test on Studio? The login is removed from this device only; \
              the account itself is untouched."
+        );
+        assert_eq!(
+            remove_account_confirm("dev@acme.test", "Studio", coding::CodingAgent::Claude),
+            "Delete dev@acme.test on Studio? The login is removed from this device only; \
+             its conversations stay on this device, and the account itself is untouched."
         );
     }
 }

@@ -365,6 +365,8 @@ impl ChatTranscript {
                 _ => None,
             })
             .collect();
+        #[cfg(test)]
+        counters::bump(|c| c.2 += bodies.len());
         let mut prepared = md.prepare_document(&bodies, push.prose, cx).into_iter();
         let mut streaming = None;
         for row in &mut rows {
@@ -582,6 +584,34 @@ impl ChatTranscript {
     }
 }
 
+/// Bench and guard counters (tests): host rows painted, host rows
+/// measured, bubble bodies prepared (Markdown parsed for the document).
+#[cfg(test)]
+pub(crate) mod counters {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNTS: Cell<(usize, usize, usize)> = const { Cell::new((0, 0, 0)) };
+    }
+
+    pub(crate) fn bump(f: impl FnOnce(&mut (usize, usize, usize))) {
+        COUNTS.with(|counts| {
+            let mut now = counts.get();
+            f(&mut now);
+            counts.set(now);
+        });
+    }
+
+    pub(crate) fn reset() {
+        COUNTS.with(|counts| counts.set((0, 0, 0)));
+    }
+
+    /// `(painted, measured, bodies)` since the last take, and zeroed.
+    pub(crate) fn take() -> (usize, usize, usize) {
+        COUNTS.with(|counts| counts.replace((0, 0, 0)))
+    }
+}
+
 /// The chat document as the Chat tab draws it: the rows alone (the IDE's
 /// header, composer and Dock around them), no frame of its own, the rows in
 /// the IDE's reading column (the list itself spans the pane: its scrollbar
@@ -653,6 +683,8 @@ impl HostPlugin for TranscriptHost {
             HostRow::List { ix, .. } => this.chat_host_row(ix, window, cx),
             HostRow::Page | HostRow::Tail => div().into_any_element(),
         });
+        #[cfg(test)]
+        counters::bump(|c| c.1 += 1);
         let height = measure(element, width, window, cx);
         self.state.borrow_mut().measured(component_id, fingerprint, width, height)
     }
@@ -674,6 +706,8 @@ impl HostPlugin for TranscriptHost {
                 Some(div().into_any_element())
             }
             Some(row @ (HostRow::List { .. } | HostRow::Card { .. })) => {
+                #[cfg(test)]
+                counters::bump(|c| c.0 += 1);
                 let fingerprint = row.fingerprint().unwrap_or_default();
                 let child = steer.update(cx, |this, cx| match row {
                     HostRow::Card { index, .. } => this.chat_card_row(index, window, cx),

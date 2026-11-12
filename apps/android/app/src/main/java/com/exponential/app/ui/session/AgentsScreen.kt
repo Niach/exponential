@@ -387,7 +387,7 @@ fun AgentsScreen(
     // The confirm names the login and the machine and says in the same breath
     // that the account itself survives (the pinned sentence ×4).
     removeTargetAccount?.let { (device, row) ->
-        val text = AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel)
+        val text = AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel, row.agent)
         AccountConfirmDialog(
             // The question form of the menu label, as web/iOS ask it.
             title = "${AgentAccountsRows.ACTION_REMOVE}?",

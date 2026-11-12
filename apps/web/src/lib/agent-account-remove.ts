@@ -41,12 +41,19 @@ export function canSignOutAccountOn(row: RemovableAccountRow): boolean {
 }
 
 /** The confirm the destructive entry asks, pinned ×4: it names the login and
- * the machine, and it says in the same breath that the account survives. */
+ * the machine, and it says in the same breath that the account survives.
+ * EXP-1794: a claude login's conversations live in the device's one store,
+ * not in the login, so the claude sentence says they stay. */
 export function removeAccountConfirmCopy(
   accountLabel: string,
-  deviceLabel: string
+  deviceLabel: string,
+  agent: string
 ): string {
-  return `Delete ${accountLabel} on ${deviceLabel}? The login is removed from this device only; the account itself is untouched.`
+  const kept =
+    agent === `claude`
+      ? `its conversations stay on this device, and the account itself is untouched.`
+      : `the account itself is untouched.`
+  return `Delete ${accountLabel} on ${deviceLabel}? The login is removed from this device only; ${kept}`
 }
 
 /** EXP-1137: the sign-out confirm, pinned ×4: the login keeps its row for a

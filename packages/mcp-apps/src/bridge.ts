@@ -5,11 +5,21 @@
 //
 //   view → host  ui/initialize (request), ui/notifications/initialized,
 //                tools/call (request), ui/open-link (request), ui/message,
-//                ui/notifications/size-changed
+//                ui/notifications/size-changed,
+//                ui/request-display-mode (request, #VAPP-292)
 //   host → view  ui/notifications/tool-input, ui/notifications/tool-result,
 //                ui/notifications/host-context-changed, ui/resource-teardown
 
+import { nounCall } from "./tool-names"
+
 export const MCP_APPS_PROTOCOL_VERSION = `2026-01-26`
+
+/** #VAPP-292: the frame's display modes (the spec's three). Claude draws
+ *  `fullscreen` as the side pane beside the chat, or full page. */
+export type DisplayMode = `inline` | `fullscreen` | `pip`
+
+/** The modes every Exponential view lays out for. */
+export const VIEW_DISPLAY_MODES: readonly DisplayMode[] = [`inline`, `fullscreen`]
 
 /** The MCP `CallToolResult` as the host forwards it. */
 export interface ToolResult {
@@ -20,7 +30,9 @@ export interface ToolResult {
 
 export interface HostContext {
   theme?: `light` | `dark`
-  displayMode?: string
+  displayMode?: DisplayMode
+  availableDisplayModes?: DisplayMode[]
+  containerDimensions?: { height?: number; maxHeight?: number; width?: number; maxWidth?: number }
   [key: string]: unknown
 }
 
@@ -66,7 +78,7 @@ export class AppBridge {
   async connect(): Promise<HostContext> {
     const result = (await this.request(`ui/initialize`, {
       appInfo: { name: `Exponential`, version: `1.0.0` },
-      appCapabilities: {},
+      appCapabilities: { availableDisplayModes: VIEW_DISPLAY_MODES },
       protocolVersion: MCP_APPS_PROTOCOL_VERSION,
     })) as { hostContext?: HostContext } | undefined
     this.notify(`ui/notifications/initialized`, {})
@@ -74,10 +86,23 @@ export class AppBridge {
   }
 
   callTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // #VAPP-292: the server lists noun tools only (tool-names.ts).
+    const target = nounCall(name, args)
     return this.request(`tools/call`, {
-      name,
-      arguments: args,
+      name: target.name,
+      arguments: target.args,
     }) as Promise<ToolResult>
+  }
+
+  /** Asks the host for a display mode; resolves with the mode it set (the
+   *  current one when it refused or lacks the request). */
+  async requestDisplayMode(mode: DisplayMode): Promise<DisplayMode | null> {
+    try {
+      const result = (await this.request(`ui/request-display-mode`, { mode })) as { mode?: DisplayMode } | undefined
+      return result?.mode ?? null
+    } catch {
+      return null
+    }
   }
 
   openLink(url: string): void {

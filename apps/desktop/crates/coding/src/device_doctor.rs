@@ -38,6 +38,9 @@ pub const KEY_WORKTREE_PREFIX: &str = "worktree-";
 pub const KEY_DESKTOP_AUDIO: &str = "desktop_audio";
 /// #FEED-192: the storage row of a key holder that is not running.
 pub const KEY_KEY_HOLDER: &str = "key_holder";
+/// EXP-1794: the storage row of diverged conversation copies the claude
+/// store migration parked (see [`add_store_conflicts`]).
+pub const KEY_STORE_CONFLICTS: &str = "store_conflicts";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -494,6 +497,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
         crate::worktree_lifecycle::free_bytes(&settings.repos_root_path()),
         &crate::worktree_lifecycle::kept_rows(data_dir),
     );
+    add_store_conflicts(&mut doctor, crate::agent_profiles::claude_store_conflicts(data_dir));
     // NEW-59: the displays ride every doctor (register + heartbeat), so the
     // Work screen row can offer them before the switch is on.
     doctor.displays = crate::computer::displays().iter().map(DoctorDisplay::from).collect();
@@ -539,6 +543,24 @@ pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool) {
         .detail("Key holder not running · restart while signed in and online".to_string());
     row.label = Some("Encryption keys".to_string());
     doctor.items.push(row);
+}
+
+/// EXP-1794: the row of diverged conversation copies the claude store
+/// migration kept under `store/conflicts/` (a warning, no pill, never a
+/// blocker: nothing was deleted, this says where to look). None = no row.
+pub fn add_store_conflicts(doctor: &mut DeviceDoctor, count: usize) {
+    if count == 0 {
+        return;
+    }
+    let mut row = item(KEY_STORE_CONFLICTS, DoctorGroup::Storage, DoctorState::Action)
+        .detail(store_conflicts(count));
+    row.label = Some("Conversations".to_string());
+    doctor.items.push(row);
+}
+
+/// The fixture's `storeConflicts` template.
+pub fn store_conflicts(count: usize) -> String {
+    format!("{count} diverged · kept in store/conflicts")
 }
 
 /// #FEED-192: present while the daemon's key holder is not running. The
@@ -982,6 +1004,15 @@ mod tests {
         assert_eq!(row.action, None);
         assert_eq!(row.label.as_deref(), copy["keyHolderLabel"].as_str());
         assert_eq!(row.detail.as_deref(), copy["keyHolderNotRunning"].as_str());
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_store_conflicts(&mut doctor, 0);
+        assert!(doctor.items.is_empty(), "no parked copy, no row");
+        add_store_conflicts(&mut doctor, 2);
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_STORE_CONFLICTS, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!(row.action, None);
+        assert_eq!(row.label.as_deref(), copy["storeConflictsLabel"].as_str());
+        assert_eq!(store_conflicts(2), copy["storeConflicts"].as_str().unwrap().replace("{count}", "2"));
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()
