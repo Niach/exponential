@@ -72,9 +72,11 @@ interface Registry {
    * they never enter the Lucide grid and are never recoloured or redrawn:
    * the web gets one React component per slug that inlines the file's own
    * elements (white fills kept), the desktop gets the file byte-for-byte as
-   * `brand-<slug>.svg` + a `registry::brand` module. iOS and Android have no
-   * MCP surface and receive nothing. contract.json's `mcpCatalog.servers[]
-   * .mark` names these slugs.
+   * `brand-<slug>.svg` + a `registry::brand` module; #EXP-1795: iOS gets one
+   * `brand-<slug>` imageset (the same elements, presentation attributes,
+   * rendered in their own colours) + `AppIcons.brandAssetName(_:)`, Android
+   * one ImageVector per slug in `ExpBrandIcons` (white fills, untinted).
+   * contract.json's `mcpCatalog.servers[].mark` names these slugs.
    */
   brand?: Record<string, { file: string; source: string; owner: string }>
 }
@@ -436,6 +438,102 @@ function brandJsx(mark: BrandMark): string {
     const attrs = props.length ? ` ${props.join(` `)}` : ``
     return `<${tag}${attrs}${selfClose ? ` /` : ``}>`
   })
+}
+
+/** #EXP-1795: one drawable element of a brand mark, its `style` folded into
+ * plain presentation attributes (what Xcode's SVG reader and the Android
+ * ImageVector builder understand). `g` wrappers carry nothing the marks use,
+ * so they flatten away (a `g` with attributes is refused). */
+interface BrandElement {
+  tag: `path` | `circle`
+  attrs: Record<string, string>
+}
+
+function brandElements(mark: BrandMark): BrandElement[] {
+  const out: BrandElement[] = []
+  for (const m of mark.body.matchAll(/<([a-zA-Z]+)([^>]*?)\/?>/g)) {
+    const [, tag, rawAttrs] = m
+    const attrs: Record<string, string> = {}
+    for (const a of rawAttrs.matchAll(/\s([a-zA-Z:-]+)="([^"]*)"/g)) {
+      const [, name, value] = a
+      if (name === `style`) {
+        for (const decl of value.split(`;`)) {
+          const [k, v] = decl.split(`:`).map((x) => x.trim())
+          if (k) attrs[k] = v
+        }
+      } else attrs[name] = value
+    }
+    if (tag === `g`) {
+      if (Object.keys(attrs).length) throw new Error(`brand mark "${mark.slug}": a <g> with attributes is not flattened`)
+      continue
+    }
+    if (tag !== `path` && tag !== `circle`) {
+      throw new Error(`brand mark "${mark.slug}" uses <${tag}>, which the phone emitters do not handle`)
+    }
+    for (const k of Object.keys(attrs)) {
+      if (![`d`, `cx`, `cy`, `r`, `fill`, `opacity`, `fill-opacity`, `fill-rule`, `clip-rule`].includes(k)) {
+        throw new Error(`brand mark "${mark.slug}": unhandled attribute "${k}" for the phones`)
+      }
+    }
+    out.push({ tag, attrs })
+  }
+  if (!out.length) throw new Error(`brand mark "${mark.slug}" draws nothing for the phones`)
+  return out
+}
+
+/** A brand element as path data (a circle = two arcs). */
+function brandPathData(el: BrandElement): string {
+  if (el.tag === `path`) return el.attrs.d!
+  const cx = Number(el.attrs.cx), cy = Number(el.attrs.cy), r = Number(el.attrs.r)
+  return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`
+}
+
+/** The normalised mark as a plain SVG (iOS imagesets). */
+function brandPlainSvg(mark: BrandMark): string {
+  const [, , w, h] = mark.viewBox.split(/[\s,]+/).map(Number)
+  const els = brandElements(mark).map((el) => {
+    const a = el.attrs
+    const common =
+      ` fill="${a.fill ?? BRAND_FILL}"` +
+      (a.opacity ? ` opacity="${a.opacity}"` : ``) +
+      (a[`fill-opacity`] ? ` fill-opacity="${a[`fill-opacity`]}"` : ``) +
+      (a[`fill-rule`] ? ` fill-rule="${a[`fill-rule`]}"` : ``)
+    return el.tag === `circle`
+      ? `<circle cx="${a.cx}" cy="${a.cy}" r="${a.r}"${common}/>`
+      : `<path d="${a.d}"${common}/>`
+  })
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${mark.viewBox}">${els.join(``)}</svg>\n`
+}
+
+/** The normalised mark as a Compose ImageVector (Android). */
+function brandKotlin(mark: BrandMark): string {
+  const [, , w, h] = mark.viewBox.split(/[\s,]+/).map(Number)
+  const paths = brandElements(mark)
+    .map((el) => {
+      const a = el.attrs
+      const alpha = Number(a.opacity ?? 1) * Number(a[`fill-opacity`] ?? 1)
+      return (
+        `            addPath(\n` +
+        `                addPathNodes("${brandPathData(el)}"),\n` +
+        `                fill = SolidColor(Color.White),\n` +
+        (alpha !== 1 ? `                fillAlpha = ${alpha}f,\n` : ``) +
+        (a[`fill-rule`] === `evenodd` ? `                pathFillType = PathFillType.EvenOdd,\n` : ``) +
+        `            )`
+      )
+    })
+    .join(`\n`)
+  return `    /** ${registry.brand![mark.slug].owner} — ${registry.brand![mark.slug].source} */
+    public val ${camel(mark.slug)}: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "brand-${mark.slug}",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = ${w}f,
+            viewportHeight = ${h}f,
+        ).apply {
+${paths}
+        }.build()
+    }`
 }
 
 // ---------------------------------------------------------------------------
@@ -983,6 +1081,18 @@ ${semanticKeys.map((k) => `        "${k}": "${registry.semantic[k]}"`).join(",\n
         return allNames.contains(name) ? name : nil
     }
 
+    /// #EXP-1795: the MCP catalog's brand marks (icons.json \`brand\`,
+    /// contract \`mcpCatalog\` marks), shipped as \`brand-<slug>\` imagesets in
+    /// their own colours (never tinted).
+    public static let brandSlugs: Set<String> = [
+${brandSlugs.map((n) => `        "${n}"`).join(",\n")}
+    ]
+
+    /// Brand slug -> its imageset name; nil for an unknown slug.
+    public static func brandAssetName(_ slug: String) -> String? {
+        brandSlugs.contains(slug) ? "brand-\\(slug)" : nil
+    }
+
 ${semanticKeys
   .map(
     (k) =>
@@ -993,6 +1103,27 @@ ${semanticKeys
 }
 `
 )
+
+// #EXP-1795: the brand marks as imagesets, rendered in their own colours.
+for (const slug of brandSlugs) {
+  const dir = join(xcassets, `brand-${slug}.imageset`)
+  write(join(dir, `brand-${slug}.svg`), brandPlainSvg(brandMarks.get(slug)!))
+  write(
+    join(dir, "Contents.json"),
+    JSON.stringify(
+      {
+        images: [{ filename: `brand-${slug}.svg`, idiom: "universal" }],
+        info: { author: "xcode", version: 1 },
+        properties: {
+          "preserves-vector-representation": true,
+          "template-rendering-intent": "original",
+        },
+      },
+      null,
+      2
+    ) + "\n"
+  )
+}
 
 // ---------------------------------------------------------------------------
 // 5. Android — Compose ImageVector source
@@ -1081,6 +1212,40 @@ ${semanticKeys
       `    public val ${camel(k)}: ImageVector get() = \`${registry.semantic[k]}\``
   )
   .join("\n")}
+}
+`
+)
+
+// #EXP-1795: the brand marks as ImageVectors (white fills; draw them with
+// \`tint = Color.Unspecified\` so \`Icon\` keeps their own colours).
+write(
+  join(
+    repoRoot,
+    "apps/android/app/src/main/java/com/exponential/app/ui/icons/ExpBrandIcons.generated.kt"
+  ),
+  `${HEADER_COMMENT}
+//
+// The MCP catalog's brand marks (packages/icons icons.json \`brand\`: selfh.st
+// light SVGs, CC-BY-4.0, trademarks of their owners), one ImageVector per
+// slug from the vendored elements. contract.json's \`mcpCatalog\` names them.
+
+package com.exponential.app.ui.icons
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.unit.dp
+
+public object ExpBrandIcons {
+${brandSlugs.map((slug) => brandKotlin(brandMarks.get(slug)!)).join("\n\n")}
+
+    /** Brand slug -> mark. Null for an unknown slug (caller falls back). */
+    public fun bySlug(slug: String): ImageVector? = when (slug) {
+${brandSlugs.map((n) => `        "${n}" -> ${camel(n)}`).join("\n")}
+        else -> null
+    }
 }
 `
 )
