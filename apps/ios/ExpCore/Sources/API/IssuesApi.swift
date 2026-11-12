@@ -515,11 +515,14 @@ public struct TrashedIssue: Decodable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// The ShareExtension compiles this file without TeamsApi.swift (`TeamIdInput`).
+private struct IssueTrashTeamInput: Encodable { let teamId: String }
+
 public extension IssuesApi {
     /// `issues.listDeleted` (any member): the team's issue trash, newest
     /// deleted first, each with its `purgeAt`.
     func listDeleted(accountId: String, teamId: String) async throws -> [TrashedIssue] {
-        try await trpc.query(accountId: accountId, path: "issues.listDeleted", input: TeamIdInput(teamId: teamId))
+        try await trpc.query(accountId: accountId, path: "issues.listDeleted", input: IssueTrashTeamInput(teamId: teamId))
     }
 
     /// `issues.restore` (any member): back out of the trash, identifier,
