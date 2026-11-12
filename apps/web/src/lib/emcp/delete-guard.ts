@@ -83,7 +83,7 @@ export function guardDestructiveCall(ctx: DestructiveCallContext): string | null
   const verdict = burstAdmit(state, nowMs, limits)
   if (verdict === `ok`) return null
   if (verdict === `blocked`) {
-    void postBurstBlocked(ctx, `${ctx.op}:${String(value)}`, limits).catch((e) =>
+    void postBurstBlocked(ctx, limits).catch((e) =>
       console.error(`[emcp-deletes] could not post ${DELETE_BURST_EVENT}:`, e)
     )
   }
@@ -105,7 +105,7 @@ async function burstTeam(ctx: DestructiveCallContext): Promise<string | null> {
   return getPersonalTeamId(ctx.userId)
 }
 
-async function postBurstBlocked(ctx: DestructiveCallContext, target: string, limits: BurstLimits): Promise<void> {
+async function postBurstBlocked(ctx: DestructiveCallContext, limits: BurstLimits): Promise<void> {
   const teamId = await burstTeam(ctx)
   if (!teamId) return
   await db.transaction((tx) =>
@@ -115,7 +115,8 @@ async function postBurstBlocked(ctx: DestructiveCallContext, target: string, lim
       payload: {
         tool: `exponential_${ctx.noun}_write`,
         op: ctx.op,
-        target,
+        // Never the id: the stream is the whole team's, and the refused id
+        // may be another team's (the audit row names it).
         max: limits.max,
         windowSeconds: limits.windowSeconds,
         sessionId: ctx.verifiedSessionId,

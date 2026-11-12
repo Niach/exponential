@@ -180,7 +180,8 @@ describe(`the noun router`, () => {
     expect(event!.teamId).toBe(`session-team`)
     expect(event!.emittedBy).toEqual({ server: true })
     expect(Object.keys(event!.payload).sort()).toEqual([...fixture.eventPayload].sort())
-    expect(event!.payload).toMatchObject({ op: `delete`, target: `delete:FEED-6`, sessionId: `s-1`, max: 5 })
+    expect(event!.payload).toMatchObject({ op: `delete`, sessionId: `s-1`, max: 5 })
+    expect(JSON.stringify(event!.payload)).not.toContain(`FEED-`)
     // The refusal audits as a failed call with its own code.
     expect(classifyToolResponse({ result: results[5] })).toEqual({
       outcome: { error: true },
