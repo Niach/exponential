@@ -90,6 +90,7 @@ private val JOIN = buildJsonObject {
     put("channel", "activity")
 }
 private val LEAVE = buildJsonObject { put("t", "leave") }
+private val EMPTY_FRAME = JsonObject(emptyMap())
 
 /**
  * EXP-1487 SUBSCRIPTIONS: the open [EnetSteerSocket]s per (viewer node,
@@ -133,7 +134,9 @@ internal class EnetSteerSocket(
     private val sendLock = Mutex()
 
     // Frames as they arrive; [texts] is what the connection reads once joined.
-    private val inbox = Channel<String>(Channel.UNLIMITED)
+    // Each frame travels with the tag the envelope parse already read, so the
+    // probe never parses a held replay frame a second time.
+    private val inbox = Channel<Pair<String, JsonObject>>(Channel.UNLIMITED)
     private val texts = Channel<String>(Channel.UNLIMITED)
 
     @Volatile private var lastFrameAtMs = nowMs()
@@ -155,7 +158,7 @@ internal class EnetSteerSocket(
                 if (envelope.sessionId != sessionId) return@collect
                 lastFrameAtMs = nowMs()
                 for (frame in envelope.frames) {
-                    inbox.trySend(frame.toString())
+                    inbox.trySend(frame.toString() to frame)
                     when (frameTag(frame)) {
                         "bye" -> end("bye")
                         "error" -> end("error ${(frame["code"] as? JsonPrimitive)?.contentOrNull}")
@@ -195,13 +198,13 @@ internal class EnetSteerSocket(
         while (true) {
             val left = deadline - nowMs()
             if (left <= 0) return EnetJoin.Timeout
-            val text = select<String?> {
-                inbox.onReceiveCatching { it.getOrNull() ?: "" }
+            val received = select<Pair<String, JsonObject>?> {
+                inbox.onReceiveCatching { it.getOrNull() ?: ("" to EMPTY_FRAME) }
                 onTimeout(left) { null }
             } ?: return EnetJoin.Timeout
+            val (text, frame) = received
             // The subscription closed under us: no answer from the device.
             if (text.isEmpty()) return EnetJoin.SendFailed
-            val frame = Json.parseToJsonElement(text).jsonObject
             when (frameTag(frame)) {
                 // Ended here, not only in the collector: it may not have run
                 // yet, and [cancel] must not send `leave` to a refusal.
@@ -225,7 +228,7 @@ internal class EnetSteerSocket(
                         // cancel() closes [texts] while [inbox] may still hold
                         // frames: a send then threw ClosedSendChannelException
                         // into this handler-less scope and killed the app.
-                        for (next in inbox) if (texts.trySend(next).isClosed) break
+                        for ((next, _) in inbox) if (texts.trySend(next).isClosed) break
                         texts.close()
                     }
                     scope.launch { watchStale() }

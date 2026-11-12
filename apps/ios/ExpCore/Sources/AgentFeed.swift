@@ -940,6 +940,9 @@ public enum AgentFeed {
     /// EXP-783: events per `history_page` ask — the relay's schema rejects
     /// anything larger.
     public static let historyPageLimit = DomainContract.steerFeedHistoryPageMax
+    /// The newest LOG events a device replays on `join` (`activity_synced`
+    /// says `truncated` when the journal held more); older ones are pages.
+    public static let replayTail = DomainContract.steerFeedReplayTail
 
     /// What one row weighs against `feedByteCap`: the text it carries plus a
     /// flat per-item overhead standing in for the value itself. An estimate on
@@ -1465,6 +1468,28 @@ public enum AgentFeed {
         windowStart: Int, historyTruncated: Bool, historyExhausted: Bool, connected: Bool
     ) -> Bool {
         windowStart > 0 || (historyTruncated && !historyExhausted && connected)
+    }
+
+    /// EXP-783 — the index of the oldest feed row the transcript renders:
+    /// the newest `feedWindow` rows, or (the reader loaded earlier) the row
+    /// whose id is the first `>= from`, never later than that tail. `from`
+    /// is an id, not an index, so an eviction or a replay swap cannot slide
+    /// the window under the reader; `Int.min` = the feed's own first row.
+    /// The view model's window, pure so the scale guard replays it.
+    public static func windowStart(_ feed: [AgentFeedItem], from: Int?) -> Int {
+        let tail = max(0, feed.count - feedWindow)
+        guard let from else { return tail }
+        guard let at = feed.firstIndex(where: { $0.id >= from }) else { return tail }
+        return min(at, tail)
+    }
+
+    /// EXP-783 — where "Load earlier" moves the window's anchor: one
+    /// `feedWindowStep` above the current start (the id of that row), nil =
+    /// the window already starts at the feed's first row (the next page is
+    /// the device's).
+    public static func loadEarlierAnchor(_ feed: [AgentFeedItem], windowStart start: Int) -> Int? {
+        guard start > 0, start <= feed.count else { return nil }
+        return feed[max(0, start - feedWindowStep)].id
     }
 
     // MARK: - Inline card answers (EXP-820)

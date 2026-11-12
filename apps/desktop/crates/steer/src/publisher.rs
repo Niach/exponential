@@ -61,6 +61,12 @@ pub struct PublishSpec {
     /// VAPP-33: who may steer the run over eNet (`enet_steer.rs`); `None` =
     /// no eNet room (tests, the examples).
     pub audience: Option<coding::SteerAudience>,
+    /// Large chats: the run RESUMES a session (the engine host, which seeds
+    /// the `turn` slot right after the agent streamed its history back). With
+    /// an inherited journal file the publisher drops that history replay
+    /// (`Recorder::skip_history`). `false` = record everything (fresh runs,
+    /// tests, the examples).
+    pub resumed: bool,
 }
 
 /// Why the publisher asked the coding flow to tear the session down.
@@ -737,9 +743,30 @@ struct Recorder {
     /// it. Already in the memory journal (so a join replays it); the file is
     /// stopped by definition, so it is never on disk.
     notice: Option<(u64, ActivityEvent)>,
+    /// Large chats: a resumed run whose journal FILE already holds the
+    /// session (inherited, under the cap) drops the agent's history replay
+    /// (`session/load` / `--resume` stream the whole conversation back
+    /// before the host seeds the `turn` slot): appending it again stacked one
+    /// more copy of the conversation per resume (21 in a real 16 MiB file).
+    /// The memory journal is seeded from the file instead. Cleared by the
+    /// first `turn` event, the host's live seed.
+    skip_history: bool,
 }
 
 impl Recorder {
+    /// Whether `event` is part of a resume's history replay this run drops
+    /// (see `skip_history`); the first `turn` ends the replay.
+    fn drops_history(&mut self, event: &ActivityEvent) -> bool {
+        if !self.skip_history {
+            return false;
+        }
+        if matches!(event, ActivityEvent::Turn { .. }) {
+            self.skip_history = false;
+            return false;
+        }
+        !crate::history::is_state_slot(event)
+    }
+
     /// Record one already-prepared event (redacted upstream, stamped by
     /// `prepare_for_journal`): disk first, then memory, which takes it.
     /// Returns the wire sequence the event was numbered with.
@@ -801,11 +828,30 @@ async fn run_publisher_loop(
     // viewer that reads it back numbers them 0..N — so this run's first event
     // must be N, never 0.
     let next_seq = file.as_ref().map_or(0, JournalWriter::lines);
+    // Large chats: a resume with an inherited file (this device ran it)
+    // seeds the memory journal, and the agent's history replay is dropped.
+    let inherited = spec.resumed
+        && file
+            .as_ref()
+            .is_some_and(|file| file.lines() > 0 && file.bytes() < crate::history::JOURNAL_FILE_CAP);
+    let mut journal = ActivityJournal::new();
+    if let (true, Some(dir)) = (inherited, spec.journal_dir.clone()) {
+        let id = spec.session_id.clone();
+        let events = tokio::task::spawn_blocking(move || crate::history::read_journal_seq(&dir, &id))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        for (seq, event) in events {
+            journal.push_seq(seq, event);
+        }
+    }
     let mut recorder = Recorder {
-        journal: ActivityJournal::new(),
+        journal,
         file,
         next_seq,
         notice: None,
+        skip_history: inherited,
     };
     let mut lp = Loop {
         spec: &spec,
@@ -981,6 +1027,9 @@ impl Loop<'_> {
     /// Record one event (stamped, embeds restored) and fan it out live to
     /// the eNet viewers, then (EXP-906) the cap notice it may have minted.
     fn record(&mut self, mut event: ActivityEvent) {
+        if self.recorder.drops_history(&event) {
+            return;
+        }
         prepare_for_journal(&mut event, self.embeds);
         let seq = self.recorder.push(event.clone());
         self.feeds.activity(seq, &event);
@@ -1179,6 +1228,7 @@ mod tests {
             file: Some(file),
             next_seq,
             notice: None,
+            skip_history: false,
         };
 
         let seq = recorder.push(ActivityEvent::narration("over the cap"));
@@ -1195,6 +1245,24 @@ mod tests {
         assert_eq!(replay, vec![seq, notice_seq, seq + 2]);
         let _ = std::fs::remove_dir_all(&data_dir);
     }
+    /// Large chats: a resume on this device drops the agent's history replay
+    /// (the inherited file holds it) up to the host's `turn` seed; slots pass.
+    #[test]
+    fn a_resume_drops_the_history_replay_until_the_turn_seed() {
+        let mut recorder = Recorder {
+            journal: ActivityJournal::new(),
+            file: None,
+            next_seq: 0,
+            notice: None,
+            skip_history: true,
+        };
+        assert!(recorder.drops_history(&ActivityEvent::user_message("old prompt")));
+        assert!(recorder.drops_history(&ActivityEvent::narration("old words")));
+        assert!(!recorder.drops_history(&ActivityEvent::diff("state")));
+        assert!(!recorder.drops_history(&ActivityEvent::turn(crate::frames::TurnState::Ended)));
+        assert!(!recorder.drops_history(&ActivityEvent::narration("new words")));
+    }
+
     use std::sync::Mutex;
 
     // ── Control path (§8.4): never dropped, never reordered ────────────────
@@ -1369,6 +1437,7 @@ mod tests {
                 journal_dir: Some(data_dir.clone()),
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             recording_hooks(recorded),
         );
@@ -1405,6 +1474,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             recording_hooks_with(recorded.clone(), Some(link.clone())),
         );
@@ -1516,6 +1586,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             recording_hooks_with(recorded.clone(), Some(answer_link)),
         );
@@ -1562,6 +1633,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -1684,6 +1756,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -1759,6 +1832,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -1876,6 +1950,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -1931,6 +2006,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -1980,6 +2056,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );
@@ -2041,6 +2118,7 @@ mod tests {
                 journal_dir: None,
                 embeds: ImageEmbeds::default(),
                 audience: None,
+                resumed: false,
             },
             hooks,
         );

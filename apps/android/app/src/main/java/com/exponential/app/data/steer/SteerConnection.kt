@@ -288,7 +288,7 @@ class SteerConnection internal constructor(
      * each `{t:'activity'}` frame's `event` payload, in arrival order; the
      * committed feed is folded from them in one go.
      */
-    private var stagedFrames: MutableList<Pair<JsonObject, Long?>>? = null
+    private var stagedFrames: MutableList<StagedFrame>? = null
     /** EXP-783: the `history_page` ask in flight — a chunk for any other id is
      *  not ours; whether the device said its log is a TAIL (so there IS older
      *  transcript to ask the device for); and whether a page came back with
@@ -999,6 +999,15 @@ class SteerConnection internal constructor(
         com.exponential.app.domain.perfTrace("SteerConnection.frame") { handleControlFrameTraced(raw) }
 
     private fun handleControlFrameTraced(raw: String): FrameResult? {
+        // A join replay is hundreds of `activity` frames arriving on this
+        // (main) thread: while staging they are buffered UNDECODED and parsed
+        // on the fold's dispatcher with the rest of the burst. Only the exact
+        // serialized prefix qualifies (never `activity_synced`); anything else
+        // takes the full parse below.
+        if (stagedFrames != null && raw.startsWith(ACTIVITY_FRAME_PREFIX)) {
+            stageFrame(StagedFrame(raw = raw))
+            return FrameResult(live = true)
+        }
         val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         return when ((obj["t"] as? JsonPrimitive)?.contentOrNull) {
             "activity" -> {
@@ -1006,7 +1015,7 @@ class SteerConnection internal constructor(
                 // EXP-783: the publisher's monotonic index, echoed by the
                 // device — on every activity frame the protocol carries.
                 val seq = (obj["seq"] as? JsonPrimitive)?.longOrNull
-                if (stagedFrames != null) stageFrame(event, seq)
+                if (stagedFrames != null) stageFrame(StagedFrame(event = event, seq = seq))
                 else handleActivityEvent(event, seq)
                 FrameResult(live = true)
             }
@@ -1129,9 +1138,9 @@ class SteerConnection internal constructor(
     }
 
     /** Buffer one replayed event and push the quiet deadline out. */
-    private fun stageFrame(event: JsonObject?, seq: Long? = null) {
+    private fun stageFrame(frame: StagedFrame) {
         val staged = stagedFrames ?: return
-        if (event != null) staged.add(event to seq)
+        if (frame.raw != null || frame.event != null) staged.add(frame)
         stageQuietJob?.cancel()
         stageQuietJob = scope.launch {
             delay(timings.replayQuietMs)
@@ -1177,7 +1186,7 @@ class SteerConnection internal constructor(
         // with no `seq` cannot be proved older than the replay — that is a
         // locally echoed message, never a replayed one — so it ends the
         // retained prefix.
-        val firstSeq = markerFirstSeq ?: staged.firstNotNullOfOrNull { it.second }
+        val firstSeq = markerFirstSeq ?: staged.firstNotNullOfOrNull { it.decoded(json)?.second }
         val retained = if (firstSeq == null) {
             emptyList()
         } else {
@@ -1214,10 +1223,8 @@ class SteerConnection internal constructor(
         }
     }
 
-    private fun foldReplay(seed: ActivityFeedState, frames: List<Pair<JsonObject, Long?>>): ActivityFeedState =
-        com.exponential.app.domain.perfTrace("SteerConnection.foldReplay") {
-            frames.fold(seed) { state, (event, seq) -> state.applyActivityEvent(event, { false }, seq) }
-        }
+    private fun foldReplay(seed: ActivityFeedState, frames: List<StagedFrame>): ActivityFeedState =
+        com.exponential.app.domain.perfTrace("SteerConnection.foldReplay") { foldStaged(seed, frames, json) }
 
     /** The commit's second half, on the connection's thread: the frames still
      *  staged on top of [base], the carried echoes and locks, ONE write. */
@@ -1232,9 +1239,7 @@ class SteerConnection internal constructor(
         val echoes = stagedLocalEchoes.toList()
         stagedLocalEchoes.clear()
         val previous = _activity.value
-        var next = staged.fold(base) { state, (event, seq) ->
-            state.applyActivityEvent(event, { false }, seq)
-        }
+        var next = foldStaged(base, staged, json)
         // The desktop may have published a message we echoed locally before the
         // burst ended, so only re-append the ones the replay does not carry.
         for (text in echoes) {
@@ -1697,3 +1702,29 @@ class SteerConnection internal constructor(
         }
     }
 }
+
+/** How a serialized `{t:"activity"}` frame starts (every carrier writes `t`
+ *  first, without spaces); a frame that does not is simply parsed in full. */
+private const val ACTIVITY_FRAME_PREFIX = "{\"t\":\"activity\","
+
+/** One staged replay frame: decoded already ([event]/[seq]), or still the
+ *  raw `activity` frame ([raw]), decoded off the main thread at commit. */
+private class StagedFrame(val raw: String? = null, val event: JsonObject? = null, val seq: Long? = null) {
+    private var cached: Pair<JsonObject, Long?>? = null
+
+    /** The frame's (event, seq); null = an activity frame without an event object (skipped, as before). */
+    fun decoded(json: kotlinx.serialization.json.Json): Pair<JsonObject, Long?>? {
+        cached?.let { return it }
+        val text = raw ?: return event?.let { it to seq }
+        val obj = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return null
+        val event = obj["event"] as? JsonObject ?: return null
+        return (event to (obj["seq"] as? JsonPrimitive)?.longOrNull).also { cached = it }
+    }
+}
+
+/** EXP-1522 + large chats: decode and fold a staged burst in one pass. */
+private fun foldStaged(seed: ActivityFeedState, frames: List<StagedFrame>, json: kotlinx.serialization.json.Json): ActivityFeedState =
+    frames.fold(seed) { state, frame ->
+        val (event, seq) = frame.decoded(json) ?: return@fold state
+        state.applyActivityEvent(event, { false }, seq)
+    }

@@ -138,9 +138,10 @@ object DomainContract {
     const val steerFeedItemCap: Int = 200000
     const val steerFeedTrimTargetPercent: Int = 90
     const val steerFeedItemOverheadBytes: Long = 96L
-    const val steerFeedWindow: Int = 1500
-    const val steerFeedWindowStep: Int = 500
+    const val steerFeedWindow: Int = 200
+    const val steerFeedWindowStep: Int = 200
     const val steerFeedHistoryPageMax: Int = 200
+    const val steerFeedReplayTail: Int = 500
     const val steerFeedToolDiffMaxLines: Int = 200
     const val steerFeedToolDiffMaxBytes: Int = 16384
     const val steerFeedToolOutputMaxLines: Int = 200

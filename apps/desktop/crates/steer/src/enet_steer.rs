@@ -623,14 +623,21 @@ impl Drop for Feeds {
     }
 }
 
-/// `activity_reset`, the journal replay, then `activity_synced`.
+/// `activity_reset`, the journal replay (its REPLAY TAIL, `history::replay_tail`),
+/// then `activity_synced` naming the span sent.
 fn replay_to(tx: &flume::Sender<String>, journal: &ActivityJournal) {
     let _ = tx.send(ClientFrame::ActivityReset.to_json());
-    for (seq, event) in journal.replay_seq() {
+    let (events, cut) = crate::history::replay_tail(journal.replay_seq().collect(), crate::history::REPLAY_TAIL);
+    let mut first = None;
+    for (seq, event) in events {
+        if first.is_none() && !crate::history::is_state_slot(event) {
+            first = Some(seq);
+        }
         let _ = tx.send(ClientFrame::Activity { event: event.clone(), seq }.to_json());
     }
-    let (first, last, truncated) = journal.synced_span();
-    let _ = tx.send(synced_frame(first, last, truncated));
+    let (journal_first, last, truncated) = journal.synced_span();
+    let first = first.unwrap_or(journal_first);
+    let _ = tx.send(synced_frame(first, last, truncated || cut || first > 0));
 }
 
 /// The end-of-replay marker, exactly the relay's (`fixtures/steer-enet.json`).
@@ -782,23 +789,26 @@ fn stored_join(peer: FeedPeer, session_id: &str, data_dir: PathBuf, ended: bool)
             .ok()
             .flatten()
             .unwrap_or_default();
-        log::info!("enet steer: replaying {} stored event(s) of {id}", events.len());
-        for frame in stored_replay(&events, ended) {
+        let held = events.len();
+        let (events, cut) = crate::history::replay_tail(events, crate::history::REPLAY_TAIL);
+        log::info!("enet steer: replaying {} of {held} stored event(s) of {id}", events.len());
+        for frame in stored_replay(&events, ended, cut) {
             let _ = tx.send(frame);
         }
     });
 }
 
-/// The frames a stored join gets: `activity_reset`, the file's replay,
-/// `activity_synced` (the first/last LOG seq; nothing was evicted), and for
-/// an ended row `bye {outcome:"history"}`.
-pub fn stored_replay(events: &[(u64, ActivityEvent)], ended: bool) -> Vec<String> {
+/// The frames a stored join gets: `activity_reset`, the file's replay (its
+/// REPLAY TAIL), `activity_synced` (the first/last LOG seq sent; `truncated`
+/// when the tail left older events out), and for an ended row
+/// `bye {outcome:"history"}`.
+pub fn stored_replay(events: &[(u64, ActivityEvent)], ended: bool, truncated: bool) -> Vec<String> {
     let mut frames = vec![ClientFrame::ActivityReset.to_json()];
     frames.extend(events.iter().map(|(seq, event)| ClientFrame::Activity { event: event.clone(), seq: *seq }.to_json()));
     let mut log = events.iter().filter(|(_, event)| !crate::history::is_state_slot(event)).map(|(seq, _)| *seq);
     let first = log.next().unwrap_or(0);
     let last = log.last().unwrap_or(first);
-    frames.push(synced_frame(first, last, false));
+    frames.push(synced_frame(first, last, truncated));
     if ended {
         frames.push(ClientFrame::Bye { outcome: Some(crate::history::HISTORY_OUTCOME) }.to_json());
     }
@@ -1116,17 +1126,20 @@ mod tests {
             (2, ActivityEvent::narration("b")),
             (1, ActivityEvent::diff("state")),
         ];
-        let idle = stored_replay(&events, false);
+        let idle = stored_replay(&events, false, false);
         assert_eq!(idle.len(), 5);
         assert_eq!(idle[0], r#"{"t":"activity_reset"}"#);
         assert!(idle[3].contains(r#""kind":"diff""#));
         assert_eq!(idle[4], r#"{"t":"activity_synced","firstSeq":0,"lastSeq":2}"#);
-        let ended = stored_replay(&events, true);
+        let ended = stored_replay(&events, true, false);
         assert_eq!(ended.last().unwrap(), r#"{"t":"bye","outcome":"history"}"#);
         assert_eq!(
-            stored_replay(&[], false),
+            stored_replay(&[], false, false),
             vec![r#"{"t":"activity_reset"}"#.to_string(), r#"{"t":"activity_synced","firstSeq":0,"lastSeq":0}"#.to_string()]
         );
+        // REPLAY TAIL: a cut replay says so.
+        let cut = stored_replay(&events[1..], false, true);
+        assert_eq!(cut.last().unwrap(), r#"{"t":"activity_synced","firstSeq":2,"lastSeq":2,"truncated":true}"#);
     }
 
     #[test]

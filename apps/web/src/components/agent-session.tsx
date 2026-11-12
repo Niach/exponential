@@ -170,7 +170,7 @@ import {
 } from "@/lib/agent-feed"
 import { anchorSessionCards, sessionCards } from "@exp/domain-contract/ask-dock"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
+import { loadEarlierMessages, useSessionCard, useSessionMessages } from "@/hooks/use-session-tree"
 import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import { useSession } from "@/hooks/use-session"
 import { useOpenPlan } from "@/hooks/use-open-plan"
@@ -512,13 +512,23 @@ export function AgentSessionView({
   const loadEarlier = useCallback(() => {
     const el = scrollRef.current
     anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
+    // #EXP-1380: the chat's loaded messages widen with it (its cards, ×4).
+    loadEarlierMessages(session.id)
     if (windowStart > 0) {
       setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
       return
     }
     setWindowFrom(WINDOW_FROM_START)
     store.loadEarlier()
-  }, [feed, windowStart, store])
+  }, [feed, windowStart, store, session.id])
+  // REPLAY TAIL (steer-enet.json): within one viewport of the top, the
+  // next page loads, the Load earlier press without the press.
+  const followScroll = follow.onScroll
+  const onFeedScroll = useCallback(() => {
+    followScroll()
+    const el = scrollRef.current
+    if (el && canLoadEarlier && el.scrollTop < el.clientHeight) loadEarlier()
+  }, [followScroll, scrollRef, canLoadEarlier, loadEarlier])
   useLayoutEffect(() => {
     const anchor = anchorRef.current
     if (anchor === null) return
@@ -989,7 +999,7 @@ export function AgentSessionView({
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
-            onScroll={follow.onScroll}
+            onScroll={onFeedScroll}
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
               // #EXP-1732: a column, so a placeholder takes the room the

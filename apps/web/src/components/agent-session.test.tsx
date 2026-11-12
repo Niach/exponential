@@ -10,6 +10,7 @@ import enetFixture from "@exp/domain-contract/fixtures/steer-enet.json"
 
 let snapshot: SteerSessionSnapshot
 const relayAnswer = vi.fn()
+const storeLoadEarlier = vi.fn()
 
 vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/steer-session-store")>()
@@ -24,7 +25,7 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
       noteHostOffline: () => {},
       kick: () => {},
       reconnect: () => {},
-      loadEarlier: () => {},
+      loadEarlier: () => storeLoadEarlier(),
       sendMessage: () => true,
       answerQuestion: (...args: unknown[]) => relayAnswer(...args),
       unqueue: () => {},
@@ -44,7 +45,11 @@ vi.mock(`@/components/session-account-switch`, () => ({
 // `sessions.answer` call they answer through.
 let messages: unknown[] = []
 const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
-vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages, useSessionCard: () => null }))
+vi.mock(`@/hooks/use-session-tree`, () => ({
+  useSessionMessages: () => messages,
+  useSessionCard: () => null,
+  loadEarlierMessages: () => {},
+}))
 vi.mock(`@/hooks/use-session-nav`, () => ({ useXrefAgent: () => () => null }))
 const openPlan = vi.hoisted(() => vi.fn())
 vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => openPlan }))
@@ -588,5 +593,31 @@ describe(`AgentSessionView relay ask (S-3)`, () => {
     expect(relayAnswer).toHaveBeenCalledTimes(1)
     expect(relayAnswer.mock.calls[0]![2]).toEqual([`staging`])
     expect(answerMutate).not.toHaveBeenCalled()
+  })
+})
+
+// REPLAY TAIL (steer-enet.json): scrolling within one viewport of the top
+// pages older events in, like a Load earlier press.
+describe(`AgentSessionView scroll paging`, () => {
+  it(`asks the device for the next page near the top, not further down`, () => {
+    storeLoadEarlier.mockClear()
+    snapshot = snap({
+      canLoadEarlier: true,
+      feed: [{ id: 1, seq: 9, kind: `narration`, text: `newest` }] as SteerSessionSnapshot[`feed`],
+    })
+    const { container } = render(
+      <TooltipProvider>
+        <AgentSessionView session={session} />
+      </TooltipProvider>
+    )
+    const scroller = container.querySelector(`.agent-feed`) as HTMLDivElement
+    Object.defineProperty(scroller, `clientHeight`, { value: 500, configurable: true })
+    Object.defineProperty(scroller, `scrollHeight`, { value: 5_000, configurable: true })
+    scroller.scrollTop = 2_000
+    fireEvent.scroll(scroller)
+    expect(storeLoadEarlier).not.toHaveBeenCalled()
+    scroller.scrollTop = 300
+    fireEvent.scroll(scroller)
+    expect(storeLoadEarlier).toHaveBeenCalledTimes(1)
   })
 })

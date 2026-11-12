@@ -1213,3 +1213,82 @@ extension Chats {
         return out
     }
 }
+
+// MARK: - The chat's loaded messages (#EXP-1380, TS `useNewestMessages`)
+
+extension Chats {
+    /// The newest messages a chat loads at first (TS `CHAT_MESSAGE_LIMIT`,
+    /// chats.json WINDOW: `window + windowStep`).
+    public static let chatMessageLimit = Transcript.window + Transcript.windowStep
+
+    /// A chat's limit widened by one Load earlier (TS `loadEarlierMessages`).
+    public static func widenedMessageLimit(_ limit: Int) -> Int { limit + Transcript.windowStep }
+
+    /// #FEED-191: EVERY waiting card the tree's digests name (`waiting`,
+    /// `waits[]`), sorted, once each: loaded by id however old.
+    public static func digestWaitingIds(_ digests: [String?]) -> [String] {
+        var ids = Set<String>()
+        for raw in digests {
+            guard let digest = SessionTree.jsonObject(raw) else { continue }
+            let waits = (digest["waits"] as? [Any]) ?? []
+            for slot in [digest["waiting"] as Any] + waits {
+                if let id = (slot as? [String: Any])?["id"] as? String { ids.insert(id) }
+            }
+        }
+        return ids.sorted()
+    }
+
+    /// A chat's loaded page: the newest `limit` (`loaded`, oldest first) plus
+    /// the waiting cards outside it, in (createdAt, id) order; `more` = older
+    /// messages exist unloaded.
+    public struct MessagePage<Message> {
+        public let rows: [Message]
+        public let more: Bool
+    }
+
+    public static func newestMessagesPage<Message>(
+        loaded: [Message], waiting: [Message], limit: Int,
+        id: (Message) -> String, createdAt: (Message) -> String
+    ) -> MessagePage<Message> {
+        let ids = Set(loaded.map(id))
+        var seen = Set<String>()
+        let extra = waiting.filter { !ids.contains(id($0)) && seen.insert(id($0)).inserted }
+        let rows = extra.isEmpty
+            ? loaded
+            : (extra + loaded).sorted { a, b in
+                let ca = createdAt(a), cb = createdAt(b)
+                return ca != cb ? ca < cb : id(a) < id(b)
+            }
+        return MessagePage(rows: rows, more: loaded.count >= limit)
+    }
+
+    /// Per-chat limits for this process (TS `chatLimits`): a reopen keeps what
+    /// Load earlier widened, as on web and Android. Keyed by the root id.
+    public final class MessageLimits: @unchecked Sendable {
+        public static let shared = MessageLimits()
+        /// Posted with the root id as `object` when a chat's limit widened.
+        public static let changed = Notification.Name("ChatsMessageLimitChanged")
+
+        private let lock = NSLock()
+        private var limits: [String: Int] = [:]
+
+        public init() {}
+
+        public func limit(_ key: String) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return limits[key] ?? Chats.chatMessageLimit
+        }
+
+        /// One Load earlier: one `windowStep` more messages for this chat.
+        @discardableResult
+        public func loadEarlier(_ key: String) -> Int {
+            lock.lock()
+            let next = Chats.widenedMessageLimit(limits[key] ?? Chats.chatMessageLimit)
+            limits[key] = next
+            lock.unlock()
+            NotificationCenter.default.post(name: Self.changed, object: key)
+            return next
+        }
+    }
+}

@@ -656,10 +656,7 @@ final class AgentSessionModel {
     /// reader reaching the top. Anchored on a row ID rather than an index, so
     /// a byte-budget eviction or a replay swap cannot slide it.
     private var windowStart: Int {
-        let tail = max(0, feed.count - AgentFeed.feedWindow)
-        guard let from = windowFrom else { return tail }
-        guard let at = feed.firstIndex(where: { $0.id >= from }) else { return tail }
-        return min(at, tail)
+        AgentFeed.windowStart(feed, from: windowFrom)
     }
 
     /// EXP-783 — pull one more page of the run into the view: more of the feed
@@ -668,9 +665,8 @@ final class AgentSessionModel {
     /// journal. `false` when there is nothing left to load.
     @discardableResult
     func loadEarlier() -> Bool {
-        let start = windowStart
-        if start > 0 {
-            windowFrom = feed[max(0, start - AgentFeed.feedWindowStep)].id
+        if let anchor = AgentFeed.loadEarlierAnchor(feed, windowStart: windowStart) {
+            windowFrom = anchor
             reproject()
             return true
         }
