@@ -6,7 +6,7 @@
 members = ["crates/*"]
 # #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
 # the [patch] sections below) are third-party crates, not ours.
-exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui-pre-wgpu"]
+exclude = ["vendor/iroh", "vendor/gpui-component", "vendor/gpui-pre-wgpu", "vendor/gpui-pre-windows"]
 resolver = "2"
 
 [workspace.package]
@@ -157,6 +157,11 @@ gpui-component = { path = "vendor/gpui-component" }
 # presentation clusters (vendor/gpui-pre-wgpu/PATCHES.md). Upstream still takes
 # the first face covering a codepoint, so a monochrome symbol face wins.
 gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
+# #ERR-2 / #ERR-3: gpui-pre-windows 0.3.11 (zed's `crates/gpui_windows`) with
+# the toast calls on a worker thread (a WinRT call on the UI thread pumped
+# frames while the App was borrowed) and no teardown of a window a native
+# close already destroyed (vendor/gpui-pre-windows/PATCHES.md).
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 
 
 [patch."https://github.com/Niach/exponential"]
