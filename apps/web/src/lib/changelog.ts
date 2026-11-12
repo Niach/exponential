@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-large-chats-desktop`,
+    date: `2026-11-12`,
+    title: `Large chats open fast in the desktop app`,
+    summary: `The desktop app opens long chats at once and starts without a pause, long chats scroll smoothly on the web, and desktop crash symbols upload smaller.`,
+    body: `- **Large chats open fast**: the desktop app and the CLI load a long chat in windows from the device instead of all at once, start without blocking the window, and Results covers the whole chat. On the web, long chats scroll smoothly.
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: desktop and CLI builds upload only what crash reports need.`,
+  },
+  {
     id: `2026-11-12-instant-large-chats-on-phones`,
     date: `2026-11-12`,
     title: `Large chats open instantly on phones`,

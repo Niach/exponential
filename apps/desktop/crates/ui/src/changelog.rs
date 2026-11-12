@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-large-chats-desktop",
+    date: "2026-11-12",
+    title: "Large chats open fast in the desktop app",
+    summary: "The desktop app opens long chats at once and starts without a pause, long chats scroll smoothly on the web, and desktop crash symbols upload smaller.",
+    body: r##"- **Large chats open fast**: the desktop app and the CLI load a long chat in windows from the device instead of all at once, start without blocking the window, and Results covers the whole chat. On the web, long chats scroll smoothly.
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: desktop and CLI builds upload only what crash reports need."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_261: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-instant-large-chats-on-phones",
     date: "2026-11-12",
     title: "Large chats open instantly on phones",
