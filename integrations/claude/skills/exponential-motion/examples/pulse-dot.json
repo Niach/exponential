@@ -1,0 +1,97 @@
+{
+  "size": [
+    32,
+    32
+  ],
+  "duration": 1600,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "dot",
+      "transform": {
+        "position": [
+          16,
+          16
+        ]
+      },
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            0,
+            0
+          ],
+          "size": [
+            8,
+            8
+          ]
+        },
+        {
+          "type": "fill",
+          "color": "$color.success"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "ring",
+      "transform": {
+        "position": [
+          16,
+          16
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                100
+              ],
+              "ease": "ease-out"
+            },
+            {
+              "t": 1600,
+              "v": [
+                380,
+                380
+              ]
+            }
+          ]
+        },
+        "opacity": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 80,
+              "ease": "ease-out"
+            },
+            {
+              "t": 1600,
+              "v": 0
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            0,
+            0
+          ],
+          "size": [
+            8,
+            8
+          ]
+        },
+        {
+          "type": "stroke",
+          "color": "$color.success",
+          "width": 1
+        }
+      ]
+    }
+  ]
+}

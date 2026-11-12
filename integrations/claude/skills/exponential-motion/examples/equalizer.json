@@ -1,0 +1,389 @@
+{
+  "size": [
+    80,
+    60
+  ],
+  "duration": 1200,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "bar5",
+      "transform": {
+        "position": [
+          70,
+          55
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                30
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 400,
+              "v": [
+                100,
+                85
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 800,
+              "v": [
+                100,
+                45
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1200,
+              "v": [
+                100,
+                30
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "rect",
+          "position": [
+            0,
+            -25
+          ],
+          "size": [
+            10,
+            50
+          ],
+          "radius": 3
+        },
+        {
+          "type": "fill",
+          "color": "$color.chart5"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "bar4",
+      "transform": {
+        "position": [
+          55,
+          55
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                50
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 150,
+              "v": [
+                100,
+                100
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 300,
+              "v": [
+                100,
+                35
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 450,
+              "v": [
+                100,
+                80
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 600,
+              "v": [
+                100,
+                40
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 750,
+              "v": [
+                100,
+                95
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 900,
+              "v": [
+                100,
+                30
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1050,
+              "v": [
+                100,
+                70
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1200,
+              "v": [
+                100,
+                50
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "rect",
+          "position": [
+            0,
+            -25
+          ],
+          "size": [
+            10,
+            50
+          ],
+          "radius": 3
+        },
+        {
+          "type": "fill",
+          "color": "$color.chart4"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "bar3",
+      "transform": {
+        "position": [
+          40,
+          55
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                40
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 600,
+              "v": [
+                100,
+                100
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1200,
+              "v": [
+                100,
+                40
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "rect",
+          "position": [
+            0,
+            -25
+          ],
+          "size": [
+            10,
+            50
+          ],
+          "radius": 3
+        },
+        {
+          "type": "fill",
+          "color": "$color.chart3"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "bar2",
+      "transform": {
+        "position": [
+          25,
+          55
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                70
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 200,
+              "v": [
+                100,
+                25
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 400,
+              "v": [
+                100,
+                90
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 600,
+              "v": [
+                100,
+                35
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 800,
+              "v": [
+                100,
+                100
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1000,
+              "v": [
+                100,
+                45
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1200,
+              "v": [
+                100,
+                70
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "rect",
+          "position": [
+            0,
+            -25
+          ],
+          "size": [
+            10,
+            50
+          ],
+          "radius": 3
+        },
+        {
+          "type": "fill",
+          "color": "$color.chart2"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "bar1",
+      "transform": {
+        "position": [
+          10,
+          55
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                35
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 300,
+              "v": [
+                100,
+                90
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 600,
+              "v": [
+                100,
+                30
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 900,
+              "v": [
+                100,
+                75
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1200,
+              "v": [
+                100,
+                35
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "rect",
+          "position": [
+            0,
+            -25
+          ],
+          "size": [
+            10,
+            50
+          ],
+          "radius": 3
+        },
+        {
+          "type": "fill",
+          "color": "$color.chart1"
+        }
+      ]
+    }
+  ]
+}

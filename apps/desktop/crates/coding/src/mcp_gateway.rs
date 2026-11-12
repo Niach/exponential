@@ -45,6 +45,9 @@ use crate::sealing::{self, DeliverTo, NewRootSeal, OpenStatus, SealError, SEALED
 pub const SEND_TOOL: &str = "exponential_sessions_send";
 pub const SHOW_TOOL: &str = "exponential_show";
 pub const SESSIONS_TOOL: &str = "exponential_sessions";
+/// #VAPP-293: the sessions noun's writes (`end`, `escalate`) as their own tool;
+/// the read tool still takes them from a first-party caller, so both seal.
+pub const SESSIONS_WRITE_TOOL: &str = "exponential_sessions_write";
 pub const SELF_TOOL: &str = "exponential_session_self";
 
 /// The transform of ONE launched session (the caller of every call).
@@ -657,7 +660,7 @@ impl GatewayTransform for SealingTransform {
         match (tool, op.as_str()) {
             (SEND_TOOL, _) => self.seal_send(args, None),
             (SHOW_TOOL, _) => self.seal_show(args),
-            (SESSIONS_TOOL, "end") => self.seal_end(args),
+            (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "end") => self.seal_end(args),
             (SELF_TOOL, "suggest") => self.seal_suggest(args),
             _ => Ok(args),
         }
@@ -674,7 +677,7 @@ impl GatewayTransform for SealingTransform {
                 };
                 self.seal_send(args, Some(upstream))
             }
-            (SESSIONS_TOOL, "escalate") => self.seal_escalate(args, upstream),
+            (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "escalate") => self.seal_escalate(args, upstream),
             _ => self.request(tool, args),
         }
     }
@@ -1918,6 +1921,12 @@ mod tests {
         assert_eq!(copy["rootId"], "root-9");
         let reopened = enet_core::sealed::open_card(&copy["sealedReport"], &|epoch| (epoch == 3).then_some(listener_tree.secret));
         assert_eq!(reopened.card["summary"], "Merged it");
+
+        // #VAPP-293: the write twin's end seals the same way.
+        call(&grant, SESSIONS_WRITE_TOOL, json!({ "op": "end", "summary": "Twin end" }));
+        let sent = calls_of(&server, SESSIONS_WRITE_TOOL).pop().unwrap();
+        assert!(sent.get("summary").is_none() && !sent.to_string().contains("Twin end"), "{sent}");
+        assert_eq!(sealing::open_card("root-1", &sent["sealedReport"]).card["summary"], "Twin end");
 
         // suggest: one card envelope per card.
         call(&grant, SELF_TOOL, json!({ "op": "suggest", "replies": ["Ship it"], "tasks": [{ "title": "Tests", "text": "Cover it" }] }));

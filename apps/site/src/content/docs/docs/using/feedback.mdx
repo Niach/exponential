@@ -22,7 +22,7 @@ A reporter who left an email gets a confirmation with a private link to their re
 - A reporter's answer shows up as a comment marked *reporter*, and as **Reporter replied** in the inbox of the issue's followers and assignee (every member, when nobody follows it yet).
 - An answer on a completed issue reopens it to **Backlog**.
 
-Reporter comments render as plain text; members can delete them and nobody can edit them. Agents reply the same way over MCP with `exponential_comments` and `audience: "reporter"`.
+Reporter comments render as plain text; members can delete them and nobody can edit them. Agents reply the same way over MCP with `exponential_comments_write` (op `create`) and `audience: "reporter"`.
 
 <Aside>Replies need a mail transport. A self-hosted server without SMTP or SES still files every report, and the toast says the reply was saved without an email. See [Self-host](/docs/get-started/self-host/).</Aside>
 

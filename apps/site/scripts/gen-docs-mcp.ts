@@ -1,4 +1,5 @@
-/* Writes the MCP tool surface as JSON: the 22 tools in their groups, each
+/* Writes the MCP tool surface as JSON: the tools in their groups (#VAPP-293:
+   a noun's read tool, then its `_write` twin; a verb whole), each
    op with its own description and parameters, read from the live
    definitions in apps/web/src/lib/emcp (nouns.ts routes every op to its
    tool in tools.ts). Run by scripts/reference/docs.ts with cwd apps/web
@@ -7,7 +8,7 @@
 import { z } from "zod"
 
 const WEB = process.cwd()
-const { NOUN_TOOLS, collectLegacyTools } = await import(`${WEB}/src/lib/emcp/nouns.ts`)
+const { NOUN_TOOLS, collectLegacyTools, nounHalves } = await import(`${WEB}/src/lib/emcp/nouns.ts`)
 const { ALL_MCP_TOOL_GATES } = await import(`${WEB}/src/lib/emcp/gates.ts`)
 const { FULL_ACCESS } = await import(`${WEB}/src/lib/emcp/scope.ts`)
 const { contract } = await import(`@exp/domain-contract`)
@@ -59,22 +60,26 @@ const tool = (name: string) => legacy.get(`exponential_${name}`)
 const groups = contract.expToolDisplay.groups.map((g: { id: string; label: string; tools: string[] }) => ({
   id: g.id,
   label: g.label,
-  tools: g.tools.map((name) => {
+  tools: g.tools.flatMap((name) => {
     const spec = NOUN_TOOLS.find((s: { name: string }) => s.name === name)
     if (!spec) throw new Error(`group ${g.id} names ${name}, which nouns.ts lacks`)
     if (spec.verb) {
       const t = tool(spec.verb)
-      return { name: `exponential_${name}`, alwaysLoad: !!spec.alwaysLoad, blurb: t?.def.description ?? ``, ops: [], params: params(t?.def.inputSchema) }
+      return [{ name: `exponential_${name}`, title: spec.label, readOnly: false, alwaysLoad: !!spec.alwaysLoad, blurb: t?.def.description ?? ``, ops: [], params: params(t?.def.inputSchema) }]
     }
-    return {
-      name: `exponential_${name}`,
+    const ops: Record<string, string> = spec.ops ?? {}
+    const isRead = (op: string) => tool(ops[op]!)?.def.annotations?.readOnlyHint === true
+    return nounHalves(spec, isRead).map((half: { name: string; title: string; read: boolean; ops: string[] }) => ({
+      name: half.name,
+      title: half.title,
+      readOnly: half.read,
       alwaysLoad: !!spec.alwaysLoad,
       blurb: spec.blurb,
-      ops: Object.entries(spec.ops ?? {}).map(([op, legacyName]) => {
-        const t = tool(legacyName as string)
+      ops: half.ops.map((op) => {
+        const t = tool(ops[op]!)
         return { op, description: t?.def.description ?? ``, params: params(t?.def.inputSchema) }
       }),
-    }
+    }))
   }),
 }))
 

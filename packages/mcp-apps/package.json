@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./genui-result": "./src/genui/result.ts"
+    "./genui-result": "./src/genui/result.ts",
+    "./tool-names": "./src/tool-names.ts"
   },
   "scripts": {
     "build": "tsc --noEmit && vite build && MCP_APPS_ENTRY=genui vite build",

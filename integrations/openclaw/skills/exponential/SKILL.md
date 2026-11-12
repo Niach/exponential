@@ -8,9 +8,11 @@ description: "Track and change work in Exponential (exponential.at): list, show,
 Exponential is a realtime issue tracker: issues live on boards inside teams,
 carry a status, priority, labels and comments, and close through pull requests
 that coding agents open. This plugin connects the `exponential` MCP server:
-22 tools in 7 groups, one per noun, each taking an `op` with that op's fields beside it
-(`exponential_issues {op: "get", id: "APP-12"}`); every tool's description
-lists its ops. They appear as `exponential__exponential_*`.
+each noun is a read tool plus a `_write` twin (41 tools in 7 groups), each
+taking an `op` with that op's fields beside it: reads on `exponential_issues
+{op: "get", id: "APP-12"}`, changes on `exponential_issues_write {op:
+"create"}`; every tool's description lists its ops and names its twin. They
+appear as `exponential__exponential_*`.
 
 ## Showing work
 
@@ -35,12 +37,12 @@ lists its ops. They appear as `exponential__exponential_*`.
 - Resolve ids first: `exponential_teams {op: "list"}`, `exponential_boards
   {op: "list"}`, `exponential_people {op: "list"}`, `exponential_labels
   {op: "list"}`, `exponential_statuses {op: "list"}`.
-- Create with `exponential_issues {op: "create"}`, edit with `op: "update"`,
-  move with `op: "update_status"`, comment with `exponential_comments
-  {op: "create"}`. Descriptions and comments are plain GFM; `#APP-12` links an
+- Create with `exponential_issues_write {op: "create"}`, edit with
+  `op: "update"`, move with `op: "update_status"`, comment with
+  `exponential_comments_write {op: "create"}`. Descriptions and comments are plain GFM; `#APP-12` links an
   issue, `@person@example.com` mentions a member.
-- Confirm before anything destructive (`op: "delete"`, `exponential_pr
-  {op: "merge"}`, `exponential_sessions {op: "end"}`).
+- Confirm before anything destructive (`op: "delete"`, `exponential_pr_write
+  {op: "merge"}`, `exponential_sessions_write {op: "end"}`).
 
 ## Sessions and agents
 

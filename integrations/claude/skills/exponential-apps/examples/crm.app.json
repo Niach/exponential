@@ -1,0 +1,2324 @@
+{
+  "formatVersion": 5,
+  "id": "exponential.crm",
+  "name": "CRM",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "description": "A small team CRM: companies, their contacts and the deal pipeline. Companies and contacts are shared (any member edits them); a deal is changed by its author or an owner.",
+  "icon": {
+    "glyph": "ui-organization"
+  },
+  "sources": [
+    "records:company",
+    "records:contact",
+    "records:deal"
+  ],
+  "functions": [
+    "records.*",
+    "bind",
+    "harness.toast"
+  ],
+  "records": {
+    "company": {
+      "title": "Company",
+      "policy": {
+        "update": "member",
+        "delete": "member"
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "stage"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "example.com"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "active",
+              "churned"
+            ]
+          }
+        }
+      }
+    },
+    "contact": {
+      "title": "Contact",
+      "policy": {
+        "update": "member",
+        "delete": "member"
+      },
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "company"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "The company's name"
+          }
+        }
+      }
+    },
+    "deal": {
+      "title": "Deal",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "company",
+          "amount",
+          "stage"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "The company's name"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prospect",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          },
+          "close": {
+            "type": "string",
+            "format": "date",
+            "description": "Expected close date"
+          }
+        }
+      }
+    }
+  },
+  "queries": {
+    "pipeline": {
+      "from": "deal",
+      "group": [
+        "stage"
+      ],
+      "aggregate": {
+        "amount": [
+          "sum",
+          "amount"
+        ],
+        "n": [
+          "count"
+        ]
+      },
+      "sort": [
+        [
+          "amount",
+          "desc"
+        ]
+      ]
+    },
+    "openDeals": {
+      "from": "deal",
+      "where": [
+        [
+          "stage",
+          "in",
+          [
+            "prospect",
+            "qualified",
+            "proposal"
+          ]
+        ]
+      ],
+      "sum": "amount",
+      "sort": [
+        [
+          "close",
+          "asc"
+        ],
+        [
+          "amount",
+          "desc"
+        ]
+      ],
+      "limit": 200
+    },
+    "companyDeals": {
+      "from": "deal",
+      "where": [
+        [
+          "company",
+          "eq",
+          "${company}"
+        ]
+      ],
+      "sum": "amount",
+      "sort": [
+        [
+          "close",
+          "asc"
+        ]
+      ]
+    }
+  },
+  "actions": {
+    "addCompany": {
+      "params": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "active",
+              "churned"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "require": "size(params.name) > 0",
+          "message": "A company needs a name"
+        },
+        {
+          "require": "!orElse(data.companies.rows, []).exists(c, c.name == params.name)",
+          "message": "That company is already in the CRM"
+        },
+        {
+          "records.upsert": {
+            "kind": "company",
+            "data": {
+              "name": "params.name",
+              "domain": "params.domain",
+              "stage": "orElse(params.stage, 'lead')"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/companyDraft",
+            "value": {
+              "open": false,
+              "name": "",
+              "domain": "",
+              "stage": "lead"
+            }
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Added ' + params.name"
+          }
+        }
+      ]
+    },
+    "setCompanyStage": {
+      "params": {
+        "type": "object",
+        "required": [
+          "company",
+          "stage"
+        ],
+        "properties": {
+          "company": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "active",
+              "churned"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "records.upsert": {
+            "kind": "company",
+            "id": "params.company",
+            "data": {
+              "stage": "params.stage"
+            }
+          }
+        }
+      ]
+    },
+    "addContact": {
+      "params": {
+        "type": "object",
+        "required": [
+          "name",
+          "company"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          }
+        }
+      },
+      "steps": [
+        {
+          "require": "size(params.name) > 0 && size(params.company) > 0",
+          "message": "A contact needs a name and a company"
+        },
+        {
+          "require": "!has(params.email) || params.email == '' || size(params.email) >= 3",
+          "message": "That email looks wrong"
+        },
+        {
+          "records.upsert": {
+            "kind": "contact",
+            "data": {
+              "name": "params.name",
+              "email": "params.email",
+              "company": "params.company"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/contactDraft",
+            "value": {
+              "open": false,
+              "name": "",
+              "email": "",
+              "company": ""
+            }
+          }
+        }
+      ]
+    },
+    "addDeal": {
+      "params": {
+        "type": "object",
+        "required": [
+          "title",
+          "company",
+          "amount"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prospect",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          },
+          "close": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "steps": [
+        {
+          "require": "size(params.title) > 0 && size(params.company) > 0",
+          "message": "A deal needs a title and a company"
+        },
+        {
+          "require": "params.amount >= 0",
+          "message": "A deal's amount is 0 or more"
+        },
+        {
+          "records.upsert": {
+            "kind": "deal",
+            "data": {
+              "title": "params.title",
+              "company": "params.company",
+              "amount": "params.amount",
+              "stage": "orElse(params.stage, 'prospect')",
+              "close": "params.close"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/dealDraft",
+            "value": {
+              "open": false,
+              "title": "",
+              "company": "",
+              "amount": 0,
+              "stage": "prospect",
+              "close": ""
+            }
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Deal added: ' + params.title"
+          }
+        }
+      ]
+    },
+    "moveDeal": {
+      "params": {
+        "type": "object",
+        "required": [
+          "deal",
+          "stage"
+        ],
+        "properties": {
+          "deal": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prospect",
+              "qualified",
+              "proposal",
+              "won",
+              "lost"
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "records.upsert": {
+            "kind": "deal",
+            "id": "params.deal",
+            "data": {
+              "stage": "params.stage"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/move/open",
+            "value": false
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "params.stage == 'won' ? 'Won!' : 'Moved to ' + params.stage"
+          }
+        }
+      ]
+    }
+  },
+  "screens": [
+    {
+      "template": "pipeline",
+      "title": "Pipeline",
+      "icon": "square-kanban"
+    },
+    {
+      "template": "companies",
+      "title": "Companies",
+      "icon": "building-2"
+    },
+    {
+      "template": "contacts",
+      "title": "Contacts",
+      "icon": "users"
+    }
+  ],
+  "templates": {
+    "companies": {
+      "data": {
+        "companies": {
+          "rows": [],
+          "count": 0
+        },
+        "companyDeals": {
+          "rows": [],
+          "count": 0,
+          "sum": 0
+        },
+        "companyDraft": {
+          "open": false,
+          "name": "",
+          "domain": "",
+          "stage": "lead"
+        }
+      },
+      "bindings": [
+        {
+          "path": "/companies",
+          "source": "records:company?sort=name&order=asc&limit=500"
+        },
+        {
+          "path": "/companyDeals",
+          "source": "records:deal?query=companyDeals"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Companies",
+          "children": [
+            "companiesPanel",
+            "companyDialog"
+          ],
+          "slots": {
+            "trailing": "headerActions"
+          }
+        },
+        {
+          "id": "headerActions",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "children": [
+            "newCompany"
+          ]
+        },
+        {
+          "id": "toPipeline",
+          "component": "Button",
+          "label": "Pipeline",
+          "icon": "square-kanban",
+          "variant": "ghost",
+          "size": "sm",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "app.navigate",
+                "args": {
+                  "screen": "pipeline"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "newCompany",
+          "component": "Button",
+          "label": "Company",
+          "icon": "ui-add",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/companyDraft/open",
+                  "value": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "companiesPanel",
+          "component": "Stack",
+          "gap": "md",
+          "children": [
+            "companyTable",
+            "companyDealsSection"
+          ]
+        },
+        {
+          "id": "companyTable",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "companyRow",
+            "path": "/companies/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "companyRow",
+          "component": "Row",
+          "title": {
+            "path": "name"
+          },
+          "subtitle": {
+            "call": "expr",
+            "args": {
+              "expr": "orElse(d, '')",
+              "default": "",
+              "vars": {
+                "d": {
+                  "path": "domain"
+                }
+              }
+            }
+          },
+          "meta": {
+            "path": "stage"
+          },
+          "pressable": true,
+          "chevron": "right",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/companyDeals",
+                  "source": "records:deal?query=companyDeals",
+                  "params": {
+                    "company": {
+                      "path": "name"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "companyDealsSection",
+          "component": "Section",
+          "title": "Deals of the picked company",
+          "caption": {
+            "call": "expr",
+            "args": {
+              "expr": "size(cd.rows) > 0 ? cd.rows[0].company : 'Pick a company'",
+              "default": "",
+              "vars": {
+                "cd": {
+                  "path": "/companyDeals"
+                }
+              }
+            }
+          },
+          "count": {
+            "path": "/companyDeals/count"
+          },
+          "children": [
+            "companyDealList"
+          ],
+          "slots": {
+            "trailing": "toPipeline"
+          }
+        },
+        {
+          "id": "companyDealList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "companyDealRow",
+            "path": "/companyDeals/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "companyDealRow",
+          "component": "Row",
+          "title": {
+            "path": "title"
+          },
+          "meta": {
+            "path": "stage"
+          },
+          "value": {
+            "call": "formatCurrency",
+            "args": {
+              "value": {
+                "path": "amount"
+              },
+              "currency": "EUR",
+              "decimals": 0,
+              "grouping": true
+            }
+          }
+        },
+        {
+          "id": "companyDialog",
+          "component": "Dialog",
+          "title": "New company",
+          "open": {
+            "path": "/companyDraft/open"
+          },
+          "children": [
+            "companyForm"
+          ]
+        },
+        {
+          "id": "companyForm",
+          "component": "Form",
+          "name": "company",
+          "children": [
+            "companyFields",
+            "companyActions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "actions.addCompany",
+                "args": {
+                  "name": {
+                    "path": "/companyDraft/name"
+                  },
+                  "domain": {
+                    "path": "/companyDraft/domain"
+                  },
+                  "stage": {
+                    "path": "/companyDraft/stage"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "companyFields",
+          "component": "FieldGroup",
+          "columns": 2,
+          "children": [
+            "companyName",
+            "companyDomain",
+            "companyStage"
+          ]
+        },
+        {
+          "id": "companyName",
+          "component": "Input",
+          "label": "Name",
+          "name": "name",
+          "value": {
+            "path": "/companyDraft/name"
+          },
+          "checks": [
+            {
+              "condition": {
+                "call": "required",
+                "args": {
+                  "value": {
+                    "path": "/companyDraft/name"
+                  }
+                }
+              },
+              "message": "A company needs a name"
+            }
+          ]
+        },
+        {
+          "id": "companyDomain",
+          "component": "Input",
+          "label": "Domain",
+          "name": "domain",
+          "type": "url",
+          "placeholder": "example.com",
+          "value": {
+            "path": "/companyDraft/domain"
+          }
+        },
+        {
+          "id": "companyStage",
+          "component": "Select",
+          "label": "Stage",
+          "name": "stage",
+          "options": [
+            {
+              "label": "Lead",
+              "value": "lead"
+            },
+            {
+              "label": "Active",
+              "value": "active"
+            },
+            {
+              "label": "Churned",
+              "value": "churned"
+            }
+          ],
+          "value": {
+            "path": "/companyDraft/stage"
+          }
+        },
+        {
+          "id": "companyActions",
+          "component": "FormActions",
+          "submit": "Add company",
+          "cancel": true,
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/companyDraft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "contacts": {
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Contacts",
+          "children": [
+            "contacts"
+          ]
+        },
+        {
+          "id": "contacts",
+          "component": "RecordTable",
+          "kind": "contact",
+          "query": "sort=name&order=asc&limit=500"
+        }
+      ]
+    },
+    "pipeline": {
+      "data": {
+        "pipeline": {
+          "rows": [],
+          "count": 0,
+          "groups": [],
+          "totals": {}
+        },
+        "open": {
+          "rows": [],
+          "count": 0,
+          "sum": 0
+        },
+        "dealDraft": {
+          "open": false,
+          "title": "",
+          "company": "",
+          "amount": 0,
+          "stage": "prospect",
+          "close": ""
+        },
+        "move": {
+          "open": false,
+          "deal": "",
+          "title": "",
+          "stage": "prospect"
+        }
+      },
+      "bindings": [
+        {
+          "path": "/pipeline",
+          "source": "records:deal?query=pipeline"
+        },
+        {
+          "path": "/open",
+          "source": "records:deal?query=openDeals"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Pipeline",
+          "children": [
+            "stats",
+            "pipelinePanel",
+            "dealDialog",
+            "moveDialog"
+          ],
+          "slots": {
+            "trailing": "headerActions"
+          }
+        },
+        {
+          "id": "headerActions",
+          "component": "Stack",
+          "direction": "horizontal",
+          "gap": "sm",
+          "children": [
+            "newDeal"
+          ]
+        },
+        {
+          "id": "newDeal",
+          "component": "Button",
+          "label": "Deal",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/dealDraft/open",
+                  "value": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "stats",
+          "component": "Grid",
+          "columns": {
+            "base": 2,
+            "md": 4
+          },
+          "gap": "sm",
+          "children": [
+            "statOpen",
+            "statOpenCount",
+            "statWon",
+            "statWinRate"
+          ]
+        },
+        {
+          "id": "statOpen",
+          "component": "StatTile",
+          "label": "Open pipeline",
+          "value": {
+            "call": "formatCurrency",
+            "args": {
+              "value": {
+                "path": "/open/sum"
+              },
+              "currency": "EUR",
+              "decimals": 0,
+              "grouping": true
+            }
+          }
+        },
+        {
+          "id": "statOpenCount",
+          "component": "StatTile",
+          "label": "Open deals",
+          "value": {
+            "call": "formatNumber",
+            "args": {
+              "value": {
+                "path": "/open/count"
+              },
+              "decimals": 0
+            }
+          }
+        },
+        {
+          "id": "statWon",
+          "component": "StatTile",
+          "label": "Won",
+          "tone": "success",
+          "value": {
+            "call": "formatCurrency",
+            "args": {
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].amount, 0) : 0",
+                  "default": 0,
+                  "vars": {
+                    "p": {
+                      "path": "/pipeline"
+                    }
+                  }
+                }
+              },
+              "currency": "EUR",
+              "decimals": 0,
+              "grouping": true
+            }
+          }
+        },
+        {
+          "id": "statWinRate",
+          "component": "StatTile",
+          "label": "Win rate",
+          "value": {
+            "call": "formatPercent",
+            "args": {
+              "decimals": 0,
+              "value": {
+                "call": "expr",
+                "args": {
+                  "expr": "(size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) / max((size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) + (size(p.groups.filter(g, g.stage == 'lost')) > 0 ? orElse(p.groups.filter(g, g.stage == 'lost')[0].n, 0) : 0), 1)",
+                  "default": 0,
+                  "vars": {
+                    "p": {
+                      "path": "/pipeline"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "pipelinePanel",
+          "component": "Stack",
+          "gap": "md",
+          "children": [
+            "stageTable",
+            "openSection"
+          ]
+        },
+        {
+          "id": "stageTable",
+          "component": "Table",
+          "density": "compact",
+          "rowKey": "stage",
+          "emptyText": "No deals yet",
+          "columns": [
+            {
+              "key": "stage",
+              "label": "Stage",
+              "type": "badge"
+            },
+            {
+              "key": "n",
+              "label": "Deals",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "amount",
+              "label": "Value",
+              "type": "currency",
+              "currency": "EUR",
+              "decimals": 0,
+              "align": "end"
+            }
+          ],
+          "rows": {
+            "path": "/pipeline/groups"
+          }
+        },
+        {
+          "id": "openSection",
+          "component": "Section",
+          "title": "Open deals by close date",
+          "count": {
+            "path": "/open/count"
+          },
+          "children": [
+            "openList"
+          ]
+        },
+        {
+          "id": "openList",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "dealRow",
+            "path": "/open/rows",
+            "key": "id"
+          }
+        },
+        {
+          "id": "dealRow",
+          "component": "Row",
+          "title": {
+            "path": "title"
+          },
+          "subtitle": {
+            "path": "company"
+          },
+          "meta": {
+            "call": "expr",
+            "args": {
+              "expr": "c != null && c != '' ? 'closes ' + c : 'no close date'",
+              "default": "",
+              "vars": {
+                "c": {
+                  "path": "close"
+                }
+              }
+            }
+          },
+          "value": {
+            "call": "formatCurrency",
+            "args": {
+              "value": {
+                "path": "amount"
+              },
+              "currency": "EUR",
+              "decimals": 0,
+              "grouping": true
+            }
+          },
+          "pressable": true,
+          "chevron": "right",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/move",
+                  "value": {
+                    "open": true,
+                    "deal": {
+                      "path": "id"
+                    },
+                    "title": {
+                      "path": "title"
+                    },
+                    "stage": {
+                      "path": "stage"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "dealDialog",
+          "component": "Dialog",
+          "title": "New deal",
+          "open": {
+            "path": "/dealDraft/open"
+          },
+          "children": [
+            "dealForm"
+          ]
+        },
+        {
+          "id": "dealForm",
+          "component": "Form",
+          "name": "deal",
+          "children": [
+            "dealFields",
+            "dealActions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "actions.addDeal",
+                "args": {
+                  "title": {
+                    "path": "/dealDraft/title"
+                  },
+                  "company": {
+                    "path": "/dealDraft/company"
+                  },
+                  "amount": {
+                    "path": "/dealDraft/amount"
+                  },
+                  "stage": {
+                    "path": "/dealDraft/stage"
+                  },
+                  "close": {
+                    "path": "/dealDraft/close"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "dealFields",
+          "component": "FieldGroup",
+          "columns": 2,
+          "children": [
+            "dealTitle",
+            "dealCompany",
+            "dealAmount",
+            "dealStage",
+            "dealClose"
+          ]
+        },
+        {
+          "id": "dealTitle",
+          "component": "Input",
+          "label": "Title",
+          "name": "title",
+          "value": {
+            "path": "/dealDraft/title"
+          }
+        },
+        {
+          "id": "dealCompany",
+          "component": "Input",
+          "label": "Company",
+          "name": "company",
+          "placeholder": "The company's name",
+          "value": {
+            "path": "/dealDraft/company"
+          }
+        },
+        {
+          "id": "dealAmount",
+          "component": "NumberField",
+          "label": "Amount",
+          "name": "amount",
+          "min": 0,
+          "step": 100,
+          "unit": "EUR",
+          "value": {
+            "path": "/dealDraft/amount"
+          }
+        },
+        {
+          "id": "dealStage",
+          "component": "Select",
+          "label": "Stage",
+          "name": "stage",
+          "options": [
+            {
+              "label": "Prospect",
+              "value": "prospect"
+            },
+            {
+              "label": "Qualified",
+              "value": "qualified"
+            },
+            {
+              "label": "Proposal",
+              "value": "proposal"
+            },
+            {
+              "label": "Won",
+              "value": "won"
+            },
+            {
+              "label": "Lost",
+              "value": "lost"
+            }
+          ],
+          "value": {
+            "path": "/dealDraft/stage"
+          }
+        },
+        {
+          "id": "dealClose",
+          "component": "DatePicker",
+          "label": "Expected close",
+          "name": "close",
+          "value": {
+            "path": "/dealDraft/close"
+          }
+        },
+        {
+          "id": "dealActions",
+          "component": "FormActions",
+          "submit": "Add deal",
+          "cancel": true,
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/dealDraft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "moveDialog",
+          "component": "Dialog",
+          "title": "Move deal",
+          "open": {
+            "path": "/move/open"
+          },
+          "children": [
+            "moveTitle",
+            "moveStage",
+            "moveActions"
+          ]
+        },
+        {
+          "id": "moveTitle",
+          "component": "Text",
+          "variant": "muted",
+          "text": {
+            "path": "/move/title"
+          }
+        },
+        {
+          "id": "moveStage",
+          "component": "Segmented",
+          "items": [
+            {
+              "label": "Prospect",
+              "value": "prospect"
+            },
+            {
+              "label": "Qualified",
+              "value": "qualified"
+            },
+            {
+              "label": "Proposal",
+              "value": "proposal"
+            },
+            {
+              "label": "Won",
+              "value": "won"
+            },
+            {
+              "label": "Lost",
+              "value": "lost"
+            }
+          ],
+          "value": {
+            "path": "/move/stage"
+          }
+        },
+        {
+          "id": "moveActions",
+          "component": "Toolbar",
+          "slots": {
+            "trailing": "moveBtn"
+          },
+          "children": []
+        },
+        {
+          "id": "moveBtn",
+          "component": "Button",
+          "label": "Move",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "actions.moveDeal",
+                "args": {
+                  "deal": {
+                    "path": "/move/deal"
+                  },
+                  "stage": {
+                    "path": "/move/stage"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "name": "the pipeline per stage",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "query": {
+        "name": "pipeline"
+      },
+      "expect": {
+        "count": 5,
+        "groups": [
+          {
+            "stage": "proposal",
+            "amount": 12000,
+            "n": 1
+          },
+          {
+            "stage": "prospect",
+            "amount": 5000,
+            "n": 1
+          },
+          {
+            "stage": "won",
+            "amount": 3000,
+            "n": 1
+          },
+          {
+            "stage": "lost",
+            "amount": 800,
+            "n": 1
+          },
+          {
+            "stage": "qualified",
+            "amount": 0,
+            "n": 1
+          }
+        ],
+        "totals": {
+          "amount": 20800,
+          "n": 5
+        }
+      }
+    },
+    {
+      "name": "open deals by close date (undated first)",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "query": {
+        "name": "openDeals"
+      },
+      "expect": {
+        "count": 3,
+        "sum": 17000,
+        "rows": [
+          {
+            "id": "d5"
+          },
+          {
+            "id": "d3"
+          },
+          {
+            "id": "d1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a company's deals",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "query": {
+        "name": "companyDeals",
+        "params": {
+          "company": "Globex"
+        }
+      },
+      "expect": {
+        "count": 2,
+        "sum": 5800
+      }
+    },
+    {
+      "name": "won value from the pipeline",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].amount, 0) : 0",
+        "vars": {
+          "p": {
+            "source": "records:deal?query=pipeline"
+          }
+        }
+      },
+      "expect": 3000
+    },
+    {
+      "name": "adding a company defaults to lead",
+      "action": {
+        "name": "addCompany",
+        "params": {
+          "name": "Initech"
+        }
+      },
+      "expect": {
+        "records": {
+          "company": [
+            {
+              "name": "Initech",
+              "domain": null,
+              "stage": "lead",
+              "id": "new-1"
+            }
+          ]
+        },
+        "calls": [
+          {
+            "args": {
+              "message": "Added Initech"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a duplicate company is refused",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "action": {
+        "name": "addCompany",
+        "params": {
+          "name": "Acme"
+        },
+        "data": {
+          "companies": {
+            "rows": [
+              {
+                "name": "Acme"
+              },
+              {
+                "name": "Globex"
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "error": "That company is already in the CRM"
+      }
+    },
+    {
+      "name": "a negative amount is refused",
+      "action": {
+        "name": "addDeal",
+        "params": {
+          "title": "Oops",
+          "company": "Acme",
+          "amount": -1
+        }
+      },
+      "expect": {
+        "error": "A deal's amount is 0 or more"
+      }
+    },
+    {
+      "name": "a deal lands as prospect",
+      "action": {
+        "name": "addDeal",
+        "params": {
+          "title": "Big one",
+          "company": "Acme",
+          "amount": 50000,
+          "close": "2027-01-31"
+        }
+      },
+      "expect": {
+        "records": {
+          "deal": [
+            {
+              "title": "Big one",
+              "stage": "prospect",
+              "amount": 50000,
+              "close": "2027-01-31"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an unknown stage is refused by the params",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "as": "ada",
+      "action": {
+        "name": "moveDeal",
+        "params": {
+          "deal": "d1",
+          "stage": "maybe"
+        }
+      },
+      "expect": {
+        "error": "stage must be one of prospect, qualified, proposal, won, lost"
+      }
+    },
+    {
+      "name": "win rate = won / (won + lost)",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "(size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) / max((size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) + (size(p.groups.filter(g, g.stage == 'lost')) > 0 ? orElse(p.groups.filter(g, g.stage == 'lost')[0].n, 0) : 0), 1)",
+        "vars": {
+          "p": {
+            "source": "records:deal?query=pipeline"
+          }
+        }
+      },
+      "expect": 0.5
+    },
+    {
+      "name": "the author moves her deal",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "as": "ada",
+      "action": {
+        "name": "moveDeal",
+        "params": {
+          "deal": "d1",
+          "stage": "won"
+        }
+      },
+      "expect": {
+        "records": {
+          "deal": [
+            {
+              "id": "d1",
+              "stage": "won"
+            },
+            {},
+            {},
+            {},
+            {}
+          ]
+        },
+        "calls": [
+          {
+            "args": {
+              "message": "Won!"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "another member may not move ada's deal",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "action": {
+        "name": "moveDeal",
+        "params": {
+          "deal": "d1",
+          "stage": "lost"
+        }
+      },
+      "expect": {
+        "error": "write 0: Only the record's author or a team owner can change it"
+      }
+    },
+    {
+      "name": "an owner may move any deal",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "as": "boss",
+      "role": "owner",
+      "action": {
+        "name": "moveDeal",
+        "params": {
+          "deal": "d1",
+          "stage": "lost"
+        }
+      },
+      "expect": {
+        "records": {
+          "deal": [
+            {
+              "id": "d1",
+              "stage": "lost"
+            },
+            {},
+            {},
+            {},
+            {}
+          ]
+        }
+      }
+    },
+    {
+      "name": "companies are team-shared: any member updates one",
+      "records": {
+        "company": [
+          {
+            "id": "c1",
+            "name": "Acme",
+            "domain": "acme.example",
+            "stage": "active",
+            "author": "ada"
+          },
+          {
+            "id": "c2",
+            "name": "Globex",
+            "stage": "lead",
+            "author": "ada"
+          }
+        ],
+        "deal": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "company": "Acme",
+            "amount": 12000,
+            "stage": "proposal",
+            "close": "2026-12-15",
+            "author": "ada"
+          },
+          {
+            "id": "d2",
+            "title": "Acme add-on",
+            "company": "Acme",
+            "amount": 3000,
+            "stage": "won",
+            "close": "2026-10-01",
+            "author": "ada"
+          },
+          {
+            "id": "d3",
+            "title": "Globex pilot",
+            "company": "Globex",
+            "amount": 5000,
+            "stage": "prospect",
+            "close": "2026-11-20",
+            "author": "ada"
+          },
+          {
+            "id": "d4",
+            "title": "Globex training",
+            "company": "Globex",
+            "amount": 800,
+            "stage": "lost",
+            "author": "ada"
+          },
+          {
+            "id": "d5",
+            "title": "Initech intro",
+            "company": "Initech",
+            "amount": 0,
+            "stage": "qualified",
+            "author": "member"
+          }
+        ]
+      },
+      "action": {
+        "name": "setCompanyStage",
+        "params": {
+          "company": "c2",
+          "stage": "active"
+        }
+      },
+      "expect": {
+        "records": {
+          "company": [
+            {
+              "id": "c1"
+            },
+            {
+              "id": "c2",
+              "stage": "active",
+              "author": "ada"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

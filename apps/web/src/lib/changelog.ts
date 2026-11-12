@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-mcp-read-and-write-tools`,
+    date: `2026-11-12`,
+    title: `Exponential's MCP tools come as reads and writes`,
+    summary: `Every MCP tool now comes as a read-only tool plus a _write twin with titles and hints, ready for Claude's connector directory.`,
+    body: `- **Reads and writes apart**: each area of Exponential's MCP server is now two tools, one that only reads (exponential_issues) and a _write twin for changes (exponential_issues_write), so Claude reads without asking and asks before it changes something.
+- **Titles and hints**: every tool carries a title and a read-only or destructive hint, as Claude's connector directory asks for.
+- **Use Exponential in Claude**: a new docs page covers connecting claude.ai, Claude Desktop, the mobile apps and Claude Code.`,
+  },
+  {
     id: `2026-11-12-crash-reports`,
     date: `2026-11-12`,
     title: `Crash reports from the desktop app, the CLI and Exponential Desktop`,

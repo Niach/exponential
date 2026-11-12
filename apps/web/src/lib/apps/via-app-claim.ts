@@ -54,7 +54,8 @@ export async function requestWithViaAppClaim(request: Request, userId: string, a
   const body: unknown = await request.clone().json().catch(() => null)
   const calls = toolCallsOf(body).map((call): ViaAppCall => {
     const op = (call.args as { op?: unknown } | null | undefined)?.op
-    return { tool: call.tool, op: typeof op === `string` ? op : null }
+    // #VAPP-293: a noun's `_write` twin claims as the noun.
+    return { tool: call.tool.replace(/_write$/, ``), op: typeof op === `string` ? op : null }
   })
   if (calls.length === 0) return request
   const appId = await verifiedViaApp(userId, claim, calls, defaultDb, (teamId) => access.full || access.visibleTeamIds.has(teamId))
