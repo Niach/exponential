@@ -248,6 +248,8 @@ class AppEditorViewModel @Inject constructor(
     private val sender: SessionSender,
     private val accessApi: com.exponential.app.data.api.McpSettingsApi,
     @ApplicationContext context: Context,
+    // #FEED-219: the first composer's synced draft.
+    composerDrafts: com.exponential.app.data.composer.ComposerDrafts,
 ) : ViewModel() {
 
     val appId: String = savedStateHandle["appId"] ?: ""
@@ -709,13 +711,49 @@ class AppEditorViewModel @Inject constructor(
         _toast.value = null
     }
 
+    // ── #FEED-219 (composer-draft.json): the first composer (before my
+    // editor session exists) is the synced `app:<appId>` draft.
+    private val _composerText = MutableStateFlow("")
+    val composerText: StateFlow<String> = _composerText
+
+    fun setComposerText(text: String) {
+        _composerText.value = text
+    }
+
+    private val draftBinding = com.exponential.app.data.composer.ComposerDraftBinding(
+        viewModelScope, composerDrafts, _composerText,
+    ) { _composerText.value = it }
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, app.map { it?.teamId }.distinctUntilChanged()) { account, team ->
+                account to team
+            }.collect { (account, team) ->
+                draftBinding.bind(
+                    account,
+                    com.exponential.app.domain.ComposerDraft.Target(com.exponential.app.domain.ComposerDraft.Kind.App, appId),
+                    team,
+                )
+            }
+        }
+    }
+
+    override fun onCleared() {
+        draftBinding.flush()
+        super.onCleared()
+    }
+
     /** The first message: `sessions.send({appId, text, deviceId})` opens my editor session. */
     fun send(text: String, onSent: () -> Unit) {
         if (text.isBlank() || _sending.value) return
         _sending.value = true
+        val sentDraft = draftBinding.bound
         viewModelScope.launch {
             try {
                 sender.send(runnerSend(SessionsSendInput.toApp(appId, text, deviceId.value)))
+                // composer-send.json, then the draft it leaves is written.
+                _composerText.value = com.exponential.app.domain.ComposerSend.textAfterSend(text, _composerText.value)
+                draftBinding.settleSent(sentDraft, text)
                 onSent()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t

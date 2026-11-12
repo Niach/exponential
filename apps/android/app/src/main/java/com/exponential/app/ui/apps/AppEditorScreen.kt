@@ -1041,7 +1041,16 @@ private fun AppChatPane(
             },
         )
     }
-    var text by rememberSaveable { mutableStateOf("") }
+    // #FEED-219: the text is the ViewModel's synced `app:<id>` draft; the
+    // field adopts it only on an outside rewrite (the store's CURRENT value,
+    // never a trailing echo: EXP-1520).
+    var text by remember { mutableStateOf(viewModel.composerText.value) }
+    LaunchedEffect(viewModel) {
+        viewModel.composerText.collect {
+            val stored = viewModel.composerText.value
+            if (stored != text) text = stored
+        }
+    }
     var expanded by rememberSaveable { mutableStateOf(draft) }
     val bottomInset = padding.calculateBottomPadding()
     val placeholder = when {
@@ -1120,7 +1129,7 @@ private fun AppChatPane(
                         ComposerSubmitButton(
                             ExpIcons.uiSubmit,
                             contentDescription = ChatUiCopy.SEND,
-                            onClick = { viewModel.send(text) { text = "" } },
+                            onClick = { viewModel.send(text) {} },
                             enabled = text.isNotBlank() && deviceId != null,
                             sending = sending,
                             modifier = Modifier.testTag("app-composer-submit"),
@@ -1129,7 +1138,10 @@ private fun AppChatPane(
                 ) {
                     GlassTextField(
                         value = text,
-                        onValueChange = { text = it },
+                        onValueChange = {
+                            text = it
+                            viewModel.setComposerText(it)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("app-composer-field")

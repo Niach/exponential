@@ -1,6 +1,9 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.ComposerSend
+import com.exponential.app.domain.ComposerDraft
+import com.exponential.app.data.composer.ComposerDraftBinding
+import com.exponential.app.data.composer.ComposerDrafts
 import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
@@ -174,6 +177,8 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val store: SteerConnectionStore,
     stats: SyncStats,
     selection: com.exponential.app.data.TeamSelection,
+    // #FEED-219: the composer's synced draft.
+    composerDrafts: ComposerDrafts,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -940,6 +945,21 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  reconnect, a back-tap and a rotation alike. */
     val draft: StateFlow<String> = connection.draft
 
+    // #FEED-219 (composer-draft.json): the connection's draft is the synced
+    // `session:<id>` draft, so another device, a relaunch or an evicted
+    // connection shows the text again.
+    private val draftBinding = ComposerDraftBinding(viewModelScope, composerDrafts, connection.draft, connection::setDraft)
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, session.map { it?.teamId }.distinctUntilChanged()) { account, teamId ->
+                account to teamId
+            }.collect { (account, teamId) ->
+                draftBinding.bind(account, ComposerDraft.Target(ComposerDraft.Kind.Session, codingSessionId), teamId)
+            }
+        }
+    }
+
     /**
      * EXP-746: the agent's LIVE configuration behind the composer chips —
      * the options and modes in force, and the commands the agent advertises.
@@ -1269,6 +1289,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
             return
         }
+        val sentDraft = draftBinding.bound
         // EXP-1522: on the store's scope, not the ViewModel's: backing out
         // right after Send must not cancel the upload or the send.
         store.launchDetached {
@@ -1330,6 +1351,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 // field still holds what went out; exactly the sent files
                 // leave, one picked or removed meanwhile is left alone.
                 connection.settleSend(ComposerSend.Outcome.Sent, text, images)
+                // #FEED-219: then the draft the send leaves is written.
+                draftBinding.settleSent(sentDraft, text)
             } finally {
                 _sending.value = false
             }
@@ -1580,6 +1603,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     override fun onCleared() {
+        draftBinding.flush()
         store.release(codingSessionId)
         super.onCleared()
     }

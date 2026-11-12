@@ -98,6 +98,8 @@ class AgentConversationViewModel @Inject constructor(
     private val store: com.exponential.app.data.steer.SteerConnectionStore,
     selection: com.exponential.app.data.TeamSelection,
     private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
+    // #FEED-219: the composer's synced draft.
+    composerDrafts: com.exponential.app.data.composer.ComposerDrafts,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -108,6 +110,39 @@ class AgentConversationViewModel @Inject constructor(
     val agent: StateFlow<AgentDefinitionEntity?> =
         dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(agentId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // ── #FEED-219 (composer-draft.json): the field before the conversation
+    // exists is the synced `agent:<id>` draft (EXP-1520: the screen adopts it
+    // only on an outside rewrite, ComposerDraftSync).
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft
+
+    fun setDraft(text: String) {
+        _draft.value = text
+    }
+
+    private val draftBinding = com.exponential.app.data.composer.ComposerDraftBinding(
+        viewModelScope, composerDrafts, _draft,
+    ) { _draft.value = it }
+
+    init {
+        viewModelScope.launch {
+            combine(auth.activeAccountId, agent.map { it?.teamId }.distinctUntilChanged()) { account, teamId ->
+                account to teamId
+            }.collect { (account, teamId) ->
+                draftBinding.bind(
+                    account,
+                    com.exponential.app.domain.ComposerDraft.Target(com.exponential.app.domain.ComposerDraft.Kind.Agent, agentId),
+                    teamId,
+                )
+            }
+        }
+    }
+
+    override fun onCleared() {
+        draftBinding.flush()
+        super.onCleared()
+    }
 
     // ── #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams pick
     private val _teamsPick = MutableStateFlow<List<String>?>(null)
@@ -290,6 +325,7 @@ class AgentConversationViewModel @Inject constructor(
         if ((text.isBlank() && images.isEmpty()) || _sending.value) return
         val accountId = auth.activeAccountId.value ?: return
         _sending.value = true
+        val sentDraft = draftBinding.bound
         // EXP-1537: on the store's scope, not the ViewModel's: backing out
         // right after Send must not cancel the uploads or the send.
         store.launchDetached {
@@ -323,6 +359,11 @@ class AgentConversationViewModel @Inject constructor(
                         mcpServerIds = mcpSendPick(),
                     ),
                 )
+                // EXP-1537: the field clears only if it still holds what
+                // went out (composer-send.json); #FEED-219: then the draft
+                // it leaves is written.
+                _draft.value = com.exponential.app.domain.ComposerSend.textAfterSend(text, _draft.value)
+                draftBinding.settleSent(sentDraft, text)
                 onSent(text)
                 // Exactly the files that went out leave (composer-send.json).
                 _images.value = com.exponential.app.domain.ComposerSend.settle(
@@ -378,7 +419,11 @@ fun AgentConversationScreen(
         delay(SYNC_GRACE_MS)
         graceOver = true
     }
-    var field by remember { mutableStateOf(TextFieldValue("")) }
+    // EXP-1520 / #FEED-219: the text lives in the ViewModel (the synced
+    // draft); the field adopts it only on an outside rewrite.
+    val draftSync = remember(viewModel) { com.exponential.app.ui.components.ComposerDraftSync(viewModel.draft) }
+    var field by draftSync
+    LaunchedEffect(draftSync) { draftSync.follow {} }
     var expanded by rememberSaveable { mutableStateOf(false) }
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
@@ -526,8 +571,14 @@ fun AgentConversationScreen(
                         // first send creates the conversation.
                         com.exponential.app.ui.session.SteerComposer(
                             value = field,
-                            onValueChange = { field = it },
-                            onValueRewrite = { field = it },
+                            onValueChange = {
+                                field = it
+                                viewModel.setDraft(it.text)
+                            },
+                            onValueRewrite = {
+                                field = it
+                                viewModel.setDraft(it.text)
+                            },
                             pendingImages = images,
                             sending = sending,
                             live = true,
@@ -554,7 +605,10 @@ fun AgentConversationScreen(
                                 // pick inserts the body at the caret.
                                 prompts = promptRows,
                                 onPickPrompt = { prompt ->
-                                    viewModel.loadPrompt(prompt.id) { body -> field = insertAtCaret(field, body) }
+                                    viewModel.loadPrompt(prompt.id) { body ->
+                                        field = insertAtCaret(field, body)
+                                        viewModel.setDraft(field.text)
+                                    }
                                 },
                                 teams = teamsPickState?.let { state ->
                                     com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
@@ -564,10 +618,9 @@ fun AgentConversationScreen(
                             // EXP-1537: the field clears only if it still
                             // holds what went out (composer-send.json).
                             onSend = {
-                                viewModel.send(field.text) { sentText ->
-                                    val next = com.exponential.app.domain.ComposerSend.textAfterSend(sentText, field.text)
-                                    if (next != field.text) field = TextFieldValue(next)
-                                }
+                                // The ViewModel settles the draft; the
+                                // field follows it (ComposerDraftSync).
+                                viewModel.send(field.text) {}
                             },
                             // The model is the agent's until the conversation runs.
                             model = null,
