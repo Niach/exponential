@@ -206,6 +206,9 @@ struct AgentSessionView: View {
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
     @State private var teamsPicked: [String]?
+    /// #EXP-1793: the team's MCP servers for an agent chat's "+" MCP servers
+    /// page (`mcpServers.list`).
+    @State private var mcpServers: [McpServerRow] = []
     /// #EXP-1714: optional, a specimen may mount the view without one.
     @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1736: this session's tree snapshot (the senders' names and
@@ -426,6 +429,7 @@ struct AgentSessionView: View {
                 teamsPicked = ids
             }
             .task(id: session.viaAppId) { await observeViaApp() }
+            .task(id: "\(session.id)|\(model == nil)") { await loadMcpPick() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
             }
@@ -2181,6 +2185,8 @@ struct AgentSessionView: View {
                 onUsage: { showUsageSheet = true },
                 // An ended row takes no `/model` (no Model row in the "+").
                 ended: model.session?.isLive == false,
+                // S-3: an agent's conversation root is an agent chat's "+".
+                surface: session.parentId == nil && !(session.agentId ?? "").isEmpty ? .agent : .session,
                 // S-3: the "+" Issue page searches the session's team.
                 teamId: model.session?.teamId,
                 // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
@@ -2205,6 +2211,7 @@ struct AgentSessionView: View {
                         Task { await model.moveDevice(to: picked) }
                     }
                 },
+                mcp: mcpMenu(model),
                 editor: editorPicks != nil
             ),
             attach: $attach,
@@ -2294,6 +2301,43 @@ struct AgentSessionView: View {
     private func prepareSend(_ model: AgentSessionModel) {
         model.sendScope = teamsPick?.scope
         model.sendAppMove = editorMove
+    }
+
+    /// #EXP-1793 (composer-menu.json `mcpPick`): the agent whose conversation
+    /// ROOT this is, while it is the viewer's own; nil anywhere else (a
+    /// child, another member's conversation, any other session).
+    private var mcpPickAgentId: String? {
+        guard session.parentId == nil, session.userId == deps.auth.userId,
+              let agentId = session.agentId, !agentId.isEmpty
+        else { return nil }
+        return agentId
+    }
+
+    /// The "+" MCP servers page of the viewer's agent conversation root.
+    private func mcpMenu(_ model: AgentSessionModel) -> SessionComposerFooter.McpMenu? {
+        guard mcpPickAgentId != nil, let pick = model.mcpPick else { return nil }
+        return SessionComposerFooter.McpMenu(
+            servers: mcpServers,
+            picked: pick.picked,
+            onChange: { model.mcpPick?.picked = $0 }
+        )
+    }
+
+    /// The team's servers and the conversation's pick (`sessions.mcpPicks`;
+    /// unreadable = the agent's `mcpServerIds`) seed the "+" pick.
+    private func loadMcpPick() async {
+        guard let agentId = mcpPickAgentId, let model else { return }
+        let api = McpServersApi(trpc: deps.trpc)
+        async let servers = try? api.list(accountId: accountId, teamId: session.teamId)
+        async let picks = try? deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: session.id)
+        let (rows, picked) = await (servers, picks)
+        mcpServers = rows ?? []
+        let seed = picked ?? transcriptRows?.agent?.mcpServerIds ?? []
+        if model.mcpPick?.agentId == agentId {
+            model.mcpPick?.reseed(seed)
+        } else {
+            model.mcpPick = AgentChatMcpPick(agentId: agentId, seed: seed)
+        }
     }
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this

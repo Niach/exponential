@@ -292,6 +292,14 @@ final class SessionsApiWireTests: XCTestCase {
         let none = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(skillIds: [])))
         XCTAssertEqual((none["skillIds"] as? [Any])?.count, 0)
         XCTAssertFalse(AgentPatch(skillIds: []).isEmpty)
+
+        // #EXP-1793: the whole MCP server list, an EMPTY one included.
+        let mcp = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(mcpServerIds: ["m-1"])))
+        XCTAssertEqual(mcp.keys.sorted(), ["id", "mcpServerIds"])
+        XCTAssertEqual(mcp["mcpServerIds"] as? [String], ["m-1"])
+        let noMcp = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(mcpServerIds: [])))
+        XCTAssertEqual((noMcp["mcpServerIds"] as? [Any])?.count, 0)
+        XCTAssertFalse(AgentPatch(mcpServerIds: []).isEmpty)
     }
 
     func testPullRequestMergeOmitsAnUnsetStack() throws {

@@ -333,7 +333,8 @@ struct AgentSettingsPage: View {
                 onDelete: isOwner && agentId != nil ? { showDelete = true } : nil,
                 teamId: teamId,
                 agentId: agentId,
-                skillIds: agent?.skillIds ?? []
+                skillIds: agent?.skillIds ?? [],
+                mcpServerIds: agent?.mcpServerIds ?? []
             )
         }
         // EXP-1554: only a NEW agent has a submit; an existing one saves
@@ -585,6 +586,10 @@ struct AgentSettingsForm: View {
     var teamId: String? = nil
     var agentId: String? = nil
     var skillIds: [String] = []
+    /// #EXP-1793: the MCP servers row (with the Skills row's ids).
+    var mcpServerIds: [String] = []
+    /// The team's MCP servers (`mcpServers.list`).
+    @State private var mcpServers: [McpServerRow] = []
 
     private var device: SteerDevice? {
         devices.first { $0.deviceId == draft.deviceId }
@@ -604,6 +609,13 @@ struct AgentSettingsForm: View {
                 // #EXP-1661 (skills.json `agentRow`): right under Device.
                 if let teamId, let agentId {
                     AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: canEdit)
+                    // #EXP-1793 (agent-settings.json `mcpRow`): right under Skills,
+                    // while the team has a server or the agent names one.
+                    if !mcpServers.isEmpty || !mcpServerIds.isEmpty {
+                        AgentMcpServersRow(
+                            agentId: agentId, servers: mcpServers, mcpServerIds: mcpServerIds, canEdit: canEdit
+                        )
+                    }
                 }
             }
             .listRowBackground(glassFormRowFill)
@@ -643,6 +655,7 @@ struct AgentSettingsForm: View {
         .listSectionSpacing(8)
         // EXP-594: white control tint — system blue is retired.
         .tint(DesignTokens.Palette.primary)
+        .modifier(AgentMcpServersLoader(teamId: agentId == nil ? nil : teamId, servers: $mcpServers))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AgentSettings.TestIds.page)
     }
@@ -882,6 +895,103 @@ struct AgentSkillsRow: View {
                     description: error.trpcUserMessage
                 )
             }
+        }
+    }
+}
+
+/// #EXP-1793 (agent-settings.json `mcpRow`): the team MCP servers the
+/// agent's runs start with, `AgentSettings.agentMcpServersValue` (the picked
+/// names in the team's order as the picker summary, None muted at zero)
+/// opening THE composer's MCP server picker; each change saves the whole
+/// list (`agents.update {mcpServerIds}`). Owners edit, members read. Shown
+/// only while the team has a server or the agent names one.
+struct AgentMcpServersRow: View {
+    let agentId: String
+    /// The team's servers (`AgentMcpServersLoader`), in the team's order.
+    let servers: [McpServerRow]
+    /// The synced row's pick.
+    let mcpServerIds: [String]
+    let canEdit: Bool
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+    /// The pick while its write is in flight, until the row echoes it.
+    @State private var pending: [String]?
+
+    /// The pick in the team's order (an id no longer listed drops out).
+    private var picked: [String] {
+        let ids = Set(pending ?? mcpServerIds)
+        return servers.map(\.id).filter { ids.contains($0) }
+    }
+
+    var body: some View {
+        McpServerPicker(
+            servers: servers,
+            value: picked,
+            onChange: { save($0) },
+            title: AgentSettings.McpRow.label,
+            trigger: { label }
+        )
+        .disabled(!canEdit)
+        .accessibilityIdentifier("agent-mcp-servers-row")
+        .onChange(of: mcpServerIds) { _, synced in
+            if synced == pending { pending = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let names = picked.compactMap { id in servers.first { $0.id == id }?.name }
+        if !names.isEmpty {
+            GlassPickerRowLabel(AgentSettings.McpRow.label, value: AgentSettings.agentMcpServersValue(names))
+        } else {
+            // The Skills row's muted `None` look.
+            HStack(spacing: 8) {
+                Text(AgentSettings.McpRow.label)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
+                Text(AgentSettings.agentMcpServersValue([]))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                AppIcon(AppIcons.uiChevronRight, size: 14)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func save(_ next: [String]) {
+        guard canEdit else { return }
+        let previous = pending
+        pending = next
+        Task {
+            do {
+                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(mcpServerIds: next))
+            } catch {
+                if pending == next { pending = previous }
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the MCP servers"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+}
+
+/// #EXP-1793: reads the team's MCP servers (`mcpServers.list`) for the agent
+/// page's MCP servers row; nil `teamId` (a new agent, a specimen) = none.
+struct AgentMcpServersLoader: ViewModifier {
+    let teamId: String?
+    @Binding var servers: [McpServerRow]
+
+    @Environment(AppDependencies.self) private var deps: AppDependencies?
+    @Environment(\.accountId) private var accountId
+
+    func body(content: Content) -> some View {
+        content.task(id: "\(accountId)/\(teamId ?? "")") {
+            guard let teamId, let deps else { return }
+            servers = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         }
     }
 }
