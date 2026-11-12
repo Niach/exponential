@@ -56,6 +56,7 @@ import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startSessionWatchdog } from "@/lib/sessions/watchdog"
+import { startContractStepScheduler } from "@/lib/contract-step-scheduler"
 import { startLiveActivityScheduler } from "@/lib/integrations/live-activities"
 import { startEmcpSchedulers } from "@/lib/emcp/schedulers"
 import { importLegacyMcpOAuthAtBoot } from "@/lib/auth/legacy-mcp-oauth"
@@ -79,6 +80,10 @@ import {
 // server-bun.ts keeps the entire bootstrap module (and its drizzle/pg deps)
 // out of the client bundle.
 void bootstrapCloud()
+
+// #ERR-1: schema drops run as deferred contract steps (db/contract-steps.ts),
+// recorded at boot and applied once the previous container is long gone.
+startContractStepScheduler()
 
 // Self-hosted only: start the outbound PR-merge poller (no-op on cloud, which
 // uses the GitHub webhook at /api/webhooks/github instead).
