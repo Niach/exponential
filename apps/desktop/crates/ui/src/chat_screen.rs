@@ -3038,6 +3038,8 @@ impl ComposerMenuRow {
                 &[Launch, Session, Agent]
             }
             Self::Teams => &[Launch, Agent],
+            // #EXP-1793: an agent chat picks its conversation's servers too.
+            Self::McpServers => &[Launch, Agent],
             _ => &[Launch],
         }
     }
@@ -3054,7 +3056,7 @@ impl ComposerMenuRow {
             Self::Repository => c.temporary && c.repositories,
             Self::Effort => c.temporary,
             Self::Ultracode => c.temporary && c.ultracode,
-            Self::McpServers => c.temporary && c.mcp,
+            Self::McpServers => c.mcp_pick && c.mcp,
             Self::Skills => c.temporary && c.skills,
             Self::ComputerUse => c.temporary && c.computer_use,
         }
@@ -3081,6 +3083,9 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) repositories: bool,
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
+    /// #EXP-1793: the MCP servers pick can change here: launch while
+    /// temporary; an agent chat, always.
+    pub(crate) mcp_pick: bool,
     /// #EXP-1660: the team has at least one skill.
     pub(crate) skills: bool,
     pub(crate) computer_use: bool,
@@ -3109,6 +3114,7 @@ impl ComposerMenuConditions {
             repositories: repositories > 1,
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
+            mcp_pick: temporary,
             skills: options.skills_count > 0,
             computer_use: options.computer_use.is_some(),
             prompts,
@@ -3897,6 +3903,7 @@ mod tests {
             repositories: true,
             ultracode: true,
             mcp: true,
+            mcp_pick: true,
             skills: true,
             computer_use: true,
             prompts: true,
@@ -3916,6 +3923,7 @@ mod tests {
                 repositories: flag("repositories"),
                 ultracode: flag("ultracode"),
                 mcp: flag("mcp"),
+                mcp_pick: flag("mcpPick"),
                 skills: flag("skills"),
                 computer_use: flag("computerUse"),
                 prompts: flag("prompts"),

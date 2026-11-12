@@ -48,6 +48,9 @@ pub struct Agent {
     /// none).
     #[serde(default)]
     pub skill_ids: Option<Vec<String>>,
+    /// #EXP-1793: the team MCP servers every run of the agent starts with.
+    #[serde(default)]
+    pub mcp_server_ids: Option<Vec<String>>,
     #[serde(default)]
     pub owner_id: Option<String>,
     #[serde(default)]
@@ -166,6 +169,9 @@ pub struct UpdateInput {
     /// #EXP-1660: the agent page's Skills pick (`Some(vec![])` = none).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_ids: Option<Vec<String>>,
+    /// #EXP-1793: the agent page's MCP servers pick (`Some(vec![])` = none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_server_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }

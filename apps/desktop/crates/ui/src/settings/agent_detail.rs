@@ -328,6 +328,11 @@ pub struct AgentDetailPane {
     /// #EXP-1732: THE gear's page in a session screen's pane: this agent,
     /// whatever the settings selection says.
     fixed_agent: Option<String>,
+    /// #EXP-1793 (agent-settings.json `mcpRow`): the agent's team's MCP
+    /// servers (`mcpServers.list`, server-only: never a shape) and the team
+    /// they were asked for.
+    mcp: Option<(String, Vec<api::mcp_servers::McpServerListEntry>)>,
+    mcp_requested: Option<String>,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     /// The bench's owner flag (headless has no signed-in member).
@@ -358,7 +363,7 @@ impl AgentDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "skills", "model", "checkIn", "scheduleNew", "triggerAdd", "triggerOpen", "triggerToggle", "triggerMenu", "retry", "delete"] {
+            for name in ["icon", "color", "device", "account", "skills", "mcpServers", "model", "checkIn", "scheduleNew", "triggerAdd", "triggerOpen", "triggerToggle", "triggerMenu", "retry", "delete"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -389,6 +394,8 @@ impl AgentDetailPane {
             generation: 0,
             voice: None,
             fixed_agent: None,
+            mcp: None,
+            mcp_requested: None,
             binding,
             view,
             #[cfg(test)]
@@ -516,6 +523,56 @@ impl AgentDetailPane {
             });
         })
         .detach();
+    }
+
+    /// #EXP-1793: one `mcpServers.list` per team (it carries the viewer's
+    /// own connection to each server, which greys the rows).
+    fn ensure_mcp_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
+        if team_id.is_empty() || self.mcp_requested.as_deref() == Some(team_id) {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.mcp_requested = Some(team_id.to_string());
+        let team = team_id.to_string();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn({
+                    let team = team.clone();
+                    async move { api::mcp_servers::list(&trpc, &team) }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.mcp_requested.as_deref() != Some(team.as_str()) {
+                    return;
+                }
+                match loaded {
+                    Ok(entries) => this.mcp = Some((team, entries)),
+                    Err(err) => log::debug!("[ui] mcpServers.list for the agent page: {err}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The bench's team MCP servers (headless has no server).
+    #[cfg(test)]
+    pub(crate) fn seed_mcp_for_shots(&mut self, team_id: &str, entries: Vec<api::mcp_servers::McpServerListEntry>, cx: &mut gpui::Context<Self>) {
+        self.mcp_requested = Some(team_id.to_string());
+        self.mcp = Some((team_id.to_string(), entries));
+        cx.notify();
+    }
+
+    /// #EXP-1793: the team's MCP servers as the page offers them (team list
+    /// order), `[]` until the list landed.
+    fn team_mcp(&self, team_id: &str) -> &[api::mcp_servers::McpServerListEntry] {
+        match &self.mcp {
+            Some((team, entries)) if team == team_id => entries,
+            _ => &[],
+        }
     }
 
     /// The form as it stands, for the fixture's validation.
@@ -707,6 +764,28 @@ impl AgentDetailPane {
                 let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
                 update_agent(cx, "change", "the agent's skills", api::agents::UpdateInput { skill_ids: Some(ids), ..api::agents::UpdateInput::new(agent_id) });
             }
+            // #EXP-1793 (agent-settings.json `mcpRow`): THE composer's MCP
+            // servers rows: a server the viewer has not connected opens
+            // Settings > MCP servers to connect instead of toggling.
+            "mcpServers" => {
+                let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+                let entries = self.team_mcp(&team_id);
+                let ids: Vec<String> = value.split(',').filter(|id| !id.is_empty()).map(str::to_string).collect();
+                let blocked_new = ids.iter().any(|id| {
+                    !agent.mcp_server_ids.contains(id)
+                        && entries.iter().any(|entry| &entry.config.id == id && crate::launch_options::mcp_block_reason(&entry.connection).is_some())
+                });
+                if blocked_new {
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+                    crate::sidebar::select_settings_section(window, cx, SettingsSection::Mcp);
+                    cx.notify();
+                    return;
+                }
+                // Team list order; at most `mcpRow.max`.
+                let mut picked: Vec<String> = entries.iter().filter(|entry| ids.contains(&entry.config.id)).map(|entry| entry.config.id.clone()).collect();
+                picked.truncate(domain::agent_settings::MCP_ROW_MAX);
+                update_agent(cx, "change", "the agent's MCP servers", api::agents::UpdateInput { mcp_server_ids: Some(picked), ..api::agents::UpdateInput::new(agent_id) });
+            }
             "model" if !value.is_empty() => update_agent(cx, "change", "the Assistant's model", api::agents::UpdateInput { model: Some(Some(value)), ..api::agents::UpdateInput::new(agent_id) }),
             "checkIn" if !value.is_empty() => {
                 let tz = agent.trigger_list().first().and_then(|trigger| trigger["tz"].as_str()).map(str::to_string);
@@ -782,6 +861,12 @@ impl AgentDetailPane {
         let (rows, _) = queries::team_skills(cx, team_id);
         let picked: Vec<&domain::rows::SkillRow> = rows.iter().filter(|skill| agent.skill_ids.iter().any(|id| id == &skill.id)).collect();
         let names: Vec<&str> = picked.iter().map(|skill| skill.name.as_str()).collect();
+        // #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP servers,
+        // team list order; shown while the team has one or the agent names one.
+        let mcp_entries = self.team_mcp(team_id);
+        let mcp_picked: Vec<&api::mcp_servers::McpServerListEntry> = mcp_entries.iter().filter(|entry| agent.mcp_server_ids.contains(&entry.config.id)).collect();
+        let mcp_names: Vec<&str> = mcp_picked.iter().map(|entry| entry.config.name.as_str()).collect();
+        let mcp_shown = !mcp_entries.is_empty() || !agent.mcp_server_ids.is_empty();
         // Schedule rows (web/iOS/Android): the synced triggers.
         let triggers: Vec<Value> = if assistant { Vec::new() } else { trigger_editor::agent_triggers(&agent.id, cx) };
         let trigger_rows: Vec<Value> = triggers
@@ -830,6 +915,9 @@ impl AgentDetailPane {
                     }
                     option
                 }).collect::<Vec<_>>()},
+            "mcpServers": {"value": mcp_picked.iter().map(|entry| entry.config.id.as_str()).collect::<Vec<_>>().join(","), "summary": domain::agent_settings::agent_mcp_servers_value(&mcp_names), "empty": mcp_names.is_empty(),
+                "pick": owner && mcp_shown, "read": !owner && mcp_shown,
+                "options": mcp_entries.iter().map(mcp_option).collect::<Vec<_>>()},
             "model": {"value": domain::agent_settings::assistant_model_value(agent.model.as_deref(), Some(&cli)), "options": models.iter().map(|(label, value)| json!({"label": label, "value": value})).collect::<Vec<_>>()},
             "checkIn": {"value": check_in, "options": domain::agent_settings::ASSISTANT.schedules.iter().map(|preset| json!({"label": preset.label, "value": preset.id})).collect::<Vec<_>>()},
             "noTriggers": trigger_rows.is_empty(),
@@ -864,6 +952,7 @@ impl Render for AgentDetailPane {
         };
         self.sync_selected_agent(&agent, window, cx);
         let team_id = agent.team_id.clone().or_else(|| active_team_id(&self.nav, cx)).unwrap_or_default();
+        self.ensure_mcp_loaded(&team_id, cx);
         let projection = self.project(&agent, &team_id, cx);
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         let page = div().w_full().min_w_0().child(self.view.clone());
@@ -890,6 +979,11 @@ struct PanePlugin {
 
 impl HostPlugin for PanePlugin {
     fn icon(&self, name: &str) -> Option<SharedString> {
+        // #EXP-1793: an MCP server's catalog brand mark (THE picker's glyph).
+        if let Some(slug) = name.strip_prefix(MCP_BRAND_PREFIX) {
+            use gpui_component::IconNamed as _;
+            return crate::icons::registry::brand::by_slug(slug).map(|icon| icon.path());
+        }
         self.inner.icon(name)
     }
 
@@ -924,6 +1018,41 @@ fn skills_rows(ink: &Ink) -> [Value; 2] {
     let mut pick = select_row("skills", label, "skills", "skills", json!({"multiple": true, "searchable": true, "placeholder": domain::skills::agent_skills_value(&[])}));
     pick["visible"] = path("/pane/owner");
     [pick, value_row(ink, "skills_read", path("/pane/member"), label, path("/pane/skills/summary"), path("/pane/skills/empty"))]
+}
+
+/// #EXP-1793: an MCP server's catalog brand as a document icon name (the
+/// plugin resolves it).
+const MCP_BRAND_PREFIX: &str = "mcp-brand:";
+
+/// #EXP-1793: one MCP servers option as THE composer's picker draws it (the
+/// server's mark, its name, the host or command; a server the viewer has
+/// not connected says so, `launch_options::mcp_block_reason`).
+fn mcp_option(entry: &api::mcp_servers::McpServerListEntry) -> Value {
+    let config = &entry.config;
+    let url = config.url.as_deref().filter(|url| !url.trim().is_empty());
+    let icon = match crate::picker::mcp_server_picker::mcp_catalog_entry_for(url).filter(|catalog| crate::icons::registry::brand::by_slug(catalog.mark).is_some()) {
+        Some(catalog) => format!("{MCP_BRAND_PREFIX}{}", catalog.mark),
+        None if url.is_none() && config.command.as_deref().is_some_and(|command| !command.trim().is_empty()) => "session-shell".to_string(),
+        None => "ui-mcp".to_string(),
+    };
+    let description = crate::launch_options::mcp_block_reason(&entry.connection)
+        .or_else(|| crate::picker::mcp_server_picker::mcp_host(url))
+        .or_else(|| config.command.clone().filter(|command| !command.is_empty()));
+    let mut option = json!({"label": config.name, "value": config.id, "icon": icon});
+    if let Some(description) = description {
+        option["description"] = json!(description);
+    }
+    option
+}
+
+/// #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row (owners
+/// pick, members read), shown while the team has a server or the agent
+/// names one.
+fn mcp_rows(ink: &Ink) -> [Value; 2] {
+    let label = domain::agent_settings::MCP_ROW_LABEL;
+    let mut pick = select_row("mcp_servers", label, "mcpServers", "mcpServers", json!({"multiple": true, "searchable": true, "placeholder": domain::agent_settings::agent_mcp_servers_value(&[])}));
+    pick["visible"] = path("/pane/mcpServers/pick");
+    [pick, value_row(ink, "mcp_servers_read", path("/pane/mcpServers/read"), label, path("/pane/mcpServers/summary"), path("/pane/mcpServers/empty"))]
 }
 
 /// The Instructions card: the chrome-less field in a glass group, its label
@@ -963,12 +1092,15 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     let copy = &domain::agent_settings::ASSISTANT.copy;
     // The agent page.
     let [skills_pick, skills_read] = skills_rows(ink);
+    let [mcp_pick, mcp_read] = mcp_rows(ink);
     let [account_pick, account_none] = account_rows(ink);
     let [schedule_none, schedule_head, trigger_list] = schedule_rows(ink, chrome);
     let mut first = vec![identity(ink)];
     first.extend(divided(ink, device_row()));
     first.extend(divided(ink, skills_pick.clone()));
     first.extend(divided(ink, skills_read.clone()));
+    first.extend(divided(ink, mcp_pick.clone()));
+    first.extend(divided(ink, mcp_read.clone()));
     let mut second = vec![account_pick.clone(), account_none.clone()];
     second.extend(divided(ink, schedule_none));
     second.extend(divided(ink, schedule_head));
@@ -992,6 +1124,8 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     runs_on.extend(divided(ink, select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({}))));
     runs_on.extend(divided(ink, skills_pick));
     runs_on.extend(divided(ink, skills_read));
+    runs_on.extend(divided(ink, mcp_pick));
+    runs_on.extend(divided(ink, mcp_read));
     let assistant_page = json!({"id": "assistant_page", "component": "Box", "visible": path("/pane/assistant"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.), "width": "100%", "minWidth": 0},
         "children": [
             ink.group("assistant_identity_group", vec![assistant_identity(ink, chrome)]),

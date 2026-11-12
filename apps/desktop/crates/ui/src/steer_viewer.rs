@@ -487,6 +487,11 @@ pub(crate) struct SteerSessionView {
     mcp: Option<SessionMcp>,
     mcp_requested: bool,
     mcp_attempts: u8,
+    /// #EXP-1793 (composer-menu.json `mcpPick`): an agent chat's "+" ›
+    /// MCP servers pick while it differs from the conversation's (the
+    /// seed, [`SessionMcp::picks`]); it rides the next send as
+    /// `mcpServerIds`. `None` = the seed.
+    mcp_draft: Option<Vec<String>>,
     /// EXP-1334: the option picks ahead of their synced row (web
     /// `useSessionComposerOptions`' overrides): read before the row, dropped
     /// once the row says the same (never on a DISPATCHER root, whose picks
@@ -883,6 +888,7 @@ impl SteerSessionView {
             mcp: None,
             mcp_requested: false,
             mcp_attempts: 0,
+            mcp_draft: None,
             option_picks: OptionPicks::default(),
             configure_queue: std::collections::VecDeque::new(),
             configure_busy: false,
@@ -3939,9 +3945,12 @@ impl SteerSessionView {
         // them), or the move's `{appId, deviceId, …}`.
         let editor_picks = self.editor_runner.as_ref().map(|runner| runner.picks.clone());
         let editor_move = (editor_move, editor_picks);
+        // #EXP-1793: an agent chat's changed MCP servers pick rides the send.
+        let mcp_ids = self.mcp_send_ids();
         if self.pending_images.is_empty() {
             let mut input = Self::message_input(&editor_move, &self.session_id, &text, Vec::new());
             input.scope_team_ids = scope;
+            input.mcp_server_ids = mcp_ids;
             self.post_message(input, sent, window, cx);
             return;
         }
@@ -3962,6 +3971,7 @@ impl SteerSessionView {
         let mut probe = api::sessions::SendInput::message(&session_id, &text, Vec::new());
         probe.text = Some(text.clone());
         let plan = crate::sealing::plan_send(&probe, cx);
+        let mcp_settle = mcp_ids.clone();
         self.sending = true;
         cx.notify();
         // EXP-1537: the uploads AND the send run in one background job that
@@ -3978,6 +3988,7 @@ impl SteerSessionView {
                     let ids = resolved.iter().map(|(_, id, _)| id.clone()).collect();
                     let mut input = Self::message_input(&editor_move, &session_id, &message, ids);
                     input.scope_team_ids = scope;
+                    input.mcp_server_ids = mcp_ids.clone();
                     match crate::sealing::send_blocking(&trpc, &input, &plan) {
                         Ok(_) => Ok(()),
                         Err(err) => Err(composer_images::UploadSendError::Send(resolved, err)),
@@ -3987,7 +3998,12 @@ impl SteerSessionView {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 match outcome {
-                    Ok(()) => this.settle_sent(&sent, window, cx),
+                    Ok(()) => {
+                        if let Some(ids) = mcp_settle {
+                            this.mcp_sent(ids);
+                        }
+                        this.settle_sent(&sent, window, cx)
+                    }
                     Err(composer_images::UploadSendError::Upload(resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
                         this.pending_images.note_uploaded(&resolved);
@@ -4090,6 +4106,8 @@ impl SteerSessionView {
             return;
         };
         let plan = crate::sealing::plan_send(&input, cx);
+        // #EXP-1793: a carried MCP servers pick is the conversation's once in.
+        let mcp_settle = input.mcp_server_ids.clone();
         self.sending = true;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -4100,7 +4118,12 @@ impl SteerSessionView {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 match result {
-                    Ok(_) => this.settle_sent(&sent, window, cx),
+                    Ok(_) => {
+                        if let Some(ids) = mcp_settle {
+                            this.mcp_sent(ids);
+                        }
+                        this.settle_sent(&sent, window, cx)
+                    }
                     Err(err) => crate::action_error::failed_action_err("send", "the message", &err, cx),
                 }
                 cx.notify();
@@ -4573,6 +4596,11 @@ struct SessionMcp {
     servers: Vec<(String, String, bool)>,
     /// The session's pick (sorted ids).
     picks: Vec<String>,
+}
+
+/// #EXP-1793: two MCP server picks hold the same servers (order aside).
+fn same_ids(a: &[String], b: &[String]) -> bool {
+    a.len() == b.len() && a.iter().all(|id| b.contains(id))
 }
 
 /// EXP-1334: how many times the "+" menu's MCP row may be loaded before the
@@ -8468,7 +8496,9 @@ impl SteerSessionView {
     /// times in all, so one bad request does not hide the row for the life
     /// of the view.
     fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.mcp_requested || self.mcp_attempts >= MCP_LOAD_ATTEMPTS || !self.configurable() {
+        // #EXP-1793: an agent chat's "+" › MCP servers reads them too.
+        let agent_pick = self.agent_chat() && self.may_message;
+        if self.mcp_requested || self.mcp_attempts >= MCP_LOAD_ATTEMPTS || !(self.configurable() || agent_pick) {
             return;
         }
         let Some(team_id) = self.row.as_ref().and_then(|row| row.team_id.clone()) else {
@@ -8523,6 +8553,52 @@ impl SteerSessionView {
             });
         })
         .detach();
+    }
+
+    /// #EXP-1793: an agent's conversation (the composer's `agent` surface).
+    pub(crate) fn agent_chat(&self) -> bool {
+        self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty())
+    }
+
+    /// #EXP-1793: the agent chat's MCP servers pick as the "+" shows it
+    /// (the draft, else the conversation's own), team list order.
+    pub(crate) fn mcp_pick(&self) -> Vec<String> {
+        let Some(mcp) = self.mcp.as_ref() else { return Vec::new() };
+        let picked = self.mcp_draft.as_ref().unwrap_or(&mcp.picks);
+        mcp.servers.iter().filter(|(id, _, _)| picked.contains(id)).map(|(id, _, _)| id.clone()).collect()
+    }
+
+    /// #EXP-1793: toggle `id` in the agent chat's pick; a pick equal to the
+    /// conversation's drops the draft.
+    pub(crate) fn toggle_mcp_pick(&mut self, id: &str) {
+        let Some(mcp) = self.mcp.as_ref() else { return };
+        let mut next = self.mcp_pick();
+        match next.iter().position(|picked| picked == id) {
+            Some(at) => {
+                next.remove(at);
+            }
+            None if mcp.servers.iter().any(|(server, _, _)| server == id) => next.push(id.to_string()),
+            None => return,
+        }
+        let next: Vec<String> = mcp.servers.iter().filter(|(server, _, _)| next.contains(server)).map(|(server, _, _)| server.clone()).collect();
+        self.mcp_draft = (!same_ids(&next, &mcp.picks)).then_some(next);
+    }
+
+    /// #EXP-1793: what the next send carries as `mcpServerIds`: the pick
+    /// while it differs from the conversation's (`[]` clears), else nothing.
+    fn mcp_send_ids(&self) -> Option<Vec<String>> {
+        let mcp = self.mcp.as_ref()?;
+        self.mcp_draft.clone().filter(|draft| !same_ids(draft, &mcp.picks))
+    }
+
+    /// #EXP-1793: a send carried `ids`: they are the conversation's now.
+    fn mcp_sent(&mut self, ids: Vec<String>) {
+        if let Some(mcp) = self.mcp.as_mut() {
+            mcp.picks = ids;
+        }
+        if self.mcp_draft.as_ref().zip(self.mcp.as_ref()).is_some_and(|(draft, mcp)| same_ids(draft, &mcp.picks)) {
+            self.mcp_draft = None;
+        }
     }
 
     /// EXP-1334 — `sessions.configure` from outside the view (a menu row):

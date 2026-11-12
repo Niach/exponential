@@ -217,6 +217,8 @@ pub(crate) enum PlusAction {
     /// A login (a session's switch, or an editor's next send).
     Account(String),
     Model(String),
+    /// #EXP-1793: an agent chat's MCP server toggled.
+    McpServer(String),
 }
 
 pub(crate) fn plus_action(value: &str) -> Option<PlusAction> {
@@ -229,6 +231,7 @@ pub(crate) fn plus_action(value: &str) -> Option<PlusAction> {
         (d::PLUS_DEVICE, Some(id)) => PlusAction::Device(id.to_string()),
         (d::PLUS_ACCOUNT, Some(id)) => PlusAction::Account(id.to_string()),
         (d::PLUS_MODEL, Some(id)) => PlusAction::Model(id.to_string()),
+        (d::PLUS_MCP_SERVERS, Some(id)) => PlusAction::McpServer(id.to_string()),
         _ => return None,
     })
 }
@@ -705,9 +708,13 @@ impl SteerSessionView {
         let account_switch = self.composer_account_switch(cx);
         let editor_runner = self.editor_runner.as_ref().filter(|_| !self.configurable());
         let to_assistant = self.to_assistant(cx);
+        // #EXP-1793: an agent chat's MCP servers (the conversation's pick).
+        let mcp_servers = self.mcp.as_ref().map(|mcp| mcp.servers.as_slice()).unwrap_or_default();
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
+                mcp: !mcp_servers.is_empty(),
+                mcp_pick: surface == ComposerSurface::Agent,
                 device: self.editor_device.is_some(),
                 account: account_switch.is_some() || editor_runner.is_some(),
                 model: self.configurable() || editor_runner.is_some(),
@@ -823,6 +830,25 @@ impl SteerSessionView {
                     let items = models.iter().map(|(label, value)| ChatPlusItem { label: (*label).to_string(), value: (*value).to_string(), checked: Some(picked == *value), ..Default::default() }).collect();
                     let detail = models.iter().find(|(_, value)| *value == picked).map(|(label, _)| (*label).to_string()).unwrap_or_else(|| crate::steer_viewer::model_label(&picked));
                     ChatPlusRow { detail, ..submenu(d::PLUS_MODEL, items, false) }
+                }
+                // #EXP-1793: THE multi picker rows over the team's servers; a
+                // server the viewer has not connected says so (a pick opens
+                // Settings › MCP servers); the value = the number picked.
+                Row::McpServers => {
+                    let picked = self.mcp_pick();
+                    let items = mcp_servers
+                        .iter()
+                        .map(|(id, name, blocked)| ChatPlusItem {
+                            label: name.clone(),
+                            value: id.clone(),
+                            icon: Some("ui-mcp".into()),
+                            checked: Some(picked.contains(id)),
+                            detail: blocked.then(|| crate::launch_options::MCP_CONNECT_FIRST.to_string()),
+                            ..Default::default()
+                        })
+                        .collect();
+                    let detail = if picked.is_empty() { String::new() } else { picked.len().to_string() };
+                    ChatPlusRow { detail, ..submenu(d::PLUS_MCP_SERVERS, items, false) }
                 }
                 // Launch-only rows never reach a session's surface.
                 _ => continue,
@@ -1003,6 +1029,19 @@ impl SteerSessionView {
                         on_account(option, window, cx);
                     }
                 }
+            }
+            PlusAction::McpServer(id) => {
+                let blocked = self.mcp.as_ref().is_some_and(|mcp| mcp.servers.iter().any(|(server, _, blocked)| server == &id && *blocked));
+                let picked = self.mcp_pick().contains(&id);
+                if blocked && !picked {
+                    // composer-menu.json: a server not connected opens
+                    // Settings › MCP servers instead of toggling.
+                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+                    crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Mcp);
+                    return;
+                }
+                self.toggle_mcp_pick(&id);
+                cx.notify();
             }
             PlusAction::Model(value) => {
                 if self.configurable() {

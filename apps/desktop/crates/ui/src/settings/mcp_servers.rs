@@ -577,13 +577,11 @@ impl McpServersPane {
     ) {
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
-        let field = config
-            .secret_names()
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "Key".to_string());
+        // #EXP-1793: one masked field per declared header/env name.
+        let names: Vec<String> = config.secret_names().to_vec();
+        let fields = if names.is_empty() { vec!["Key".to_string()] } else { names.clone() };
         // The alert is a layer in this window: the body mounts on it.
-        let content = cx.new(|cx| KeyContent::new(&field, "", window, cx));
+        let content = cx.new(|cx| KeyContent::new(&fields, &[], window, cx));
         let ok_content = content.clone();
         let focus_view = content.clone();
         let server_id = config.id.clone();
@@ -595,10 +593,15 @@ impl McpServersPane {
         )
         .content(move |_, _| content.clone().into_any_element())
         .on_ok(move |_, cx| {
-            let value = ok_content.read(cx).typed(cx).trim().to_string();
-            if value.is_empty() {
+            let typed: Vec<String> = ok_content.read(cx).typed(cx).into_iter().map(|value| value.trim().to_string()).collect();
+            if typed.iter().any(String::is_empty) {
                 return false;
             }
+            // `{values}` keyed by name (the server keeps them so); a server
+            // that declares none takes the lone `{value}`.
+            let values: Option<std::collections::BTreeMap<String, String>> =
+                (!names.is_empty()).then(|| names.iter().cloned().zip(typed.iter().cloned()).collect());
+            let value = typed.first().cloned().unwrap_or_default();
             let (Some(trpc), Some(pane)) = (queries::trpc_client(cx), pane.upgrade()) else {
                 return true;
             };
@@ -611,7 +614,12 @@ impl McpServersPane {
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { api::mcp_servers::set_secret(&trpc, &server_id, &value) })
+                    .spawn(async move {
+                        match values {
+                            Some(values) => api::mcp_servers::set_secret_values(&trpc, &server_id, &values),
+                            None => api::mcp_servers::set_secret(&trpc, &server_id, &value),
+                        }
+                    })
                     .await;
                 let _ = pane.update(cx, |this, cx| {
                     this.pending = None;
@@ -1183,32 +1191,58 @@ impl Render for McpServersPane {
 
 /// The Set key alert's body (#EXP-1629: an eUI document, web
 /// `SecretDialog`): the secret's name (`text_xs` muted) over the masked
-/// boxed field (`web_input_sm`), `gap_1` under the description's `mt_2`.
-/// Its own entity so the alert reads the field's live text on Save.
+/// boxed field (`web_input_sm`), `gap_1` under the description's `mt_2`;
+/// #EXP-1793: one such pair per declared name. Its own entity so the alert
+/// reads the fields' live text on Save.
 pub(crate) struct KeyContent {
     view: Entity<SurfaceView>,
+    /// How many fields the body holds (one per declared name).
+    count: usize,
+}
+
+/// The field id (and bound key) of the `index`th name: the first keeps
+/// the single-name body's `value`.
+fn key_field_id(index: usize) -> String {
+    if index == 0 {
+        "value".to_string()
+    } else {
+        format!("value_{index}")
+    }
 }
 
 impl KeyContent {
-    /// `typed`: the field's bound text (only the bench writes one).
-    fn new(field: &str, typed: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    /// `typed`: the fields' bound text (only the bench writes any).
+    fn new(fields: &[String], typed: &[&str], window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut state = serde_json::Map::new();
+        for index in 0..fields.len().max(1) {
+            state.insert(key_field_id(index), json!(typed.get(index).copied().unwrap_or_default()));
+        }
         let binding = cx.new(|_| {
-            let mut binding = Binding::new(PATH, json!({"value": typed}), |state: &Value, _| state.clone());
+            let mut binding = Binding::new(PATH, Value::Object(state), |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
             binding
         });
-        let view = super::doc::mount("mcp-server-key", key_document(&Ink::of(cx), field), &binding, window, cx);
-        Self { view }
+        let view = super::doc::mount("mcp-server-key", key_document(&Ink::of(cx), fields), &binding, window, cx);
+        Self { view, count: fields.len().max(1) }
     }
 
     #[cfg(test)]
     pub(crate) fn for_shots(field: &str, typed: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        Self::new(field, typed.unwrap_or_default(), window, cx)
+        Self::new(&[field.to_string()], &typed.into_iter().collect::<Vec<_>>(), window, cx)
     }
 
-    /// The key as typed (the field's live text, never a debounced echo).
-    fn typed(&self, cx: &App) -> String {
-        self.view.read(cx).field_text("value.field", cx).unwrap_or_default()
+    /// #EXP-1793: a server that declares several names.
+    #[cfg(test)]
+    pub(crate) fn for_shots_many(fields: &[&str], typed: &[&str], window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::new(&fields.iter().map(|field| field.to_string()).collect::<Vec<_>>(), typed, window, cx)
+    }
+
+    /// The keys as typed, one per field (the fields' live text, never a
+    /// debounced echo).
+    fn typed(&self, cx: &App) -> Vec<String> {
+        (0..self.count)
+            .map(|index| self.view.read(cx).field_text(&format!("{}.field", key_field_id(index)), cx).unwrap_or_default())
+            .collect()
     }
 }
 
@@ -1220,12 +1254,31 @@ impl Render for KeyContent {
 }
 
 /// The Set key body's tree (`gap_1`, `mt_2` as the root's top padding):
-/// the secret's name, the masked field.
-fn key_document(ink: &Ink, field: &str) -> Value {
-    let input = json!({"id": "value", "component": "Input", "props": {"type": "password", "variant": "box", "size": "sm", "label": field, "name": "value", "placeholder": "Paste the key", "value": path("/pane/value")},
-        "style": {"width": "100%"}});
-    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25), "paddingTop": ink.r(0.5)},
-        "children": [ink.text("label", json!(field), XS, &ink.muted), input]})
+/// the secret's name, the masked field. #EXP-1793: several names = one
+/// such pair per name (`gap_3` between them).
+fn key_document(ink: &Ink, fields: &[String]) -> Value {
+    let pair = |index: usize, field: &str| -> [Value; 2] {
+        let id = key_field_id(index);
+        let label = if index == 0 { "label".to_string() } else { format!("label_{index}") };
+        let input = json!({"id": id, "component": "Input", "props": {"type": "password", "variant": "box", "size": "sm", "label": field, "name": id, "placeholder": "Paste the key", "value": path(&format!("/pane/{id}"))},
+            "style": {"width": "100%"}});
+        [ink.text(&label, json!(field), XS, &ink.muted), input]
+    };
+    if fields.len() <= 1 {
+        let field = fields.first().map(String::as_str).unwrap_or("Key");
+        return json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25), "paddingTop": ink.r(0.5)},
+            "children": pair(0, field)});
+    }
+    let groups: Vec<Value> = fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            json!({"id": format!("field_{index}"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.25)},
+                "children": pair(index, field)})
+        })
+        .collect();
+    json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingTop": ink.r(0.5)},
+        "children": groups})
 }
 
 /// The Disconnect / Remove alerts' body (#EXP-1629: an eUI document): the
@@ -1275,7 +1328,7 @@ mod tests {
     #[test]
     fn the_alert_documents_raise_no_unexpected_issue() {
         let ink = super::super::readiness::tests::test_ink();
-        for (id, tree) in [("mcp-server-key", key_document(&ink, "STRIPE_API_KEY")), ("mcp-server-name", name_document(&ink))] {
+        for (id, tree) in [("mcp-server-key", key_document(&ink, &["STRIPE_API_KEY".to_string()])), ("mcp-server-key-many", key_document(&ink, &["X-Api-Key".to_string(), "X-Org".to_string()])), ("mcp-server-name", name_document(&ink))] {
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new(id, Default::default());
             let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
