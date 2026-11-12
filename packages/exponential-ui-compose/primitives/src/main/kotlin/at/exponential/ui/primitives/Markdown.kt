@@ -357,8 +357,11 @@ interface MarkdownTextMeasure {
     fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float = widestWord(inlines, spec)
 }
 
-/** A placed block: its top, height and (tables) each row's height, header first. */
-data class MarkdownBlockBox(val y: Float, val height: Float, val rows: List<Float>)
+/**
+ * A placed block: its top, height and (tables) each row's height, header
+ * first, and #FEED-224 each column's CONTENT width ([Markdown.tableColumns]).
+ */
+data class MarkdownBlockBox(val y: Float, val height: Float, val rows: List<Float>, val cols: List<Float> = emptyList())
 
 /** The laid-out document: one box per block and the total height. */
 data class MarkdownLayout(val blocks: List<MarkdownBlockBox>, val height: Float)
@@ -1214,6 +1217,7 @@ object Markdown {
             y += s.gapBefore(blocks, i)
             val spec = s.spec(b.kind)
             val rows = ArrayList<Float>()
+            var cols: List<Float> = emptyList()
             val height: Float = when (val k = b.kind) {
                 MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.height(b.inlines, spec, max(width, 1f), s.chip)
                 is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listInset(k.depth), 1f), s.chip)
@@ -1223,18 +1227,18 @@ object Markdown {
                 MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * (s.codePad + s.codeBorder)
                 MarkdownBlockKind.Rule -> 1f
                 is MarkdownBlockKind.Table -> {
-                    val cols = maxOf(k.header.size, k.rows.maxOfOrNull { it.size } ?: 0, 1)
-                    val cellW = max(width / cols - 2 * s.cellPadH, 1f)
+                    // #FEED-224: each column its fitted width, not an equal share.
+                    cols = tableColumns(k, s, width, text)
                     // #EXP-1728: the header row wraps in the semibold it paints in.
                     val head = s.body.copy(weight = maxOf(s.body.weight, 600))
                     for ((r, row) in (listOf(k.header) + k.rows).withIndex()) {
-                        val h = row.map { text.height(it, if (r == 0) head else s.body, cellW, s.chip) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
+                        val h = row.mapIndexed { c, cell -> text.height(cell, if (r == 0) head else s.body, max(cols.getOrElse(c) { 1f }, 1f), s.chip) }.fold(s.body.lineHeight) { a, x -> max(a, x) }
                         rows.add(h + 2 * s.cellPadV + 1)
                     }
                     rows.sum() + 1
                 }
             }
-            out.add(MarkdownBlockBox(y, height, rows))
+            out.add(MarkdownBlockBox(y, height, rows, cols))
             y += height
         }
         return MarkdownLayout(out, y)
@@ -1284,6 +1288,36 @@ object Markdown {
         return if (best > 0f) best else limit
     }
 
+    /** A table's column count. */
+    fun tableColumnCount(k: MarkdownBlockKind.Table): Int = maxOf(k.header.size, k.rows.maxOfOrNull { it.size } ?: 0, 1)
+
+    /**
+     * #FEED-224 (`fixtures/table-fit.json`): each column's CONTENT width in a
+     * box [width] wide (whole px): each column's min (its widest unbreakable
+     * piece, a chip whole) and max (its widest cell on one line), over the
+     * header in its semibold and the body, through [MarkdownTableFit]; the
+     * cells' horizontal paddings come off the box (no vertical borders).
+     */
+    fun tableColumns(k: MarkdownBlockKind.Table, s: MarkdownStyles, width: Float, text: MarkdownTextMeasure): List<Float> {
+        val n = tableColumnCount(k)
+        val head = s.body.copy(weight = maxOf(s.body.weight, 600))
+        val mins = DoubleArray(n)
+        val maxs = DoubleArray(n)
+        for ((r, row) in (listOf(k.header) + k.rows).withIndex()) {
+            val spec = if (r == 0) head else s.body
+            for ((c, cell) in row.withIndex()) {
+                if (c >= n || cell.all { it.text.isEmpty() }) continue
+                mins[c] = maxOf(mins[c], text.widestWord(cell, spec, s.chip).toDouble())
+                maxs[c] = maxOf(maxs[c], text.width(cell, spec, s.chip).toDouble())
+            }
+        }
+        val available = width.toDouble() - n * 2 * s.cellPadH
+        return MarkdownTableFit.fit((0 until n).map { MarkdownTableFit.Column(mins[it], maxs[it]) }, available).map { it.toFloat() }
+    }
+
+    /** #FEED-224: a table's painted width from its column content widths. */
+    fun tableWidth(cols: List<Float>, s: MarkdownStyles): Float = cols.sumOf { (it + 2 * s.cellPadH).toDouble() }.toFloat()
+
     /** An audio attachment's max-content width (the AudioPlayer's). */
     const val AUDIO_INTRINSIC_WIDTH = 300f
 
@@ -1309,11 +1343,8 @@ object Markdown {
                     (first.text.split("\n").maxOfOrNull { text.width(listOf(MarkdownInline(text = it, code = true)), spec) } ?: 0f) + 2 * (s.codePad + s.codeBorder)
                 }
                 MarkdownBlockKind.Rule -> 0f
-                is MarkdownBlockKind.Table -> {
-                    val cols = max(k.header.size, 1).toFloat()
-                    val widest = (listOf(k.header) + k.rows).flatten().maxOfOrNull { text.width(it, s.body, s.chip) } ?: 0f
-                    cols * (widest + 2 * s.cellPadH)
-                }
+                // #FEED-224: every column on one line.
+                is MarkdownBlockKind.Table -> tableWidth(tableColumns(k, s, Float.POSITIVE_INFINITY, text), s)
             }
         }
         return widths.maxOrNull()?.let { ceil(it) } ?: 0f

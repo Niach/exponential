@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown tables fit their columns (#FEED-224): `MarkdownTableFit` (`fixtures/table-fit.json`, `MarkdownTableFitTest`) replaces the equal shares; `MarkdownBlockBox.cols` carries each column's content width; a short table hugs its content, one wider than the box scrolls horizontally.
 - Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): a cut keeping fewer than `MIDDLE_MIN_KEPT` (4, start + end together) shows the `…` alone, so a nearly-gone run never reads as stray glyphs; `TextTruncateTest` replays the fixture's new cases.
 - `accessibility.selected` / `.expanded` (#EXP-1629): `selected`, the expand / collapse actions (unchanged painter, the core now accepts the keys); `A11yStatesTest` replays the fixture.
 - Input / Textarea `style.color` (#EXP-1787): the typed text takes the field's ink (the core's authored colour); the caret stays the `field` recipe's (`fieldCaretInk`, a `row` at its 70%), the placeholder its part's (`InteractionTest.fieldInkColoursOnlyTheTypedText`).

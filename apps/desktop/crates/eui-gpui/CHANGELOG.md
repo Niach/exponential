@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Markdown tables fit their columns (#FEED-224): `markdown::table_columns` through `eui_core::table_fit` instead of equal shares (fitted once from the chips at their natural widths, each cell's chips then capped at its column; `Block::table_cols`, `BlockBox::cols`); a short table hugs its content, one wider than the box scrolls horizontally (`restrict_scroll_to_axis`, the page keeps the vertical wheel).
 - Text `truncate: "middle"` cuts by the shared rule (#EXP-1789): the line is `eui_core::text_truncate::middle_truncate_width` over the content box, each character measured by its advance in the leaf's font (`natives::middle_cut`), painted as is, no longer gpui's `text_ellipsis_middle`; a cut keeping fewer than 4 characters shows the `…` alone. `natives::text_lines` takes the `Window`.
 - Input / Textarea `style.color` (#EXP-1787): the field's ink (the core's authored colour) is the gpui-component input's `text_color`; its placeholder (`muted_foreground`) and caret stay the editor style's (`tests/interaction.rs` fieldInk).
 - Style key `fontVariantNumeric: tabular-nums`: `Fonts::for_style` adds `tnum` (`with_tabular_nums`), the font both the measurer and the painter shape with. The Carousel counter and Progress/Meter `value` keep their own part rule (`tabular_text`), the same feature.

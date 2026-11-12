@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -702,28 +704,35 @@ private fun MarkdownBlockView(
         is MarkdownBlockKind.Rule -> Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
         is MarkdownBlockKind.Table -> {
             val all = listOf(kind.header) + kind.rows
-            val cols = maxOf(kind.header.size, kind.rows.maxOfOrNull { it.size } ?: 0, 1)
-            val cellW = width / cols
-            Column(Modifier.width(width.dp)) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-                all.forEachIndexed { r, row ->
-                    val rowH = box.rows.getOrNull(r)?.let { it - 1f } ?: spec.lineHeight
-                    // #VAPP-258: the header row's `Markdown/headerCell` fill.
-                    Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
-                        for (c in 0 until cols) {
-                            val cell = row.getOrNull(c) ?: emptyList()
-                            MarkdownPills(
-                                runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null),
-                                style = shaper.style(spec, colors.ink),
-                                inlineContent = chips(cell, maxOf(cellW - 2 * styles.cellPadH, 1f)),
-                                modifier = Modifier
-                                    .width(cellW.dp)
-                                    .padding(horizontal = styles.cellPadH.dp, vertical = styles.cellPadV.dp),
-                                spec = spec, styles = styles, colors = colors, shaper = shaper,
-                            )
-                        }
-                    }
+            val cols = Markdown.tableColumnCount(kind)
+            // #FEED-224: each column its fitted width; the table hugs them
+            // (start-aligned) and scrolls sideways when wider than the box.
+            val textW = (0 until cols).map { maxOf(box.cols.getOrElse(it) { 1f }, 1f) }
+            val tableW = Markdown.tableWidth(textW, styles)
+            val scrollState = rememberScrollState()
+            val scroll = if (tableW > width + 0.5f) Modifier.horizontalScroll(scrollState) else Modifier
+            Box(Modifier.width(width.dp).then(scroll)) {
+                Column(Modifier.width(tableW.dp)) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+                    all.forEachIndexed { r, row ->
+                        val rowH = box.rows.getOrNull(r)?.let { it - 1f } ?: spec.lineHeight
+                        // #VAPP-258: the header row's `Markdown/headerCell` fill.
+                        Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
+                            for (c in 0 until cols) {
+                                val cell = row.getOrNull(c) ?: emptyList()
+                                MarkdownPills(
+                                    runs(cell, colors.ink, boldFloor = if (r == 0) 600 else null),
+                                    style = shaper.style(spec, colors.ink),
+                                    inlineContent = chips(cell, textW[c]),
+                                    modifier = Modifier
+                                        .width((textW[c] + 2 * styles.cellPadH).dp)
+                                        .padding(horizontal = styles.cellPadH.dp, vertical = styles.cellPadV.dp),
+                                    spec = spec, styles = styles, colors = colors, shaper = shaper,
+                                )
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+                    }
                 }
             }
         }
