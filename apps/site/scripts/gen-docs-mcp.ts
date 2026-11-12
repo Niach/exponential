@@ -74,7 +74,7 @@ const groups = contract.expToolDisplay.groups.map((g: { id: string; label: strin
       title: half.title,
       readOnly: half.read,
       alwaysLoad: !!spec.alwaysLoad,
-      blurb: spec.blurb,
+      blurb: [spec.blurb, half.read ? spec.readNote : spec.writeNote].filter(Boolean).join(` `),
       ops: half.ops.map((op) => {
         const t = tool(ops[op]!)
         return { op, description: t?.def.description ?? ``, params: params(t?.def.inputSchema) }
