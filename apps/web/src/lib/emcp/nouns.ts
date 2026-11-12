@@ -257,10 +257,11 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `session_self`,
     group: `sessions`,
-    blurb: `Your own session: suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves (cards, questions and plans: exponential_show).`,
+    blurb: `Your own session: suggest replies or tasks, compact your context, quiet (nothing to say: then end your turn with no text), report_bug when Exponential itself misbehaves (cards, questions and plans: exponential_show).`,
     ops: {
       suggest: `sessions_suggest`,
       compact: `sessions_compact`,
+      quiet: `sessions_quiet`,
       report_bug: `report_bug`,
     },
   },

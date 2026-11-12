@@ -1526,6 +1526,19 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
   })
 })
 
+describe(`exponential_sessions_quiet (FEED-227)`, () => {
+  it(`needs a session header`, async () => {
+    const result = await collectTools().get(`exponential_sessions_quiet`)!({})
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
+  })
+
+  it(`answers ok and writes nothing (the turn then ends with no text)`, async () => {
+    const result = await collectTools(USER, SESSION).get(`exponential_sessions_quiet`)!({})
+    expect(parseOk(result)).toEqual({ ok: true })
+  })
+})
+
 // ── attachments_delete (delegates to the attachments router) ─────────────────
 
 describe(`exponential_attachments_delete`, () => {

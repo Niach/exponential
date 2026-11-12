@@ -96,7 +96,7 @@
         {"id": "tracker", "label": "Tracker", "count": 19},
         {"id": "team", "label": "Team", "count": 13},
         {"id": "agents", "label": "Agents", "count": 18},
-        {"id": "sessions", "label": "Sessions", "count": 10},
+        {"id": "sessions", "label": "Sessions", "count": 11},
         {"id": "apps", "label": "Apps", "count": 12},
         {"id": "activity", "label": "Activity", "count": 4}
       ]
