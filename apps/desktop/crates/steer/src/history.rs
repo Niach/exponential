@@ -510,6 +510,72 @@ pub fn history_chunk_frame(request_id: &str, page: Vec<(u64, ActivityEvent)>) ->
     .to_json()
 }
 
+/// How many of the newest LOG events a `join` replays (`steerFeed.replayTail`,
+/// `fixtures/steer-enet.json` REPLAY TAIL); older ones are paged in with
+/// `history_page`.
+pub const REPLAY_TAIL: usize = domain::contract::STEER_FEED_REPLAY_TAIL;
+
+/// The REPLAY TAIL rule (`fixtures/steer-enet.json`): a join replays the
+/// newest `tail` LOG events, contiguous, plus every latest-wins slot (kept
+/// where they stand). The cut moves back (by at most another `tail`) so
+/// the kept log holds the `tool` row of every kept `tool_update` and every
+/// still-unresolved question. Returns the kept events (order unchanged) and
+/// whether older log events were left out.
+pub fn replay_tail<E: std::borrow::Borrow<ActivityEvent>>(events: Vec<(u64, E)>, tail: usize) -> (Vec<(u64, E)>, bool) {
+    let log: Vec<usize> = (0..events.len()).filter(|&ix| !is_state_slot(events[ix].1.borrow())).collect();
+    if log.len() <= tail {
+        return (events, false);
+    }
+    let mut cut = log.len() - tail;
+    let floor = cut.saturating_sub(tail);
+    // The kept updates' calls the kept log does not already hold, and the
+    // questions nothing resolved.
+    let mut held: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut wanted: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for &ix in &log[cut..] {
+        match events[ix].1.borrow() {
+            ActivityEvent::Tool { id: Some(id), .. } => {
+                held.insert(id.as_str());
+            }
+            ActivityEvent::ToolUpdate { id, .. } if !held.contains(id.as_str()) => {
+                wanted.insert(id.as_str());
+            }
+            _ => {}
+        }
+    }
+    let mut resolved: Vec<(Option<&str>, Option<&str>)> = Vec::new();
+    for &ix in &log {
+        if let ActivityEvent::QuestionResolved { id, ask_id, .. } = events[ix].1.borrow() {
+            resolved.push((id.as_deref(), ask_id.as_deref()));
+        }
+    }
+    let open = |qid: &str| {
+        !resolved.iter().any(|(id, ask)| match (id, ask) {
+            (Some(id), _) => *id == qid,
+            (None, Some(ask)) => qid == *ask || qid.strip_prefix(*ask).is_some_and(|rest| rest.starts_with('#')),
+            (None, None) => false,
+        })
+    };
+    for at in (floor..cut).rev() {
+        let pull = match events[log[at]].1.borrow() {
+            ActivityEvent::Tool { id: Some(id), .. } => wanted.contains(id.as_str()),
+            ActivityEvent::Question { id, .. } => open(id),
+            _ => false,
+        };
+        if pull {
+            cut = at;
+        }
+    }
+    let first_kept = log[cut];
+    let kept = events
+        .into_iter()
+        .enumerate()
+        .filter(|(ix, (_, event))| *ix >= first_kept || is_state_slot(event.borrow()))
+        .map(|(_, pair)| pair)
+        .collect();
+    (kept, true)
+}
+
 /// A latest-wins STATE slot (the fixed kinds and `workflow`), never a
 /// transcript row: what `activity_synced`'s first/last seq skip.
 pub(crate) fn is_state_slot(event: &ActivityEvent) -> bool {
@@ -834,6 +900,102 @@ mod tests {
         assert!(is_state_slot(&ActivityEvent::diff("x")));
         assert!(!is_state_slot(&ActivityEvent::narration("x")));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn tool_call(id: &str) -> ActivityEvent {
+        let mut event = ActivityEvent::tool("Bash", None);
+        if let ActivityEvent::Tool { id: held, .. } = &mut event {
+            *held = Some(id.to_string());
+        }
+        event
+    }
+
+    fn open_question(id: &str) -> ActivityEvent {
+        ActivityEvent::Question {
+            text: "pick".to_string(),
+            options: Vec::new(),
+            multi_select: None,
+            plan_mode: None,
+            id: id.to_string(),
+            ask_id: None,
+            index: None,
+            total: None,
+            header: None,
+            at: None,
+        }
+    }
+
+    fn seqs<E: std::borrow::Borrow<ActivityEvent>>(events: &[(u64, E)]) -> Vec<u64> {
+        events.iter().map(|(seq, _)| *seq).collect()
+    }
+
+    /// REPLAY TAIL (`fixtures/steer-enet.json`): a short log replays whole.
+    #[test]
+    fn a_short_log_replays_whole() {
+        let events: Vec<(u64, ActivityEvent)> =
+            vec![(0, ActivityEvent::narration("a")), (1, ActivityEvent::narration("b")), (2, ActivityEvent::diff("d"))];
+        let (kept, cut) = replay_tail(events, 2);
+        assert!(!cut);
+        assert_eq!(seqs(&kept), [0, 1, 2]);
+    }
+
+    /// The newest `tail` log events, every slot kept where it stands.
+    #[test]
+    fn a_long_log_replays_its_newest_tail_and_every_slot() {
+        let mut events: Vec<(u64, ActivityEvent)> = (0..10).map(|seq| (seq, ActivityEvent::narration(format!("{seq}")))).collect();
+        events.push((3, ActivityEvent::diff("state")));
+        let (kept, cut) = replay_tail(events, 4);
+        assert!(cut);
+        assert_eq!(seqs(&kept), [6, 7, 8, 9, 3]);
+    }
+
+    /// The cut moves back to the call a kept `tool_update` settles, and to a
+    /// question nothing resolved; never past another `tail`.
+    #[test]
+    fn the_cut_keeps_a_kept_updates_call_and_an_open_question() {
+        let mut events: Vec<(u64, ActivityEvent)> = (0..20).map(|seq| (seq, ActivityEvent::narration(format!("{seq}")))).collect();
+        events[15].1 = tool_call("t1");
+        events[18].1 = ActivityEvent::tool_update("t1", None, None);
+        let (kept, _) = replay_tail(events.clone(), 3);
+        assert_eq!(seqs(&kept), [15, 16, 17, 18, 19]);
+        // A resume re-published the call: the kept copy is enough.
+        let mut again = events.clone();
+        again[17].1 = tool_call("t1");
+        let (kept, _) = replay_tail(again, 3);
+        assert_eq!(seqs(&kept), [17, 18, 19]);
+        events[14].1 = open_question("q1");
+        let (kept, _) = replay_tail(events.clone(), 3);
+        assert_eq!(kept.first().unwrap().0, 14);
+        // A resolved question pulls nothing; one older than two tails neither.
+        events[19].1 = ActivityEvent::QuestionResolved { id: Some("q1".to_string()), ask_id: None, answers: None, dismissed: None, at: None };
+        let (kept, _) = replay_tail(events.clone(), 3);
+        assert_eq!(kept.first().unwrap().0, 15);
+        events[15].1 = ActivityEvent::narration("15");
+        events[2].1 = tool_call("t1");
+        let (kept, _) = replay_tail(events, 3);
+        assert_eq!(kept.first().unwrap().0, 17);
+    }
+
+    /// REPLAY TAIL on a real journal: `STEER_REAL_JOURNAL=<data dir>:<session id>
+    /// cargo test -p steer --release real_journal_replay -- --ignored --nocapture`.
+    /// Prints what a join replays before (the whole file) and after (the tail).
+    #[test]
+    #[ignore]
+    fn real_journal_replay() {
+        let spec = std::env::var("STEER_REAL_JOURNAL").expect("STEER_REAL_JOURNAL=<data dir>:<session id>");
+        let (dir, id) = spec.rsplit_once(':').unwrap();
+        let started = std::time::Instant::now();
+        let events = read_journal_seq(Path::new(dir), id).expect("a journal");
+        let read_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let frames = |events: &[(u64, ActivityEvent)]| -> usize {
+            events.iter().map(|(seq, event)| ClientFrame::Activity { event: event.clone(), seq: *seq }.to_json().len()).sum()
+        };
+        let (all, all_bytes) = (events.len(), frames(&events));
+        let started = std::time::Instant::now();
+        let (tail, cut) = replay_tail(events, REPLAY_TAIL);
+        let tail_ms = started.elapsed().as_secs_f64() * 1000.0;
+        println!("read+parse {read_ms:.1} ms; before: {all} events, {all_bytes} B; after: {} events, {} B (cut {cut}, {tail_ms:.2} ms)", tail.len(), frames(&tail));
+        assert!(tail.len() <= 2 * REPLAY_TAIL + 32);
     }
 
     #[test]

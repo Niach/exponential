@@ -171,6 +171,7 @@ async fn a_viewer_joins_gets_the_replay_and_live_events_and_steers_over_enet() {
                 starter_user_id: "alice".into(),
                 shared: false,
             }),
+            resumed: false,
         },
         hooks(&recorded),
     );
@@ -613,7 +614,8 @@ async fn a_stored_journal_is_replayed_over_enet() {
     assert_eq!(chunk["requestId"], "p1");
     assert_eq!(chunk["seqs"], serde_json::json!([1]));
 
-    // The run comes back here: the stored viewer becomes a live join.
+    // The run comes back here (a resume): the stored viewer becomes a live
+    // join off the file, and the agent's history replay is not recorded again.
     let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
     let recorded = Arc::new(Recorded::default());
     let handle = steer::publish(
@@ -626,16 +628,24 @@ async fn a_stored_journal_is_replayed_over_enet() {
                 starter_user_id: "dana".into(),
                 shared: false,
             }),
+            resumed: true,
             ..Default::default()
         },
         hooks(&recorded),
     );
     assert_eq!(next_real(&sub.frames).await["t"], "activity_reset");
+    for i in 0..3 {
+        assert_eq!(next_real(&sub.frames).await["seq"].as_u64(), Some(i));
+    }
+    assert_eq!(next_real(&sub.frames).await["event"]["kind"], "diff");
     assert_eq!(next_real(&sub.frames).await["t"], "activity_synced");
     assert!(!enet_steer::has_stored_viewer(&session_id, &v.endpoint_id()));
+    handle.activity_sender().send(ActivityEvent::narration("row 2"));
+    handle.activity_sender().send(ActivityEvent::turn(steer::TurnState::Ended));
     handle.activity_sender().send(ActivityEvent::narration("back"));
+    assert_eq!(next_real(&sub.frames).await["event"]["kind"], "turn");
     let live = next_real(&sub.frames).await;
-    assert_eq!((live["seq"].as_u64(), live["event"]["text"].as_str()), (Some(4), Some("back")));
+    assert_eq!((live["seq"].as_u64(), live["event"]["text"].as_str()), (Some(5), Some("back")));
     handle.shutdown(Some("exit:0".into()));
 
     device.stop();

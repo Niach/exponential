@@ -132,6 +132,35 @@ struct ChatRows: Sendable {
     var usersById: [String: UserEntity] = [:]
     var messageCreatedAt: [String: String] = [:]
 
+    /// #EXP-1380: older messages exist than the loaded page (`messages` is
+    /// the root's newest `messageLimit` + its waiting cards).
+    var messagesMore = false
+    var messageLimit = Chats.chatMessageLimit
+
+    /// Every session's title (`SessionTitle.titles`), derived ONCE per
+    /// snapshot in `indexed()` (off main: `load` runs in a read) — the
+    /// transcript reads it per render. #EXP-1380: over the loaded messages
+    /// AND the sessions' digests, so a first prompt older than the loaded
+    /// page still names its session (web `sessionTitles(…, treeDigests)`).
+    var sessionTitles: [String: String] = [:]
+
+    private func computeSessionTitles() -> [String: String] {
+        var titleMessages = messages.map(TreeMessage.init(messageRow:))
+        var seen = Set(titleMessages.map(\.id))
+        for session in sessions {
+            for message in Chats.digestMessages(sessionId: session.id, digest: session.digest, rootId: session.rootId)
+            where message.card == nil && seen.insert(message.id).inserted {
+                titleMessages.append(message)
+            }
+        }
+        return SessionTitle.titles(
+            sessions.map(TreeSession.init(sessionRow:)),
+            sessionIssues: sessionIssues.map(TreeSessionIssue.init(sessionIssueRow:)),
+            issues: issues.map(TreeIssue.init(issueRow:)),
+            messages: titleMessages
+        )
+    }
+
     /// Fills the indexes (`load` calls it; a hand-built snapshot, as the
     /// styleguide's, gets them through `indexed()`).
     func indexed() -> ChatRows {
@@ -139,6 +168,7 @@ struct ChatRows: Sendable {
         copy.sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         copy.usersById = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         copy.messageCreatedAt = Dictionary(messages.map { ($0.id, $0.createdAt) }, uniquingKeysWith: { first, _ in first })
+        copy.sessionTitles = copy.computeSessionTitles()
         return copy
     }
 
@@ -159,13 +189,12 @@ struct ChatRows: Sendable {
         let chat = chat ?? root
         let isRoot = chat.id == root.id
         // EXP-1341: THE session title (an issue-named root reads its
-        // issues, never `Untitled`), like web and Android.
-        let titles = SessionTitle.titles(
-            sessions.map(TreeSession.init(sessionRow:)),
-            sessionIssues: sessionIssues.map(TreeSessionIssue.init(sessionIssueRow:)),
-            issues: issues.map(TreeIssue.init(issueRow:)),
-            messages: messages.map(TreeMessage.init(messageRow:))
-        )
+        // issues, never `Untitled`), like web and Android. Large chats: the
+        // titles are derived OFF main once per snapshot (`titled()`); the
+        // transcript reads this per render, and deriving them here walked
+        // (and opened) every message of the root on the main thread each
+        // time (~650ms for an 8.5k-message agent chat).
+        let titles = sessionTitles.isEmpty ? computeSessionTitles() : sessionTitles
         let titleOf = { (session: SessionEntity) in titles[session.id] ?? session.title ?? SessionTitle.Copy.untitled }
         let title = isRoot && !agentName.isEmpty ? agentName : titleOf(chat)
         let known = sessions.map { session in
@@ -318,7 +347,8 @@ struct ChatRows: Sendable {
             messages: messages.map { TreeMessage(messageRow: $0) },
             pullRequests: pullRequests.map { TreePullRequest(pullRequestRow: $0) },
             now: now,
-            focus: focus
+            focus: focus,
+            titles: sessionTitles.isEmpty ? nil : sessionTitles
         )
     }
 
@@ -432,15 +462,28 @@ struct ChatRows: Sendable {
         return PullRequestStack.stackConfirm(pullRequest, in: stackPool, through: member)
     }
 
-    static func load(db: Database, rootId: String) throws -> ChatRows? {
+    /// `limit` = how many of the root's newest messages load (#EXP-1380,
+    /// TS `useNewestMessages`); nil = this chat's current limit
+    /// (`Chats.MessageLimits`, widened by the transcript's Load earlier).
+    static func load(db: Database, rootId: String, limit: Int? = nil) throws -> ChatRows? {
         guard let root = try SessionQueries.session(db: db, id: rootId) else { return nil }
         // A child id lands on its root.
         if root.rootId != root.id, !root.rootId.isEmpty {
-            return try load(db: db, rootId: root.rootId)
+            return try load(db: db, rootId: root.rootId, limit: limit)
         }
         var sessions = try SessionQueries.tree(db: db, rootId: root.id)
         if !sessions.contains(where: { $0.id == root.id }) { sessions.insert(root, at: 0) }
-        var messages = try SessionQueries.messages(db: db, rootId: root.id)
+        // #EXP-1380 (chats.json WINDOW): the root's NEWEST `limit` messages
+        // plus every waiting card the tree's digests name, however old —
+        // never the whole conversation (8.5k rows on a long agent chat).
+        let messageLimit = limit ?? Chats.MessageLimits.shared.limit(root.id)
+        let newest = try SessionQueries.newestMessages(db: db, rootId: root.id, limit: messageLimit)
+        let waitingIds = Chats.digestWaitingIds(sessions.map(\.digest))
+        let waitingCards = try SessionQueries.messages(db: db, ids: waitingIds)
+        let page = Chats.newestMessagesPage(
+            loaded: newest, waiting: waitingCards, limit: messageLimit, id: \.id, createdAt: \.createdAt
+        )
+        var messages = page.rows
         // #EXP-1399: an `ask` mirror from ANOTHER tree draws its ORIGIN card
         // (session-chat.json), which lives outside this root: load those
         // origins by id (an unsynced one stays out, and its mirror draws
@@ -530,6 +573,8 @@ struct ChatRows: Sendable {
             ),
             namedCards: namedCards,
             guideChecks: guideChecks,
+            messagesMore: page.more,
+            messageLimit: messageLimit,
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues,
             xrefAgents: xrefAgents
@@ -721,4 +766,45 @@ func openIssueInnermost(
 ) {
     if outlet?.open(issueId) == true { return }
     deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+}
+
+/// Large chats: ONE snapshot read per (store, root, digest). The chat screen
+/// (`ChatModel`) and the root session view it embeds observe the same
+/// `ChatRows.signature`; each used to read and index the whole root, every
+/// message of it, for the same change (~0.3s read + ~1s view build on an
+/// 8.5k-message agent chat, twice per open and per new message). A failed
+/// read is not kept, so the next emission retries.
+actor ChatRowsLoads {
+    static let shared = ChatRowsLoads()
+
+    private struct Key: Hashable {
+        let pool: ObjectIdentifier
+        let rootId: String
+        let signature: String
+        /// A widened message limit (Load earlier) is another snapshot.
+        let limit: Int
+    }
+
+    private var loads: [Key: Task<ChatRows?, Error>] = [:]
+    private var order: [Key] = []
+    private static let kept = 8
+
+    func load(pool: DatabasePool, rootId: String, signature: String?, limit: Int) async throws -> ChatRows? {
+        guard let signature else {
+            return try await pool.read { db in try ChatRows.load(db: db, rootId: rootId, limit: limit) }
+        }
+        let key = Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: signature, limit: limit)
+        if let pending = loads[key] { return try await pending.value }
+        let task = Task { try await pool.read { db in try ChatRows.load(db: db, rootId: rootId, limit: limit) } }
+        loads[key] = task
+        order.append(key)
+        if order.count > Self.kept { loads[order.removeFirst()] = nil }
+        do {
+            return try await task.value
+        } catch {
+            if let index = order.firstIndex(of: key) { order.remove(at: index) }
+            loads[key] = nil
+            throw error
+        }
+    }
 }

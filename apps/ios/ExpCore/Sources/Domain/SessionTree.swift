@@ -1687,14 +1687,19 @@ public enum SessionTree {
         messages: [TreeMessage],
         pullRequests: [TreePullRequest],
         now: Date,
-        focus: String? = nil
+        focus: String? = nil,
+        titles givenTitles: [String: String]? = nil
     ) -> SessionChatView {
         var tree = treeOrder(sessions.filter { $0.rootId == root.id || $0.id == root.id })
         if !tree.contains(where: { $0.id == root.id }) { tree.insert(root, at: 0) }
         var byId: [String: TreeSession] = [:]
         for session in sessions { byId[session.id] = session }
         byId[root.id] = root
-        let titles = SessionTitle.titles(Array(byId.values), sessionIssues: sessionIssues, issues: issues, messages: messages)
+        // #EXP-1380 (TS `buildSessionChat(…, { titles })`): a windowed chat
+        // passes the titles it derived off the tree's digests (a first
+        // prompt older than the loaded messages still names its session).
+        let titles = givenTitles
+            ?? SessionTitle.titles(Array(byId.values), sessionIssues: sessionIssues, issues: issues, messages: messages)
         // S-3: a link to another session = its name + its agent's mark; an
         // unsynced session (the viewer may not see it) never links.
         func agentOf(_ session: TreeSession) -> String? {

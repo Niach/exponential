@@ -139,9 +139,10 @@ public enum DomainContract {
     public static let steerFeedItemCap: Int = 200000
     public static let steerFeedTrimTargetPercent: Int = 90
     public static let steerFeedItemOverheadBytes: Int = 96
-    public static let steerFeedWindow: Int = 1500
-    public static let steerFeedWindowStep: Int = 500
+    public static let steerFeedWindow: Int = 200
+    public static let steerFeedWindowStep: Int = 200
     public static let steerFeedHistoryPageMax: Int = 200
+    public static let steerFeedReplayTail: Int = 500
     public static let steerFeedToolDiffMaxLines: Int = 200
     public static let steerFeedToolDiffMaxBytes: Int = 16384
     public static let steerFeedToolOutputMaxLines: Int = 200

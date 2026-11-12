@@ -4324,6 +4324,10 @@ impl Render for SessionChatScreenView {
 mod long_chat_bench;
 
 #[cfg(test)]
+#[path = "big_journal_bench.rs"]
+mod big_journal_bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

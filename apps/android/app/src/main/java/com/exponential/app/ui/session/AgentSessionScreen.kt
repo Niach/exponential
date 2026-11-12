@@ -1770,6 +1770,7 @@ private fun ActivityFeed(
     // first row whatever it is. An id rather than an index, so a byte-budget
     // eviction or a replay swap cannot slide the window under the reader.
     var windowFrom by remember { mutableStateOf<Long?>(null) }
+    val followState = rememberUpdatedState(follow)
     val windowStart = remember(feed, windowFrom) {
         val tail = maxOf(0, feed.size - FEED_WINDOW)
         val from = windowFrom ?: return@remember tail
@@ -1820,6 +1821,21 @@ private fun ActivityFeed(
     // this change exists to avoid.
     LaunchedEffect(follow) { if (follow) windowFrom = null }
     val canLoadEarlier = windowStart > 0 || onCanLoadEarlier()
+    // THE Load earlier action (chats.json WINDOW): grow the window by a step,
+    // and past the feed's own first row ask the device for an older page.
+    val loadEarlierMessages = LocalLoadEarlierMessages.current
+    val loadEarlier: () -> Unit = {
+        loadEarlierMessages?.invoke()
+        if (windowStart > 0) {
+            windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
+        } else {
+            // Past the feed's own first row: pin the window to the FRONT
+            // before asking, so the page the device sends is inside it the
+            // moment it lands (EXP-795).
+            windowFrom = WINDOW_FROM_START
+            onLoadEarlier()
+        }
+    }
     // EXP-356: conversation tabs — null is the main agent; a subagent id
     // focuses that agent's stream. Falls back to Main whenever the id
     // vanishes from the feed (an activity_reset replay). EXP-387: the strip
@@ -1846,6 +1862,26 @@ private fun ActivityFeed(
             onAnswer = onAnswer,
             onPlanFollowUp = onPlanFollowUp,
         )
+    }
+
+    // steer-enet.json REPLAY TAIL: a reader who scrolls within one viewport
+    // of the transcript's top pages older events in, the same action as the
+    // button (no new UI). Re-armed whenever the window or the feed's first
+    // row moves, so a reader still near the top keeps paging.
+    val loadEarlierState = rememberUpdatedState(loadEarlier)
+    val firstFeedId = feed.firstOrNull()?.id
+    LaunchedEffect(listState, windowStart, firstFeedId, canLoadEarlier, focused == null) {
+        if (!canLoadEarlier || focused != null) return@LaunchedEffect
+        snapshotFlow {
+            val info = listState.layoutInfo
+            nearTranscriptTop(
+                firstVisibleIndex = listState.firstVisibleItemIndex,
+                visibleCount = info.visibleItemsInfo.size,
+                // Only a reader who LEFT the bottom (a drag up): a short,
+                // pinned transcript never pages by itself.
+                scrolledUp = !followState.value && listState.canScrollForward,
+            )
+        }.distinctUntilChanged().collect { near -> if (near) loadEarlierState.value() }
     }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
@@ -1922,7 +1958,6 @@ private fun ActivityFeed(
     // changing height. Whenever the list could still scroll forward while
     // following and nobody drags, it re-pins, so the newest row always
     // clears what is pinned at the bottom.
-    val followState = rememberUpdatedState(follow)
     LaunchedEffect(listState) {
         snapshotFlow {
             followState.value && !listState.isScrollInProgress && listState.canScrollForward
@@ -2011,20 +2046,7 @@ private fun ActivityFeed(
             if (canLoadEarlier) {
                 item(key = "load-earlier") {
                     // THE Load earlier ×4 (chats.json WINDOW), shared with the chats.
-                    TranscriptLoadEarlierButton(
-                        onClick = {
-                            if (windowStart > 0) {
-                                windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
-                            } else {
-                                // Past the feed's own first row: pin the
-                                // window to the FRONT before asking, so the
-                                // page the device sends is inside it the
-                                // moment it lands (EXP-795).
-                                windowFrom = WINDOW_FROM_START
-                                onLoadEarlier()
-                            }
-                        },
-                    )
+                    TranscriptLoadEarlierButton(onClick = loadEarlier)
                 }
             }
             // EXP-1398: the session cards whose call is not in the feed.
@@ -2299,6 +2321,12 @@ internal data class FeedSenders(
 /** A main-stream row's layout; [groupGap] = it and the row above it are
  *  both bubbles (the group's gaps replace the EXP-787 ladder there). */
 internal data class FeedRowLayout(val layout: TranscriptGrouping.RowLayout, val groupGap: Boolean)
+
+/** steer-enet.json REPLAY TAIL: the reader is within one viewport of the
+ *  transcript's top: fewer items above the first visible one than the
+ *  viewport shows, after scrolling up. */
+internal fun nearTranscriptTop(firstVisibleIndex: Int, visibleCount: Int, scrolledUp: Boolean): Boolean =
+    scrolledUp && visibleCount > 0 && firstVisibleIndex < visibleCount
 
 /**
  * #EXP-1772 (transcript-grouping.json `markersShown`): the main feed's rows
@@ -3989,6 +4017,10 @@ data class CardScrollRequest(val id: String, val nonce: Int)
  *  transcript, and under its empty-feed placeholder (a chat root's settled
  *  suggestions card); null = none. */
 internal val LocalFeedFooter = androidx.compose.runtime.compositionLocalOf<(@Composable () -> Unit)?> { null }
+
+/** #EXP-1380: the chat around this feed widens its loaded MESSAGES with every
+ *  Load earlier here (TS `loadEarlierMessages`); null = no chat (a raw session). */
+val LocalLoadEarlierMessages = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> { null }
 
 internal val LocalCardScrollRequest = androidx.compose.runtime.compositionLocalOf<CardScrollRequest?> { null }
 

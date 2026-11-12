@@ -111,6 +111,19 @@ public enum SessionQueries {
             """, arguments: [rootId])
     }
 
+    /// #EXP-1380 (TS `useNewestMessages`): a root's NEWEST `limit` messages
+    /// (created_at desc, then id), returned oldest first — what an open chat
+    /// loads; Load earlier widens `limit` (`Chats.MessageLimits`).
+    public static func newestMessages(db: Database, rootId: String, limit: Int) throws -> [SessionMessage] {
+        try SessionMessage.fetchAll(db, sql: """
+            SELECT * FROM (
+                \(keyedMessagesSQL) AND "messages"."root_id" = ?
+                ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
+                LIMIT ?
+            ) ORDER BY "created_at" ASC, "id" ASC
+            """, arguments: [rootId, max(0, limit)])
+    }
+
     /// #EXP-1399: messages by id (an `ask` mirror's ORIGIN card, which lives
     /// in another tree), oldest first; an unsynced id reads nothing.
     public static func messages(db: Database, ids: [String]) throws -> [SessionMessage] {
