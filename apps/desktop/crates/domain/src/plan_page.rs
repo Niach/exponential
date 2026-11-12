@@ -56,6 +56,9 @@ pub struct PlanPageLayout {
     pub tab_max_width: f32,
     /// #FEED-191: the wide questions rail's width.
     pub rail_width: f32,
+    /// #EXP-1786: the document's readable floor; the outline, then the rail
+    /// yield below it (`plan_pane_layout`).
+    pub document_min_width: f32,
 }
 
 /// #EXP-1662: the floating questions panel (`panel`).
@@ -212,6 +215,26 @@ pub fn plan_tab_glyph(decision: Option<&str>) -> PlanTabGlyph {
         PlanTabGlyph { icon: "ui-check", tone: "approved" }
     } else {
         PlanTabGlyph { icon: "coding-plan", tone: "text" }
+    }
+}
+
+/// #EXP-1786: which wide columns the plan body's OWN width holds
+/// (`paneCases`). `outline` false = no outline column; `rail` false = the
+/// questions float (`panel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PlanPaneLayout {
+    pub outline: bool,
+    pub rail: bool,
+}
+
+/// #EXP-1786: the three columns while the document keeps
+/// `layout.documentMinWidth` beside both, else the document + the rail, else
+/// the document alone with the floating questions.
+pub fn plan_pane_layout(width: f32) -> PlanPaneLayout {
+    let layout = &PLAN_PAGE.layout;
+    PlanPaneLayout {
+        outline: width >= layout.outline_width + layout.rail_width + layout.document_min_width,
+        rail: width >= layout.rail_width + layout.document_min_width,
     }
 }
 
@@ -457,6 +480,7 @@ mod tests {
         assert_eq!(PLAN_PAGE.layout.row_height, 44.0);
         assert_eq!(PLAN_PAGE.layout.tab_max_width, 260.0);
         assert_eq!(PLAN_PAGE.layout.rail_width, 360.0);
+        assert_eq!(PLAN_PAGE.layout.document_min_width, 360.0);
         assert_eq!(PLAN_PAGE.panel.max_width, 720.0);
         assert_eq!(PLAN_PAGE.panel.max_height_fraction, 0.4);
     }
@@ -518,6 +542,16 @@ mod tests {
         for case in cases {
             let actual = serde_json::to_value(plan_tab_glyph(case["decision"].as_str())).unwrap();
             assert_eq!(actual, case["expected"], "{}", case["decision"]);
+        }
+    }
+
+    #[test]
+    fn pane_layout_matches_the_fixture() {
+        let cases = fixture()["paneCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let actual = serde_json::to_value(plan_pane_layout(case["width"].as_f64().unwrap() as f32)).unwrap();
+            assert_eq!(actual, case["expected"], "{}", case["name"]);
         }
     }
 
