@@ -12,7 +12,7 @@ import { Pool, type PoolClient, type PoolConfig } from "pg"
 //    kept dialing the dead IP for ten minutes, and `BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS`
 //    does not reach that cache. `freshDnsSocket` resolves the host through libc
 //    getaddrinfo (Node's `dns.lookup` is uncached already) right before each
-//    connect and dials the IP; TLS keeps the hostname (pg sets `servername`
+//    connect and dials its addresses in order until one accepts; TLS keeps the hostname (pg sets `servername`
 //    from the configured host, not the socket's address).
 // 2. Bounded retry with backoff on the CONNECT phase only (nothing has been
 //    sent yet, so it is always safe; a statement is never re-run).
@@ -20,27 +20,39 @@ import { Pool, type PoolClient, type PoolConfig } from "pg"
 //    next query dials (and resolves) anew instead of reusing a socket to the
 //    old server.
 
-type Resolver = (host: string) => Promise<string>
+type Resolver = (host: string) => Promise<Array<string>>
 
 type BunDns = {
   lookup: (host: string, opts: { backend: string }) => Promise<Array<{ address: string }>>
 }
 
-/** Resolve `host` without any in-process cache. */
+const notFound = (host: string) =>
+  Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: `ENOTFOUND` })
+
+/**
+ * Resolve `host` to EVERY address, in resolver order, without any in-process
+ * cache. All of them, not the first: `localhost` answers `::1` first on most
+ * hosts while Postgres often listens on IPv4 only (the #2715 regression).
+ */
 export const resolveFresh: Resolver = async (host) => {
-  if (net.isIP(host)) return host
+  if (net.isIP(host)) return [host]
   const bunDns = (globalThis as { Bun?: { dns?: BunDns } }).Bun?.dns
-  if (bunDns) {
-    const [first] = await bunDns.lookup(host, { backend: `libc` })
-    if (!first) throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: `ENOTFOUND` })
-    return first.address
-  }
-  return (await dns.promises.lookup(host)).address
+  const found = bunDns
+    ? (await bunDns.lookup(host, { backend: `libc` })).map((r) => r.address)
+    : (await dns.promises.lookup(host, { all: true })).map((r) => r.address)
+  const addresses = [...new Set(found)]
+  if (addresses.length === 0) throw notFound(host)
+  return addresses
 }
+
+/** Dial errors that mean "this address is no good, try the next one". */
+const FALL_THROUGH_CODES = new Set([`ECONNREFUSED`, `EHOSTUNREACH`, `ENETUNREACH`, `EADDRNOTAVAIL`, `EAFNOSUPPORT`])
 
 /**
  * A socket for pg's `stream` option: `connect(port, host)` resolves `host`
- * fresh first. Unix-socket paths and IPs pass straight through.
+ * fresh first, then dials each address in order until one accepts (a refused
+ * or unreachable address falls through to the next; the last error surfaces).
+ * Unix-socket paths and IPs pass straight through.
  */
 export function freshDnsSocket(resolve: Resolver = resolveFresh): net.Socket {
   const socket = new net.Socket()
@@ -49,14 +61,52 @@ export function freshDnsSocket(resolve: Resolver = resolveFresh): net.Socket {
     const [port, host] = args
     if (typeof host !== `string` || net.isIP(host) || host.startsWith(`/`)) return connect(...args)
     resolve(host).then(
-      (address) => {
-        if (!socket.destroyed) connect(port, address)
+      (addresses) => {
+        if (addresses.length === 0) return socket.destroy(notFound(host))
+        if (!socket.destroyed) dialInOrder(socket, connect, port, addresses)
       },
       (err: unknown) => socket.destroy(err instanceof Error ? err : new Error(String(err)))
     )
     return socket
   }
   return socket
+}
+
+/**
+ * Dial `addresses` one by one on the SAME socket (pg holds this object). While
+ * a fallback remains, a fall-through dial error and the `close` that follows
+ * it are kept from the socket's listeners, and the socket reconnects to the
+ * next address once closed (Node and Bun both allow reconnecting after close).
+ */
+function dialInOrder(
+  socket: net.Socket,
+  connect: (...args: Array<unknown>) => net.Socket,
+  port: unknown,
+  addresses: Array<string>
+): void {
+  let next = 0
+  let retrying = false
+  const emit = socket.emit.bind(socket) as (event: string | symbol, ...args: Array<unknown>) => boolean
+  const restore = () => {
+    ;(socket as unknown as { emit: typeof emit }).emit = emit
+  }
+  ;(socket as unknown as { emit: typeof emit }).emit = (event, ...args) => {
+    if (event === `connect`) restore()
+    else if (event === `error` && next < addresses.length) {
+      const code = (args[0] as { code?: unknown } | undefined)?.code
+      if (typeof code === `string` && FALL_THROUGH_CODES.has(code)) {
+        retrying = true
+        return true
+      }
+      restore()
+    } else if (event === `close` && retrying) {
+      retrying = false
+      connect(port, addresses[next++])
+      return true
+    }
+    return emit(event, ...args)
+  }
+  connect(port, addresses[next++])
 }
 
 const CONNECTION_ERROR_CODES = new Set([
