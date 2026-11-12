@@ -4,7 +4,6 @@ import { TooltipProvider } from "@exp/ui"
 import {
   BUILTIN_TOOLS_FILTER_PLACEHOLDER,
   filterBuiltinTools,
-  BuiltinToolsGroup,
   TeamMcpServersSection,
 } from "@/components/team/mcp-servers-section"
 import { contract } from "@exp/domain-contract"
@@ -31,6 +30,7 @@ const mockState = vi.hoisted(() => ({
   connect: vi.fn(),
   setShared: vi.fn(),
   setSecret: vi.fn(),
+  tools: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   assign: vi.fn(),
@@ -49,6 +49,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       disconnect: { mutate: vi.fn() },
       test: { mutate: vi.fn() },
       setShared: { mutate: mockState.setShared },
+      tools: { query: mockState.tools },
     },
   },
 }))
@@ -118,54 +119,101 @@ describe(`TeamMcpServersSection`, () => {
   // EXP-1274: the unslopped pane — no subtitle, no Refresh, the shared
   // list empty state, Add server for an owner even on an empty team, and the
   // built-in tools always expanded behind an inline filter.
-  it(`draws the empty team as ONE list empty state with Add server and the catalog`, async () => {
+  // Owner 2026-11-12 (fixtures/settings-mcp.json): ONE Servers group, the
+  // built-ins first (copy, no menu), then the team's servers; an owner with
+  // none gets the catalog under the group.
+  it(`lists the built-ins first and gives an owner with no server the catalog`, async () => {
     mockState.list.mockResolvedValue([])
     const { container } = render(<TeamMcpServersSection teamId="t1" isOwner />)
-    await screen.findByText(`No MCP servers yet`)
-    const empty = container.querySelector(`[data-slot="empty-state"][data-size="list"]`)!
-    expect(empty.textContent).toBe(`No MCP servers yet`)
+    await screen.findByPlaceholderText(`Search or paste a server URL`)
+    const builtin = screen.getByTestId(`settings-mcp-builtin`)
+    expect(builtin.textContent).toContain(`Exponential`)
+    expect(builtin.textContent).toContain(`Built-in`)
+    expect(builtin.textContent).toContain(`/api/mcp`)
+    expect(builtin.textContent).toContain(`Copy`)
+    expect(builtin.querySelector(`[aria-label^="Server menu"]`)).toBeNull()
+    expect(screen.queryByTestId(`settings-mcp-apps-server`)).toBeNull()
     expect(screen.getByText(`Add server`)).toBeTruthy()
-    expect(screen.getByPlaceholderText(`Search or paste a server URL`)).toBeTruthy()
-    expect(container.textContent).not.toContain(`Tools your agents can use`)
-    expect(container.textContent).not.toContain(`Add one to offer it`)
+    expect(container.querySelector(`[data-slot="empty-state"]`)).toBeNull()
     expect(screen.queryByRole(`button`, { name: `Refresh` })).toBeNull()
   })
 
-  it(`lists every built-in tool expanded, one band per group, with one filter and no count`, async () => {
-    // #VAPP-185: the group is Settings › MCP's last section, its own component.
+  it(`shows Team apps when an app exposes tools, its tools one band per app`, async () => {
+    mockState.list.mockResolvedValue([server(`linear`, `oauth`, `connected`)])
+    const appTools = [
+      { id: `a1`, slug: `crm`, name: `Customer admin`, tools: [{ name: `crm_find`, title: `Find customer`, blurb: `Finds one.` }] },
+    ]
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} appTools={appTools} />)
+    await screen.findByText(`linear`)
+    const order = screen.getAllByTestId(`mcp-server-disclosure`).map((el) => el.textContent)
+    expect(order[0]).toContain(`Exponential`)
+    expect(order[1]).toContain(`Team apps`)
+    expect(order[2]).toContain(`linear`)
+    expect(screen.getByTestId(`settings-mcp-apps-server`).textContent).toContain(`/api/mcp/apps`)
+    expect(screen.queryByTitle(`crm_find`)).toBeNull()
+    fireEvent.click(screen.getByLabelText(`Show Team apps tools`))
+    expect(screen.getByTitle(`crm_find`).textContent).toContain(`Find customer`)
+    expect(screen.getByText(`Customer admin`)).toBeTruthy()
+  })
+
+  it(`unfolds Exponential to every built-in tool, one band per group, behind one filter`, async () => {
     // EXP-1657: one band per contract tool group; aliases never listed.
-    const { container } = render(<BuiltinToolsGroup />)
+    mockState.list.mockResolvedValue([])
+    const { container } = render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    expect(screen.queryAllByTitle(/^exponential_/).length).toBe(0)
+    fireEvent.click(screen.getByLabelText(`Show Exponential tools`))
     const total = contract.expToolDisplay.tools.filter((row) => !(`aliasOf` in row)).length
     const labels = contract.expToolDisplay.groups.map((group) => group.label)
-    const bands = [...container.querySelectorAll(`[data-slot="glass-section-header"]`)]
-    expect(bands.map((band) => band.textContent?.replace(BUILTIN_TOOLS_FILTER_PLACEHOLDER, ``).trim())).toEqual(labels)
-    for (const band of bands) {
-      expect(band.tagName).toBe(`DIV`)
-      expect(band.getAttribute(`aria-expanded`)).toBeNull()
-      expect(band.querySelector(`[data-part="count"]`)).toBeNull()
-    }
+    const bands = [...container.querySelectorAll(`[data-band]`)]
+    expect(bands.map((band) => band.getAttribute(`data-band`))).toEqual(contract.expToolDisplay.groups.map((g) => g.id))
+    expect(bands.map((band) => band.firstElementChild?.textContent)).toEqual(labels)
     expect(screen.getAllByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER).length).toBe(1)
-    expect(bands[0].querySelector(`[data-testid="mcp-builtin-tools-filter"]`)).toBeTruthy()
     expect(screen.getAllByTitle(/^exponential_/).length).toBe(total)
 
     const filter = screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER)
     fireEvent.change(filter, { target: { value: `issues_create` } })
     expect(screen.getAllByTitle(/^exponential_/).length).toBe(1)
     expect(screen.getByTitle(`exponential_issues_create`)).toBeTruthy()
-    expect(container.querySelectorAll(`[data-slot="glass-section-header"]`).length).toBe(1)
+    expect(container.querySelectorAll(`[data-band]`).length).toBe(1)
 
-    // The filter rides the first VISIBLE band: an Activity-only match keeps it.
-    fireEvent.change(screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER), { target: { value: `notif` } })
-    const left = [...container.querySelectorAll(`[data-slot="glass-section-header"]`)]
-    expect(left.length).toBe(1)
-    expect(left[0].textContent).toContain(`Activity`)
-    expect(left[0].querySelector(`[data-testid="mcp-builtin-tools-filter"]`)).toBeTruthy()
+    fireEvent.change(filter, { target: { value: `notif` } })
+    const left = [...container.querySelectorAll(`[data-band]`)]
+    expect(left.map((band) => band.getAttribute(`data-band`))).toEqual([`activity`])
 
-    fireEvent.change(screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER), { target: { value: `zzz-nothing` } })
+    fireEvent.change(filter, { target: { value: `zzz-nothing` } })
     expect(screen.queryAllByTitle(/^exponential_/).length).toBe(0)
-    expect(screen.getByText(`Built-in Exponential tools`)).toBeTruthy()
     expect(container.querySelectorAll(`[data-slot="empty-state"][data-size="list"]`).length).toBe(1)
     expect(screen.getByText(`No tools match`)).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText(`Hide Exponential tools`))
+    expect(screen.queryByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER)).toBeNull()
+  })
+
+  // `toolsStateCases`: a connected http server lists on first open (flat),
+  // a failure says why with Retry, unconnected / stdio rows say so.
+  it(`lists a team server's tools on open, with retry on failure`, async () => {
+    mockState.list.mockResolvedValue([
+      server(`linear`, `oauth`, `connected`),
+      server(`sentry`, `oauth`, `not_connected`),
+      server(`local`, `none`, `not_needed`, { transport: `stdio`, url: null, command: `npx local` }),
+    ])
+    mockState.tools
+      .mockResolvedValueOnce({ ok: false, tools: null, error: `HTTP 500` })
+      .mockResolvedValueOnce({ ok: true, tools: [{ name: `list_issues`, title: `List issues`, blurb: `Lists them.` }], error: null })
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`linear`)
+    expect(mockState.tools).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText(`Show linear tools`))
+    await screen.findByText(`Could not list its tools: HTTP 500`)
+    expect(mockState.tools).toHaveBeenCalledWith({ serverId: `linear` }, expect.anything())
+    fireEvent.click(screen.getByRole(`button`, { name: `Retry` }))
+    expect((await screen.findByTitle(`list_issues`)).textContent).toContain(`List issues`)
+
+    fireEvent.click(screen.getByLabelText(`Show sentry tools`))
+    expect(screen.getByText(`Connect to see its tools.`)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText(`Show local tools`))
+    expect(screen.getByText(`A local command: its tools list where a session runs it.`)).toBeTruthy()
+    expect(mockState.tools).toHaveBeenCalledTimes(2)
   })
 
   it(`gives each row the viewer's one action and hides owner controls from members`, async () => {
@@ -378,7 +426,7 @@ describe(`TeamMcpServersSection`, () => {
     render(<TeamMcpServersSection teamId="t1" isOwner />)
     await screen.findByText(`linear`)
     // The settings row wears the Linear mark (512 grid, its own fill), not a concept glyph.
-    const mark = rowOf(`linear`).querySelector(`svg`)!
+    const mark = rowOf(`linear`).querySelector(`svg:not([data-slot="disclosure-chevron"])`)!
     expect(mark.getAttribute(`viewBox`)).toBe(`0 0 512 512`)
     expect(mark.getAttribute(`class`)).toContain(`size-4`)
     expect(mark.querySelector(`path`)?.getAttribute(`fill`)).toBe(`#fff`)

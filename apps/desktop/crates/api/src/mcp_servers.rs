@@ -429,6 +429,35 @@ pub struct McpTestResult {
     pub error: Option<String>,
 }
 
+/// One tool a team server lists (`mcpServers.tools`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolRow {
+    pub name: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub blurb: String,
+}
+
+/// `mcpServers.tools` output: `tools` when `ok`, else the `error`.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolsOut {
+    pub ok: bool,
+    #[serde(default)]
+    pub tools: Option<Vec<McpToolRow>>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// `mcpServers.tools {serverId}` (query): an open Settings › MCP row's
+/// tools, listed with the caller's own credential (http servers only; the
+/// server caches a member's answer 5 minutes).
+pub fn tools(trpc: &TrpcClient, server_id: &str) -> Result<McpToolsOut, ApiError> {
+    trpc.query_with_input("mcpServers.tools", &ServerInput { server_id })
+}
+
 /// VAPP-239 (eApps M2): `mcpServers.claimDeviceCall` — this device's half of
 /// an app call the server routed here. `device_id` = the steer device id.
 /// The answer (`emcp::device_call::ClaimedCall`) carries the member's

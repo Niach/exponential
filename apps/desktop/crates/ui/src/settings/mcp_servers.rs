@@ -19,6 +19,15 @@
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read like the widget pane's.
 //!
+//! Owner 2026-11-12 (fixtures/settings-mcp.json `serverOrder`): the pane
+//! is THE Servers group of Settings › MCP: the built-ins first (Exponential,
+//! then Team apps when an app exposes tools; a Copy each, never a ⋯), then
+//! the team's servers. Every row is a disclosure (chevron leading, closed by
+//! default, several may be open) opening its tools under it: Exponential =
+//! the filter + one sub-label per contract tool group, Team apps = one
+//! sub-label per app, a team server = `mcpServers.tools` on first open
+//! (`toolsStateCases`).
+//!
 //! #EXP-1629: the pane is a document on the native binding (projection at
 //! `/pane`): the band with the owner's Add server pill and the reload
 //! spinner, the skeleton, the failed and empty states, and the rows (glyph,
@@ -29,7 +38,7 @@
 
 use crate::toast::Toast;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -37,7 +46,8 @@ use gpui::{div, App, AppContext as _, Entity, IntoElement, ParentElement, Render
 use gpui_component::{button::ButtonVariant, ActiveTheme as _};
 use serde_json::{json, Value};
 
-use api::mcp_servers::{McpServerConfig, McpServerListEntry};
+use api::app_access::AccessApp;
+use api::mcp_servers::{McpServerConfig, McpServerListEntry, McpToolRow};
 use eui_gpui::binding::Binding;
 use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
@@ -48,6 +58,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{empty_state, eq, failed_state, hex, mount_with, not, path, IdeToasts, Ink, PillPaint, SM, XS};
+use super::mcp::{builtin_endpoint, mcp_server_order, mcp_tools_state, tools_failed_line, Chrome, McpToolsState, BUILTIN_APPS, BUILTIN_EXPONENTIAL, SETTINGS_MCP};
 use super::open_url;
 
 /// How often a Connect re-reads the list while the browser is out, and for
@@ -195,6 +206,12 @@ fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String 
     }
 }
 
+/// An open row's tools state (`toolsStateCases`; a row with no transport
+/// reads http, the API's default).
+fn tools_state(entry: &McpServerListEntry) -> McpToolsState {
+    mcp_tools_state(if entry.config.is_http() { "http" } else { "stdio" }, &entry.connection.status)
+}
+
 /// The data-model path the pane's projection is written at.
 const PATH: &str = "/pane";
 
@@ -203,6 +220,18 @@ enum Load {
     Loading,
     Ready(Result<Vec<McpServerListEntry>, String>),
 }
+
+/// An open team server's tools: `None` = loading (skeleton rows),
+/// `Some(Err)` = the `toolsFailed` line with Retry.
+type ToolsLoad = Option<Result<Vec<McpToolRow>, String>>;
+
+/// A built-in row's open key (`serverOrder`'s `builtin:<id>`).
+fn builtin_key(id: &str) -> String {
+    format!("builtin:{id}")
+}
+
+/// The filter Input's text field (its focus decides the box's stroke).
+const FILTER_FIELD: &str = "filter.field";
 
 pub struct McpServersPane {
     nav: Entity<Navigation>,
@@ -235,6 +264,19 @@ pub struct McpServersPane {
     /// What each row's ⋯ acts on, by server id (refilled by every
     /// projection).
     menus: RefCell<HashMap<String, MenuRow>>,
+    /// The team's apps exposing tools (`appAccess.list`, set by the MCP
+    /// page): the Team apps row shows only when there is one.
+    apps: Vec<AccessApp>,
+    /// The open rows: `builtin:<id>` or a server id.
+    open: HashSet<String>,
+    /// EXP-1274: the built-in tools' inline filter, as typed, and whether
+    /// its field has focus.
+    filter: String,
+    filter_focused: bool,
+    /// The team servers' listed tools, by server id, with the fetch's
+    /// generation (a Retry retires an older answer).
+    tools: HashMap<String, (u64, ToolsLoad)>,
+    tools_generation: u64,
     binding: Entity<Binding<Value>>,
     view: Entity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
@@ -242,9 +284,17 @@ pub struct McpServersPane {
 
 /// A pinned state for the headless bench (the headless store has no team).
 #[cfg(test)]
+#[derive(Default)]
 pub(crate) struct McpShot {
     pub team: Option<String>,
     pub owner: bool,
+    /// The instance the built-in rows' URLs start with.
+    pub instance: String,
+    pub filter: String,
+    /// The open rows (`builtin:<id>` or a server id).
+    pub open: Vec<String>,
+    /// Team servers' tools by id.
+    pub tools: Vec<(String, ToolsLoad)>,
 }
 
 impl McpServersPane {
@@ -261,7 +311,7 @@ impl McpServersPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(IdeToasts));
-            for name in ["add", "retry", "connect", "cancel", "menu"] {
+            for name in ["add", "retry", "connect", "cancel", "menu", "toggle", "copy", "toolsRetry", "filter", "filterFocus", "filterBlur", "clear", "focusFilter"] {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let key = event.context.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -280,7 +330,7 @@ impl McpServersPane {
         });
         let tints = Tints { success: hex(cx.theme().success), warning: hex(cx.theme().warning), skeleton: hex(cx.theme().muted_foreground.opacity(0.18)), list_hover: hex(cx.theme().list_hover) };
         let plugin = Rc::new(McpHost { ide: super::doc::ide_plugin() });
-        let view = mount_with("settings-mcp-servers", document(&Ink::of(cx), &tints), &binding, plugin, false, window, cx);
+        let view = mount_with("settings-mcp-servers", document(&Ink::of(cx), &tints, &Chrome::of(cx)), &binding, plugin, false, window, cx);
         Self {
             nav,
             load: Load::Idle,
@@ -296,6 +346,12 @@ impl McpServersPane {
             #[cfg(test)]
             shot: None,
             menus: RefCell::default(),
+            apps: Vec::new(),
+            open: HashSet::new(),
+            filter: String::new(),
+            filter_focused: false,
+            tools: HashMap::new(),
+            tools_generation: 0,
             binding,
             view,
             _subscriptions: subscriptions,
@@ -312,6 +368,9 @@ impl McpServersPane {
     #[cfg(test)]
     pub(crate) fn show(&mut self, shot: McpShot, load: Option<Result<Vec<McpServerListEntry>, String>>, reloading: bool, pending: Option<&str>, connecting: Option<&str>, cx: &mut gpui::Context<Self>) {
         self.team_id = shot.team.clone();
+        self.filter = shot.filter.clone();
+        self.open = shot.open.iter().cloned().collect();
+        self.tools = shot.tools.iter().map(|(id, load)| (id.clone(), (0, load.clone()))).collect();
         self.shot = Some(shot);
         self.load = match load {
             None => Load::Loading,
@@ -329,6 +388,81 @@ impl McpServersPane {
             return shot.team.clone();
         }
         active_team_id(&self.nav, cx)
+    }
+
+    /// The instance the built-in rows' URLs start with (the active
+    /// account's, as the person reads it).
+    fn instance(&self, cx: &App) -> String {
+        #[cfg(test)]
+        if let Some(shot) = &self.shot {
+            return shot.instance.clone();
+        }
+        queries::active_account(cx).map(|account| queries::display_instance_url(&account.instance_url)).unwrap_or_default()
+    }
+
+    /// The MCP page's `appAccess.list` apps (the Team apps row and its
+    /// tools); an empty list hides the row.
+    pub(crate) fn set_apps(&mut self, apps: Vec<AccessApp>, cx: &mut gpui::Context<Self>) {
+        if self.apps != apps {
+            self.apps = apps;
+            cx.notify();
+        }
+    }
+
+    /// Open or close a row; a team server opening on `list` fetches its
+    /// tools the first time.
+    fn toggle(&mut self, key: &str, cx: &mut gpui::Context<Self>) {
+        if !self.open.remove(key) {
+            self.open.insert(key.to_string());
+            let listed = match &self.load {
+                Load::Ready(Ok(rows)) => rows.iter().find(|entry| entry.config.id == key).map(|entry| tools_state(entry) == McpToolsState::List),
+                _ => None,
+            };
+            if listed == Some(true) && !self.tools.contains_key(key) {
+                self.load_tools(key, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// `mcpServers.tools {serverId}` for an open row (skeleton meanwhile).
+    fn load_tools(&mut self, server_id: &str, cx: &mut gpui::Context<Self>) {
+        #[cfg(test)]
+        if self.shot.is_some() {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.tools_generation += 1;
+        let generation = self.tools_generation;
+        self.tools.insert(server_id.to_string(), (generation, None));
+        let id = server_id.to_string();
+        cx.spawn(async move |this, cx| {
+            let fetched = {
+                let id = id.clone();
+                cx.background_executor().spawn(async move { api::mcp_servers::tools(&trpc, &id) }).await
+            };
+            let result = match fetched {
+                Ok(out) if out.ok => Ok(out.tools.unwrap_or_default()),
+                Ok(out) => Err(out.error.filter(|error| !error.trim().is_empty()).unwrap_or_else(|| "no answer".to_string())),
+                Err(err) => Err(err.user_message()),
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.tools.get(&id).is_some_and(|(at, _)| *at == generation) {
+                    this.tools.insert(id, (generation, Some(result)));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Copy a built-in's URL (the way clients like Claude connect).
+    fn copy(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let url = builtin_endpoint(&self.instance(cx), id);
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
+        crate::toast::show(Toast::success(SETTINGS_MCP.copied), window, cx);
     }
 
     fn pane_owner(&self, team_id: &str, cx: &App) -> bool {
@@ -352,6 +486,9 @@ impl McpServersPane {
     /// the band spins; anything else (an error, nothing yet) starts over at
     /// the skeleton.
     pub(super) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
+        // A connection may have changed: a failed tools list asks again on
+        // its next open.
+        self.tools.retain(|_, (_, load)| !matches!(load, Some(Err(_))));
         match self.load {
             Load::Ready(Ok(_)) => self.reload_requested = true,
             Load::Ready(Err(_)) => self.load = Load::Idle,
@@ -374,6 +511,9 @@ impl McpServersPane {
             self.pending = None;
             self.reload_requested = false;
             self.reloading = false;
+            self.open.clear();
+            self.tools.clear();
+            self.filter.clear();
         }
         let reload = self.reload_requested && matches!(self.load, Load::Ready(Ok(_)));
         if !matches!(self.load, Load::Idle) && !reload {
@@ -874,6 +1014,15 @@ impl McpServersPane {
 
     // -- the document ---------------------------------------------------------
 
+    /// Write the projection now (the filter's Clear, before the field takes
+    /// focus again).
+    fn push(&mut self, cx: &mut gpui::Context<Self>) {
+        let team = self.pane_team(cx);
+        let owner = team.as_deref().is_some_and(|team| self.pane_owner(team, cx));
+        let projection = self.project(team.as_deref(), owner, &self.instance(cx));
+        self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
+    }
+
     /// A document action (`add`, `retry`, `connect` / `cancel` on the row
     /// `key`, `menu` = the row's ⋯ pick `value`).
     fn action(&mut self, name: &str, key: &str, value: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -885,6 +1034,29 @@ impl McpServersPane {
             }
             "retry" => self.retry_load(cx),
             "cancel" => self.cancel_connect(cx),
+            "toggle" => self.toggle(key, cx),
+            "copy" => self.copy(key, window, cx),
+            "toolsRetry" => {
+                self.load_tools(key, cx);
+                cx.notify();
+            }
+            "filter" => {
+                self.filter = value.to_string();
+                cx.notify();
+            }
+            "filterFocus" | "filterBlur" => {
+                self.filter_focused = name == "filterFocus";
+                cx.notify();
+            }
+            "clear" => {
+                // A focused field keeps its own text over a later write.
+                self.view.update(cx, |view, cx| view.blur_field(FILTER_FIELD, window, cx));
+                self.filter.clear();
+                self.push(cx);
+                cx.notify();
+                super::doc::focus_input(self.view.clone(), "filter", window, cx);
+            }
+            "focusFilter" => super::doc::focus_input(self.view.clone(), "filter", window, cx),
             "connect" => {
                 let Load::Ready(Ok(rows)) = &self.load else { return };
                 let Some(config) = rows.iter().find(|entry| entry.config.id == key).map(|entry| entry.config.clone()) else { return };
@@ -923,17 +1095,45 @@ impl McpServersPane {
 
     /// The pane's state as the document reads it; what the rows' ⋯ menus
     /// act on is kept for their picks at the same time.
-    fn project(&self, team: Option<&str>, owner: bool) -> Value {
+    fn project(&self, team: Option<&str>, owner: bool, instance: &str) -> Value {
         let mut menus = HashMap::new();
         let Some(_) = team else {
             *self.menus.borrow_mut() = menus;
-            return json!({"noTeam": true, "rows": []});
+            return json!({"noTeam": true, "rows": [], "apps": {"rows": []}});
         };
+        let is_open = |key: &str| self.open.contains(key);
+        let team_ids: Vec<String> = match &self.load {
+            Load::Ready(Ok(rows)) => rows.iter().map(|entry| entry.config.id.clone()).collect(),
+            _ => Vec::new(),
+        };
+        let order = mcp_server_order(!self.apps.is_empty(), &team_ids);
+        let builtin = |id: &str| {
+            let key = builtin_key(id);
+            json!({"shown": order.contains(&key), "url": builtin_endpoint(instance, id), "open": is_open(&key), "closed": !is_open(&key)})
+        };
+        // Team apps: one sub-label per app (alphabetical), its tools.
+        let mut apps = self.apps.clone();
+        apps.sort_by_key(|app| app.name.to_lowercase());
+        let app_rows: Vec<Value> = apps
+            .iter()
+            .flat_map(|app| {
+                std::iter::once(json!({"key": format!("app:{}", app.id), "label": true, "tool": false, "text": app.name, "title": "", "blurb": "", "name": ""}))
+                    .chain(app.tools.iter().map(move |tool| {
+                        let title = if tool.title.is_empty() { tool.name.clone() } else { tool.title.clone() };
+                        json!({"key": format!("{}:{}", app.id, tool.name), "label": false, "tool": true, "text": "", "title": title, "blurb": tool.blurb, "name": tool.name})
+                    }))
+            })
+            .collect();
+        let exponential_open = is_open(&builtin_key(BUILTIN_EXPONENTIAL));
         let mut out = json!({"noTeam": false, "owner": owner, "busy": self.busy, "reloading": self.reloading,
-            "loading": false, "failed": false, "empty": false, "hasRows": false, "rows": []});
+            "loading": false, "failed": false, "empty": false, "hasRows": false, "rows": [],
+            "builtins": {BUILTIN_EXPONENTIAL: builtin(BUILTIN_EXPONENTIAL), BUILTIN_APPS: builtin(BUILTIN_APPS)},
+            "builtin": super::mcp::project_builtin(&self.filter, self.filter_focused, exponential_open),
+            "apps": {"rows": app_rows}});
         match &self.load {
             Load::Idle | Load::Loading => out["loading"] = json!(true),
             Load::Ready(Err(_)) => out["failed"] = json!(true),
+            // No team server: the built-ins alone.
             Load::Ready(Ok(rows)) if rows.is_empty() => out["empty"] = json!(true),
             Load::Ready(Ok(rows)) => {
                 out["hasRows"] = json!(true);
@@ -953,7 +1153,40 @@ impl McpServersPane {
                         let secret = config.auth == "secret";
                         let detail = row_caption(entry);
                         let icon = crate::picker::mcp_server_picker::mcp_server_icon(config.url.as_deref(), config.command.as_deref());
+                        let open = is_open(&config.id);
+                        let state = tools_state(entry);
+                        let load = self.tools.get(&config.id).map(|(_, load)| load);
+                        let tools: Vec<Value> = match (state, load) {
+                            (McpToolsState::List, Some(Some(Ok(tools)))) => tools
+                                .iter()
+                                .map(|tool| {
+                                    let title = if tool.title.is_empty() { tool.name.clone() } else { tool.title.clone() };
+                                    json!({"key": tool.name, "name": tool.name, "title": title, "blurb": tool.blurb})
+                                })
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                        let (tools_loading, failed_line) = match (state, load) {
+                            (McpToolsState::List, None | Some(None)) => (true, None),
+                            (McpToolsState::List, Some(Some(Err(reason)))) => (false, Some(tools_failed_line(reason))),
+                            _ => (false, None),
+                        };
+                        let tools_line = match (state, load) {
+                            (McpToolsState::Connect, _) => Some(SETTINGS_MCP.tools_connect),
+                            (McpToolsState::Stdio, _) => Some(SETTINGS_MCP.tools_stdio),
+                            (McpToolsState::List, Some(Some(Ok(listed)))) if listed.is_empty() => Some(SETTINGS_MCP.tools_none),
+                            _ => None,
+                        };
                         json!({
+                            "open": open,
+                            "closed": !open,
+                            "toolsLoading": tools_loading,
+                            "toolsFailed": failed_line.is_some(),
+                            "failedLine": failed_line.unwrap_or_default(),
+                            "hasToolsLine": tools_line.is_some(),
+                            "toolsLine": tools_line.unwrap_or_default(),
+                            "hasTools": !tools.is_empty(),
+                            "tools": tools,
                             "key": config.id,
                             "icon": format!("{ASSET}{}", gpui_component::IconNamed::path(icon)),
                             "name": config.name,
@@ -1012,6 +1245,14 @@ impl HostPlugin for McpHost {
             Some(path) => Some(SharedString::from(path.to_string())),
             None => self.ide.icon(name),
         }
+    }
+
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        // The Exponential built-in's mark (`ExpIcon::Logo`, as the tools').
+        if name == super::mcp::LOGO {
+            return Some(gpui_component::Icon::from(crate::icons::ExpIcon::Logo).size(gpui::px(size)).text_color(color).into_any_element());
+        }
+        self.ide.icon_element(name, size, color, cx)
     }
 
     fn on_unknown(&self, node: &eui_core::surface::PlacedNode) {
@@ -1089,58 +1330,174 @@ fn action_slot(ink: &Ink, tints: &Tints) -> Value {
         "children": [row("waiting_pair", is("waiting"), vec![waiting, cancel]), none, connected, reconnect, connect]})
 }
 
-/// One server row (`flat_row`, `px_3` / `py_2`, `gap_3`): the server's glyph,
-/// its name with the Default pill over the caption, the action, the ⋯.
-fn server_row(ink: &Ink, tints: &Tints) -> Value {
-    // The glyph is a fixed 14px (`Icon::size(px(14.))`), not a rem.
-    let glyph = 14.;
-    let mut name = ink.text("row_name", path("name"), SM, &ink.foreground);
+/// The chevron's size (`disclosure_header`'s `xsmall` glyph).
+const CHEVRON: f32 = 12.;
+
+/// The tools' indent under an open row: the row's `px_3`, the chevron and
+/// its `gap_2`, so a tool lines up with the row's glyph.
+fn tools_indent(ink: &Ink) -> f32 {
+    ink.r(0.75) + CHEVRON + ink.r(0.5)
+}
+
+/// THE disclosure header (`controls::disclosure_header`, chevron leading,
+/// the whole leading part the target): the chevron (right closed, down
+/// open) before `content` (the row's glyph, name and caption). A row's
+/// trailing actions stay outside it.
+fn disclosure(ink: &Ink, id: &str, label: Value, open: Value, closed: Value, event: Value, content: Vec<Value>) -> Value {
+    let chevron = |suffix: &str, icon: &str, visible: Value| json!({"id": format!("{id}_{suffix}"), "component": "Icon", "visible": visible, "props": {"name": icon}, "style": {"width": CHEVRON, "height": CHEVRON, "color": ink.muted, "flexShrink": 0}});
+    let mut children = vec![chevron("closed", "ui-chevron-right", closed), chevron("open", "ui-chevron-down", open)];
+    children.extend(content);
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": event}},
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "cursor": "pointer"},
+        "children": children})
+}
+
+/// A row's frame (`flat_row`, `px_3` / `py_2`, `gap_3`).
+fn row_frame(ink: &Ink, id: &str, children: Vec<Value>) -> Value {
+    json!({"id": id, "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5)},
+        "children": children})
+}
+
+/// The name (medium, with its pill) over the muted caption (`flex_1`);
+/// `mono` sets the caption in the mono family (a built-in's URL).
+fn name_column(ink: &Ink, id: &str, name: Value, pill: Value, caption: Value, has_caption: Value, mono: bool) -> Value {
+    let mut name = ink.text(&format!("{id}_name"), name, SM, &ink.foreground);
     name["style"]["fontWeight"] = json!(500);
     name["style"]["minWidth"] = json!(0);
-    let mut chip = ink.pill("row_default", json!("Default"), false, None);
-    chip["visible"] = path("isDefault");
-    let mut detail = ink.text("row_detail", path("detail"), XS, &ink.muted);
-    detail["visible"] = path("hasDetail");
+    let mut detail = ink.text(&format!("{id}_detail"), caption, XS, &ink.muted);
+    detail["visible"] = has_caption;
     detail["props"]["lines"] = json!(1);
     detail["style"]["minWidth"] = json!(0);
-    let menu = ink.row_menu("menu", path("menuLabel"), path("menu"), &tints.list_hover, Some(path("menuLocked")), Some(path("menuLoading")));
-    json!({"id": "row", "component": "Box",
-        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md},
+    if mono {
+        detail["style"]["fontFamily"] = json!(ink.mono);
+    }
+    json!({"id": id, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
         "children": [
-            {"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},
-            {"id": "row_text", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
-                "children": [
-                    {"id": "row_head", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": [name, chip]},
-                    detail,
-                ]},
-            action_slot(ink, tints),
-            menu,
+            {"id": format!("{id}_head"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0}, "children": [name, pill]},
+            detail,
         ]})
 }
 
+/// One team server row: the disclosure (glyph, name with the Default pill
+/// over the caption), the action, the ⋯; open = its tools under it.
+fn server_row(ink: &Ink, tints: &Tints) -> Value {
+    // The glyph is a fixed 14px (`Icon::size(px(14.))`), not a rem.
+    let glyph = 14.;
+    let mut chip = ink.pill("row_default", json!("Default"), false, None);
+    chip["visible"] = path("isDefault");
+    let icon = json!({"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}});
+    let head = disclosure(ink, "row_toggle", path("name"), path("open"), path("closed"), json!({"name": "toggle", "context": {"key": path("key")}}),
+        vec![icon, name_column(ink, "row_text", path("name"), chip, path("detail"), path("hasDetail"), false)]);
+    let menu = ink.row_menu("menu", path("menuLabel"), path("menu"), &tints.list_hover, Some(path("menuLocked")), Some(path("menuLoading")));
+    row_frame(ink, "row", vec![head, action_slot(ink, tints), menu])
+}
+
+/// An open team server's tools (`toolsStateCases`): the skeleton while
+/// `mcpServers.tools` loads, the failed line with its Retry, the muted
+/// none / connect / stdio line, or the flat list.
+fn server_tools(ink: &Ink, tints: &Tints) -> Value {
+    let indent = tools_indent(ink);
+    let muted_line = |id: &str, text: Value| {
+        let mut node = ink.text(id, text, XS, &ink.muted);
+        node["style"]["minWidth"] = json!(0);
+        node["style"]["flexShrink"] = json!(1);
+        node
+    };
+    let mut retry = ink.text("tools_retry_text", json!(SETTINGS_MCP.retry), XS, &ink.primary);
+    retry["style"]["cursor"] = json!("pointer");
+    let retry = json!({"id": "tools_retry", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": SETTINGS_MCP.retry},
+        "on": {"press": {"event": {"name": "toolsRetry", "context": {"key": path("key")}}}}, "style": {"flexShrink": 0}, "children": [retry]});
+    let line_box = |id: &str, visible: Value, children: Vec<Value>| json!({"id": id, "component": "Box", "visible": visible,
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0, "paddingLeft": indent, "paddingRight": ink.r(0.75), "paddingVertical": ink.r(0.375)},
+        "children": children});
+    let mut skeleton = ink.skeleton_rows_at("tools_skeleton", &tints.skeleton, ink.r(SM) * super::doc::LINE + 2. * ink.r(0.375), path("toolsLoading"));
+    skeleton["style"]["paddingLeft"] = json!(indent - ink.r(0.75));
+    let tools = json!({"id": "tools", "component": "List", "visible": path("hasTools"), "props": {"gap": "none"},
+        "template": {"component": "tools_wrap", "path": "tools", "key": "key"},
+        "children": [{"id": "tools_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [super::mcp::tool_row(ink, "srv_tool", indent, false)]}]});
+    json!({"id": super::mcp::test_id("serverTools"), "component": "Box", "visible": path("open"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "paddingBottom": ink.r(0.5)},
+        "children": [
+            skeleton,
+            line_box("tools_failed", path("toolsFailed"), vec![muted_line("tools_failed_text", path("failedLine")), retry]),
+            line_box("tools_line", path("hasToolsLine"), vec![muted_line("tools_line_text", path("toolsLine"))]),
+            tools,
+        ]})
+}
+
+/// A built-in row (`builtins.<id>`): the disclosure (the Exponential mark,
+/// the name with the `builtinPill`, its URL in mono) and ONE action, Copy.
+fn builtin_row(ink: &Ink, chrome: &Chrome, id: &str, name: &str, icon: Value, tint: Value) -> Value {
+    let data = format!("/pane/builtins/{id}");
+    let pill = ink.pill(&format!("{id}_pill"), json!(SETTINGS_MCP.builtin_pill), false, None);
+    let mut glyph = super::mcp::glyph(&format!("{id}_icon"), icon, 14., &ink.foreground);
+    glyph["style"]["color"] = tint;
+    let head = disclosure(ink, &format!("{id}_toggle"), json!(name), path(&format!("{data}/open")), path(&format!("{data}/closed")),
+        json!({"name": "toggle", "context": {"key": builtin_key(id)}}),
+        vec![glyph, name_column(ink, &format!("{id}_text"), json!(name), pill, path(&format!("{data}/url")), json!(true), true)]);
+    let copy = super::mcp::outline_button(ink, chrome, &format!("{id}_copy"), SETTINGS_MCP.copy, false, json!({"name": "copy", "context": {"key": id}}));
+    row_frame(ink, &format!("{id}_row"), vec![head, copy])
+}
+
 /// The pane's tree: the band (the owner's Add server pill, the reload
-/// spinner) over the skeleton, the failed and empty states or the rows;
-/// no team = its empty state alone.
-fn document(ink: &Ink, tints: &Tints) -> Value {
+/// spinner) over THE one list of flat rows: the built-ins (each with its open tools),
+/// then the team's rows (or the skeleton / failed state); no team = its
+/// empty state alone.
+fn document(ink: &Ink, tints: &Tints, chrome: &Chrome) -> Value {
     let mut add = ink.pill_button("add", Some("ui-add"), json!("Add server"), path("/pane/busy"), json!({"name": "add"}));
     // gpui centres the label's line half a point lower than the flex centre.
     for face in &mut add {
         face["children"][1]["style"]["paddingTop"] = json!(1);
     }
     let add = json!({"id": "add_slot", "component": "Box", "visible": path("/pane/owner"), "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0}, "children": add});
+    let indent = tools_indent(ink);
+
+    // Exponential: always; open = the filter + the contract tool groups.
+    let exponential = json!({"id": super::mcp::test_id("builtin"), "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [
+            builtin_row(ink, chrome, BUILTIN_EXPONENTIAL, SETTINGS_MCP.builtin_exponential.name, json!(super::mcp::LOGO), json!(ink.foreground)),
+            super::mcp::builtin_tools(ink, chrome, indent),
+        ]});
+    // Team apps: when an app exposes tools; open = one sub-label per app.
+    let mut app_label = super::mcp::sub_label(ink, "apps_label", path("text"), indent);
+    app_label["visible"] = path("label");
+    let mut app_tool = super::mcp::tool_row(ink, "apps_tool", indent, false);
+    app_tool["visible"] = path("tool");
+    let app_tools = json!({"id": "apps_tools", "component": "Box", "visible": path("/pane/builtins/apps/open"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "paddingBottom": ink.r(0.5)},
+        "children": [super::mcp::list("apps_rows", json!(true), "/pane/apps/rows", json!({"id": "apps_item", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [app_label, app_tool]}))]});
+    let apps = json!({"id": super::mcp::test_id("appsServer"), "component": "Box", "visible": path("/pane/builtins/apps/shown"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+        "children": [
+            builtin_row(ink, chrome, BUILTIN_APPS, SETTINGS_MCP.builtin_apps.name, json!(super::mcp::LOGO), json!(ink.foreground)),
+            app_tools,
+        ]});
+
+    // The team's servers.
     let rows = json!({"id": "rows", "component": "List", "visible": path("/pane/hasRows"), "props": {"gap": "none"},
         "template": {"component": "row_wrap", "path": "/pane/rows", "key": "key"},
-        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [server_row(ink, tints)]}]});
+        "children": [{"id": "row_wrap", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+            "children": [server_row(ink, tints), server_tools(ink, tints)]}]});
+    // Flat rows under the band (no fill, no hairlines), web alike.
+    let group = json!({"id": "group", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [
+        exponential,
+        apps,
+        ink.skeleton_rows("skeleton", &tints.skeleton, path("/pane/loading")),
+        failed_state(ink, "failed", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/failed")),
+        rows,
+    ]});
     let list = json!({"id": "list", "component": "Box", "visible": not(path("/pane/noTeam")), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},
         "children": [
-            ink.band_with("band", None, super::mcp::SETTINGS_MCP.labels.servers, Some(path("/pane/reloading")), Some(add)),
-            ink.skeleton_rows("skeleton", &tints.skeleton, path("/pane/loading")),
-            failed_state(ink, "failed", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/failed")),
-            empty_state(ink, "empty", "settings-mcp", crate::empty_state_copy::MCP_SERVERS, path("/pane/empty")),
-            rows,
+            ink.band_with("band", None, SETTINGS_MCP.labels.servers, Some(path("/pane/reloading")), Some(add)),
+            group,
         ]});
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [list, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
+}
+
+/// The servers document, for the MCP page's mount check.
+#[cfg(test)]
+pub(super) fn test_document(ink: &Ink, chrome: &Chrome) -> Value {
+    let tints = Tints { success: "#22c55eff".into(), warning: "#f59e0bff".into(), skeleton: "#a1a1aa2e".into(), list_hover: "#ffffff0a".into() };
+    document(ink, &tints, chrome)
 }
 
 /// #VAPP-243: an app's Add server waiting for this pane (set, then Settings
@@ -1183,7 +1540,7 @@ impl Render for McpServersPane {
                 }
             }
         }
-        let projection = self.project(team.as_deref(), owner);
+        let projection = self.project(team.as_deref(), owner, &self.instance(cx));
         self.binding.update(cx, |binding, cx| binding.update_state(|state| *state = projection, cx));
         div().w_full().min_w_0().child(self.view.clone())
     }

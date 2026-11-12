@@ -48,11 +48,46 @@ function statusError(response: Response): string {
   return `the server answered HTTP ${response.status}`
 }
 
+/** One tool of an upstream's tools/list, as Settings › MCP lists it. */
+export interface UpstreamToolRow {
+  name: string
+  title: string
+  blurb: string
+}
+
+const MAX_TOOL_PAGES = 5
+
+/** A tools/list entry → its row: the title (`title`, else
+ *  `annotations.title`, else the name) and the description's first line. */
+export function upstreamToolRow(tool: unknown): UpstreamToolRow | null {
+  if (!tool || typeof tool !== `object`) return null
+  const t = tool as { name?: unknown; title?: unknown; description?: unknown; annotations?: { title?: unknown } }
+  if (typeof t.name !== `string` || !t.name) return null
+  const title =
+    typeof t.title === `string` && t.title.trim()
+      ? t.title.trim()
+      : typeof t.annotations?.title === `string` && t.annotations.title.trim()
+        ? t.annotations.title.trim()
+        : t.name
+  const blurb = typeof t.description === `string` ? (t.description.trim().split(/\r?\n/)[0] ?? ``).slice(0, 300) : ``
+  return { name: t.name, title, blurb }
+}
+
 /** initialize → notifications/initialized → tools/list with `headers`. */
 export async function testMcpServer(
   url: string,
   headers: Record<string, string>
 ): Promise<{ ok: boolean; tools: number | null; error: string | null }> {
+  const listed = await listMcpServerTools(url, headers)
+  return { ok: listed.ok, tools: listed.tools?.length ?? null, error: listed.error }
+}
+
+/** initialize → notifications/initialized → tools/list (every page, up to
+ *  five) with `headers`: the server's tools as rows. */
+export async function listMcpServerTools(
+  url: string,
+  headers: Record<string, string>
+): Promise<{ ok: boolean; tools: UpstreamToolRow[] | null; error: string | null }> {
   const session: Session = { url, headers, sessionId: null, protocolVersion: PROTOCOL_VERSION }
   try {
     const init = await rpc(session, {
@@ -79,7 +114,28 @@ export async function testMcpServer(
     const negotiated = init.message.result.protocolVersion
     if (typeof negotiated === `string`) session.protocolVersion = negotiated
     await rpc(session, { jsonrpc: `2.0`, method: `notifications/initialized` })
-    const list = await rpc(session, { jsonrpc: `2.0`, id: 2, method: `tools/list`, params: {} })
+    const rows: UpstreamToolRow[] = []
+    let failure: string | null = null
+    let cursor: string | null = null
+    for (let page = 0; page < MAX_TOOL_PAGES; page++) {
+      const list = await rpc(session, { jsonrpc: `2.0`, id: 2 + page, method: `tools/list`, params: cursor ? { cursor } : {} })
+      if (!list.response.ok) {
+        failure = statusError(list.response)
+        break
+      }
+      const tools = list.message?.result?.tools
+      if (!Array.isArray(tools)) {
+        failure = list.message?.error?.message?.slice(0, 300) ?? `no tools/list answer`
+        break
+      }
+      for (const tool of tools) {
+        const row = upstreamToolRow(tool)
+        if (row) rows.push(row)
+      }
+      const next = list.message?.result?.nextCursor
+      cursor = typeof next === `string` && next ? next : null
+      if (!cursor) break
+    }
     if (session.sessionId) {
       // Best effort: let the server drop the session now.
       void mcpFetch(url, {
@@ -87,18 +143,8 @@ export async function testMcpServer(
         headers: { ...headers, "mcp-session-id": session.sessionId },
       }).catch(() => undefined)
     }
-    if (!list.response.ok) {
-      return { ok: false, tools: null, error: statusError(list.response) }
-    }
-    const tools = list.message?.result?.tools
-    if (!Array.isArray(tools)) {
-      return {
-        ok: false,
-        tools: null,
-        error: list.message?.error?.message?.slice(0, 300) ?? `no tools/list answer`,
-      }
-    }
-    return { ok: true, tools: tools.length, error: null }
+    if (failure !== null) return { ok: false, tools: null, error: failure }
+    return { ok: true, tools: rows, error: null }
   } catch (e) {
     return {
       ok: false,

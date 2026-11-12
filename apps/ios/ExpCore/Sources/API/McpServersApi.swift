@@ -20,6 +20,8 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
     public let name: String
     public let url: String?
     public let command: String?
+    /// `http` / `stdio` (Settings › MCP's `toolsState`).
+    public let transport: String
     public let enabledByDefault: Bool
     public let connection: Connection
     /// `oauth` / `secret` / `none`.
@@ -36,6 +38,7 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
         name: String,
         url: String? = nil,
         command: String? = nil,
+        transport: String? = nil,
         enabledByDefault: Bool = false,
         connection: Connection,
         auth: String = "oauth",
@@ -46,6 +49,7 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
         self.name = name
         self.url = url
         self.command = command
+        self.transport = transport ?? (url != nil ? "http" : "stdio")
         self.enabledByDefault = enabledByDefault
         self.connection = connection
         self.auth = auth
@@ -54,7 +58,7 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, url, command, enabledByDefault, connection, auth, usedBy, device
+        case id, name, url, command, transport, enabledByDefault, connection, auth, usedBy, device
     }
 
     private struct Device: Decodable {
@@ -67,6 +71,7 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         command = try? c.decodeIfPresent(String.self, forKey: .command)
+        transport = (try? c.decodeIfPresent(String.self, forKey: .transport)) ?? (url != nil ? "http" : "stdio")
         enabledByDefault = (try? c.decodeIfPresent(Bool.self, forKey: .enabledByDefault)) ?? false
         connection = (try? c.decode(Connection.self, forKey: .connection))
             ?? Connection(status: "not_connected")
@@ -124,6 +129,45 @@ private struct McpServerIdInput: Encodable {
 
 // MARK: - #VAPP-185: Settings › MCP (clients, access, activity)
 
+/// One tool an MCP server lists (Settings › MCP's open rows): a team
+/// server's (`mcpServers.tools`) or an app's (`appAccess.list` apps' `tools`).
+public struct McpToolRow: Decodable, Identifiable, Equatable, Sendable {
+    public let name: String
+    public let title: String
+    public let blurb: String
+    public var id: String { name }
+
+    public init(name: String, title: String, blurb: String = "") {
+        self.name = name
+        self.title = title
+        self.blurb = blurb
+    }
+
+    enum CodingKeys: String, CodingKey { case name, title, blurb }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        let title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        self.title = title.isEmpty ? name : title
+        blurb = (try? c.decodeIfPresent(String.self, forKey: .blurb)) ?? ""
+    }
+}
+
+/// `mcpServers.tools {serverId}`: a team server's tools listed with the
+/// caller's own credential (`tools` nil + `error` on a failure).
+public struct McpServerTools: Decodable, Equatable, Sendable {
+    public let ok: Bool
+    public let tools: [McpToolRow]?
+    public let error: String?
+
+    public init(ok: Bool, tools: [McpToolRow]?, error: String? = nil) {
+        self.ok = ok
+        self.tools = tools
+        self.error = error
+    }
+}
+
 /// One OAuth client a member authorized (`mcpClients.list`).
 public struct McpClientRow: Decodable, Identifiable, Equatable, Sendable {
     public let clientId: String
@@ -179,14 +223,33 @@ public struct McpAppAccess: Decodable, Equatable, Sendable {
         public let icon: String?
         public let color: String?
         public let toolCount: Int
+        /// Its exposed tools in package order (the open Team apps row).
+        public let tools: [McpToolRow]
 
-        public init(id: String, slug: String, name: String, icon: String? = nil, color: String? = nil, toolCount: Int) {
+        public init(
+            id: String, slug: String, name: String, icon: String? = nil, color: String? = nil, toolCount: Int,
+            tools: [McpToolRow] = []
+        ) {
             self.id = id
             self.slug = slug
             self.name = name
             self.icon = icon
             self.color = color
             self.toolCount = toolCount
+            self.tools = tools
+        }
+
+        enum CodingKeys: String, CodingKey { case id, slug, name, icon, color, toolCount, tools }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            slug = try c.decode(String.self, forKey: .slug)
+            name = try c.decode(String.self, forKey: .name)
+            icon = try c.decodeIfPresent(String.self, forKey: .icon)
+            color = try c.decodeIfPresent(String.self, forKey: .color)
+            toolCount = try c.decode(Int.self, forKey: .toolCount)
+            tools = (try? c.decodeIfPresent([McpToolRow].self, forKey: .tools)) ?? []
         }
     }
 
@@ -318,6 +381,16 @@ public final class McpServersApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "mcpServers.disconnect",
+            input: McpServerIdInput(serverId: serverId)
+        )
+    }
+
+    /// Settings › MCP: an open team server row's tools (http only; the
+    /// server caches a member's answer 5 minutes).
+    public func tools(accountId: String, serverId: String) async throws -> McpServerTools {
+        try await trpc.query(
+            accountId: accountId,
+            path: "mcpServers.tools",
             input: McpServerIdInput(serverId: serverId)
         )
     }
