@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.domain.TaskQueue
+import com.exponential.app.domain.TaskQueueItem
 import com.exponential.app.domain.TaskQueueItemState
 import com.exponential.app.domain.TaskQueueSpec
 import com.exponential.app.domain.TraceGeometry
@@ -503,56 +504,61 @@ fun Modifier.traceShimmer(base: Color, enabled: Boolean): Modifier {
 // ── The Queue (task-queue.json) ──────────────────────────────────────────────
 
 /**
- * EXP-1321/1324: THE Queue — a `sm` Trace of two collapsibles: "n to do"
- * (open by default) listing the running work (shimmering) then the pending
- * tasks (at pendingOpacity), then "n completed" (collapsed) whose items sit
- * at pendingOpacity. The open state is the caller's (it sticks for the
- * session).
+ * EXP-1321/1324: THE Queue — the `tasks` DockCard's sheet body: a `sm` Trace
+ * of the todo items (running shimmering, pending at pendingOpacity) with no
+ * title line of their own (the sheet's header IS the todo title), then
+ * "n completed" (collapsed) whose items sit at pendingOpacity. The completed
+ * open state is the caller's (it sticks for the session).
  */
 @Composable
 fun TaskQueueView(
     queue: TaskQueue,
-    todoOpen: Boolean,
-    onTodoOpenChange: (Boolean) -> Unit,
     completedOpen: Boolean,
     onCompletedOpenChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Trace(modifier = modifier.testTag(TaskQueueSpec.TEST_ID_QUEUE), size = TraceSize.Sm) {
-        val sections = listOfNotNull(
-            Triple(queue.todo, todoOpen to onTodoOpenChange, TaskQueueSpec.TEST_ID_TODO),
-            queue.completed?.let { Triple(it, completedOpen to onCompletedOpenChange, TaskQueueSpec.TEST_ID_COMPLETED) },
-        )
-        for ((section, state, tag) in sections) {
-            val (open, onChange) = state
+        Column(
+            modifier = Modifier.testTag(TaskQueueSpec.TEST_ID_TODO),
+            verticalArrangement = Arrangement.spacedBy(TraceSize.Sm.geometry.lineGap.dp),
+        ) {
+            TaskQueueLines(queue.todo.items)
+        }
+        val completed = queue.completed
+        if (completed != null) {
             TraceCollapsible(
-                open = open,
-                onOpenChange = onChange,
-                modifier = Modifier.testTag(tag),
+                open = completedOpen,
+                onOpenChange = onCompletedOpenChange,
+                modifier = Modifier.testTag(TaskQueueSpec.TEST_ID_COMPLETED),
                 trigger = { isOpen, toggle ->
                     TraceLine(
-                        title = section.title,
-                        icon = traceIcon(section.icon),
+                        title = completed.title,
+                        icon = traceIcon(completed.icon),
                         open = isOpen,
                         onClick = toggle,
                     )
                 },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(TraceSize.Sm.geometry.lineGap.dp)) {
-                    for (item in section.items) {
-                        TraceLine(
-                            title = item.label,
-                            icon = traceIcon(item.icon),
-                            description = item.description,
-                            status = when (item.state) {
-                                TaskQueueItemState.Running -> TraceStatus.Running
-                                TaskQueueItemState.Pending, TaskQueueItemState.Done -> TraceStatus.Pending
-                            },
-                        )
-                    }
+                    TaskQueueLines(completed.items)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TaskQueueLines(items: List<TaskQueueItem>) {
+    for (item in items) {
+        TraceLine(
+            title = item.label,
+            icon = traceIcon(item.icon),
+            description = item.description,
+            status = when (item.state) {
+                TaskQueueItemState.Running -> TraceStatus.Running
+                TaskQueueItemState.Pending, TaskQueueItemState.Done -> TraceStatus.Pending
+            },
+        )
     }
 }
 

@@ -1,9 +1,9 @@
-// EXP-1321/1324: THE Queue, the ONE block at the bottom of a session's
-// transcript (right above the queued-messages strip and the composer). It
-// replaces the bottom strip's background-task + "Waiting on" lines and the
-// Work card's `tasks` variant with two Trace collapsibles: "n to do", open,
-// listing the running work (shimmering) then the pending tasks (muted), and
-// "n completed", collapsed. TS reference; desktop `steer::task_queue`, iOS
+// EXP-1321/1324: THE Queue, the `tasks` DockCard's sheet body. It replaces
+// the bottom strip's background-task + "Waiting on" lines and the Work
+// card's `tasks` variant: the running work (shimmering) then the pending
+// tasks (muted), with no title line of their own (the sheet header carries
+// "n to do"), then "n completed" as a collapsed Trace collapsible. TS
+// reference; desktop `steer::task_queue`, iOS
 // ExpCore `TaskQueue.swift`, Android `domain/TaskQueue.kt` replay
 // `fixtures/task-queue.json`.
 

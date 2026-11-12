@@ -590,9 +590,8 @@ pub(crate) struct SteerSessionView {
     /// EXP-1324: this client's first sight of each background task — the
     /// Queue's elapsed time for a publisher that sent no `startedAt`.
     background_seen: HashMap<String, i64>,
-    /// EXP-1324: the reader's Queue toggles, sticky for the session: "to do"
-    /// opens by default, "completed" folds by default.
-    queue_todo_closed: bool,
+    /// EXP-1324: the reader's Queue toggle, sticky for the session:
+    /// "completed" folds by default.
     queue_completed_open: bool,
     /// EXP-1240: the workflow Work cards whose folded row is open (keyed by
     /// workflow id). VIEW state, never persisted.
@@ -947,7 +946,6 @@ impl SteerSessionView {
             subagents: Vec::new(),
             queue_waits: Vec::new(),
             background_seen: HashMap::new(),
-            queue_todo_closed: false,
             queue_completed_open: false,
             open_work_folds: HashSet::new(),
             duplicates: Vec::new(),
@@ -7135,7 +7133,8 @@ impl SteerSessionView {
         steer::task_queue::task_queue(&input)
     }
 
-    /// N-12: THE Queue's Trace, the `tasks` DockCard's sheet body.
+    /// N-12: THE Queue's Trace, the `tasks` DockCard's sheet body: the todo
+    /// items (no title line of their own), then "n completed" folded.
     fn render_task_queue(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         use steer::task_queue::{test_ids, TaskQueueItemState, TaskQueueSection};
         let queue = self.task_queue_model()?;
@@ -7166,27 +7165,9 @@ impl SteerSessionView {
             )
             .into_any_element()
         };
-        let todo_open = !self.queue_todo_closed;
-        let todo = div().id(test_ids::TODO).w_full().child(trace_collapsible(
-            TraceLine::new(
-                "steer-queue-todo-line",
-                Icon::from(crate::trace::trace_icon(&queue.todo.icon)),
-                queue.todo.title.clone(),
-            ),
-            todo_open,
-            {
-                let entity = cx.entity().downgrade();
-                move |_, cx| {
-                    let _ = entity.update(cx, |this, cx| {
-                        this.queue_todo_closed = !this.queue_todo_closed;
-                        cx.notify();
-                    });
-                }
-            },
-            todo_open.then(|| lines(&queue.todo, cx)),
-            window,
-            cx,
-        ));
+        // The todo items sit right under the sheet's header, which IS the
+        // todo title (task-queue.json: one title, never two).
+        let todo = div().id(test_ids::TODO).w_full().child(lines(&queue.todo, cx));
         let completed = queue.completed.as_ref().map(|section| {
             let open = self.queue_completed_open;
             let entity = cx.entity().downgrade();

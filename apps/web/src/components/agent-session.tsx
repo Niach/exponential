@@ -1532,31 +1532,24 @@ function TraceModelLine({
   )
 }
 
-/** EXP-1321/1324: THE Queue, the ONE block at the bottom of the transcript
- *  (`taskQueue`, fixture `task-queue.json` ×4): "n to do" (open by default)
- *  lists the running work — shimmering — then the pending tasks, muted;
- *  "n completed" stays folded. It replaces the background-task / "Waiting
- *  on" lines and the task-list Work card; a running background task's
- *  elapsed time ticks once a second. Absent when nothing is left to do. */
+/** EXP-1321/1324: THE Queue (`taskQueue`, fixture `task-queue.json` ×4),
+ *  the `tasks` DockCard's sheet body: the running work — shimmering — then
+ *  the pending tasks, muted, with no title line of their own (the sheet's
+ *  header IS the todo title); "n completed" stays folded. A running
+ *  background task's elapsed time ticks once a second. Absent when nothing
+ *  is left to do. */
 function TaskQueueStrip({
   taskList,
   backgroundTasks,
   feed,
-  todoOpen,
-  onTodoOpenChange,
   completedOpen,
   onCompletedOpenChange,
-  plain = false,
 }: {
   taskList: TaskListEntry[]
   backgroundTasks: BackgroundTask[]
   feed: readonly FeedItem[]
-  todoOpen: boolean
-  onTodoOpenChange: (open: boolean) => void
   completedOpen: boolean
   onCompletedOpenChange: (open: boolean) => void
-  /** N-12: inside THE Dock's sheet (no column, no cap of its own). */
-  plain?: boolean
 }) {
   const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
   const now = useNow(ticking ? 1_000 : 60_000)
@@ -1566,84 +1559,69 @@ function TaskQueueStrip({
     [taskList, backgroundTasks, feed, now]
   )
   if (model === null) return null
-  const sections = [
-    {
-      section: model.todo,
-      open: todoOpen,
-      onOpenChange: onTodoOpenChange,
-      testId: TASK_QUEUE_TEST_IDS.todo,
-    },
-    ...(model.completed
-      ? [
-          {
-            section: model.completed,
-            open: completedOpen,
-            onOpenChange: onCompletedOpenChange,
-            testId: TASK_QUEUE_TEST_IDS.completed,
-          },
-        ]
-      : []),
-  ]
+  const CompletedIcon = model.completed
+    ? conceptIcon(model.completed.icon as Parameters<typeof conceptIcon>[0])
+    : null
   return (
-    <div
-      className={plain ? undefined : `max-h-[40vh] overflow-y-auto py-1.5`}
-      data-testid={TASK_QUEUE_TEST_IDS.queue}
-    >
-      <div className={plain ? undefined : TRANSCRIPT_COLUMN}>
-        <Trace size="sm">
-          {sections.map(({ section, open, onOpenChange, testId }) => {
-            const Icon = conceptIcon(section.icon as Parameters<typeof conceptIcon>[0])
-            return (
-              <TraceCollapsible
-                key={testId}
-                open={open}
-                onOpenChange={onOpenChange}
-                data-testid={testId}
-              >
-                <TraceCollapsibleTrigger>
-                  <TraceLine>
-                    <TraceIcon>
-                      <Icon />
-                    </TraceIcon>
-                    <TraceTitle>{section.title}</TraceTitle>
-                  </TraceLine>
-                </TraceCollapsibleTrigger>
-                <TraceCollapsibleContent>
-                  <div className="flex flex-col gap-1.5">
-                    {section.items.map((item) => {
-                      const ItemIcon = conceptIcon(
-                        item.icon as Parameters<typeof conceptIcon>[0]
-                      )
-                      return (
-                        <TraceLine
-                          key={item.key}
-                          status={
-                            item.state === `running`
-                              ? `running`
-                              : item.state === `pending` || item.state === `done`
-                                ? `pending`
-                                : null
-                          }
-                        >
-                          <TraceIcon>
-                            <ItemIcon />
-                          </TraceIcon>
-                          <TraceTitle title={item.label}>{item.label}</TraceTitle>
-                          {item.description && (
-                            <TraceDescription>{item.description}</TraceDescription>
-                          )}
-                        </TraceLine>
-                      )
-                    })}
-                  </div>
-                </TraceCollapsibleContent>
-              </TraceCollapsible>
-            )
-          })}
-        </Trace>
-      </div>
+    <div data-testid={TASK_QUEUE_TEST_IDS.queue}>
+      <Trace size="sm">
+        <div className="flex flex-col gap-1.5" data-testid={TASK_QUEUE_TEST_IDS.todo}>
+          <TaskQueueLines items={model.todo.items} />
+        </div>
+        {model.completed && CompletedIcon && (
+          <TraceCollapsible
+            open={completedOpen}
+            onOpenChange={onCompletedOpenChange}
+            data-testid={TASK_QUEUE_TEST_IDS.completed}
+          >
+            <TraceCollapsibleTrigger>
+              <TraceLine>
+                <TraceIcon>
+                  <CompletedIcon />
+                </TraceIcon>
+                <TraceTitle>{model.completed.title}</TraceTitle>
+              </TraceLine>
+            </TraceCollapsibleTrigger>
+            <TraceCollapsibleContent>
+              <div className="flex flex-col gap-1.5">
+                <TaskQueueLines items={model.completed.items} />
+              </div>
+            </TraceCollapsibleContent>
+          </TraceCollapsible>
+        )}
+      </Trace>
     </div>
   )
+}
+
+/** THE Queue's item lines (icon + label + description; running shimmers,
+ *  pending and done sit muted). */
+function TaskQueueLines({
+  items,
+}: {
+  items: NonNullable<ReturnType<typeof sessionTaskQueue>>[`todo`][`items`]
+}) {
+  return items.map((item) => {
+    const ItemIcon = conceptIcon(item.icon as Parameters<typeof conceptIcon>[0])
+    return (
+      <TraceLine
+        key={item.key}
+        status={
+          item.state === `running`
+            ? `running`
+            : item.state === `pending` || item.state === `done`
+              ? `pending`
+              : null
+        }
+      >
+        <TraceIcon>
+          <ItemIcon />
+        </TraceIcon>
+        <TraceTitle title={item.label}>{item.label}</TraceTitle>
+        {item.description && <TraceDescription>{item.description}</TraceDescription>}
+      </TraceLine>
+    )
+  })
 }
 
 /** EXP-861: the strip directly below the background one — one line per
@@ -2425,7 +2403,6 @@ export function useSessionDock(
       feed: entry.snap.feed,
     }
   }, [childSnapshots, session.id, sessionEnded, rootQueueModel, taskList, backgroundTasks, feed, tick])
-  const [todoOpen, setTodoOpen] = useState(true)
   const [completedOpen, setCompletedOpen] = useState(false)
   const limit = rateLimit ? rateLimitBanner(rateLimit, now) : null
   const agentHint = useAgentHintDock(session)
@@ -2509,11 +2486,8 @@ export function useSessionDock(
             taskList={queueOwner.taskList}
             backgroundTasks={queueOwner.backgroundTasks}
             feed={queueOwner.feed}
-            todoOpen={todoOpen}
-            onTodoOpenChange={setTodoOpen}
             completedOpen={completedOpen}
             onCompletedOpenChange={setCompletedOpen}
-            plain
           />
         </DockSheetBody>
       )

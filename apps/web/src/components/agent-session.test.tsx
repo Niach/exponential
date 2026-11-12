@@ -359,7 +359,8 @@ describe(`AgentSessionView Queue`, () => {
     fireEvent.click(card)
     const queue = screen.getByTestId(`session-task-queue`)
     const todo = screen.getByTestId(`session-task-queue-todo`)
-    expect(todo.textContent).toContain(`3 to do`)
+    // The sheet's header IS the todo title; the body never repeats it.
+    expect(queue.textContent).not.toContain(`3 to do`)
     expect(todo.textContent).toContain(`Measuring on the Galaxy A54`)
     expect(todo.textContent).toContain(`Rerun the web and web-phone captures`)
     expect(todo.textContent).toMatch(/2m 1\ds/)

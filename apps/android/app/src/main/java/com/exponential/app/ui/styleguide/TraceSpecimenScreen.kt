@@ -96,7 +96,6 @@ fun TraceSpecimenScreen(kind: TraceSpecimenKind) {
 private fun TraceSpecimen() {
     var outputOpen by remember { mutableStateOf(true) }
     var testsOpen by remember { mutableStateOf(false) }
-    var todoOpen by remember { mutableStateOf(true) }
     var doneOpen by remember { mutableStateOf(false) }
     val failedTests = TraceModels.failedTests(TraceModels.parseTestResults(BENCHMARK_OUTPUT))!!
     Trace(size = TraceSize.Sm) {
@@ -152,8 +151,6 @@ private fun TraceSpecimen() {
     }
     TaskQueueView(
         queue = queue,
-        todoOpen = todoOpen,
-        onTodoOpenChange = { todoOpen = it },
         completedOpen = doneOpen,
         onCompletedOpenChange = { doneOpen = it },
     )

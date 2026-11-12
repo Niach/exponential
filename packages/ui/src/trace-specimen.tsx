@@ -124,9 +124,26 @@ const QUEUE = taskQueue({
   now: 130_000,
 })!
 
+/** THE Queue's item lines: the todo items sit under the sheet header (no
+ *  title line of their own, task-queue.json). */
+function QueueLines({ items }: { items: typeof QUEUE.todo.items }): ReactNode {
+  return items.map((item) => {
+    const ItemIcon = conceptIcon(item.icon as Concept)
+    return (
+      <TraceLine key={item.key} status={item.state === `running` ? `running` : `pending`}>
+        <TraceIcon>
+          <ItemIcon />
+        </TraceIcon>
+        <TraceTitle>{item.label}</TraceTitle>
+        {item.description ? <TraceDescription>{item.description}</TraceDescription> : null}
+      </TraceLine>
+    )
+  })
+}
+
 export function TraceSpecimen(): ReactNode {
-  const [todoOpen, setTodoOpen] = useState(true)
   const [doneOpen, setDoneOpen] = useState(false)
+  const CompletedIcon = conceptIcon(QUEUE.completed!.icon as Concept)
   const failedTests = traceFailedTests(parseTestResults(BENCHMARK_OUTPUT))!
   return (
     <div className="flex max-w-2xl flex-col gap-6" data-testid="trace-specimen">
@@ -182,45 +199,24 @@ export function TraceSpecimen(): ReactNode {
         />
       </Trace>
       <Trace size="sm">
-        {[
-          { section: QUEUE.todo, open: todoOpen, setOpen: setTodoOpen },
-          { section: QUEUE.completed!, open: doneOpen, setOpen: setDoneOpen },
-        ].map(({ section, open, setOpen }) => {
-          const Icon = conceptIcon(section.icon as Concept)
-          return (
-            <TraceCollapsible key={section.title} open={open} onOpenChange={setOpen}>
-              <TraceCollapsibleTrigger>
-                <TraceLine>
-                  <TraceIcon>
-                    <Icon />
-                  </TraceIcon>
-                  <TraceTitle>{section.title}</TraceTitle>
-                </TraceLine>
-              </TraceCollapsibleTrigger>
-              <TraceCollapsibleContent>
-                <div className="flex flex-col gap-1.5">
-                  {section.items.map((item) => {
-                    const ItemIcon = conceptIcon(item.icon as Concept)
-                    return (
-                      <TraceLine
-                        key={item.key}
-                        status={item.state === `running` ? `running` : `pending`}
-                      >
-                        <TraceIcon>
-                          <ItemIcon />
-                        </TraceIcon>
-                        <TraceTitle>{item.label}</TraceTitle>
-                        {item.description ? (
-                          <TraceDescription>{item.description}</TraceDescription>
-                        ) : null}
-                      </TraceLine>
-                    )
-                  })}
-                </div>
-              </TraceCollapsibleContent>
-            </TraceCollapsible>
-          )
-        })}
+        <div className="flex flex-col gap-1.5">
+          <QueueLines items={QUEUE.todo.items} />
+        </div>
+        <TraceCollapsible open={doneOpen} onOpenChange={setDoneOpen}>
+          <TraceCollapsibleTrigger>
+            <TraceLine>
+              <TraceIcon>
+                <CompletedIcon />
+              </TraceIcon>
+              <TraceTitle>{QUEUE.completed!.title}</TraceTitle>
+            </TraceLine>
+          </TraceCollapsibleTrigger>
+          <TraceCollapsibleContent>
+            <div className="flex flex-col gap-1.5">
+              <QueueLines items={QUEUE.completed!.items} />
+            </div>
+          </TraceCollapsibleContent>
+        </TraceCollapsible>
       </Trace>
       <Trace>
         <ModelLine

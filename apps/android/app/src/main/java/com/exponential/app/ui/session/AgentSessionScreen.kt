@@ -851,7 +851,6 @@ private fun RunFaceContent(
     // EXP-1321/1324: all three — the agent's own task list, the background
     // tasks and the open waits — are THE Queue now (`TaskQueues.of`, fixture
     // task-queue.json ×4); its folds stick for the session.
-    var queueTodoOpen by rememberSaveable { mutableStateOf(true) }
     var queueCompletedOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-790: the composer folds to the bar's capsule while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
@@ -2916,7 +2915,6 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val sessionEnded = session?.isEnded == true
     val feed = activity.feed
     val nowMs = rememberUsageClock()
-    var todoOpen by rememberSaveable { mutableStateOf(true) }
     var completedOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-861/1291: the server's not-yet-consumed rows are the queue (X =
     // `sessions.unqueue`); the device's own relay queue while it reports one.
@@ -3016,8 +3014,6 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                     if (taskQueue != null) {
                         TaskQueueView(
                             queue = taskQueue,
-                            todoOpen = todoOpen,
-                            onTodoOpenChange = { todoOpen = it },
                             completedOpen = completedOpen,
                             onCompletedOpenChange = { completedOpen = it },
                             modifier = Modifier.fillMaxWidth(),

@@ -7125,7 +7125,7 @@
       "id": "trace",
       "group": "coding",
       "title": "Trace",
-      "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json) at the bottom: “n to do” open, “n completed” folded.",
+      "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json, the `tasks` sheet's body) at the bottom: the todo items with no title line of their own (the sheet header carries “n to do”), then “n completed” folded.",
       "order": 21,
       "web": {
         "route": "/t/$teamSlug/agent?dev=trace",

@@ -128,7 +128,6 @@ enum SessionDock {
         case .tasks:
             return AnyView(DockSheetChrome(row: row, onClose: close) {
                 TaskQueueView(
-                    todoOpen: Bindable(model).queueTodoOpen,
                     completedOpen: Bindable(model).queueCompletedOpen,
                     build: { model.taskQueue(now: $0) }
                 )
