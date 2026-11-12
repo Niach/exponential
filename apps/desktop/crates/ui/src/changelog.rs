@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-instant-large-chats-on-phones",
+    date: "2026-11-12",
+    title: "Large chats open instantly on phones",
+    summary: "Phones show a long chat from what they stored last time while the rest loads, the MCP picker rows match the web, and Settings › MCP is one list.",
+    body: r##"- **Instant large chats**: iPhone, iPad and Android paint a long chat from the tail they stored last time, then catch up, so it opens without a wait.
+- **MCP picker like the web**: choosing a session's MCP servers on a phone shows the same rows with each server's brand mark.
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: phone builds upload only what crash reports need, so symbol uploads stay small."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_260: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-mcp-read-and-write-tools",
     date: "2026-11-12",
     title: "Exponential's MCP tools come as reads and writes",

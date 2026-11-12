@@ -1,0 +1,3 @@
+- Large chats open instantly from what was stored last time
+- The MCP picker shows each server's brand mark
+- Settings › MCP is one list of servers
