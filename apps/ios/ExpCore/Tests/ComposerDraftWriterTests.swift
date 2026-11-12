@@ -34,7 +34,11 @@ final class ComposerDraftWriterTests: XCTestCase {
         w.write(key: "comment:i", teamId: "t", text: "h")
         w.write(key: "comment:i", teamId: "t", text: "hi")
         XCTAssertEqual(w.local("comment:i"), "hi")
-        try await Task.sleep(for: .milliseconds(150))
+        // Poll: a loaded CI runner can land the 30 ms debounce far later.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while w.local("comment:i") != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let calls = await log.calls
         XCTAssertEqual(calls, ["upsert t comment:i hi"])
         XCTAssertNil(w.local("comment:i"))
