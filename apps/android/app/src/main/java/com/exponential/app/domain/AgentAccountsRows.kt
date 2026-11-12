@@ -324,11 +324,17 @@ object AgentAccountsRows {
      * The confirm "Remove account" asks, pinned ×4 (web
      * `removeAccountConfirmCopy`): it names the login and the machine, and says
      * in the same breath that the ACCOUNT survives — only this machine's copy
-     * of the login goes.
+     * of the login goes. EXP-1794: a claude login's conversations live in the
+     * device's one store, so the claude sentence says they stay.
      */
-    fun removeAccountConfirm(accountLabel: String, deviceLabel: String): String =
+    fun removeAccountConfirm(accountLabel: String, deviceLabel: String, agent: String): String =
         "Delete $accountLabel on $deviceLabel? The login is removed from this device " +
-            "only; the account itself is untouched."
+            "only; " +
+            if (agent == "claude") {
+                "its conversations stay on this device, and the account itself is untouched."
+            } else {
+                "the account itself is untouched."
+            }
 
     /**
      * EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`):

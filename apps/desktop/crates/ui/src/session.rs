@@ -89,6 +89,9 @@ fn sweep_scratch_dirs(cx: &mut App) {
     }
     cx.background_executor()
         .spawn(async move {
+            // EXP-1794: every claude login onto the one conversation store
+            // (whichever host starts first; spawns wait for its lock).
+            coding::agent_profiles::migrate_claude_store(&data_dir);
             live.extend(crate::session_registry::live_ids(&data_dir));
             live.extend(crate::session_registry::recorded_ids(&data_dir));
             let report = coding::scratch::sweep(&data_dir, &live);

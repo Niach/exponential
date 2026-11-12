@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-one-conversation-store`,
+    date: `2026-11-12`,
+    title: `Every Claude login shares one set of conversations`,
+    summary: `All Claude logins on a device now read and write the same conversations, so switching accounts carries the whole chat along and removing a login keeps its history.`,
+    body: `- **One conversation store per device**: every Claude login on a device keeps its conversations, plans and rewind checkpoints in one place, so a session continues on another account with its full history and its plan.
+- **Removing a login keeps its chats**: "Remove account" deletes the login and its credential from the device; the conversations it ran stay and resume on any other login.
+- **Moved over on its own**: the desktop app or the CLI moves existing conversations over on its next start, skipping any login with a running session until it is idle. Nothing is deleted: a copy that differs between logins is kept aside and shown in the device's readiness list.`,
+  },
+  {
     id: `2026-11-12-quiet-scheduled-ticks`,
     date: `2026-11-12`,
     title: `Scheduled agents stay quiet when there is nothing to say`,

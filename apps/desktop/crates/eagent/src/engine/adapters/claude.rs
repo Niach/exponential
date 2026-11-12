@@ -1434,6 +1434,13 @@ impl ClaudeSession {
         for (key, value) in wire::extra_env() {
             spawn = spawn.env(key, value);
         }
+        // EXP-1794: never start inside a conversation-store migration of this
+        // login's root (renames only: a wait of seconds, once per device).
+        if let Some(config_dir) = claude_config_dir(&spawn.env) {
+            if crate::claude_store::wait_for_migration(&config_dir) {
+                log::info!("engine: claude spawn waited for the conversation store migration");
+            }
+        }
         spawn_lines(&spawn, StderrPolicy::Log)
     }
 

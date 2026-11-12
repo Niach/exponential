@@ -24,8 +24,12 @@ describe(`canSignOutAccountOn (EXP-1137)`, () => {
 
 describe(`confirm copy (EXP-862, EXP-1137)`, () => {
   it(`names the login and the machine and promises the account survives`, () => {
-    expect(removeAccountConfirmCopy(`work@example.com`, `Mac mini`)).toBe(
+    expect(removeAccountConfirmCopy(`work@example.com`, `Mac mini`, `codex`)).toBe(
       `Delete work@example.com on Mac mini? The login is removed from this device only; the account itself is untouched.`
+    )
+    // EXP-1794: a claude login's conversations stay in the device's store.
+    expect(removeAccountConfirmCopy(`work@example.com`, `Mac mini`, `claude`)).toBe(
+      `Delete work@example.com on Mac mini? The login is removed from this device only; its conversations stay on this device, and the account itself is untouched.`
     )
     expect(signOutConfirmCopy(`me@example.com`, `mint`)).toBe(
       `Sign me@example.com out on mint? The login stays listed so it can sign in again; the account itself is untouched.`
@@ -34,7 +38,8 @@ describe(`confirm copy (EXP-862, EXP-1137)`, () => {
 
   it(`writes no em dashes (multi-client copy rule)`, () => {
     for (const copy of [
-      removeAccountConfirmCopy(`Work`, `Laptop`),
+      removeAccountConfirmCopy(`Work`, `Laptop`, `claude`),
+      removeAccountConfirmCopy(`Work`, `Laptop`, `codex`),
       signOutConfirmCopy(`Work`, `Laptop`),
     ]) {
       expect(copy.includes(`—`)).toBe(false)

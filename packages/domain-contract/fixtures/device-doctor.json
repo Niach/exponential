@@ -55,9 +55,12 @@
     "keptUnpushed": "Unpushed commits",
     "keptFailed": "Cleanup failed",
     "keyHolderLabel": "Encryption keys",
-    "keyHolderNotRunning": "Key holder not running · restart while signed in and online"
+    "keyHolderNotRunning": "Key holder not running · restart while signed in and online",
+    "storeConflictsLabel": "Conversations",
+    "storeConflicts": "{count} diverged · kept in store/conflicts"
   },
   "rules": [
+    "EXP-1794: a device whose claude conversation-store migration parked diverged copies (store/conflicts/, nothing deleted) adds ONE storage row: key `store_conflicts`, its own `label` = storeConflictsLabel, state action (the warning tone, no pill), detail = storeConflicts with {count} = the parked files. None parked = no row.",
     "#FEED-192: a device whose key holder is not running (signed out, offline or its install not registered, past the one-minute start grace) adds ONE storage row: key `key_holder`, its own `label` = keyHolderLabel, state action (the warning tone, no pill), detail = keyHolderNotRunning. It cannot read or write encrypted chats until then, and it still runs everything else: never a blocker. A running holder adds no row. `exponential doctor` reads the daemon's state, since the holder lives in the daemon's process.",
     "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
     "Items with `parent` (the OS permission rows) render indented under their parent and only while the parent is not off.",
