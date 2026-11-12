@@ -1741,6 +1741,9 @@ impl SteerSessionView {
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
+            // #EXP-1380 (chats.json WINDOW): Load earlier widens the chat's
+            // synced page too (its older cards anchor in the older rows).
+            crate::chat_window::load_earlier(&self.session_id, cx);
         }
         let start = self.window_start();
         // EXP-783: reuse the buffer — a 1500-row `Vec<FeedRowSpec>` per frame

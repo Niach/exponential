@@ -721,9 +721,10 @@ class AgentSessionViewModel @AssistedInject constructor(
      * reader (the row never turns bold while it is open).
      */
     val newestAgentMessageAt: StateFlow<String?> = dbFlow
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
-        .map { messages ->
-            messages.filter { it.authorKind == DomainContract.messageAuthorKindAgent }.maxOfOrNull { it.createdAt }
+        // Large chats: the newest agent row's stamp straight from the index,
+        // never the session's whole transcript (the max it used to fold).
+        .scopedQuery<String?>(null) {
+            it.messageDao().observeNewestCreatedAt(codingSessionId, DomainContract.messageAuthorKindAgent)
         }
         .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
@@ -735,7 +736,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * The chat's composer reads its ROOT's, the raw view its own.
      */
     val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+        // Large chats: a replies card is a CARD row: the session's card rows only.
+        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
         .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         // EXP-1521: per-message card JSON parsing, off the main thread.
@@ -801,8 +803,10 @@ class AgentSessionViewModel @AssistedInject constructor(
             } else {
                 combine(
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    // Large chats: the titles (header / origin) read only the
+                    // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
@@ -882,8 +886,10 @@ class AgentSessionViewModel @AssistedInject constructor(
                 combine(
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() },
+                    // Large chats: the titles (header / origin) read only the
+                    // tree's title rows (session-title.json `firstPrompt`).
                     dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { db ->
-                        db.keyedMessages(db.messageDao().observeByRoot(root))
+                        db.keyedMessages(db.messageDao().observeTitleRowsByRoot(root))
                     },
                     dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
@@ -924,7 +930,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         rows.filter { me != null && it.authorId == me }
             .map { row ->
                 // EXP-1459: a queued message this install cannot open reads the locked copy.
-                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row.rootId, row.body, row.card)
+                val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
                 QueuedMessage(id = row.id, text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body)
             }
         // EXP-1522: opening a sealed body is native crypto: off the main thread.
@@ -1513,7 +1519,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * model) and the device delivers the answer as the next turn.
      */
     val sessionCards: StateFlow<List<Pair<AskDock.SessionCard, SessionTree.SessionChatRow>>> = dbFlow
-        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+        // Large chats: [AskDock.sessionCards] reads card rows only.
+        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeCardRowsBySession(codingSessionId) }
         .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)

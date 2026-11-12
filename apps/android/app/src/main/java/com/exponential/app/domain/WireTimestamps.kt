@@ -56,3 +56,23 @@ object WireTimestamps {
         }
     }.getOrNull()
 }
+
+/**
+ * Large chats: sort by a parsed timestamp WITHOUT re-parsing it in the
+ * comparator (decorate-sort-undecorate): [at] runs once per element, then
+ * the order is ascending by it ([descending] = newest first), ties broken by
+ * [tie]. The same order a `compareBy({ at(it) }, …)` comparator gives.
+ */
+internal inline fun <T> Iterable<T>.sortedByEpoch(
+    descending: Boolean = false,
+    tie: Comparator<in T>,
+    at: (T) -> Long,
+): List<T> {
+    val decorated = map { at(it) to it }
+    val order = Comparator<Pair<Long, T>> { a, b ->
+        val c = if (descending) b.first.compareTo(a.first) else a.first.compareTo(b.first)
+        if (c != 0) c else tie.compare(a.second, b.second)
+    }
+    return decorated.sortedWith(order).map { it.second }
+}
+

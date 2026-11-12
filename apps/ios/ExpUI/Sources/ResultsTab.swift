@@ -55,7 +55,9 @@ public struct ResultsTabView<Lead: View, Thumbnail: View, Surface: View>: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 48)
             } else {
-                VStack(alignment: .leading, spacing: CGFloat(ResultsTab.Tab.Tile.listGap)) {
+                // Large chats: a long chat's results (100+, each a
+                // surface or a picture row) are built as they scroll in.
+                LazyVStack(alignment: .leading, spacing: CGFloat(ResultsTab.Tab.Tile.listGap)) {
                     ForEach(results) { result in
                         ResultSection(result: result, onOpenPicture: { onOpenPicture(result, $0) }, thumbnail: thumbnail) {
                             surface(result)

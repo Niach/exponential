@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -94,6 +96,45 @@ fun ResultsTabContent(
                     ResultSection(result, onOpenPicture = { onOpenPicture(result, it) }, surface = { surface(result) })
                 }
             }
+        }
+    }
+}
+
+/** [ResultsTabContent] as LAZY items (the Results page: a large chat's
+ *  hundred results compose as they scroll in): the same order, the same
+ *  `tile.leadGap` under [lead] and `tile.listGap` between sections, the same
+ *  empty state; the list's test id rides the first item. */
+fun LazyListScope.resultsTabItems(
+    results: List<ResultsTab.Result>,
+    onOpenPicture: (ResultsTab.Result, Int) -> Unit,
+    lead: (@Composable () -> Unit)? = null,
+    surface: @Composable (ResultsTab.Result) -> Unit = {},
+) {
+    if (lead != null) {
+        item(key = "results-lead", contentType = "lead") {
+            Box(Modifier.fillMaxWidth().testTag(ResultsTab.Tab.TestIds.LIST)) { lead() }
+        }
+    }
+    val leadGap = if (lead != null) ResultsTab.Tab.Tile.LEAD_GAP.dp else 0.dp
+    if (results.isEmpty()) {
+        item(key = "results-empty", contentType = "empty") {
+            Box(Modifier.fillMaxWidth().padding(top = leadGap).then(if (lead == null) Modifier.testTag(ResultsTab.Tab.TestIds.LIST) else Modifier)) {
+                EmptyState(
+                    title = ResultsTab.Tab.Copy.EMPTY,
+                    icon = ExpIcons.chatResults,
+                    modifier = Modifier.padding(top = 48.dp).heightIn(min = 240.dp),
+                )
+            }
+        }
+        return
+    }
+    // Stable keys while the ids are distinct (a lazy list refuses a repeat).
+    val distinct = results.mapTo(HashSet()) { it.id }.size == results.size
+    itemsIndexed(results, key = { index, result -> if (distinct) result.id else "$index:${result.id}" }, contentType = { _, _ -> "result" }) { index, result ->
+        val top = if (index == 0) leadGap else ResultsTab.Tab.Tile.LIST_GAP.dp
+        val tag = if (index == 0 && lead == null) Modifier.testTag(ResultsTab.Tab.TestIds.LIST) else Modifier
+        Box(Modifier.fillMaxWidth().padding(top = top).then(tag)) {
+            ResultSection(result, onOpenPicture = { onOpenPicture(result, it) }, surface = { surface(result) })
         }
     }
 }
