@@ -199,7 +199,11 @@ where
 
 #[cfg(test)]
 mod exponential_patch_tests {
-    use super::*;
+    // Not `super::*`: that glob brings `gpui::test`, which shadows `#[test]`.
+    use super::is_live_window;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+    };
     use windows::core::w;
 
     /// #ERR-3: a destroyed window reads as gone, so teardown skips it.
