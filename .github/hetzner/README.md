@@ -115,46 +115,13 @@ events matched prod's rows at or before the target exactly, and
 
 ## Restarting prod Postgres
 
-Any restart of the prod DB container gives it a NEW IP on the `coolify`
-network, and the prod web app keeps dialing the old one (`ECONNREFUSED
-172.18.0.x:5432`, `/api/health` db:false, Coolify's proxy serves 503). Restart
-the web app right after the DB is healthy (`docker restart <hzoe7vty…>` or the
-Coolify restart, then `/api/health`). On 2026-11-12 the go-live restart cost
-~2 min of 503s for this reason. Electric reconnects on its own.
-
-# A DB restart no longer needs a web restart
-
-On 2026-11-12 (16:55–16:56:39 UTC) the PITR go-live restarted Postgres; the new
-container got a new IP (172.18.0.14 → 172.18.0.4) and the web app kept dialing
-the old one, `/api/health` said `db: false` and Coolify served 503 until the
-web container was restarted by hand.
-
-Cause: Bun's `node:dns` (which `net.connect`, and so `pg`, uses) resolves
-through c-ares, whose query cache keeps an answer for its record TTL, and
-Docker's embedded DNS answers with TTL 600. Every new pool connection dialed
-the dead IP for up to ten minutes. `BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS` does
-not reach that cache; Bun's `fetch` is unaffected.
-
-Fix (`apps/web/src/db/resilient-pool.ts`, used by `db/connection.ts`):
-
-- every connection resolves the host fresh (libc `getaddrinfo`, no in-process
-  cache) right before it dials; TLS still verifies the hostname;
-- the connect phase retries with backoff (5 attempts, 100 ms doubling, capped
-  at 2 s, logged as `[db] connect failed (…), retry n`); a statement is never
-  re-run;
-- a connection-class error (`ECONNREFUSED`, `EHOSTUNREACH`, `ETIMEDOUT`,
-  terminated connections, `57P0x`, `08xxx`) drops every idle pooled
-  connection; connects time out after 5 s, sockets use TCP keepalive;
-- `/api/health` answers within 3 s: 503 while the DB is unreachable, 200 on
-  the first query the healed pool answers.
-
-Electric reconnects on its own while Postgres refuses connections, but exits
-when the DB hostname stops resolving (container gone): it needs
-`restart: unless-stopped` (selfhost compose and dev compose have it; check the
-Coolify resource keeps it). The relays don't use the DB.
-
-Proved locally (2026-11-12): compose `postgres` + `electric`, the web pool in a
-Bun container on the same network, Postgres removed and recreated on a new IP
-(the old one held by a placeholder container). The old pool stayed on
-`ECONNREFUSED` to the old IP; the new one answered from the new IP 2–3 s after
-Postgres was up, Electric 3 s after.
+Any restart of a DB container can give it a NEW IP on the `coolify` network.
+Since #2715 the web app's pool heals on its own: verified on staging on
+2026-11-12 by restarting Postgres onto a new IP (172.18.0.3 → .5): db:false
+for ~2 s, then ok, same web container, no restart. Electric exits when the DB
+hostname briefly stops resolving and comes back through its `unless-stopped`
+restart policy within ~30 s (`/api/health` shows electric:false meanwhile).
+Before #2715 the web app kept dialing the old IP (`ECONNREFUSED`,
+`/api/health` db:false, Coolify's proxy served 503): the PITR go-live restart
+cost ~2 min of 503s until the web container was restarted by hand. If that
+ever recurs: `docker restart <hzoe7vty…>`, then `/api/health`.
