@@ -191,6 +191,84 @@ fn remove_stale_locks(git_dir: &Path, now: SystemTime) -> Vec<PathBuf> {
     removed
 }
 
+/// #EXP-1796: a worktree written to (a commit, checkout or reset: its HEAD
+/// reflog) more recently than this is in use, whatever its branch says.
+pub const RECENT_WRITE: Duration = Duration::from_secs(15 * 60);
+
+/// #EXP-1796: whether the automatic cleanup may consider `worktree` its own:
+/// the launcher's layout path for `branch` ([`crate::git_worktree::worktree_path`])
+/// or one of its `-<n>` siblings (EXP-1536 A). A worktree someone made by
+/// hand (`git worktree add ../repo.worktrees/rel-3a741b2f`, a live session's
+/// release checkout) is never the auto-prune's to remove, even on a landed
+/// prefix branch.
+pub fn launcher_owned(clone: &Path, branch: &str, worktree: &Path) -> bool {
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let layout = crate::git_worktree::worktree_path(clone, branch);
+    let (Some(parent), Some(name)) = (layout.parent(), layout.file_name().and_then(|n| n.to_str())) else {
+        return false;
+    };
+    let path = canonical(worktree);
+    if path.parent() != Some(canonical(parent).as_path()) {
+        return false;
+    }
+    let Some(dir) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    dir == name
+        || dir
+            .strip_prefix(name)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// The worktree's own git dir (`<clone>/.git/worktrees/<name>`), read from
+/// its `.git` link file.
+fn linked_git_dir(worktree: &Path) -> Option<PathBuf> {
+    let link = std::fs::read_to_string(worktree.join(".git")).ok()?;
+    let dir = PathBuf::from(link.trim().strip_prefix("gitdir:")?.trim());
+    Some(if dir.is_absolute() { dir } else { worktree.join(dir) })
+}
+
+/// #EXP-1796: why `worktree` is in use right now (`None` = idle): a process
+/// whose cwd is in it (Linux `/proc`; elsewhere this check is skipped), a
+/// held `index.lock`, or a commit/checkout/reset within [`RECENT_WRITE`].
+/// Checked by the automatic cleanup right before a removal.
+pub fn in_use(worktree: &Path, now: SystemTime) -> Option<String> {
+    if let Some(git_dir) = linked_git_dir(worktree) {
+        if git_dir.join("index.lock").exists() {
+            return Some("a git index.lock is held".to_string());
+        }
+        let written = std::fs::metadata(git_dir.join("logs/HEAD"))
+            .and_then(|meta| meta.modified())
+            .ok()
+            .map(|at| now.duration_since(at).unwrap_or_default());
+        if let Some(age) = written.filter(|age| *age < RECENT_WRITE) {
+            return Some(format!("written to {}s ago", age.as_secs()));
+        }
+    }
+    process_cwd_inside(worktree).map(|pid| format!("process {pid} works in it"))
+}
+
+/// A process (not this one) whose current directory is `dir` or below it.
+#[cfg(target_os = "linux")]
+pub fn process_cwd_inside(dir: &Path) -> Option<u32> {
+    let dir = dir.canonicalize().ok()?;
+    let me = std::process::id();
+    std::fs::read_dir("/proc").ok()?.flatten().find_map(|entry| {
+        let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
+        if pid == me {
+            return None;
+        }
+        let cwd = std::fs::read_link(entry.path().join("cwd")).ok()?;
+        cwd.starts_with(&dir).then_some(pid)
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn process_cwd_inside(_dir: &Path) -> Option<u32> {
+    None
+}
+
 /// Why the automatic cleanup kept a worktree (the doctor row's detail).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
