@@ -120,6 +120,10 @@ describe(`connectionFor`, () => {
   it(`secret servers: connected once a value is stored`, () => {
     expect(connectionFor({ auth: `secret` }, row({ value: `k` })).status).toBe(`connected`)
     expect(connectionFor({ auth: `secret` }, row({ accessToken: `a` })).status).toBe(`not_connected`)
+    // #EXP-1793: every declared name needs its value.
+    const names = { transport: `http` as const, headerNames: [`A`, `B`], envNames: [] }
+    expect(connectionFor({ auth: `secret`, ...names }, row({ values: { A: `1` } })).status).toBe(`not_connected`)
+    expect(connectionFor({ auth: `secret`, ...names }, row({ value: `1`, values: { B: `2` } })).status).toBe(`connected`)
   })
 })
 
@@ -147,6 +151,24 @@ describe(`resolveForLaunch`, () => {
       expect.objectContaining({ id: `99999999-9999-4999-8999-999999999999` }),
     ])
     expect(result.warnings).toEqual([])
+  })
+
+  it(`#EXP-1793: a multi-header secret server rides every header (a pre-#EXP-1793 lone value fills the first)`, async () => {
+    const MULTI = `11111111-1111-4111-8111-777777777777`
+    db.rows(`mcp_servers`).push({
+      id: MULTI, teamId: TEAM, name: `glitchtip`, transport: `http`, url: `https://gt.example.com/mcp`, auth: `secret`,
+      headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`, `Authorization`], envNames: [], args: [], scopes: [],
+    })
+    await storeSecret(db, { serverId: MULTI, userId: `actor`, teamId: TEAM, values: { "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s` } }, NOW)
+    let result = await resolveForLaunch(db, { userId: `actor`, teamIds: [TEAM], serverIds: [MULTI] }, NOW)
+    expect(result.skipped).toEqual([{ id: MULTI, name: `glitchtip`, reason: `not connected` }])
+    await storeSecret(db, { serverId: MULTI, userId: `actor`, teamId: TEAM, values: { "CF-Access-Client-Id": `id`, "CF-Access-Client-Secret": `s`, Authorization: `Bearer t` } }, NOW)
+    result = await resolveForLaunch(db, { userId: `actor`, teamIds: [TEAM], serverIds: [MULTI] }, NOW)
+    expect(result.servers[0]!.headers).toEqual([
+      { name: `CF-Access-Client-Id`, value: `id` },
+      { name: `CF-Access-Client-Secret`, value: `s` },
+      { name: `Authorization`, value: `Bearer t` },
+    ])
   })
 
   it(`a stdio secret rides as the declared env var`, async () => {

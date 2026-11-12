@@ -83,6 +83,7 @@ class ComposerMenuTest {
                     repositories = b("repositories"),
                     ultracode = b("ultracode"),
                     mcp = b("mcp"),
+                    mcpPick = b("mcpPick"),
                     skills = b("skills"),
                     computerUse = b("computerUse"),
                     prompts = b("prompts"),

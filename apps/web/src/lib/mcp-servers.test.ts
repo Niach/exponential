@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/settings-mcp.json"
-import { EMPTY_MCP_SERVER_DRAFT, type McpDialogField, type McpServerDraft, mcpDialogLine, isTeamMcp, sharedSummary } from "@/lib/mcp-servers"
+import {
+  EMPTY_MCP_SERVER_DRAFT,
+  type McpDialogField,
+  type McpServerDraft,
+  mcpDialogLine,
+  isTeamMcp,
+  sharedSummary,
+  validateMcpServerDraft,
+} from "@/lib/mcp-servers"
 
 // FEED-73: shared MCP connections. A team MCP = no sign-in, or at least one
 // member shares their connection.
@@ -13,6 +21,30 @@ describe(`mcpDialogLine`, () => {
       expect(line !== null).toBe(c.shows)
     })
   }
+})
+
+// #EXP-1793: a secret server declares one or more header / variable names.
+describe(`validateMcpServerDraft (secret)`, () => {
+  const secret = (fields: Partial<McpServerDraft>): McpServerDraft => ({
+    ...EMPTY_MCP_SERVER_DRAFT,
+    name: `gate`,
+    transport: `http`,
+    url: `https://mcp.example.com/mcp`,
+    auth: `secret`,
+    ...fields,
+  })
+  it(`needs at least one name`, () => {
+    expect(validateMcpServerDraft(secret({ headerNames: [] }))).toMatch(/at least one header name/)
+    expect(
+      validateMcpServerDraft(secret({ transport: `stdio`, url: ``, command: `npx`, envNames: [] }))
+    ).toMatch(/at least one variable name/)
+  })
+  it(`takes several`, () => {
+    expect(validateMcpServerDraft(secret({ headerNames: [`CF-Access-Client-Id`, `CF-Access-Client-Secret`] }))).toBeNull()
+    expect(
+      validateMcpServerDraft(secret({ transport: `stdio`, url: ``, command: `npx`, envNames: [`A_ID`, `A_SECRET`] }))
+    ).toBeNull()
+  })
 })
 
 describe(`isTeamMcp`, () => {

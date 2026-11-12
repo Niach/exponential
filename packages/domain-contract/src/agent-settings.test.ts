@@ -3,6 +3,7 @@ import { describe, expect, it, test } from "bun:test"
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import {
+  agentMcpServersValue,
   agentsInTeam,
   coordinatorOf,
   coordinatorOptions,
@@ -112,6 +113,14 @@ describe(`lead (#EXP-1735)`, () => {
   for (const c of fixture.lead.optionCases) {
     it(`optionCases: ${c.name}`, () => {
       expect(leadOptions(c.members).map((option) => (typeof option === `string` ? option : option.userId))).toEqual(c.expected)
+    })
+  }
+})
+
+describe(`MCP servers row (#EXP-1793)`, () => {
+  for (const c of fixture.mcpValueCases) {
+    it(`mcpValueCases: ${c.name}`, () => {
+      expect(agentMcpServersValue(c.names)).toBe(c.expected)
     })
   }
 })

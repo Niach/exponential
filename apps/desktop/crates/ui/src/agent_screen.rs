@@ -192,6 +192,21 @@ struct FirstComposer {
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams
     /// pick for the first message (`None` = every team).
     teams_picked: crate::teams_pick::TeamsPick,
+    /// #EXP-1793 (composer-menu.json `mcpPick`): the "+" › MCP servers pick
+    /// for the first message (`None` = the agent's `mcpServerIds`, the
+    /// seed); a pick that differs rides the send as `mcpServerIds`.
+    mcp_picked: Option<Vec<String>>,
+}
+
+/// #EXP-1793: one team MCP server as the first composer's "+" lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct FirstMcpServer {
+    id: String,
+    name: String,
+    url: Option<String>,
+    command: Option<String>,
+    /// The viewer has not connected it (a pick opens Settings › MCP).
+    blocked: bool,
 }
 
 pub struct AgentScreenView {
@@ -251,6 +266,10 @@ pub struct AgentScreenView {
     settings_open: bool,
     settings: Option<Entity<crate::settings::agent_detail::AgentDetailPane>>,
     settings_scroll: gpui::ScrollHandle,
+    /// #EXP-1793: the agent's team's MCP servers (`mcpServers.list`,
+    /// server-only) for the first composer's "+", and the team asked for.
+    mcp: Option<(String, Vec<FirstMcpServer>)>,
+    mcp_requested: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -323,6 +342,7 @@ impl AgentScreenView {
                 notice: None,
                 mention_team: None,
                 teams_picked: None,
+                mcp_picked: None,
             },
             dock: cx.new(|_| crate::dock::DockState::default()),
             placeholder_name: None,
@@ -336,6 +356,8 @@ impl AgentScreenView {
             settings_open: false,
             settings: None,
             settings_scroll: gpui::ScrollHandle::new(),
+            mcp: None,
+            mcp_requested: None,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -360,6 +382,75 @@ impl AgentScreenView {
     fn to_assistant(&self, cx: &App) -> bool {
         matches!(self.subject, ChannelSubject::Agent(_))
             && self.agent.as_ref().is_some_and(|agent| crate::teams_pick::is_my_assistant(agent, cx))
+    }
+
+    /// #EXP-1793: the agent's team (the servers are its own team's).
+    fn mcp_team_id(&self) -> Option<String> {
+        match &self.subject {
+            ChannelSubject::Agent(_) => self.agent.as_ref().and_then(|agent| agent.team_id.clone()),
+            ChannelSubject::App(_) => None,
+        }
+    }
+
+    /// #EXP-1793: one `mcpServers.list` per team, before the conversation
+    /// exists (the first composer's "+" › MCP servers).
+    fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(team_id) = self.mcp_team_id() else { return };
+        if self.conversation.is_some() || self.mcp_requested.as_deref() == Some(team_id.as_str()) {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else { return };
+        self.mcp_requested = Some(team_id.clone());
+        cx.spawn(async move |this, cx| {
+            let team = team_id.clone();
+            let loaded = cx.background_executor().spawn(async move { api::mcp_servers::list(&trpc, &team) }).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.mcp_requested.as_deref() != Some(team_id.as_str()) {
+                    return;
+                }
+                match loaded {
+                    Ok(entries) => {
+                        let servers = entries
+                            .into_iter()
+                            .map(|entry| FirstMcpServer {
+                                blocked: crate::launch_options::mcp_block_reason(&entry.connection).is_some(),
+                                id: entry.config.id,
+                                name: entry.config.name,
+                                url: entry.config.url,
+                                command: entry.config.command,
+                            })
+                            .collect();
+                        this.mcp = Some((team_id, servers));
+                    }
+                    Err(err) => log::debug!("[ui] mcpServers.list for the agent composer: {err}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// #EXP-1793: the team's servers and the first composer's pick (the
+    /// held one, else the agent's), team list order.
+    fn first_mcp(&self) -> (Vec<FirstMcpServer>, Vec<String>) {
+        let team = self.mcp_team_id();
+        let servers = match (&self.mcp, team) {
+            (Some((loaded, servers)), Some(team)) if *loaded == team => servers.clone(),
+            _ => Vec::new(),
+        };
+        let seed = self.agent.as_ref().map(|agent| agent.mcp_server_ids.clone()).unwrap_or_default();
+        let picked = self.first.mcp_picked.as_ref().unwrap_or(&seed);
+        let picked = servers.iter().filter(|server| picked.contains(&server.id)).map(|server| server.id.clone()).collect();
+        (servers, picked)
+    }
+
+    /// #EXP-1793: what the first send carries as `mcpServerIds`: the pick
+    /// while it differs from the agent's (`[]` clears).
+    fn first_mcp_send(&self) -> Option<Vec<String>> {
+        let picked = self.first.mcp_picked.as_ref()?;
+        let seed = self.agent.as_ref().map(|agent| agent.mcp_server_ids.as_slice()).unwrap_or_default();
+        let same = picked.len() == seed.len() && picked.iter().all(|id| seed.contains(id));
+        (!same).then(|| picked.clone())
     }
 
     /// #EXP-1715: a changed Teams pick lands on the first composer.
@@ -791,6 +882,8 @@ impl AgentScreenView {
         let upload_team = team_id.clone();
         // #EXP-1715: the Assistant's first turn carries its Teams pick.
         let scope = self.to_assistant(cx).then(|| self.first.teams_picked.clone());
+        // #EXP-1793: a changed MCP servers pick rides it too.
+        let mcp_ids = self.first_mcp_send();
         let send_input = move |text: &str, attachment_ids: Vec<String>| match &app_device {
             Some(device_id) => {
                 let mut input =
@@ -803,6 +896,7 @@ impl AgentScreenView {
             None => {
                 let mut input = crate::chat_launch::agent_send_input(&team_id, &subject_id, text, attachment_ids);
                 input.scope_team_ids = scope.clone();
+                input.mcp_server_ids = mcp_ids.clone();
                 input
             }
         };
@@ -841,6 +935,8 @@ impl AgentScreenView {
                 this.first.sending = false;
                 match outcome {
                     Ok(()) => {
+                        // #EXP-1793: the conversation holds the pick now.
+                        this.first.mcp_picked = None;
                         composer_images::settle_sent(&this.first.input, &mut this.first.images, &sent, window, cx);
                     }
                     Err(composer_images::UploadSendError::Upload(resolved, error)) => {
@@ -963,7 +1059,11 @@ impl AgentScreenView {
         let editor_device = self.editor_device.clone();
         // #EXP-1729: and its Account and Model, always.
         let editor_runner = self.editor_runner.clone().filter(|_| editor_device.is_some());
+        // #EXP-1793: an agent chat's MCP servers, seeded from the agent's.
+        let (mcp_servers, mcp_picked) = self.first_mcp();
         let conditions = ComposerMenuConditions {
+            mcp: !mcp_servers.is_empty(),
+            mcp_pick: matches!(self.subject, ChannelSubject::Agent(_)),
             // #FEED-204: an app editor picks the device of its first send.
             device: editor_device.is_some(),
             account: editor_runner.is_some(),
@@ -983,10 +1083,12 @@ impl AgentScreenView {
                 device.rows.hash(&mut hasher);
             }
             (editor_runner.is_some(), prompts.len(), assistant, conditions.teams).hash(&mut hasher);
+            (&mcp_servers, &mcp_picked).hash(&mut hasher);
             hasher.finish()
         };
         let teams_view = view.clone();
         let teams_change = self.teams_change(cx);
+        let mcp_view = view.clone();
         let trigger = crate::composer::composer_tool("agent-plus", registry::UI_ADD, cx)
             .tooltip(crate::chat_screen::PLUS_TOOLTIP)
             .disabled(self.first.sending);
@@ -1028,6 +1130,34 @@ impl AgentScreenView {
                         Some(runner) => runner.model_row(menu, window, cx),
                         None => menu,
                     },
+                    // #EXP-1793: THE multi picker rows over the team's servers.
+                    Row::McpServers => {
+                        let state_view = mcp_view.clone();
+                        let state: std::rc::Rc<dyn Fn(&App) -> (Vec<FirstMcpServer>, Vec<String>)> =
+                            std::rc::Rc::new(move |cx: &App| {
+                                state_view.upgrade().map(|view| view.read(cx).first_mcp()).unwrap_or_default()
+                            });
+                        let value = (!mcp_picked.is_empty()).then(|| mcp_picked.len().to_string());
+                        let pick_view = mcp_view.clone();
+                        let root = root.clone();
+                        menu.submenu_with_value(
+                            row.icon().map(Icon::new),
+                            row.label(),
+                            value,
+                            window,
+                            cx,
+                            move |sub, window, cx| {
+                                crate::picker::search_list::menu_search_list_submenu(
+                                    "agent-mcp-servers",
+                                    first_mcp_source(state.clone(), pick_view.clone()),
+                                    sub,
+                                    root.clone(),
+                                    window,
+                                    cx,
+                                )
+                            },
+                        )
+                    }
                     Row::AddFile => {
                         let view = view.clone();
                         menu.item(crate::controls::pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
@@ -1213,6 +1343,8 @@ impl Render for AgentScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "AgentScreenView").entered();
         let editor = matches!(self.subject, ChannelSubject::App(_));
+        // #EXP-1793: the first composer's "+" › MCP servers.
+        self.ensure_mcp_loaded(cx);
         // S-3: one session screen. An agent's conversation renders on THE
         // chat screen (chat bubbles, its header, composer with the "+",
         // selection, Dock); this view keeps only the "no conversation yet"
@@ -1347,6 +1479,91 @@ impl Render for AgentScreenView {
             .overflow_hidden()
             .child(header)
             .child(body)
+    }
+}
+
+
+/// #EXP-1793 (composer-menu.json `mcp-servers`): THE search list of multi
+/// picker rows over the agent's team's servers (the server's mark, its
+/// name, the check trailing); a server the viewer has not connected reads
+/// so and opens Settings › MCP servers instead of toggling.
+fn first_mcp_source(
+    state: std::rc::Rc<dyn Fn(&App) -> (Vec<FirstMcpServer>, Vec<String>)>,
+    view: gpui::WeakEntity<AgentScreenView>,
+) -> crate::picker::search_list::MenuListSource {
+    use crate::picker::search_list;
+    use gpui::prelude::FluentBuilder as _;
+    let rows_state = state.clone();
+    search_list::MenuListSource {
+        placeholder: "Search",
+        rows: std::rc::Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
+            let (servers, picked) = rows_state(cx);
+            let query = query.trim().to_lowercase();
+            servers
+                .iter()
+                .filter(|server| query.is_empty() || server.name.to_lowercase().contains(&query))
+                .map(|server| {
+                    let on = picked.contains(&server.id);
+                    let icon = crate::picker::mcp_server_picker::mcp_server_icon(server.url.as_deref(), server.command.as_deref());
+                    // The launch picker's second line: the not-connected
+                    // reason, else the host (or the command).
+                    let caption = if server.blocked {
+                        Some(crate::launch_options::MCP_CONNECT_FIRST.to_string())
+                    } else {
+                        crate::picker::mcp_server_picker::mcp_host(server.url.as_deref())
+                            .or_else(|| server.command.clone().filter(|command| !command.is_empty()))
+                    };
+                    search_list::MenuListRow {
+                        id: server.id.clone(),
+                        body: h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_center()
+                            .gap_2()
+                            .child(Icon::from(icon).size(px(16.)).flex_shrink_0().text_color(cx.theme().muted_foreground))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(div().truncate().text_color(cx.theme().foreground).child(SharedString::from(server.name.clone())))
+                                    .children(caption.map(|caption| div().truncate().text_xs().text_color(cx.theme().muted_foreground).child(caption))),
+                            )
+                            .when(on, |row| row.child(search_list::row_check(cx)))
+                            // The launch picker dims a server not connected yet.
+                            .when(server.blocked, |row| row.opacity(0.5))
+                            .into_any_element(),
+                        disabled: false,
+                    }
+                })
+                .collect()
+        }),
+        pick: std::rc::Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
+            let (servers, picked) = state(cx);
+            let Some(server) = servers.iter().find(|server| server.id == id) else { return false };
+            if server.blocked && !picked.contains(&server.id) {
+                crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+                crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Mcp);
+                return true;
+            }
+            let mut next = picked;
+            match next.iter().position(|picked| picked == id) {
+                Some(at) => {
+                    next.remove(at);
+                }
+                None => next.push(id.to_string()),
+            }
+            let next: Vec<String> = servers.iter().filter(|server| next.contains(&server.id)).map(|server| server.id.clone()).collect();
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.first.mcp_picked = Some(next);
+                    cx.notify();
+                });
+            }
+            false
+        }),
+        empty: std::rc::Rc::new(|_query: &str, _cx: &App| "No servers found.".into()),
+        loading: std::rc::Rc::new(|_: &App| false),
+        footer: None,
     }
 }
 

@@ -86,6 +86,8 @@ data class UpdateAgentPatch(
     val sortOrder: Double? = null,
     /** #EXP-1661: the agent's default skills; the WHOLE list is replaced. */
     val skillIds: List<String>? = null,
+    /** #EXP-1793: the agent's MCP servers; the WHOLE list is replaced. */
+    val mcpServerIds: List<String>? = null,
 )
 
 internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObject =
@@ -108,6 +110,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
         }
         patch.sortOrder?.let { put("sortOrder", it) }
         patch.skillIds?.let { ids -> put("skillIds", JsonArray(ids.map(::JsonPrimitive))) }
+        patch.mcpServerIds?.let { ids -> put("mcpServerIds", JsonArray(ids.map(::JsonPrimitive))) }
     }
 
 @Singleton

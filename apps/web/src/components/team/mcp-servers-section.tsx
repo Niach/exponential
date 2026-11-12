@@ -861,7 +861,8 @@ function ConnectionAction({
 }
 
 /** "Set key": the member's OWN API key for a secret server, stored by the
- * server encrypted, never shown again. */
+ * server encrypted, never shown again. #EXP-1793: one masked field per
+ * declared header / variable name, sent as `values` keyed by name. */
 function SecretDialog({
   server,
   onClose,
@@ -871,26 +872,33 @@ function SecretDialog({
   onClose: () => void
   onSaved: (server: McpServerRow) => Promise<void>
 }) {
-  const [value, setValue] = useState(``)
+  const [values, setValues] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   // Invalid input only (a key the server refused); a failed save toasts.
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     if (server) {
-      setValue(``)
+      setValues({})
       setError(null)
     }
   }, [server])
-  const name = server
-    ? (server.transport === `http` ? server.headerNames : server.envNames)[0]
-    : undefined
+  const names = server
+    ? server.transport === `http`
+      ? server.headerNames
+      : server.envNames
+    : []
+  const complete =
+    names.length > 0 && names.every((name) => (values[name] ?? ``).trim().length > 0)
   const save = async () => {
-    if (!server || busy || value.trim().length === 0) return
+    if (!server || busy || !complete) return
     setBusy(true)
     setError(null)
     try {
       await trpc.mcpServers.setSecret.mutate(
-        { serverId: server.id, value: value.trim() },
+        {
+          serverId: server.id,
+          values: Object.fromEntries(names.map((name) => [name, (values[name] ?? ``).trim()])),
+        },
         SKIP_ERROR_TOAST
       )
       await onSaved(server)
@@ -925,29 +933,37 @@ function SecretDialog({
             void save()
           }}
         >
-          <PasswordInput
-            autoFocus
-            value={value}
-            maxLength={4096}
-            placeholder={name ?? `Key`}
-            autoComplete="off"
-            aria-invalid={error ? true : undefined}
-            onChange={(event) => {
-              setValue(event.target.value)
-              setError(null)
-            }}
-          />
-          {name && (
-            <p className="px-1 text-[11px] text-muted-foreground">
-              {`Sent as ${name}.`}
-            </p>
-          )}
+          {names.map((name, index) => (
+            <div key={name} className="flex flex-col gap-1.5">
+              <Label htmlFor={`mcp-secret-${name}`} className="px-1 font-mono text-xs font-normal text-muted-foreground">
+                {name}
+              </Label>
+              <PasswordInput
+                id={`mcp-secret-${name}`}
+                autoFocus={index === 0}
+                value={values[name] ?? ``}
+                maxLength={4096}
+                placeholder={name}
+                autoComplete="off"
+                aria-invalid={error ? true : undefined}
+                data-testid={`mcp-secret-${name}`}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setValues((current) => ({ ...current, [name]: next }))
+                  setError(null)
+                }}
+              />
+            </div>
+          ))}
           <FieldError className="px-1">{error}</FieldError>
+          {/* Enter submits with several fields too (implicit submission
+              needs a submit control once a form has more than one input). */}
+          <button type="submit" hidden disabled={!complete || busy} />
         </form>
         <DialogFooter>
           <DialogCancel disabled={busy} onClick={onClose} />
           <Button
-            disabled={value.trim().length === 0}
+            disabled={!complete}
             pending={busy}
             pendingLabel={FEEDBACK_WORDS.pending.save}
             onClick={() => void save()}
@@ -1300,8 +1316,8 @@ function McpServerDialog({
                   label={
                     draft.auth === `secret`
                       ? http
-                        ? `Header that carries the key`
-                        : `Variable that carries the key`
+                        ? `Headers that carry the keys`
+                        : `Variables that carry the keys`
                       : http
                         ? `Header names`
                         : `Variable names`

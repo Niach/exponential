@@ -32,13 +32,15 @@ import {
 } from "@/components/composer-inline-tools"
 import {
   ComposerOptionsMenu,
+  type ComposerMcpBinding,
   type ComposerRunnerBinding,
   type ComposerTeamsBinding,
 } from "@/components/launch-dialog/composer-plus-menu"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { TeamPickChips } from "@/components/launch-dialog/team-pick"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
-import { useTeamMemberships } from "@/hooks/use-team-data"
+import { useTeamById, useTeamMemberships } from "@/hooks/use-team-data"
 import { useSessionAccountSwitch } from "@/components/session-account-switch"
 import type { ComposerMenuSurface } from "@/components/launch-dialog/composer-menu"
 import {
@@ -199,6 +201,77 @@ function useAssistantTeamsPick(
     [myTeams]
   )
   return assistant ? { teams, picked, onChange: setPicked } : null
+}
+
+/** Two MCP server picks name the same servers (order aside). */
+function sameMcpPick(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id))
+}
+
+/** #EXP-1793 (composer-menu.json `mcpPick`): an agent chat's MCP servers ›.
+ *  Seed = the conversation's pick (`sessions.mcpPicks`), none yet = the
+ *  agent's `mcpServerIds`; a pick that differs from the seed rides the next
+ *  send as `mcpServerIds` (`sendPick`; an empty pick clears), after which it
+ *  is the seed (`sent`). null off an agent chat. */
+function useAgentMcpPick({
+  enabled,
+  teamId,
+  sessionId,
+  agentId,
+}: {
+  enabled: boolean
+  teamId: string
+  sessionId: string | null
+  agentId: string | null
+}): {
+  binding: ComposerMcpBinding
+  sendPick: string[] | undefined
+  sent: (pick: string[]) => void
+} | null {
+  const { agent } = useAgentRow(enabled ? agentId : null)
+  const { servers } = useMcpServers(teamId, enabled)
+  const teamSlug = useTeamById(enabled ? teamId : undefined)?.slug ?? null
+  const [sessionSeed, setSessionSeed] = useState<string[] | null>(null)
+  const [picked, setPicked] = useState<string[] | null>(null)
+  useEffect(() => {
+    setSessionSeed(null)
+    setPicked(null)
+    if (!enabled || !sessionId) return
+    let active = true
+    trpc.sessions.mcpPicks
+      .query({ sessionId }, SKIP_ERROR_TOAST)
+      .then((result) => {
+        if (active) setSessionSeed(result.mcpServerIds)
+      })
+      // Unreadable (not the viewer's to steer): the agent's own stand in.
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [enabled, sessionId])
+  const seed = sessionSeed ?? agent?.mcpServerIds ?? []
+  if (!enabled) return null
+  const list = servers ?? []
+  // Ids naming a deleted server drop out of the count and the send.
+  const current = (picked ?? seed).filter((id) => list.some((server) => server.id === id))
+  const changed = picked !== null && !sameMcpPick(picked, seed)
+  return {
+    binding: {
+      servers: list,
+      selectedIds: current,
+      onToggle: (id) =>
+        setPicked(current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
+      connectHref: (serverId) =>
+        teamSlug
+          ? `/t/${encodeURIComponent(teamSlug)}/settings/mcp?connect=${encodeURIComponent(serverId)}`
+          : null,
+    },
+    sendPick: changed ? current : undefined,
+    sent: (pick) => {
+      setSessionSeed(pick)
+      setPicked(null)
+    },
+  }
 }
 
 function teamsPickChips(pick: ComposerTeamsBinding | null): boolean {
@@ -366,6 +439,13 @@ export function SessionComposer({
   // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
   // Teams pick, seeded from its conversation root (null = every team).
   const teamsPick = useAssistantTeamsPick(row, agentId)
+  // #EXP-1793: an agent chat's MCP servers pick (its conversation's).
+  const mcpPick = useAgentMcpPick({
+    enabled: surface === `agent`,
+    teamId,
+    sessionId,
+    agentId: row ? (row.parentId === null ? row.agentId : null) : (agentId ?? null),
+  })
   // A picked prompt's body (`prompts.get`, the only body path) REPLACES the
   // `/name` draft the menu was open on, to be edited and sent.
   const pickPrompt = (prompt: { id: string; name: string }) => {
@@ -461,6 +541,7 @@ export function SessionComposer({
     // send is in flight; a success clears only what went out.
     const sentText = text
     const sentFiles = files
+    const sentMcpPick = mcpPick?.sendPick
     const clearSent = () => {
       const after = composerTextAfterSend(sentText, textRef.current)
       textRef.current = after
@@ -487,7 +568,9 @@ export function SessionComposer({
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         ...(ended && heldRunner ? heldRunner.send : {}),
         ...(teamsPick ? { scopeTeamIds: teamsPick.picked === null ? null : [...teamsPick.picked] } : {}),
+        ...(sentMcpPick ? { mcpServerIds: sentMcpPick } : {}),
       })
+      if (sentMcpPick) mcpPick?.sent(sentMcpPick)
       for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
       clearSent()
       // Sent: nothing of a Stop's text is left here to take back.
@@ -635,6 +718,7 @@ export function SessionComposer({
               }}
               prompts={{ prompts, onPick: insertPrompt }}
               teams={teamsPick ?? undefined}
+              mcp={mcpPick?.binding}
               onAttach={(choice) => toolsRef.current?.attach(choice)}
               // #EXP-1729: an app editor's ENDED root revives on the next send.
               rowsDisabled={row !== null && ended && appId === undefined}

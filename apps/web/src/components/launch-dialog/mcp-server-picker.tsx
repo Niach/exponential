@@ -123,6 +123,7 @@ export function McpServerPicker({
   onToggle,
   connectHref,
   disabled,
+  testId,
 }: {
   servers: readonly McpPickerServerRow[]
   selectedIds: readonly string[]
@@ -130,6 +131,7 @@ export function McpServerPicker({
   /** The settings deep link that connects `serverId` (null = no link). */
   connectHref: (serverId: string) => string | null
   disabled?: boolean
+  testId?: string
 }) {
   const notes = mcpNotes(servers)
 
@@ -165,9 +167,14 @@ export function McpServerPicker({
               : undefined
           }
           placeholder="None"
+          // #EXP-1793 (agent-settings.json `mcpRow`): `None` reads muted.
+          className={
+            selectedIds.length === 0 ? `[&>span:nth-child(2)]:text-foreground/50` : undefined
+          }
           disabled={disabled}
         />
       }
+      data-testid={testId}
     />
   )
 }

@@ -145,7 +145,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
         )
     }
 
@@ -212,7 +212,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
         )
     }
 
@@ -751,7 +751,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -866,7 +866,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1920,7 +1920,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
              "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
-             "instructions_updated_at", "role", "skill_ids", "defaults"]
+             "instructions_updated_at", "role", "skill_ids", "defaults", "mcp_server_ids"]
         )
         // #EXP-1661: the skills shape allowlist (`body` never).
         XCTAssertEqual(
@@ -3936,6 +3936,47 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.skillIds }, ["s1"])
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-1793: v104 adds `agents.mcp_server_ids` (existing rows = []),
+    // resetting ONLY the agents cursor; a wire row round-trips.
+    func testAgentMcpServersAdded() throws {
+        let pool = try makePool("exp1793-agent-mcp")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v103_one_tree_additive")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "agents" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('ag1', 't', 'Triage', 'x', 'x')
+                """)
+            for shape in ["agents", "prompts"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v104_agent_mcp_servers"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["agents"])
+            XCTAssertEqual(try AgentDefinitionEntity.fetchOne(db, key: "ag1")?.mcpServerIds, [])
+        }
+        let agent = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data("""
+            {"id":"ag2","team_id":"t","name":"Ops","mcp_server_ids":["m1","m2"],"created_at":"x","updated_at":"x"}
+            """.utf8))
+        XCTAssertEqual(agent.mcpServerIds, ["m1", "m2"])
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in try agent.save(db) }
+        XCTAssertEqual(
+            try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.mcpServerIds }, ["m1", "m2"]
+        )
     }
 
     // eApps V1 (#VAPP-210): v93 adds `apps.published_version` (existing rows

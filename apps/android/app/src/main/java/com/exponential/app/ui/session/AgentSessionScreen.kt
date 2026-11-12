@@ -5292,6 +5292,11 @@ internal fun SessionComposer(
     }
     // #EXP-1715: the viewer's Assistant's Teams pick (its row + chips).
     val teamsPickState by viewModel.teamsPick.collectAsStateWithLifecycle()
+    // #EXP-1793 (composer-menu.json `mcpPick`): an agent chat's "+" is the
+    // `agent` surface, its MCP servers › = the conversation's pick.
+    val agentChat by viewModel.agentChat.collectAsStateWithLifecycle()
+    val agentMcpServerIds by viewModel.agentMcpServerIds.collectAsStateWithLifecycle()
+    val menuSurface = if (agentChat) com.exponential.app.domain.ComposerMenuSurface.Agent else surface
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -5300,8 +5305,8 @@ internal fun SessionComposer(
         canComputerUse = canComputerUse,
         mcpServers = mcpServers,
         // Until `sessions.mcpPicks` lands the row reads empty (web parity),
-        // never the team defaults.
-        mcpServerIds = picks.mcpServerIds ?: emptyList(),
+        // never the team defaults. #EXP-1793: an agent chat's = its pick.
+        mcpServerIds = if (agentChat) agentMcpServerIds else picks.mcpServerIds ?: emptyList(),
         issues = issueRefCandidates.map {
             IssueOption(
                 id = it.issueId,
@@ -5320,7 +5325,8 @@ internal fun SessionComposer(
         readOnly = sessionEnded,
         device = deviceMenu,
         onConfigure = viewModel::configure,
-        surface = surface,
+        surface = menuSurface,
+        onToggleMcp = if (agentChat) viewModel::toggleAgentMcpServer else null,
         prompts = promptRows,
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
         account = composerAccount,
@@ -5923,6 +5929,9 @@ internal data class SessionComposerMenu(
     val account: SessionComposerAccount? = null,
     /** #EXP-1715: the viewer's Assistant's Teams pick; null = no row, no chips. */
     val teams: com.exponential.app.ui.agent.TeamsPickBinding? = null,
+    /** #EXP-1793 (`mcpPick`): an agent chat's MCP servers › toggle (THE
+     *  launch composer's picker rows over [mcpServers]); null = no row. */
+    val onToggleMcp: ((String) -> Unit)? = null,
 )
 
 /**
@@ -6033,6 +6042,8 @@ private fun ExpandedSteerComposer(
         if (model != null && model.isNotEmpty() && model !in options) listOf(model) + options else options
     }
     var plusOpen by remember { mutableStateOf(false) }
+    // #EXP-1793: an agent chat's MCP servers › (THE launch composer's picker).
+    var mcpPickerOpen by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
     GlassComposer(
         // The composer floats over the scrolling activity feed.
@@ -6154,16 +6165,20 @@ private fun ExpandedSteerComposer(
                     prompts = menu.prompts.isNotEmpty(),
                     assistant = menu.teams != null,
                     teams = (menu.teams?.teams?.size ?: 0) > 1,
+                    mcp = menu.mcpServers.isNotEmpty(),
+                    mcpPick = menu.onToggleMcp != null,
                 ),
             ),
             codex = menu.agent == "codex",
             effortValue = null,
             effortEnabled = false,
-            rowsReadOnly = menu.readOnly,
+            // #EXP-1793: an agent chat's MCP pick rides its next send, which
+            // continues an ended conversation: never read-only there.
+            rowsReadOnly = menu.readOnly && menu.onToggleMcp == null,
             // #EXP-1729: a refused Account › stays, disabled, saying why.
             refusedRows = menu.account?.refusal?.let { mapOf(ComposerMenuRowId.Account to it) }.orEmpty(),
             ultracode = menu.ultracode,
-            mcpValue = null,
+            mcpValue = if (menu.onToggleMcp != null) mcpPickValue(menu.mcpServerIds.size) else null,
             computerUse = menu.computerUse,
             canAttach = pendingImages.count { it.isImage } < MAX_STEER_IMAGES ||
                 pendingImages.count { !it.isImage } < MAX_STEER_FILES,
@@ -6174,6 +6189,7 @@ private fun ExpandedSteerComposer(
                         onMenuOpenChange(COMPOSER_MENU_ATTACH, true)
                         attach.open = true
                     }
+                    ComposerMenuRowId.McpServers -> mcpPickerOpen = true
                     else -> Unit
                 }
             },
@@ -6243,6 +6259,16 @@ private fun ExpandedSteerComposer(
                     )
                 },
             )),
+        )
+    }
+    val toggleMcp = menu.onToggleMcp
+    if (mcpPickerOpen && toggleMcp != null) {
+        McpServerPicker(
+            servers = menu.mcpServers,
+            value = menu.mcpServerIds,
+            onToggle = toggleMcp,
+            open = true,
+            onOpenChange = { open -> if (!open) mcpPickerOpen = false },
         )
     }
 }

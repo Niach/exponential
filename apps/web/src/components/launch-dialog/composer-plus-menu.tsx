@@ -167,6 +167,15 @@ export interface ComposerPromptsBinding {
   onPick: (prompt: SlashPrompt) => void
 }
 
+/** MCP servers › on an agent chat (#EXP-1793, composer-menu.json
+ *  `mcpPick`): the conversation's pick over the team's servers. */
+export interface ComposerMcpBinding {
+  servers: McpServerList
+  selectedIds: readonly string[]
+  onToggle: (id: string) => void
+  connectHref: (serverId: string) => string | null
+}
+
 /** Teams › (#EXP-1715, composer-menu.json `teamsPick`): the viewer's
  *  Assistant only; null = every team. */
 export interface ComposerTeamsBinding {
@@ -185,6 +194,7 @@ export function ComposerOptionsMenu({
   issues,
   prompts,
   teams,
+  mcp,
   onAttach,
   disabled,
   rowsDisabled,
@@ -203,6 +213,8 @@ export function ComposerOptionsMenu({
   prompts?: ComposerPromptsBinding
   /** Teams ›, the viewer's Assistant only. */
   teams?: ComposerTeamsBinding
+  /** An agent chat's MCP servers › (the launch reads `options`). */
+  mcp?: ComposerMcpBinding
   /** Opens a file chooser (the composer owns the hidden inputs); no
    *  choice = any file. */
   onAttach: (choice?: ComposerFileChoiceId) => void
@@ -217,6 +229,18 @@ export function ComposerOptionsMenu({
   const ultracodeOn = options !== undefined && options.ultracode && agentSupportsUltracode(agent)
   const checkedCount = issues?.kind === `implement` ? issues.checkedCount : 0
   const work = surface === `launch` && temporary && options !== undefined
+  // #EXP-1793: the MCP servers pick, a temporary launch's or an agent chat's.
+  const mcpBinding: ComposerMcpBinding | undefined =
+    surface === `agent`
+      ? mcp
+      : work
+        ? {
+            servers: options.mcpServers,
+            selectedIds: options.mcpServerIds,
+            onToggle: options.toggleMcpServer,
+            connectHref: options.mcpConnectHref,
+          }
+        : undefined
 
   const effortOptions: ValueChoice[] = [
     { value: CLI_DEFAULT_EFFORT, label: CLI_DEFAULT_LABEL },
@@ -237,7 +261,8 @@ export function ComposerOptionsMenu({
     model: runner.model !== undefined,
     repositories: (runner.repository?.repositories.length ?? 0) > 1,
     ultracode: work && agentSupportsUltracode(agent),
-    mcp: work && options.mcpServers.length > 0,
+    mcp: (mcpBinding?.servers.length ?? 0) > 0,
+    mcpPick: surface === `launch` ? temporary : surface === `agent`,
     skills: work && options.skills.length > 0,
     computerUse: work && options.computerUseAvailable,
     prompts: (prompts?.prompts.length ?? 0) > 0,
@@ -436,22 +461,22 @@ export function ComposerOptionsMenu({
           onChange: options.setUltracode,
         }
       case `mcp-servers`:
-        if (!options) return null
+        if (!mcpBinding) return null
         return {
           ...base,
           kind: `submenu`,
           value:
-            options.mcpServerIds.length > 0
-              ? String(options.mcpServerIds.length)
+            mcpBinding.selectedIds.length > 0
+              ? String(mcpBinding.selectedIds.length)
               : undefined,
           disabled: rowsDisabled,
           contentClassName: `w-[18rem]`,
           body: (
             <McpServerMenuRows
-              servers={options.mcpServers}
-              selectedIds={options.mcpServerIds}
-              onToggle={options.toggleMcpServer}
-              connectHref={options.mcpConnectHref}
+              servers={mcpBinding.servers}
+              selectedIds={mcpBinding.selectedIds}
+              onToggle={mcpBinding.onToggle}
+              connectHref={mcpBinding.connectHref}
             />
           ),
         }

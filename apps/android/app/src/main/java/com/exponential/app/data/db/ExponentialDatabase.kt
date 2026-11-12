@@ -86,7 +86,9 @@ import androidx.room.TypeConverters
     //      session_id, the list reads sessions.digest). Explicit
     //      [MIGRATION_120_121]; the messages, sessions, agents and apps shapes
     //      refetch, the conversations offset goes.
-    version = 121,
+    // v122 (#EXP-1793): agents.mcp_server_ids (the agent's MCP servers),
+    //      explicit [MIGRATION_121_122]; only the agents shape refetches.
+    version = 122,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -306,3 +306,18 @@ val MIGRATION_120_121: Migration = object : Migration(120, 121) {
         )
     }
 }
+
+/**
+ * v122 (#EXP-1793, agent-settings.json `mcpRow`): `agents.mcp_server_ids`,
+ * the team MCP servers every run of the agent starts with. Only the agents
+ * shape refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_121_122: Migration = object : Migration(121, 122) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `agents` ADD COLUMN `mcp_server_ids` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+        )
+    }
+}

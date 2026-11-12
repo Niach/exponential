@@ -73,6 +73,8 @@ import com.exponential.app.ui.components.picker.AccountPickerOption
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.picker.SkillPicker
+import com.exponential.app.ui.components.picker.McpServerPicker
+import com.exponential.app.domain.agentMcpServersValue
 import com.exponential.app.domain.Skills
 import com.exponential.app.domain.agentSkillsValue
 import com.exponential.app.ui.components.PickerValueRow
@@ -362,6 +364,7 @@ fun AgentSettingsScreen(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val teamSkills by viewModel.skills.collectAsStateWithLifecycle()
+    val teamMcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     val isNew = viewModel.agentId == null
@@ -590,6 +593,37 @@ fun AgentSettingsScreen(
                     )
                 }
             },
+            // #EXP-1793 (agent-settings.json `mcpRow`): the agent's MCP
+            // servers, right under Skills; THE composer's MCP servers picker.
+            // Shown while the team has a server or the agent names one.
+            mcpRow = agent?.takeIf { !isNew }
+                ?.takeIf { AgentSettings.McpRow.visible(teamMcpServers.size, it.mcpServerIdList.size) }
+                ?.let { row ->
+                    {
+                        // Clamped to servers that still exist, in the team list's order.
+                        val saved = row.mcpServerIdList.toSet()
+                        val picked = teamMcpServers.filter { it.id in saved }.map { it.id }
+                        McpServerPicker(
+                            servers = teamMcpServers,
+                            value = picked,
+                            onToggle = { id ->
+                                val next = if (id in picked) picked - id else picked + id
+                                patch(UpdateAgentPatch(mcpServerIds = next))
+                            },
+                            title = AgentSettings.McpRow.LABEL,
+                            trigger = { open ->
+                                PickerValueRow(
+                                    label = AgentSettings.McpRow.LABEL,
+                                    // The picked names, the one multi summary; `None` at zero.
+                                    value = agentMcpServersValue(teamMcpServers.filter { it.id in saved }.map { it.name }),
+                                    onClick = open,
+                                    enabled = editable && teamMcpServers.isNotEmpty(),
+                                    modifier = Modifier.testTag(AgentSettings.McpRow.TEST_ID),
+                                )
+                            },
+                        )
+                    }
+                },
             modifier = Modifier
                 .padding(padding)
                 .consumeWindowInsets(padding)
@@ -703,6 +737,9 @@ internal fun AgentSettingsContent(
     /** #EXP-1661 (skills.json `agentRow`): the Skills row, right under
      *  Device (the Assistant: the last row of Runs on). */
     skillsRow: (@Composable () -> Unit)? = null,
+    /** #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row, right
+     *  under Skills (the Assistant: after Skills, the last row of Runs on). */
+    mcpRow: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
@@ -781,6 +818,10 @@ internal fun AgentSettingsContent(
                     GroupDivider()
                     skillsRow()
                 }
+                if (mcpRow != null) {
+                    GroupDivider()
+                    mcpRow()
+                }
             }
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY), errorOf(AgentSettings.FIELD_DEVICE)))
@@ -834,6 +875,10 @@ internal fun AgentSettingsContent(
                 if (skillsRow != null) {
                     GroupDivider()
                     skillsRow()
+                }
+                if (mcpRow != null) {
+                    GroupDivider()
+                    mcpRow()
                 }
             } else {
                 // Account and Triggers share ONE group (web `agents-section`).

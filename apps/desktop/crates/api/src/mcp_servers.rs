@@ -378,6 +378,23 @@ pub fn set_secret(trpc: &TrpcClient, server_id: &str, value: &str) -> Result<(),
     ok_mutation(trpc, "mcpServers.setSecret", &Input { server_id, value })
 }
 
+/// #EXP-1793: `mcpServers.setSecret {serverId, values}` — one value per
+/// declared header/env name of an `auth: secret` server (the server keeps
+/// them keyed by name). Never echoed back.
+pub fn set_secret_values(
+    trpc: &TrpcClient,
+    server_id: &str,
+    values: &std::collections::BTreeMap<String, String>,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        server_id: &'a str,
+        values: &'a std::collections::BTreeMap<String, String>,
+    }
+    ok_mutation(trpc, "mcpServers.setSecret", &Input { server_id, values })
+}
+
 /// `mcpServers.disconnect` — delete the caller's credential for one server.
 pub fn disconnect(trpc: &TrpcClient, server_id: &str) -> Result<(), ApiError> {
     ok_mutation(trpc, "mcpServers.disconnect", &ServerInput { server_id })
@@ -625,6 +642,15 @@ mod tests {
         let request = rx.recv().unwrap();
         assert!(request.contains("POST /api/trpc/mcpServers.setSecret"));
         assert!(request.contains(r#"{"serverId":"s1","value":"v-1"}"#));
+
+        // #EXP-1793: a multi-header secret server sends its values by name.
+        let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        let values: std::collections::BTreeMap<String, String> =
+            [("X-Api-Key".to_string(), "k-1".to_string()), ("X-Org".to_string(), "o-1".to_string())].into();
+        set_secret_values(&client(&base), "s1", &values).expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.setSecret"));
+        assert!(request.contains(r#"{"serverId":"s1","values":{"X-Api-Key":"k-1","X-Org":"o-1"}}"#));
 
         let (base, rx) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         disconnect(&client(&base), "s1").expect("ok");
