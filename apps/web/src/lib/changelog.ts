@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-crash-reports`,
+    date: `2026-11-12`,
+    title: `Crash reports from the desktop app, the CLI and Exponential Desktop`,
+    summary: `When the desktop app, the CLI daemon or Exponential Desktop crashes, the next start sends a crash report if diagnostics are on, and every Claude login on a device now shares one set of conversations.`,
+    body: `- **Crash reports**: a crash of the desktop app, the CLI daemon or Exponential Desktop is written down on the device and sent at the next start, so it can be fixed. Only with "Send diagnostics" on: when it is off, the report is deleted unsent.
+- **One conversation store per device**: every Claude login shares the same conversations, plans and rewind checkpoints. The desktop app or the CLI moves existing ones over on its next start, and "Remove account" keeps a login's chats.
+- **Exponential Desktop 0.2.19**: carries the same crash reports.`,
+  },
+  {
     id: `2026-11-12-large-chats-on-phones`,
     date: `2026-11-12`,
     title: `Large chats open fast on phones`,

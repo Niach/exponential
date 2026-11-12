@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-crash-reports",
+    date: "2026-11-12",
+    title: "Crash reports from the desktop app, the CLI and Exponential Desktop",
+    summary: "When the desktop app, the CLI daemon or Exponential Desktop crashes, the next start sends a crash report if diagnostics are on, and every Claude login on a device now shares one set of conversations.",
+    body: r##"- **Crash reports**: a crash of the desktop app, the CLI daemon or Exponential Desktop is written down on the device and sent at the next start, so it can be fixed. Only with "Send diagnostics" on: when it is off, the report is deleted unsent.
+- **One conversation store per device**: every Claude login shares the same conversations, plans and rewind checkpoints. The desktop app or the CLI moves existing ones over on its next start, and "Remove account" keeps a login's chats.
+- **Exponential Desktop 0.2.19**: carries the same crash reports."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_258: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-large-chats-on-phones",
     date: "2026-11-12",
     title: "Large chats open fast on phones",
