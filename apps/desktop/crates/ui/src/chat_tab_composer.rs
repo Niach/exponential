@@ -219,6 +219,8 @@ pub(crate) enum PlusAction {
     Model(String),
     /// #EXP-1793: an agent chat's MCP server toggled.
     McpServer(String),
+    /// #EXP-1793: the MCP servers row: THE composer MCP picker opens at the +.
+    McpServers,
 }
 
 pub(crate) fn plus_action(value: &str) -> Option<PlusAction> {
@@ -232,6 +234,7 @@ pub(crate) fn plus_action(value: &str) -> Option<PlusAction> {
         (d::PLUS_ACCOUNT, Some(id)) => PlusAction::Account(id.to_string()),
         (d::PLUS_MODEL, Some(id)) => PlusAction::Model(id.to_string()),
         (d::PLUS_MCP_SERVERS, Some(id)) => PlusAction::McpServer(id.to_string()),
+        (d::PLUS_MCP_SERVERS, None) => PlusAction::McpServers,
         _ => return None,
     })
 }
@@ -364,6 +367,11 @@ impl ComposerDoc {
             view.flush_field(COMPOSER, None, window, cx);
             true
         })
+    }
+
+    /// #EXP-1793: where the "+" painted last (window coordinates).
+    pub(crate) fn plus_bounds(&self, cx: &App) -> Option<gpui::Bounds<gpui::Pixels>> {
+        self.view.as_ref()?.read(cx).painted_bounds(&format!("{PLUS}_button"))
     }
 
     /// The Composer field's focus handle, once mounted.
@@ -586,7 +594,11 @@ impl SteerSessionView {
                 let _ = view.update(cx, |this, cx| this.composer_doc.open_plus(account_step, window, cx));
             });
         }
-        element.unwrap_or_else(|| gpui::div().into_any_element())
+        let element = element.unwrap_or_else(|| gpui::div().into_any_element());
+        match self.mcp_picker(window, cx) {
+            Some(picker) => gpui::div().w_full().min_w_0().child(element).child(picker).into_any_element(),
+            None => element,
+        }
     }
 
     fn composer_frame(&mut self, cx: &mut gpui::Context<Self>) -> ComposerFrame {
@@ -831,24 +843,13 @@ impl SteerSessionView {
                     let detail = models.iter().find(|(_, value)| *value == picked).map(|(label, _)| (*label).to_string()).unwrap_or_else(|| crate::steer_viewer::model_label(&picked));
                     ChatPlusRow { detail, ..submenu(d::PLUS_MODEL, items, false) }
                 }
-                // #EXP-1793: THE multi picker rows over the team's servers; a
-                // server the viewer has not connected says so (a pick opens
-                // Settings › MCP servers); the value = the number picked.
+                // #EXP-1793: the launch composer's row: the value = the number
+                // picked; a pick opens THE composer MCP picker at the + (its
+                // rows: mark, name, the host or "Connect first" under it).
                 Row::McpServers => {
                     let picked = self.mcp_pick();
-                    let items = mcp_servers
-                        .iter()
-                        .map(|(id, name, blocked)| ChatPlusItem {
-                            label: name.clone(),
-                            value: id.clone(),
-                            icon: Some("ui-mcp".into()),
-                            checked: Some(picked.contains(id)),
-                            detail: blocked.then(|| crate::launch_options::MCP_CONNECT_FIRST.to_string()),
-                            ..Default::default()
-                        })
-                        .collect();
                     let detail = if picked.is_empty() { String::new() } else { picked.len().to_string() };
-                    ChatPlusRow { detail, ..submenu(d::PLUS_MCP_SERVERS, items, false) }
+                    ChatPlusRow { detail, ..d::plus_row(d::PLUS_MCP_SERVERS) }
                 }
                 // Launch-only rows never reach a session's surface.
                 _ => continue,
@@ -981,6 +982,69 @@ impl SteerSessionView {
         }
     }
 
+    /// #EXP-1793: server `id` picked in the agent chat's MCP servers: it
+    /// toggles, unless the viewer has not connected it (composer-menu.json:
+    /// it opens Settings › MCP servers instead, `false`).
+    fn pick_mcp_server(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> bool {
+        let blocked = self.mcp.as_ref().is_some_and(|mcp| mcp.servers.iter().any(|(server, _, blocked)| server == id && *blocked));
+        let picked = self.mcp_pick().iter().any(|picked| picked == id);
+        if blocked && !picked {
+            self.mcp_picker_open = false;
+            crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+            crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Mcp);
+            cx.notify();
+            return false;
+        }
+        self.toggle_mcp_pick(id);
+        cx.notify();
+        true
+    }
+
+    /// #EXP-1793: THE composer MCP picker (the launch composer's,
+    /// `composer_mcp_picker`) while the "+" › MCP servers row opened it,
+    /// hung off a zero-width anchor at the +'s left edge so it opens where
+    /// the menu did.
+    fn mcp_picker(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.mcp_picker_open {
+            return None;
+        }
+        let servers = self.mcp.as_ref().map(|mcp| mcp.options.clone()).filter(|servers| !servers.is_empty())?;
+        let plus = self.composer_doc.plus_bounds(cx)?;
+        let fit = crate::picker::issue_picker::popover_fit(plus, window.viewport_size(), crate::picker::issue_picker::POPOVER_WANTED_HEIGHT);
+        let anchor = gpui::div().w(gpui::px(0.)).h(plus.size.height.max(gpui::px(24.))).into_any_element();
+        let view = cx.entity().downgrade();
+        let on_change: crate::picker::OnPickerChange<String> = Rc::new(move |ids: Vec<String>, window: &mut Window, cx: &mut App| {
+            let _ = view.update(cx, |this, cx| {
+                // The picker hands the whole set: each server that changed
+                // goes through the row's own pick (toggle, or Settings).
+                let picked = this.mcp_pick();
+                let changed: Vec<String> = ids
+                    .iter()
+                    .filter(|id| !picked.contains(id))
+                    .chain(picked.iter().filter(|id| !ids.contains(id)))
+                    .cloned()
+                    .collect();
+                for id in changed {
+                    if !this.pick_mcp_server(&id, window, cx) {
+                        break;
+                    }
+                }
+            });
+        });
+        let view = cx.entity().downgrade();
+        let on_close: crate::picker::PickerOnClose = Rc::new(move |window: &mut Window, cx: &mut App| {
+            let _ = view.update(cx, |this, cx| {
+                this.mcp_picker_open = false;
+                if let Some(focus) = this.composer_doc.field_focus(cx) {
+                    focus.focus(window, cx);
+                }
+                cx.notify();
+            });
+        });
+        let picker = crate::picker::mcp_server_picker::composer_mcp_picker(&servers, self.mcp_pick(), anchor, on_change, on_close, fit, false);
+        Some(gpui::anchored().position(plus.origin).child(picker).into_any_element())
+    }
+
     /// A "+" pick on the handlers the IDE's own menu called.
     fn composer_plus(&mut self, action: PlusAction, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let insert = |this: &mut Self, text: String, window: &mut Window, cx: &mut gpui::Context<Self>| {
@@ -1031,16 +1095,10 @@ impl SteerSessionView {
                 }
             }
             PlusAction::McpServer(id) => {
-                let blocked = self.mcp.as_ref().is_some_and(|mcp| mcp.servers.iter().any(|(server, _, blocked)| server == &id && *blocked));
-                let picked = self.mcp_pick().contains(&id);
-                if blocked && !picked {
-                    // composer-menu.json: a server not connected opens
-                    // Settings › MCP servers instead of toggling.
-                    crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
-                    crate::sidebar::select_settings_section(window, cx, crate::settings::SettingsSection::Mcp);
-                    return;
-                }
-                self.toggle_mcp_pick(&id);
+                self.pick_mcp_server(&id, window, cx);
+            }
+            PlusAction::McpServers => {
+                self.mcp_picker_open = true;
                 cx.notify();
             }
             PlusAction::Model(value) => {
@@ -1149,6 +1207,9 @@ mod tests {
         assert_eq!(plus_action("account:claude:work"), Some(PlusAction::Account("claude:work".into())), "only the first : splits");
         assert_eq!(plus_action("model:opus"), Some(PlusAction::Model("opus".into())));
         assert_eq!(plus_action("model"), None, "a submenu row itself picks nothing");
+        // #EXP-1793: the MCP servers row opens THE composer MCP picker.
+        assert_eq!(plus_action("mcp-servers"), Some(PlusAction::McpServers));
+        assert_eq!(plus_action("mcp-servers:s1"), Some(PlusAction::McpServer("s1".into())));
         assert_eq!(plus_action("ultracode"), None);
     }
 

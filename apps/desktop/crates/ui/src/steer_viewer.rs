@@ -492,6 +492,9 @@ pub(crate) struct SteerSessionView {
     /// seed, [`SessionMcp::picks`]); it rides the next send as
     /// `mcpServerIds`. `None` = the seed.
     mcp_draft: Option<Vec<String>>,
+    /// #EXP-1793: the "+" › MCP servers row opened THE composer MCP picker
+    /// (`picker::mcp_server_picker::composer_mcp_picker`), hung off the +.
+    pub(crate) mcp_picker_open: bool,
     /// EXP-1334: the option picks ahead of their synced row (web
     /// `useSessionComposerOptions`' overrides): read before the row, dropped
     /// once the row says the same (never on a DISPATCHER root, whose picks
@@ -889,6 +892,7 @@ impl SteerSessionView {
             mcp_requested: false,
             mcp_attempts: 0,
             mcp_draft: None,
+            mcp_picker_open: false,
             option_picks: OptionPicks::default(),
             configure_queue: std::collections::VecDeque::new(),
             configure_busy: false,
@@ -4594,6 +4598,9 @@ struct SessionMcp {
     /// `(id, name, blocked)`: the team's servers, greyed where the viewer
     /// has not connected.
     servers: Vec<(String, String, bool)>,
+    /// #EXP-1793: the same servers as THE composer MCP picker reads them
+    /// (mark, host or command, the not-ready reason).
+    options: Vec<crate::launch_options::McpServerOption>,
     /// The session's pick (sorted ids).
     picks: Vec<String>,
 }
@@ -8519,14 +8526,20 @@ impl SteerSessionView {
                     let picks = api::session_device::mcp_picks(&trpc, &session_id)
                         .inspect_err(|err| log::debug!("[steer] sessions.mcpPicks: {err}"))
                         .ok()?;
+                    let options: Vec<crate::launch_options::McpServerOption> = servers
+                        .into_iter()
+                        .map(|entry| crate::launch_options::McpServerOption {
+                            blocked: crate::launch_options::mcp_block_reason(&entry.connection),
+                            enabled_by_default: entry.config.enabled_by_default,
+                            id: entry.config.id,
+                            name: entry.config.name,
+                            url: entry.config.url,
+                            command: entry.config.command,
+                        })
+                        .collect();
                     Some(SessionMcp {
-                        servers: servers
-                            .into_iter()
-                            .map(|entry| {
-                                let blocked = crate::launch_options::mcp_block_reason(&entry.connection).is_some();
-                                (entry.config.id, entry.config.name, blocked)
-                            })
-                            .collect(),
+                        servers: options.iter().map(|option| (option.id.clone(), option.name.clone(), option.blocked.is_some())).collect(),
+                        options,
                         picks,
                     })
                 })

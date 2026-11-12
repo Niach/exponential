@@ -2307,46 +2307,25 @@ impl ChatScreenView {
         if servers.is_empty() {
             return None;
         }
-        let rows = launch_options::mcp_picker_servers(&servers);
-        let dimmed: Vec<String> = servers
-            .iter()
-            .filter(|server| server.blocked.is_some())
-            .map(|server| server.id.clone())
-            .collect();
         let view = cx.entity().downgrade();
         let on_close = self.picker_on_close(cx);
         let inline = self.inline_pickers();
-        Some(
-            crate::picker::deferred(move |window, cx| {
-                crate::picker::mcp_server_picker::mcp_server_picker(
-                    &rows,
-                    selected,
-                    trigger,
-                    Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                Self::launch_access(this).set_mcp_selected(ids);
-                                cx.notify();
-                            });
-                        }
-                    }),
-                )
-                .id("chat-mcp-picker")
-                .open(on_close)
-                .fit(fit)
-                .inline_if(inline)
-                .render_item(move |item, cx| {
-                    let body = crate::picker::picker_item_body(item, cx);
-                    if dimmed.iter().any(|id| id == &item.value) {
-                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
-                    } else {
-                        body
-                    }
-                })
-                .render(window, cx)
-            })
-            .into_any_element(),
-        )
+        Some(crate::picker::mcp_server_picker::composer_mcp_picker(
+            &servers,
+            selected,
+            trigger,
+            Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        Self::launch_access(this).set_mcp_selected(ids);
+                        cx.notify();
+                    });
+                }
+            }),
+            on_close,
+            fit,
+            inline,
+        ))
     }
 
     /// EXP-1249: what a "+"-opened picker runs as it closes — stop mounting

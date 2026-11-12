@@ -1505,7 +1505,14 @@ fn first_mcp_source(
                 .map(|server| {
                     let on = picked.contains(&server.id);
                     let icon = crate::picker::mcp_server_picker::mcp_server_icon(server.url.as_deref(), server.command.as_deref());
-                    let caption = server.blocked.then_some(crate::launch_options::MCP_CONNECT_FIRST);
+                    // The launch picker's second line: the not-connected
+                    // reason, else the host (or the command).
+                    let caption = if server.blocked {
+                        Some(crate::launch_options::MCP_CONNECT_FIRST.to_string())
+                    } else {
+                        crate::picker::mcp_server_picker::mcp_host(server.url.as_deref())
+                            .or_else(|| server.command.clone().filter(|command| !command.is_empty()))
+                    };
                     search_list::MenuListRow {
                         id: server.id.clone(),
                         body: h_flex()
@@ -1522,6 +1529,8 @@ fn first_mcp_source(
                                     .children(caption.map(|caption| div().truncate().text_xs().text_color(cx.theme().muted_foreground).child(caption))),
                             )
                             .when(on, |row| row.child(search_list::row_check(cx)))
+                            // The launch picker dims a server not connected yet.
+                            .when(server.blocked, |row| row.opacity(0.5))
                             .into_any_element(),
                         disabled: false,
                     }
