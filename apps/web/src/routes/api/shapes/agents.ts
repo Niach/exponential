@@ -21,6 +21,8 @@ export const AGENT_COLUMNS = [
   `defaults`,
   // #EXP-1656: the skills every run of the agent starts with.
   `skill_ids`,
+  // #EXP-1793: the team MCP servers every run of the agent starts with.
+  `mcp_server_ids`,
   `owner_id`,
   `sort_order`,
   // S-3: assistant | agent. An Assistant LISTS for its owner only (the

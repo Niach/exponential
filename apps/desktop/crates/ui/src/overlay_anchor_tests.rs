@@ -277,6 +277,7 @@ fn every_raw_anchored_overlay_is_watched_or_exempt() {
         ("ui/src/picker/search_list.rs", "the typeahead follows the caret every frame (EXP-1649)"),
         ("ui/src/menu_window.rs", "the menu layer's own window; its trigger is watched in controls.rs"),
         ("ui/src/shell_regions.rs", "the start menu follows the start button's painted bounds every frame"),
+        ("ui/src/chat_tab_composer.rs", "the MCP picker's anchor follows the +'s painted bounds every frame (#EXP-1793)"),
         ("eui-gpui/src/controls/zoomable_image.rs", "a control's own list, inside its control"),
     ];
     let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");

@@ -3292,6 +3292,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v104 (#EXP-1793): `agents.mcp_server_ids` (jsonb text, "[]" = none),
+        // skill_ids' twin. The agents cursor resets only when the column was
+        // added, so synced definitions re-arrive carrying it.
+        migrator.registerMigration("v104_agent_mcp_servers") { db in
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "mcp_server_ids" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "mcp_server_ids", .text).notNull().defaults(to: "[]")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
         return migrator
     }
 

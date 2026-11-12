@@ -70,8 +70,10 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         ProcessLifecycleOwner.get().lifecycleScope.launch {
             auth.userId.collect(Observability::setUser)
         }
+        // No server chosen yet (a fresh install on the instance picker) = the
+        // build's own cloud, so a crash before sign-in is reported too.
         ProcessLifecycleOwner.get().lifecycleScope.launch(Dispatchers.IO) {
-            auth.instanceUrl.collectLatest { Observability.refresh(httpClient, it) }
+            auth.instanceUrl.collectLatest { Observability.refresh(httpClient, it ?: AppConstants.PUBLIC_CLOUD_URL) }
         }
         // EXP-1635: the system share sheet's rows follow the synced agents + chats.
         directShareShortcuts.start()

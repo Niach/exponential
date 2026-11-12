@@ -1,0 +1,2 @@
+- Fixes crashes in the live feed and during calls
+- Crash reports are sent even before you pick a server

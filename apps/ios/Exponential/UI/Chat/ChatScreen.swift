@@ -1202,6 +1202,9 @@ final class ChatComposerDraft: SessionComposerDraft {
     /// #EXP-1715: the Assistant's Teams pick every send carries
     /// (`scopeTeamIds`); nil = not the viewer's Assistant root (never sent).
     var scope: TeamsScope?
+    /// #EXP-1793: the "+" MCP servers pick of the agent's conversation this
+    /// first send opens (seeded from the agent's `mcpServerIds`).
+    var mcpPick: AgentChatMcpPick?
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
@@ -1262,8 +1265,12 @@ final class ChatComposerDraft: SessionComposerDraft {
             if let agentId {
                 _ = try await sessionsApi.send(
                     accountId: accountId,
-                    .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, scope: scope)
+                    .agent(
+                        agentId: agentId, text: text, attachmentIds: attachmentIds, scope: scope,
+                        mcpServerIds: mcpPick?.outgoing
+                    )
                 )
+                mcpPick?.sent()
             } else {
                 try await sessionsApi.send(
                     accountId: accountId,
@@ -1338,6 +1345,33 @@ struct ChatComposer: View {
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
     @State private var teamsPicked: [String]?
+    /// #EXP-1793: the agent's team's MCP servers (`mcpServers.list`) for the
+    /// "+" MCP servers page of a first message to an agent.
+    @State private var mcpServers: [McpServerRow] = []
+
+    /// #EXP-1793 (composer-menu.json `mcpPick`): an agent's first message
+    /// (no conversation yet) picks the servers its conversation opens with,
+    /// seeded from the agent's `mcpServerIds`.
+    private var mcpMenu: SessionComposerFooter.McpMenu? {
+        guard let draft, let pick = draft.mcpPick, draft.agentId != nil else { return nil }
+        return SessionComposerFooter.McpMenu(
+            servers: mcpServers,
+            picked: pick.picked,
+            onChange: { draft.mcpPick?.picked = $0 }
+        )
+    }
+
+    /// #EXP-1793: an agent's first message starts from the agent's servers
+    /// (an untouched pick follows a change of them).
+    private func seedMcpPick() {
+        guard let draft, let agentId = draft.agentId else { return }
+        let seed = agentRow?.mcpServerIds ?? []
+        if draft.mcpPick == nil {
+            draft.mcpPick = AgentChatMcpPick(agentId: agentId, seed: seed)
+        } else {
+            draft.mcpPick?.reseed(seed)
+        }
+    }
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
     /// composer writes into the viewer's OWN Assistant conversation ROOT (or
@@ -1466,6 +1500,13 @@ struct ChatComposer: View {
             }
             draft?.teamId = draftTeamId
             draft?.scope = teamsPick?.scope
+            seedMcpPick()
+        }
+        // #EXP-1793: the agent's servers seed the first message's pick.
+        .onChange(of: agentRow?.mcpServerIds) { _, _ in seedMcpPick() }
+        .task(id: agentId == nil || !sessionId.isEmpty ? nil : draftTeamId) {
+            guard agentId != nil, sessionId.isEmpty, let teamId = draftTeamId else { mcpServers = []; return }
+            mcpServers = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         }
         .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
         .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
@@ -1551,7 +1592,8 @@ struct ChatComposer: View {
             // account switch on the root (its live model's rules).
             account: steerModel?.composerAccountMenu,
             // #EXP-1715: the viewer's Assistant chat's Teams pick.
-            teams: teamsPick
+            teams: teamsPick,
+            mcp: mcpMenu
         )
     }
 

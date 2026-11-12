@@ -222,7 +222,10 @@ internal class EnetSteerSocket(
                     held.forEach { texts.trySend(it) }
                     swallowJoin = true
                     scope.launch {
-                        for (next in inbox) texts.send(next)
+                        // cancel() closes [texts] while [inbox] may still hold
+                        // frames: a send then threw ClosedSendChannelException
+                        // into this handler-less scope and killed the app.
+                        for (next in inbox) if (texts.trySend(next).isClosed) break
                         texts.close()
                     }
                     scope.launch { watchStale() }

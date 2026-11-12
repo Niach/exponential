@@ -1,5 +1,6 @@
 package com.exponential.app.data.call
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,12 +8,16 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.exponential.app.MainActivity
 import com.exponential.app.R
 
@@ -96,6 +101,17 @@ class VoiceCallService : Service() {
         private var foreground = false
 
         fun start(context: Context, title: String) {
+            // #ERR-11: a microphone service Android would refuse (the app in
+            // the background, RECORD_AUDIO not granted) is never started:
+            // startForeground would throw, and a startForegroundService that
+            // stops without going foreground makes Android kill the app. The
+            // call then runs in the foreground only, as on any refusal.
+            val visible = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            val mic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (!visible || !mic) {
+                Log.w("VoiceCallService", "not started (visible=$visible, microphone=$mic)")
+                return
+            }
             synchronized(lock) { wanted = true }
             runCatching {
                 context.startForegroundService(Intent(context, VoiceCallService::class.java).putExtra(EXTRA_TITLE, title))

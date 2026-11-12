@@ -54,6 +54,7 @@ describe(`composerMenuLayout`, () => {
       repositories: true,
       ultracode: true,
       mcp: true,
+      mcpPick: true,
       skills: true,
       computerUse: true,
       prompts: true,

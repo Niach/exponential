@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # #LOGS-1/#LOGS-2: upload debug files (ELF debug info, dSYM, PDB) to GlitchTip:
 #   .github/scripts/glitchtip-debug-files.sh <project> <path>...
+# or an Android R8 mapping under the ProGuard UUID the build baked in
+# (BuildConfig.SENTRY_PROGUARD_UUID, sent with every event):
+#   .github/scripts/glitchtip-debug-files.sh <project> --proguard <uuid> <mapping.txt>
 # env: SENTRY_AUTH_TOKEN (upload-only), CF_ACCESS_CLIENT_ID +
 # CF_ACCESS_CLIENT_SECRET (the Access service token in front of
 # glitchtip.exponential.at). Any of them missing = a notice, exit 0.
@@ -14,8 +17,13 @@
 set -uo pipefail
 
 SENTRY_CLI_VERSION=2.58.6
-project="${1:?usage: $0 <project> <path>...}"
+project="${1:?usage: $0 <project> [--proguard <uuid>] <path>...}"
 shift
+proguard_uuid=""
+if [ "${1:-}" = "--proguard" ]; then
+  proguard_uuid="${2:?--proguard needs the ProGuard UUID of the build}"
+  shift 2
+fi
 
 fail() {
   echo "::warning title=GlitchTip::$1"
@@ -55,9 +63,14 @@ if [ ! -x "$cli" ]; then
 fi
 
 export SENTRY_URL=https://glitchtip.exponential.at SENTRY_ORG=exponential SENTRY_PROJECT="$project"
+if [ -n "$proguard_uuid" ]; then
+  upload=(upload-proguard --uuid "$proguard_uuid")
+else
+  upload=(debug-files upload)
+fi
 for attempt in 1 2 3; do
   if "$cli" --header "CF-Access-Client-Id:$CF_ACCESS_CLIENT_ID" --header "CF-Access-Client-Secret:$CF_ACCESS_CLIENT_SECRET" \
-      debug-files upload "${files[@]}"; then
+      "${upload[@]}" "${files[@]}"; then
     exit 0
   fi
   [ "$attempt" = 3 ] && break

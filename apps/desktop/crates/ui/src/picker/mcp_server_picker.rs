@@ -175,6 +175,43 @@ pub(crate) fn mcp_server_picker(
         .empty_text("No servers found.")
 }
 
+/// THE composer "+" › MCP servers surface (composer-menu.json
+/// `mcp-servers`): the launch composer's (EXP-1249) and an agent chat's
+/// (#EXP-1793), opened by the menu row and hung off `trigger` at the +.
+/// Multi, searchable; each row = the server's mark, its name, the host (or
+/// the command) as the muted second line, or the reason it is not ready
+/// yet, that row DIMMED; the picked rows checked.
+pub(crate) fn composer_mcp_picker(
+    servers: &[crate::launch_options::McpServerOption],
+    selected: Vec<String>,
+    trigger: AnyElement,
+    on_change: OnPickerChange<String>,
+    on_close: super::PickerOnClose,
+    fit: (gpui::Anchor, gpui::Pixels),
+    inline: bool,
+) -> AnyElement {
+    use gpui::{IntoElement as _, ParentElement as _, Styled as _};
+    let rows = crate::launch_options::mcp_picker_servers(servers);
+    let dimmed: Vec<String> = servers.iter().filter(|server| server.blocked.is_some()).map(|server| server.id.clone()).collect();
+    super::deferred(move |window, cx| {
+        mcp_server_picker(&rows, selected, trigger, on_change)
+            .id("chat-mcp-picker")
+            .open(on_close)
+            .fit(fit)
+            .inline_if(inline)
+            .render_item(move |item, cx| {
+                let body = super::picker_item_body(item, cx);
+                if dimmed.iter().any(|id| id == &item.value) {
+                    gpui_component::h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
+                } else {
+                    body
+                }
+            })
+            .render(window, cx)
+    })
+    .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,6 +26,8 @@ struct ChatComposerPlusMenu: View {
     var account: SessionComposerFooter.AccountMenu?
     /// #FEED-204: an app editor's Device page; nil = no Device row.
     var device: SessionComposerFooter.DeviceMenu?
+    /// #EXP-1793: an agent chat's MCP servers page; nil = no row.
+    var mcp: SessionComposerFooter.McpMenu?
     /// The team whose issues the Issue page searches; nil = no page.
     var teamId: String?
     /// The Issue page's pick (the host inserts `#IDENT` at the caret).
@@ -122,6 +124,21 @@ struct ChatComposerPlusMenu: View {
             ComposerPromptsList(prompts: prompts, onPick: onPickPrompt)
         case .teams:
             if let teams { TeamsPickPage(binding: teams) }
+        case .mcpServers:
+            // #EXP-1793: THE launch composer's MCP server picker rows.
+            if let mcp {
+                GlassPickerContent(
+                    items: McpServerPicker<EmptyView>.items(mcp.servers),
+                    mode: .multi,
+                    value: Set(mcp.picked),
+                    onChange: { picked in
+                        // Keep the team's order, not the set's.
+                        mcp.onChange(mcp.servers.map(\.id).filter { picked.contains($0) })
+                    },
+                    emptyText: "No MCP servers"
+                )
+                .pickerCheckMarks()
+            }
         default:
             if let teamId {
                 ChatIssueSearchList(teamId: teamId, onPick: onPickIssue)
@@ -162,6 +179,7 @@ struct ChatComposerPlusMenu: View {
         case .model: modelValue.map(LaunchVocabulary.modelLabel)
         case .account: account?.current?.email
         case .teams: teams?.value
+        case .mcpServers: mcp.flatMap { McpServers.pickedValue($0.picked) }
         default: nil
         }
     }

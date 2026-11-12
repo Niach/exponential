@@ -125,8 +125,12 @@ data class SessionsSendInput(
             issueIds: List<String>? = null,
             /** #EXP-1715: the Assistant's Teams pick ([scope]); null = omitted. */
             scopeTeamIds: JsonElement? = null,
+            /** #EXP-1793: the conversation's new MCP pick (an empty list
+             *  clears and IS sent); null = omitted (unchanged). */
+            mcpServerIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
             agentId = agentId,
+            mcpServerIds = mcpServerIds,
             text = text?.takeIf { it.isNotBlank() },
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
             issueIds = issueIds?.takeIf { it.isNotEmpty() },

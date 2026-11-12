@@ -1383,6 +1383,10 @@ final class AgentSessionModel {
     /// device: the next send is `sessions.send({appId, deviceId})` (set by the
     /// host view; nil = a plain message).
     var sendAppMove: ChatComposerDraft.AppMove?
+    /// #EXP-1793: the viewer's own agent conversation root's "+" MCP servers
+    /// pick (set by the host view; nil = none): a changed pick rides the
+    /// next send as `sessions.send({agentId, mcpServerIds})`.
+    var mcpPick: AgentChatMcpPick?
 
     @discardableResult
     func sendMessage(_ text: String, attachmentIds: [String]? = nil) async -> Bool {
@@ -1403,6 +1407,16 @@ final class AgentSessionModel {
                         cli: move.cli, account: move.account, model: move.model
                     )
                 )
+            } else if let mcpPick, let mcpServerIds = mcpPick.outgoing {
+                // #EXP-1793: into the SAME conversation, with its new pick.
+                _ = try await sessionsApi.send(
+                    accountId: accountId,
+                    .agent(
+                        agentId: mcpPick.agentId, text: text, attachmentIds: attachmentIds,
+                        scope: sendScope, mcpServerIds: mcpServerIds
+                    )
+                )
+                self.mcpPick?.sent()
             } else {
                 try await sessionsApi.send(
                     accountId: accountId,

@@ -2307,46 +2307,25 @@ impl ChatScreenView {
         if servers.is_empty() {
             return None;
         }
-        let rows = launch_options::mcp_picker_servers(&servers);
-        let dimmed: Vec<String> = servers
-            .iter()
-            .filter(|server| server.blocked.is_some())
-            .map(|server| server.id.clone())
-            .collect();
         let view = cx.entity().downgrade();
         let on_close = self.picker_on_close(cx);
         let inline = self.inline_pickers();
-        Some(
-            crate::picker::deferred(move |window, cx| {
-                crate::picker::mcp_server_picker::mcp_server_picker(
-                    &rows,
-                    selected,
-                    trigger,
-                    Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                Self::launch_access(this).set_mcp_selected(ids);
-                                cx.notify();
-                            });
-                        }
-                    }),
-                )
-                .id("chat-mcp-picker")
-                .open(on_close)
-                .fit(fit)
-                .inline_if(inline)
-                .render_item(move |item, cx| {
-                    let body = crate::picker::picker_item_body(item, cx);
-                    if dimmed.iter().any(|id| id == &item.value) {
-                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
-                    } else {
-                        body
-                    }
-                })
-                .render(window, cx)
-            })
-            .into_any_element(),
-        )
+        Some(crate::picker::mcp_server_picker::composer_mcp_picker(
+            &servers,
+            selected,
+            trigger,
+            Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        Self::launch_access(this).set_mcp_selected(ids);
+                        cx.notify();
+                    });
+                }
+            }),
+            on_close,
+            fit,
+            inline,
+        ))
     }
 
     /// EXP-1249: what a "+"-opened picker runs as it closes — stop mounting
@@ -3038,6 +3017,8 @@ impl ComposerMenuRow {
                 &[Launch, Session, Agent]
             }
             Self::Teams => &[Launch, Agent],
+            // #EXP-1793: an agent chat picks its conversation's servers too.
+            Self::McpServers => &[Launch, Agent],
             _ => &[Launch],
         }
     }
@@ -3054,7 +3035,7 @@ impl ComposerMenuRow {
             Self::Repository => c.temporary && c.repositories,
             Self::Effort => c.temporary,
             Self::Ultracode => c.temporary && c.ultracode,
-            Self::McpServers => c.temporary && c.mcp,
+            Self::McpServers => c.mcp_pick && c.mcp,
             Self::Skills => c.temporary && c.skills,
             Self::ComputerUse => c.temporary && c.computer_use,
         }
@@ -3081,6 +3062,9 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) repositories: bool,
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
+    /// #EXP-1793: the MCP servers pick can change here: launch while
+    /// temporary; an agent chat, always.
+    pub(crate) mcp_pick: bool,
     /// #EXP-1660: the team has at least one skill.
     pub(crate) skills: bool,
     pub(crate) computer_use: bool,
@@ -3109,6 +3093,7 @@ impl ComposerMenuConditions {
             repositories: repositories > 1,
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
+            mcp_pick: temporary,
             skills: options.skills_count > 0,
             computer_use: options.computer_use.is_some(),
             prompts,
@@ -3897,6 +3882,7 @@ mod tests {
             repositories: true,
             ultracode: true,
             mcp: true,
+            mcp_pick: true,
             skills: true,
             computer_use: true,
             prompts: true,
@@ -3916,6 +3902,7 @@ mod tests {
                 repositories: flag("repositories"),
                 ultracode: flag("ultracode"),
                 mcp: flag("mcp"),
+                mcp_pick: flag("mcpPick"),
                 skills: flag("skills"),
                 computer_use: flag("computerUse"),
                 prompts: flag("prompts"),

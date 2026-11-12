@@ -111,7 +111,7 @@ impl Draft {
     }
 
     /// The declared secret positions of this draft's transport — what an
-    /// `auth: secret` row must hold exactly one of.
+    /// `auth: secret` row must hold at least one of (#EXP-1793).
     fn names(&self) -> &[String] {
         if self.is_http() {
             &self.header_names
@@ -207,14 +207,16 @@ fn validate(draft: &Draft) -> Option<String> {
     if draft.auth == "oauth" && !http {
         return Some("OAuth sign-in works for HTTP servers only.".to_string());
     }
-    if draft.auth == "secret" && draft.names().len() != 1 {
+    // #EXP-1793: one or more (Cloudflare Access's two + a bearer token);
+    // each member sets a value for every name.
+    if draft.auth == "secret" && draft.names().is_empty() {
         return Some(if http {
-            "An API-key server declares exactly one header name (Advanced): the one \
-             that carries the key."
+            "An API-key server declares at least one header name (Advanced): the ones \
+             that carry the keys."
                 .to_string()
         } else {
-            "An API-key server declares exactly one variable name (Advanced): the one \
-             that carries the key."
+            "An API-key server declares at least one variable name (Advanced): the ones \
+             that carry the keys."
                 .to_string()
         });
     }
@@ -717,8 +719,8 @@ impl McpServerDialogView {
                 "transport": {"value": self.transport, "options": choices(TRANSPORT_OPTIONS)},
             },
             "namesLabel": match (draft.auth == "secret", http) {
-                (true, true) => "Header that carries the key",
-                (true, false) => "Variable that carries the key",
+                (true, true) => "Headers that carry the keys",
+                (true, false) => "Variables that carry the keys",
                 (false, true) => "Header names",
                 (false, false) => "Variable names",
             },
@@ -995,7 +997,7 @@ mod tests {
             Some("1bad is not a header or variable name.")
         );
 
-        // OAuth is HTTP-only, and a secret row declares exactly one position.
+        // OAuth is HTTP-only, and a secret row declares at least one position.
         let stdio_oauth = Draft {
             transport: "stdio".into(),
             command: "npx".into(),
@@ -1011,9 +1013,16 @@ mod tests {
             header_names: vec!["A".into(), "B".into()],
             ..http_draft()
         };
-        assert!(validate(&two_secrets)
+        // #EXP-1793: several names are fine (one value each).
+        assert_eq!(validate(&two_secrets), None);
+        let no_secret = Draft {
+            auth: "secret".into(),
+            header_names: Vec::new(),
+            ..http_draft()
+        };
+        assert!(validate(&no_secret)
             .as_deref()
-            .is_some_and(|message| message.contains("exactly one header name")));
+            .is_some_and(|message| message.contains("at least one header name")));
         let one_secret = Draft {
             auth: "secret".into(),
             header_names: vec!["X-Api-Key".into()],
@@ -1029,7 +1038,7 @@ mod tests {
         };
         assert!(validate(&stdio_secret)
             .as_deref()
-            .is_some_and(|message| message.contains("exactly one variable name")));
+            .is_some_and(|message| message.contains("at least one variable name")));
     }
 
     /// The wire carries the transport's OWN half only: a stdio row with a
