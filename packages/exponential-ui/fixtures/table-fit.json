@@ -1,0 +1,320 @@
+{
+  "$comment": "#FEED-224: THE column fit of a Markdown table (a GFM pipe table in the Markdown leaf: every chat, comment, description and result), HAND-AUTHORED and replayed by src/table-fit.test.ts (`fitTableColumns`, the TS reference; the web renderers measure the DOM in web/table-fit.ts and call it), apps/desktop/crates/eui-core/tests/table_fit.rs (`fit_table_columns`; gpui paint/markdown.rs), the Swift (`MarkdownTableFit`) and Compose (`MarkdownTableFit`) tests. Before it every native painter split the box into EQUAL columns and the web left it to the browser's auto table layout at 100% width, where an unbreakable issue chip took the whole row and squeezed its neighbours to one letter per line. THE MEASURE (each renderer's own text engine): per column `min` = the widest piece its line breaker never splits (a word; a chip or an inline code span counts WHOLE, as an atom) and `max` = the widest cell laid out on one line, over the header (in its semibold) and the body cells, in CONTENT px (no padding). `available` = the Markdown's width less each column's two horizontal cell paddings and the table's own borders. THE FIT (inputs and outputs in whole px): `available` floors; each `min` ceils and is capped at `wordCap` (a longer word breaks, a wider chip truncates at its column) and each `max` ceils and is at least that min. The mins do not fit (Σmin ≥ available) = every column gets its min and the table SCROLLS sideways inside the box (it never squeezes a column under its min). Every column fits on one line (Σmax ≤ available) = every column gets its max and the table HUGS its content (start-aligned; it never stretches a short table across the box). Else WATER-FILL: one level L with Σ clamp(L, min, max) = available, so a column whose max is under L keeps its one line and the others share the rest evenly (never under their min); each width = clamp(floor(L), min, max) and the pixels left over go one each to the columns still growing at L (min ≤ the breakpoint under L < max), left to right. The table is Σwidths + the paddings + the borders wide. The genUI Table COMPONENT keeps its EXP-1548 columns (a fixed `width`, else an equal share never under `tableColumnMin`, cells truncate or wrap, a wider table scrolls): its columns are typed data, not prose.",
+  "wordCap": 160,
+  "cases": [
+    {
+      "name": "the FEED-224 shape: a short column, a long unbreakable chip column, a long prose column",
+      "available": 500,
+      "columns": [
+        {
+          "min": 38,
+          "max": 38
+        },
+        {
+          "min": 380,
+          "max": 384
+        },
+        {
+          "min": 126,
+          "max": 1400
+        }
+      ],
+      "widths": [
+        38,
+        231,
+        231
+      ]
+    },
+    {
+      "name": "everything fits on one line: the table hugs its content",
+      "available": 600,
+      "columns": [
+        {
+          "min": 20,
+          "max": 40
+        },
+        {
+          "min": 30,
+          "max": 90
+        }
+      ],
+      "widths": [
+        40,
+        90
+      ]
+    },
+    {
+      "name": "exactly fits",
+      "available": 130,
+      "columns": [
+        {
+          "min": 20,
+          "max": 40
+        },
+        {
+          "min": 30,
+          "max": 90
+        }
+      ],
+      "widths": [
+        40,
+        90
+      ]
+    },
+    {
+      "name": "the minimums overflow: each column its min, the table scrolls",
+      "available": 200,
+      "columns": [
+        {
+          "min": 120,
+          "max": 300
+        },
+        {
+          "min": 150,
+          "max": 150
+        }
+      ],
+      "widths": [
+        120,
+        150
+      ]
+    },
+    {
+      "name": "a chip wider than the cap counts the cap",
+      "available": 100,
+      "columns": [
+        {
+          "min": 400,
+          "max": 400
+        }
+      ],
+      "widths": [
+        160
+      ]
+    },
+    {
+      "name": "a capped chip column still grows past the cap when there is room",
+      "available": 300,
+      "columns": [
+        {
+          "min": 400,
+          "max": 400
+        }
+      ],
+      "widths": [
+        300
+      ]
+    },
+    {
+      "name": "leftover pixels go left to right",
+      "available": 100,
+      "columns": [
+        {
+          "min": 0,
+          "max": 100
+        },
+        {
+          "min": 0,
+          "max": 100
+        },
+        {
+          "min": 0,
+          "max": 100
+        }
+      ],
+      "widths": [
+        34,
+        33,
+        33
+      ]
+    },
+    {
+      "name": "fractional measures ceil",
+      "available": 50,
+      "columns": [
+        {
+          "min": 10.2,
+          "max": 20.4
+        }
+      ],
+      "widths": [
+        21
+      ]
+    },
+    {
+      "name": "a fractional box floors",
+      "available": 99.9,
+      "columns": [
+        {
+          "min": 0,
+          "max": 60
+        },
+        {
+          "min": 0,
+          "max": 60
+        }
+      ],
+      "widths": [
+        50,
+        49
+      ]
+    },
+    {
+      "name": "a short column keeps its line while wide ones share the rest",
+      "available": 300,
+      "columns": [
+        {
+          "min": 10,
+          "max": 40
+        },
+        {
+          "min": 50,
+          "max": 500
+        },
+        {
+          "min": 50,
+          "max": 500
+        }
+      ],
+      "widths": [
+        40,
+        130,
+        130
+      ]
+    },
+    {
+      "name": "a min above the level holds",
+      "available": 300,
+      "columns": [
+        {
+          "min": 150,
+          "max": 600
+        },
+        {
+          "min": 10,
+          "max": 600
+        }
+      ],
+      "widths": [
+        150,
+        150
+      ]
+    },
+    {
+      "name": "the level past a min",
+      "available": 400,
+      "columns": [
+        {
+          "min": 150,
+          "max": 600
+        },
+        {
+          "min": 10,
+          "max": 600
+        }
+      ],
+      "widths": [
+        200,
+        200
+      ]
+    },
+    {
+      "name": "one prose column fills the box",
+      "available": 300,
+      "columns": [
+        {
+          "min": 60,
+          "max": 900
+        }
+      ],
+      "widths": [
+        300
+      ]
+    },
+    {
+      "name": "an empty column stays empty",
+      "available": 100,
+      "columns": [
+        {
+          "min": 0,
+          "max": 0
+        },
+        {
+          "min": 20,
+          "max": 200
+        }
+      ],
+      "widths": [
+        0,
+        100
+      ]
+    },
+    {
+      "name": "a max under its capped min lifts to it",
+      "available": 500,
+      "columns": [
+        {
+          "min": 200,
+          "max": 100
+        }
+      ],
+      "widths": [
+        160
+      ]
+    },
+    {
+      "name": "eight columns on a phone scroll at their mins",
+      "available": 248,
+      "columns": [
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        },
+        {
+          "min": 40,
+          "max": 60
+        }
+      ],
+      "widths": [
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40
+      ]
+    },
+    {
+      "name": "no columns",
+      "available": 300,
+      "columns": [],
+      "widths": []
+    }
+  ]
+}
