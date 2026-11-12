@@ -1463,6 +1463,24 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         let row = row.clone();
         bus_line(ctx, &row, "session_stuck", copy::stuck_text(copy::silent_minutes(Some(alive), now)), true, None, true);
     }
+    // #FEED-211: a parked run that spoke to the server itself AFTER its flag (an MCP call, a push) is alive:
+    // busy again, the flag cleared, though its device's beat is still late.
+    for id in watched.clone() {
+        let row = ctx.row(&id);
+        let Some(b) = &row.blocked else { continue };
+        if !is_working(row) || b.kind != BlockedKind::DeviceOffline || b.resume != Field::Value(true) {
+            continue;
+        }
+        if !row.last_activity_at.is_some_and(|at| at > b.since) || !spoke_lately(ctx, row) {
+            continue;
+        }
+        let row = ctx.row_mut(&id);
+        row.status = Status::Running;
+        row.busy = true;
+        row.background = false;
+        row.updated_at = now;
+        clear_blocked(ctx, &id, Some(BlockedKind::DeviceOffline));
+    }
     // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
     for id in watched.clone() {
         let row = ctx.row(&id);

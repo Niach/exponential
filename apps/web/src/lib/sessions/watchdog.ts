@@ -42,6 +42,8 @@ export interface WatchdogRun {
   nudged: number
   stuck: number
   offline: number
+  /** #FEED-211: parked runs that spoke again, busy again. */
+  spoke: number
   /** EXP-1374: interruptions their device never continued (Needs you). */
   unresumed: number
   /** #EXP-1675: cut runs whose device stayed away (Needs you). */
@@ -289,6 +291,41 @@ async function flagStuck(now: Date): Promise<number> {
 export function silentMinutes(alive: number, now: Date): number {
   const minutes = Number.isFinite(alive) ? Math.floor((now.getTime() - alive) / MIN) : 0
   return Math.max(contract.sessionWatchdog.stuckMinutes, minutes)
+}
+
+/** #FEED-211: a `device_offline` run (resume) that spoke to the server
+ *  itself AFTER its flag, inside the online window (an MCP call, a push:
+ *  `last_activity_at`), is alive: running + busy again, the flag cleared,
+ *  silent, though its device's beat is still late (a stuck beat body parked
+ *  healthy runs until the next beat, read as killed turns). A `restarted`
+ *  run is never moved (its process died under a living device). Runs just
+ *  before `flagOffline`, whose own #FEED-210 rule keeps it unflagged. */
+async function restoreSpoken(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.status, [...LIVE]),
+          NOT_SUBAGENT,
+          sql`${sessions.blocked} ->> 'kind' = 'device_offline'`,
+          sql`(${sessions.blocked} ->> 'resume')::boolean IS TRUE`,
+          sql`${sessions.lastActivityAt} > (${sessions.blocked} ->> 'since')::timestamptz`,
+          sql`${sessions.lastActivityAt} BETWEEN ${cutoff} AND ${now}`
+        )
+      )
+      .for(`update`, { skipLocked: true })
+    const ids = rows.map((row) => row.id)
+    if (ids.length === 0) return 0
+    await tx
+      .update(sessions)
+      .set({ status: `running`, busy: true, background: false, updatedAt: now })
+      .where(inArray(sessions.id, ids))
+    await clearBlockedInTx(tx, ids, `device_offline`)
+    return ids.length
+  })
 }
 
 /** A BUSY session whose host device missed the online window (and that did
@@ -652,6 +689,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     unclaimed: await flagUnclaimed(now),
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
+    spoke: await restoreSpoken(now),
     offline: await flagOffline(now),
     unresumed: await flagUnresumed(now),
     offlineLong: await flagOfflineTooLong(now),
@@ -803,7 +841,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.offlineLong} offline too long, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.spoke} spoke again, ${run.offline} offline, ${run.unresumed} unresumed, ${run.offlineLong} offline too long, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {
