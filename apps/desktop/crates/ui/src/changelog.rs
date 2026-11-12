@@ -49,10 +49,23 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-large-chats-desktop",
     date: "2026-11-12",
     title: "Large chats open fast in the desktop app",
-    summary: "The desktop app opens long chats at once and starts without a pause, and Settings › MCP shows every server, built-ins included, in one list.",
+    summary: "The desktop app opens long chats at once and starts without a pause, long chats scroll smoothly on the web, and desktop crash symbols upload smaller.",
     body: r##"- **Large chats open fast**: the desktop app and the CLI load a long chat in windows from the device instead of all at once, start without blocking the window, and Results covers the whole chat. On the web, long chats scroll smoothly.
-- **Settings › MCP**: one Servers list with the built-in servers; every row unfolds to its tools, and the clients come last. The phones' MCP picker shows the same rows as the web, with each service's mark.
-- **Smaller crash symbols**: debug files for crash reports upload in a smaller form."##,
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: desktop and CLI builds upload only what crash reports need."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_261: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-instant-large-chats-on-phones",
+    date: "2026-11-12",
+    title: "Large chats open instantly on phones",
+    summary: "Phones show a long chat from what they stored last time while the rest loads, the MCP picker rows match the web, and Settings › MCP is one list.",
+    body: r##"- **Instant large chats**: iPhone, iPad and Android paint a long chat from the tail they stored last time, then catch up, so it opens without a wait.
+- **MCP picker like the web**: choosing a session's MCP servers on a phone shows the same rows with each server's brand mark.
+- **One MCP list**: Settings › MCP lists the built-in and your team's servers together, and every row unfolds to its tools.
+- **Smaller crash symbols**: phone builds upload only what crash reports need, so symbol uploads stay small."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
