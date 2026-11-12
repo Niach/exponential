@@ -52,7 +52,7 @@ public enum ComposerMenu {
 
     /// One fixture `conditions` key.
     public enum Condition: String, Equatable, Sendable, CaseIterable {
-        case temporary, device, account, model, repositories, ultracode, mcp, skills, computerUse, prompts
+        case temporary, device, account, model, repositories, ultracode, mcp, mcpPick, skills, computerUse, prompts
         case assistant, teams
     }
 
@@ -76,6 +76,9 @@ public enum ComposerMenu {
         public var ultracode: Bool
         /// The team has at least one MCP server.
         public var mcp: Bool
+        /// #EXP-1793: the MCP servers pick can change here (launch while
+        /// temporary; an agent chat, always).
+        public var mcpPick: Bool
         /// #EXP-1661: the team has at least one skill.
         public var skills: Bool
         /// The picked device advertises `computerUseRunCap`.
@@ -96,6 +99,7 @@ public enum ComposerMenu {
             repositories: Bool = false,
             ultracode: Bool = false,
             mcp: Bool = false,
+            mcpPick: Bool = false,
             skills: Bool = false,
             computerUse: Bool = false,
             prompts: Bool = false,
@@ -109,6 +113,7 @@ public enum ComposerMenu {
             self.repositories = repositories
             self.ultracode = ultracode
             self.mcp = mcp
+            self.mcpPick = mcpPick
             self.skills = skills
             self.computerUse = computerUse
             self.prompts = prompts
@@ -125,6 +130,7 @@ public enum ComposerMenu {
             case .repositories: repositories
             case .ultracode: ultracode
             case .mcp: mcp
+            case .mcpPick: mcpPick
             case .skills: skills
             case .computerUse: computerUse
             case .prompts: prompts
@@ -172,7 +178,7 @@ public enum ComposerMenu {
         Row(id: .effort, kind: .submenu, label: "Effort", codexLabel: "Reasoning", icon: "ui-estimate", surfaces: [.launch], when: [.temporary]),
         Row(id: .ultracode, kind: .toggle, label: "Ultracode", codexLabel: nil, icon: "action-default", surfaces: [.launch], when: [.temporary, .ultracode]),
         nil,
-        Row(id: .mcpServers, kind: .submenu, label: "MCP servers", codexLabel: nil, icon: "ui-mcp", surfaces: [.launch], when: [.temporary, .mcp]),
+        Row(id: .mcpServers, kind: .submenu, label: "MCP servers", codexLabel: nil, icon: "ui-mcp", surfaces: [.launch, .agent], when: [.mcpPick, .mcp]),
         Row(id: .skills, kind: .submenu, label: "Skills", codexLabel: nil, icon: "ui-docs", surfaces: [.launch], when: [.temporary, .skills]),
         Row(id: .computerUse, kind: .toggle, label: "Computer use", codexLabel: nil, icon: "nav-computer", surfaces: [.launch], when: [.temporary, .computerUse]),
     ]
