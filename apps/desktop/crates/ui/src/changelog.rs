@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-quiet-scheduled-ticks",
+    date: "2026-11-12",
+    title: "Scheduled agents stay quiet when there is nothing to say",
+    summary: "A team agent's scheduled check that finds nothing new now ends silently instead of posting a note that it had no visible output.",
+    body: r##"- **Silent quiet ticks**: when a team agent's schedule fires and there is nothing to report, the turn ends without a message, so agent chats only show ticks that did something."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_254: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-agents-keep-mcp-servers",
     date: "2026-11-12",
     title: "Agents keep their MCP servers",
