@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/plan-page.json" with { type: "json" }
-import { mosaicTiles, planBlocks, planCounts, planCountsLine, planOutline, planPageFor, planPagePath, planRowLabel, planTabGlyph, planTabTarget } from "./plan-page"
+import { mosaicTiles, planBlocks, planCounts, planCountsLine, planOutline, planPageFor, planPagePath, planPaneLayout, planRowLabel, planTabGlyph, planTabTarget } from "./plan-page"
 
 describe(`planBlocks`, () => {
   for (const entry of fixture.blockCases) {
@@ -13,6 +13,12 @@ describe(`planBlocks`, () => {
 describe(`planTabTarget`, () => {
   for (const entry of fixture.tabCases) {
     test(entry.name, () => expect(planTabTarget(entry.plans, entry.kept ?? null)).toBe(entry.expect))
+  }
+})
+
+describe(`planPaneLayout`, () => {
+  for (const entry of fixture.paneCases) {
+    test(entry.name, () => expect(planPaneLayout(entry.width)).toEqual(entry.expected))
   }
 })
 

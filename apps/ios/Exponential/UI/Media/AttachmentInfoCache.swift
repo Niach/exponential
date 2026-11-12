@@ -9,33 +9,34 @@ import GRDB
 /// short-TTL memo over a synchronous GRDB read, so a media block resolves on
 /// first render and a row landing later is picked up within seconds (the
 /// issue detail feeds its editor from its live observation instead).
+/// #PERF-5: a layout pass `peek`s (never a blocking read).
 @MainActor
 enum AttachmentInfoCache {
-    private struct Key: Hashable {
+    private struct Key: Hashable, Sendable {
         let accountId: String
         let attachmentId: String
     }
 
-    private static var entries: [Key: (value: AttachmentMediaInfo?, at: Date)] = [:]
-    private static let ttl: TimeInterval = 5
-    private static let capacity = 512
+    private static let memo = StoreMemo<Key, AttachmentMediaInfo>()
 
     static func info(_ attachmentId: String, db: DatabaseManager, accountId: String) -> AttachmentMediaInfo? {
-        let key = Key(accountId: accountId, attachmentId: attachmentId.lowercased())
-        let now = Date()
-        if let hit = entries[key], now.timeIntervalSince(hit.at) < ttl { return hit.value }
-        let value = fetch(attachmentId, db: db, accountId: accountId)
-        if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
-        entries[key] = (value, now)
-        return value
+        memo.value(Key(accountId: accountId, attachmentId: attachmentId.lowercased())) {
+            guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+            return ((try? pool.read { try fetch(attachmentId, $0) }) ?? nil)
+        }
     }
 
-    private static func fetch(_ attachmentId: String, db: DatabaseManager, accountId: String) -> AttachmentMediaInfo? {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
-        let row = (try? pool.read { db in
-            try AttachmentEntity.filter(Column("id") == attachmentId).fetchOne(db)
-        }) ?? nil
-        return row.map(AttachmentMediaInfo.init)
+    /// #PERF-5: `info` for a layout pass (the read-only Markdown): memory
+    /// only, an unknown or stale row loads off main and renders when it lands.
+    static func peek(_ attachmentId: String, db: DatabaseManager, accountId: String) -> AttachmentMediaInfo? {
+        memo.peek(Key(accountId: accountId, attachmentId: attachmentId.lowercased())) {
+            guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+            return ((try? await pool.read { try fetch(attachmentId, $0) }) ?? nil)
+        }
+    }
+
+    private nonisolated static func fetch(_ attachmentId: String, _ db: Database) throws -> AttachmentMediaInfo? {
+        try AttachmentEntity.filter(Column("id") == attachmentId).fetchOne(db).map(AttachmentMediaInfo.init)
     }
 
     /// A resolver closure for an `IssueEditorModel` bound to one account.

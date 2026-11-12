@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `CountBadge` (#FEED-232): `count_badge::label` (the label rule, `segmented::badge_text` now calls it); the layout tree puts the label in the node's `text`, hides a `""` badge (no box), and defaults it to one centred unshrinkable line in tabular figures.
 - Text `truncate: "middle"` keeps 4 characters or none (#EXP-1789): `text_truncate::middle_truncate_width` shows the `…` alone when the cut would keep fewer than `MIDDLE_MIN_KEPT` (4) characters, start + end together, so a nearly-gone run never reads as stray glyphs (`/h…/`); `tests/text_truncate.rs` replays the fixture's new cases.
 - Input / Textarea `style.color` (#EXP-1787): the node's own top-level `color` lands on its `field` part as an authored key, so the field's visual colour (the typed text's ink) is the author's over the `field` recipe; `tests/interactions_fixture.rs` replays `fieldInk`.
 - Style key `fontVariantNumeric` (`tabular-nums`): generated catalog; `Visual.font_variant_numeric`, `TextStyle.font_variant_numeric` (inherited like CSS, `TextStyle::tabular_nums()`) on every leaf request, so a measurer shapes with `tnum`.

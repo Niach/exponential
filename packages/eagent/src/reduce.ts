@@ -963,6 +963,15 @@ function tick(ctx: Ctx): StepResult {
     Object.assign(row, { blocked: flag(`stuck`, now), needsInput: true, updatedAt: now })
     busLine(ctx, row, `session_stuck`, stuckText(silentMinutes(alive, now)), { waking: true })
   }
+  // #FEED-211: a parked run that spoke to the server itself AFTER its flag (an MCP call, a push) is alive:
+  // busy again, the flag cleared, though its device's beat is still late.
+  for (const row of watched) {
+    const b = row.blocked
+    if (!isWorking(row) || b?.kind !== `device_offline` || b.resume !== true) continue
+    if (row.lastActivityAt == null || !(row.lastActivityAt > b.since) || !spokeLately(ctx, row)) continue
+    Object.assign(row, { status: `running`, busy: true, background: false, updatedAt: now })
+    clearBlocked(ctx, row, `device_offline`)
+  }
   // Offline host: a busy run is interrupted (resume, silent); a claimed one between turns just reads idle.
   for (const row of watched) {
     if (!isWorking(row) || !row.busy || row.blocked || online(ctx, row.deviceId) || spokeLately(ctx, row)) continue

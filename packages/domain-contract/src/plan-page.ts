@@ -92,6 +92,22 @@ export function planTabGlyph(decision: string | null): PlanTabGlyph {
   return decision === `approved` ? { icon: `ui-check`, tone: `approved` } : { icon: `coding-plan`, tone: `text` }
 }
 
+/** #EXP-1786: which wide columns the plan body's OWN width holds
+ *  (`paneCases`). `outline` false = no outline column; `rail` false = the
+ *  questions float (`panel`). The document keeps `layout.documentMinWidth`. */
+export interface PlanPaneLayout {
+  outline: boolean
+  rail: boolean
+}
+
+export function planPaneLayout(width: number): PlanPaneLayout {
+  const { outlineWidth, railWidth, documentMinWidth } = fixture.layout
+  return {
+    outline: width >= outlineWidth + railWidth + documentMinWidth,
+    rail: width >= railWidth + documentMinWidth,
+  }
+}
+
 /** #EXP-1662: `Plan: title`, the row's and the wide tab's label
  *  (`rowLabelCases`). */
 export function planRowLabel(plan: string): string {

@@ -17,7 +17,7 @@ import { MotionNative } from "./motion"
 import { CanvasNative } from "./canvas"
 import { EmbedNative } from "./embed"
 import { ResizableNative } from "./resizable"
-import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative, VoiceWaveNative } from "./feedback"
+import { CountBadgeNative, RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative, VoiceWaveNative } from "./feedback"
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
 import { BoxNative, ListNative, UnknownNative } from "./layout"
 import { AudioPlayerNative, AvatarNative, CarouselNative, ImageNative, VideoNative } from "./media"
@@ -57,6 +57,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Toast: ToastNative,
   Ring: RingNative,
   Spinner: SpinnerNative,
+  CountBadge: CountBadgeNative,
   Skeleton: SkeletonNative,
   VoiceWave: VoiceWaveNative,
   Motion: MotionNative,

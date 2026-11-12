@@ -1077,10 +1077,13 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
 /// #EXP-1662 / #FEED-191: THE questions rail's content (plan-page.json, the wide RAIL;
 /// web `PlanRail`): the step label top right, the body hugging its content and
 /// scrolling inside past the panel's cap, the footer pinned; `None` = nothing
-/// to draw (a reader who may not decide a plan without questions).
+/// to draw (a reader who may not decide a plan without questions). `heading`
+/// = THE rail's `copy.questions` heading (#EXP-1786: the floating panel has
+/// none, as web's).
 pub(crate) fn plan_rail(
     facts: &PlanFacts,
     answer: bool,
+    heading: bool,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
@@ -1102,7 +1105,7 @@ pub(crate) fn plan_rail(
     });
     // #FEED-191 (plan-page.json, the wide RAIL): the `copy.questions` heading
     // with the step label trailing.
-    let heading = (!facts.questions.is_empty()).then(|| {
+    let heading = (heading && !facts.questions.is_empty()).then(|| {
         div()
             .text_sm()
             .font_weight(FontWeight::SEMIBOLD)

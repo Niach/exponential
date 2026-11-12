@@ -291,14 +291,16 @@ struct TabletSidebar: View {
     private var entries: some View {
         row(.agent, title: Chats.Copy.Headers.agent) { glyph(AppIcons.actionChat) }
         if needsYouCount > 0 || selection == .needsYou {
-            row(.needsYou, title: NeedsYou.Copy.entry, count: needsYouCount) {
+            row(.needsYou, title: NeedsYou.Copy.entry, badge: NavBadges.Value(count: needsYouCount, tone: .attention)) {
                 glyph(AppIcons.navNeedsYou, color: DesignTokens.Semantic.yellow)
             }
         }
-        row(.chats, title: Chats.Copy.Headers.chats) { glyph(AppIcons.navChats) }
+        row(.chats, title: Chats.Copy.Headers.chats, badge: lists.chatsBadge(teamId: teamState.activeTeamId)) {
+            glyph(AppIcons.navChats)
+        }
         row(.devices, title: Chats.Copy.Headers.devices) { glyph(AppIcons.navDevices) }
         if draftCount > 0 || selection == .drafts {
-            row(.drafts, title: "Drafts", count: draftCount) { glyph(AppIcons.navDrafts) }
+            row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
     }
 
@@ -307,7 +309,7 @@ struct TabletSidebar: View {
         AgentSettings.agentsInTeam(
             lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
         ).map { agent in
-            AnyView(row(.agentChannel(agent.agentId), title: agent.name) {
+            AnyView(row(.agentChannel(agent.agentId), title: agent.name, badge: lists.agentBadge(agent)) {
                 if agent.assistant {
                     ExpLogoMark(size: 18, color: .white)
                 } else {
@@ -374,12 +376,12 @@ struct TabletSidebar: View {
         AppIcon(icon, size: 18).foregroundStyle(color)
     }
 
-    /// One rail row: the glyph, the name, a muted count; the open entry's
+    /// One rail row: the glyph, the name, THE count badge (#FEED-232); the open entry's
     /// row is filled (`flatRow(isActive:)`, a master-detail's open item).
     private func row<Glyph: View>(
         _ item: SidebarItem,
         title: String,
-        count: Int? = nil,
+        badge: NavBadges.Value = .none,
         bold: Bool = false,
         @ViewBuilder glyph: () -> Glyph
     ) -> some View {
@@ -392,12 +394,7 @@ struct TabletSidebar: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                if let count, count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 13))
-                        .monospacedDigit()
-                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
-                }
+                CountBadge(badge)
             }
             .padding(.horizontal, 8)
             .frame(height: 36)

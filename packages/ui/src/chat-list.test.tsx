@@ -27,10 +27,12 @@ describe(`ChatList`, () => {
     ])
     expect(painted[3]!.textContent).toContain(`Yesterday`)
     expect(painted[0]!.textContent).toContain(`Question: Snapshot?`)
-    // Only the unread row wears the badge (foreground: it does not need you).
+    // #FEED-232 `rowBadge`: the needs-you row counts at least 1 (attention),
+    // the unread row its unread (muted); the working row none.
     const badges = painted.map((row) => row.querySelector(`[data-slot=chat-unread]`))
-    expect(badges.map((badge) => badge?.textContent ?? null)).toEqual([null, null, `1`, null])
-    expect(badges[2]!.className).toContain(`bg-foreground`)
+    expect(badges.map((badge) => badge?.textContent ?? null)).toEqual([`1`, null, `1`, null])
+    expect(badges[0]!.getAttribute(`data-tone`)).toBe(`attention`)
+    expect(badges[2]!.getAttribute(`data-tone`)).toBe(`muted`)
     // The row word (ready to merge) rides line 2.
     expect(painted[2]!.textContent).toContain(`ready to merge`)
     fireEvent.click(painted[2]!)
@@ -126,16 +128,16 @@ describe(`ChatList`, () => {
 })
 
 describe(`ChatsHeader`, () => {
-  it(`dots the inbox circle only while a notification is unread`, () => {
+  it(`badges the inbox circle with the unread count`, () => {
     const onInbox = vi.fn()
     const view = render(<ChatsHeader onInbox={onInbox} />)
     expect(screen.getByRole(`heading`).textContent).toBe(fixture.copy.title)
     const inbox = screen.getByTestId(ids.inboxButton)
-    expect(inbox.querySelector(`[data-slot=inbox-dot]`)).toBeNull()
+    expect(inbox.querySelector(`[data-slot=inbox-badge]`)).toBeNull()
     fireEvent.click(inbox)
     expect(onInbox).toHaveBeenCalled()
-    view.rerender(<ChatsHeader inboxUnread />)
-    expect(screen.getByTestId(ids.inboxButton).querySelector(`[data-slot=inbox-dot]`)).toBeTruthy()
+    view.rerender(<ChatsHeader inboxCount={4} />)
+    expect(screen.getByTestId(ids.inboxButton).querySelector(`[data-slot=inbox-badge]`)?.textContent).toBe(`4`)
   })
 })
 
@@ -149,16 +151,17 @@ describe(`PhoneTabBar`, () => {
             label={fixture.copy.tabs[tab as keyof typeof fixture.copy.tabs]}
             icon={<svg />}
             selected={tab === `chats`}
-            dot={tab === `chats` ? `bg-yellow-400` : null}
+            badge={tab === `chats` ? { count: 2, tone: `attention` } : null}
           />
         ))}
       </PhoneTabBar>
     )
     const tabs = screen.getAllByRole(`button`)
-    expect(tabs.map((tab) => tab.textContent)).toEqual([`Board`, `Chats`, `Apps`, `Team`])
+    expect(tabs.map((tab) => tab.getAttribute(`aria-label`))).toEqual([`Board`, `Chats`, `Apps`, `Team`])
     expect(tabs[1]!.className).toContain(`bg-glass-active`)
     expect(tabs[1]!.getAttribute(`aria-current`)).toBe(`page`)
-    expect(tabs[1]!.querySelector(`.bg-yellow-400`)).toBeTruthy()
+    // #FEED-232: THE count badge on the icon's corner.
+    expect(tabs[1]!.querySelector(`[data-slot=phone-tab-badge]`)?.textContent).toBe(`2`)
     expect(tabs[0]!.className).not.toContain(`bg-glass-active`)
   })
 })

@@ -2761,6 +2761,32 @@
             }
           ]
         },
+        "CountBadge": {
+          "root": [
+            {
+              "style": {
+                "height": 16,
+                "minWidth": 16,
+                "paddingHorizontal": "$spacing.xs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground",
+                "fontSize": 10,
+                "lineHeight": 10,
+                "fontWeight": "$type.weight.semibold"
+              }
+            },
+            {
+              "when": {
+                "tone": "attention"
+              },
+              "style": {
+                "backgroundColor": "#facc15",
+                "color": "#000000"
+              }
+            }
+          ]
+        },
         "Skeleton": {
           "root": [
             {
@@ -11624,6 +11650,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CountBadge": {
+          "root": [
+            {
+              "style": {
+                "height": 16,
+                "minWidth": 16,
+                "paddingHorizontal": "$spacing.xs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground",
+                "fontSize": 10,
+                "lineHeight": 10,
+                "fontWeight": "$type.weight.semibold"
+              }
+            },
+            {
+              "when": {
+                "tone": "attention"
+              },
+              "style": {
+                "backgroundColor": "#facc15",
+                "color": "#000000"
               }
             }
           ]
@@ -21419,6 +21471,32 @@
             }
           ]
         },
+        "CountBadge": {
+          "root": [
+            {
+              "style": {
+                "height": 16,
+                "minWidth": 16,
+                "paddingHorizontal": "$spacing.xs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground",
+                "fontSize": 10,
+                "lineHeight": 10,
+                "fontWeight": "$type.weight.semibold"
+              }
+            },
+            {
+              "when": {
+                "tone": "attention"
+              },
+              "style": {
+                "backgroundColor": "#facc15",
+                "color": "#000000"
+              }
+            }
+          ]
+        },
         "Skeleton": {
           "root": [
             {
@@ -30744,6 +30822,32 @@
               },
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "CountBadge": {
+          "root": [
+            {
+              "style": {
+                "height": 16,
+                "minWidth": 16,
+                "paddingHorizontal": "$spacing.xs",
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.muted",
+                "color": "$color.mutedForeground",
+                "fontSize": 10,
+                "lineHeight": 10,
+                "fontWeight": "$type.weight.semibold"
+              }
+            },
+            {
+              "when": {
+                "tone": "attention"
+              },
+              "style": {
+                "backgroundColor": "#facc15",
+                "color": "#000000"
               }
             }
           ]

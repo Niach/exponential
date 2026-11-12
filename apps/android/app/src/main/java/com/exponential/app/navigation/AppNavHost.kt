@@ -69,6 +69,7 @@ import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
@@ -552,12 +553,11 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // EXP-1291: the Chats tab's dot — amber while a chat needs a person,
-    // EXP-1327: green while one runs (the launcher wears none).
+    // #FEED-232: the Chats tab's count badge (`chatsBadge`) and each team's
+    // needs-you count (the team menu's rows, the Team tab's corner).
     val chatsVm: ChatsViewModel = hiltViewModel()
-    val chatsRunning by chatsVm.anyRunning.collectAsStateWithLifecycle()
-    val chatsNeedYou by chatsVm.needsYou.collectAsStateWithLifecycle()
-    val chatsUnread by chatsVm.unread.collectAsStateWithLifecycle()
+    val chatsBadge by chatsVm.chatsBadge.collectAsStateWithLifecycle()
+    val needsYouByTeam by chatsVm.needsYouByTeam.collectAsStateWithLifecycle()
     // Session 58cb32df: the Team tab wears the ACTIVE team's avatar + name.
     val teams by chatsVm.teams.collectAsStateWithLifecycle()
     val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
@@ -629,7 +629,7 @@ private fun AuthenticatedNav(
     val pageHeaderActions = PageHeaderActions(
         onSearch = { navController.navigate("search") { launchSingleTop = true } },
         onInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
-        inboxUnread = unreadCount > 0,
+        inboxUnread = unreadCount,
     )
 
     // EXP-523: the four transitions below are plain lambdas, not composable
@@ -816,7 +816,7 @@ private fun AuthenticatedNav(
                 // Session 58cb32df: the header's inbox circle pushes the inbox.
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
-                inboxUnread = unreadCountLatest.value > 0,
+                inboxUnread = unreadCountLatest.value,
                 // #EXP-1388: the Archived entry pushes the Archived page.
                 onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
                 // #FEED-191: the Needs you entry pushes THE list.
@@ -830,7 +830,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpen = { row -> navController.navigate(Routes.needsYou(row)) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
-                inboxUnread = unreadCountLatest.value > 0,
+                inboxUnread = unreadCountLatest.value,
             )
         }
         composable(Routes.CHATS_ARCHIVED) {
@@ -840,7 +840,7 @@ private fun AuthenticatedNav(
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
-                inboxUnread = unreadCountLatest.value > 0,
+                inboxUnread = unreadCountLatest.value,
                 view = com.exponential.app.domain.Chats.ChatListView.Archived,
                 onBack = { navController.popBackStack() },
             )
@@ -1364,9 +1364,9 @@ private fun AuthenticatedNav(
             onBoardView = onBoardView,
             team = activeTeam,
             onTeamPage = onTeamPage,
-            chatsRunning = chatsRunning,
-            chatsNeedYou = chatsNeedYou,
-            chatsUnread = chatsUnread,
+            chatsBadge = chatsBadge,
+            // The switcher's corner: every OTHER team's needs-you rows.
+            teamBadge = NavBadges.appIconBadge(needsYouByTeam.filterKeys { it != selectedTeamId }.values.toList()),
             // The Chat arm (the Agent page) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no
             // board to file onto. The arm SWITCHES to the Agent page like a
@@ -1400,6 +1400,7 @@ private fun AuthenticatedNav(
                 PhoneBoardMenu.teams(
                     teams = serverGroups.flatMap { it.teams },
                     activeTeamId = selectedTeamId,
+                    needsYou = needsYouByTeam,
                     onSelect = { picked ->
                         // The Team page's own switch: the Team tab follows it,
                         // so this lands on the picked team's Team page.

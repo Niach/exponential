@@ -411,6 +411,11 @@
       "notes": "progressbar (indeterminate) labelled `loading` by default",
       "keys": []
     },
+    "CountBadge": {
+      "role": "text",
+      "notes": "text: the drawn label (`3`, `99+`); nothing at all (no node for assistive tech) when the count is 0 or less; never focusable. The row or tab it rides names it (\"Chats, 3\")",
+      "keys": []
+    },
     "VoiceWave": {
       "role": "img",
       "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable. The one child is DECORATIVE on every renderer: inside the img (or the hidden wave) assistive tech never reaches it, so it must be non-interactive (an Icon, Avatar or short Text); a control or text to read goes beside the wave, never in it",

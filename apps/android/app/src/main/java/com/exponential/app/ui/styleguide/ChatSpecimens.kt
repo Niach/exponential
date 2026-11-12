@@ -238,7 +238,7 @@ fun ChatListSpecimenScreen() {
                     onLongPressChat = {},
                     onLongPressAgent = {},
                     onOpenInbox = {},
-                    inboxUnread = true,
+                    inboxUnread = 3,
                     modifier = Modifier.padding(padding),
                 )
             }
@@ -288,7 +288,7 @@ fun ChatSelectionSpecimenScreen() {
                     onLongPressChat = {},
                     onLongPressAgent = {},
                     onOpenInbox = {},
-                    inboxUnread = true,
+                    inboxUnread = 3,
                     selected = selected,
                     onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
                     modifier = Modifier.padding(padding),
@@ -333,8 +333,7 @@ private fun SpecimenTabBar(
         onBoardView = selected == "board",
         team = ACME,
         onTeamPage = selected == "team",
-        chatsRunning = false,
-        chatsNeedYou = true,
+        chatsBadge = com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Attention),
         composeEnabled = true,
         onSelectTab = {},
         onCompose = {},
@@ -457,7 +456,7 @@ fun PhoneBoardMenuSpecimenScreen() {
                 modifier = Modifier.fillMaxWidth().statusBarsPadding().graphicsLayer { alpha = 0.4f },
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = false))
+                PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = 0))
                 repeat(3) {
                     Box(
                         Modifier
@@ -483,14 +482,14 @@ fun PhonePageHeaderSpecimenScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Caption("Unread notification (the inbox dot)")
-            PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = PageHeaderActions({}, {}, inboxUnread = true))
+            PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = PageHeaderActions({}, {}, inboxUnread = 3))
             Caption("All read")
-            PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = false))
+            PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = 0))
             Caption("Pushed (Devices, the back control)")
             PageHeader(
                 title = Chats.Copy.HEADERS.getValue("devices"),
                 onBack = {},
-                actions = PageHeaderActions({}, {}, inboxUnread = false),
+                actions = PageHeaderActions({}, {}, inboxUnread = 0),
             )
         }
     }

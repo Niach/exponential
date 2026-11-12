@@ -32,11 +32,8 @@ vi.mock(`@/hooks/use-device-glyphs`, () => ({
     id === `d-mac` ? { icon: () => <svg data-testid="device-glyph" />, name: `Alex's MacBook Pro` } : null,
 }))
 
-import {
-  SidebarRunningSection,
-  chatRunMarkState,
-  chatsNavState,
-} from "@/components/team/sidebar-running"
+import { chatsBadge } from "@exp/domain-contract/nav-badges"
+import { SidebarRunningSection, chatRunMarkState } from "@/components/team/sidebar-running"
 
 const T0 = `2026-10-13T10:00:00.000Z`
 
@@ -150,28 +147,24 @@ describe(`SidebarRunningSection`, () => {
   })
 })
 
-describe(`the nav state`, () => {
-  it(`is green while anything runs, yellow while something needs you`, () => {
-    expect(chatsNavState([])).toEqual({ live: false, needsYou: false, unread: false })
-    expect(chatsNavState([groups[1], groups[2]])).toEqual({
-      live: true,
-      needsYou: false,
-      unread: false,
-    })
-    expect(chatsNavState(groups)).toEqual({ live: true, needsYou: true, unread: false })
+describe(`the Chats badge (#FEED-232 chatsBadge)`, () => {
+  it(`counts chats needing you or unread, never a running one`, () => {
+    expect(chatsBadge([])).toEqual({ count: 0, tone: `muted` })
+    // Running alone is not a count.
+    expect(chatsBadge([groups[1]])).toEqual({ count: 0, tone: `muted` })
+    expect(chatsBadge(groups)).toEqual({ count: 1, tone: `attention` })
   })
 
-  it(`EXP-1323: carries the unread dot off a chat row`, () => {
+  it(`counts an unread reply muted; an archived chat never`, () => {
     const recent: ChatsListGroup = {
       key: `recent`,
       title: `Recent`,
       rows: [row(`t-new`, `Fix flaky scroll`, { unread: true })],
     }
-    expect(chatsNavState([recent])).toEqual({ live: false, needsYou: false, unread: true })
-    // #EXP-1388: an archived chat never lights the Chats dot.
+    expect(chatsBadge([recent])).toEqual({ count: 1, tone: `muted` })
     expect(
-      chatsNavState([recent], [{ sessionId: `t-new`, readAt: `2026-01-01T00:00:00Z`, archivedAt: `2026-01-02T00:00:00Z` }])
-    ).toEqual({ live: false, needsYou: false, unread: false })
+      chatsBadge([recent], [{ sessionId: `t-new`, readAt: `2026-01-01T00:00:00Z`, archivedAt: `2026-01-02T00:00:00Z` }])
+    ).toEqual({ count: 0, tone: `muted` })
   })
 
   it(`maps a row onto the run mark`, () => {

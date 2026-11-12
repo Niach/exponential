@@ -82,7 +82,7 @@ export type MergeEvent =
   | { type: `tick`; now: string }
   | { type: `hold` }
   | { type: `resume` }
-  | { type: `merge_now` }
+  | { type: `merge_now`; at: string }
   | { type: `forge_hold`; reason: `no_checks` | `conflict` }
   | { type: `checks_appeared` }
   | { type: `landed_earlier` }
@@ -169,7 +169,9 @@ export function mergeStep(pr: MergePr, event: MergeEvent): MergeStepResult {
     case `merge_now`:
       if (pr.state === `draft`) return same
       return {
-        pr: { ...pr, state: pr.state === `testing` ? `testing` : `queued`, holdReason: null, mergeNow: true },
+        // #FEED-233: a fresh clock, or its first bounce (which clears
+        // mergeNow) is re-held for `timeout` by the same pass's tick.
+        pr: { ...pr, state: pr.state === `testing` ? `testing` : `queued`, holdReason: null, mergeNow: true, queuedSince: event.at },
         post: null,
       }
     case `forge_hold`:

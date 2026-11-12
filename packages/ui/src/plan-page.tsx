@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
 import {
   PLAN_PAGE_COPY,
   PLAN_PAGE_LAYOUT,
@@ -6,6 +6,7 @@ import {
   PLAN_PAGE_TEST_IDS,
   planBlocks,
   planOutline,
+  planPaneLayout,
   type PlanPicture,
 } from "@exp/domain-contract/plan-page"
 import { askDockTitle } from "@exp/domain-contract/ask-dock"
@@ -27,6 +28,8 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 // markdown, h2 anchors, picture groups as THE Mosaic) + THE questions rail on
 // the right (#FEED-191). Phones = the document (groups as THE Carousel), the
 // outline in a sheet (☰), the questions floating over the document's foot.
+// #EXP-1786: wide measures the body's OWN width (`planPaneLayout`): a narrow
+// pane (beside the chat) drops the outline column, then floats the questions.
 // Both = THE stepper + the decision. Every picture opens THE
 // lightbox over all of the plan's pictures.
 
@@ -184,8 +187,26 @@ export function PlanPage({
     </div>
   )
 
-  // Phones: the document scrolls clear of the floating panel (#FEED-191:
-  // wide has THE rail instead, no padding).
+  // #EXP-1786: the columns the body's own width holds (phones: neither).
+  const root = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const node = root.current
+    if (!node) return
+    // 0 = not laid out (yet): unmeasured.
+    const measure = () => setWidth(node.getBoundingClientRect().width || null)
+    measure()
+    if (typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  // Unmeasured (server render) = the full wide form.
+  const pane = mobile ? { outline: false, rail: false } : width === null ? { outline: true, rail: true } : planPaneLayout(width)
+  const floating = !pane.rail
+
+  // The floating panel: the document scrolls clear of it (#FEED-191: the
+  // rail needs no padding).
   const [panelHeight, setPanelHeight] = useState(0)
   const panel = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -194,11 +215,11 @@ export function PlanPage({
     const observer = new ResizeObserver(() => setPanelHeight(node.offsetHeight))
     observer.observe(node)
     return () => observer.disconnect()
-  }, [mobile])
+  }, [floating])
 
   return (
-    <div data-testid={PLAN_PAGE_TEST_IDS.page} data-decision={row.decision ?? undefined} className={cn(`flex h-full min-h-0`, className)}>
-      {!mobile && hasOutline && (
+    <div ref={root} data-testid={PLAN_PAGE_TEST_IDS.page} data-decision={row.decision ?? undefined} className={cn(`flex h-full min-h-0`, className)}>
+      {pane.outline && hasOutline && (
         <div
           data-testid={PLAN_PAGE_TEST_IDS.outline}
           className="min-h-0 shrink-0 overflow-y-auto border-r border-border px-3 py-5"
@@ -211,7 +232,7 @@ export function PlanPage({
         <div
           ref={scroller}
           className="absolute inset-0 overflow-y-auto overscroll-contain"
-          style={{ paddingTop: topInset, paddingBottom: mobile ? panelHeight + 2 * PLAN_PAGE_PANEL.gap : undefined }}
+          style={{ paddingTop: topInset, paddingBottom: floating ? panelHeight + 2 * PLAN_PAGE_PANEL.gap : undefined }}
         >
           {document}
         </div>
@@ -228,7 +249,7 @@ export function PlanPage({
             <MenuIcon />
           </Button>
         )}
-        {mobile && (
+        {floating && (
         <div
           className="pointer-events-none absolute inset-0 flex items-end justify-center"
           style={{ padding: PLAN_PAGE_PANEL.gap, paddingTop: topInset + PLAN_PAGE_PANEL.gap }}
@@ -270,7 +291,7 @@ export function PlanPage({
           </Sheet>
         )}
       </div>
-      {!mobile && (
+      {pane.rail && (
         <div
           data-slot="plan-questions-rail"
           className="flex min-h-0 shrink-0 flex-col border-l border-border bg-sidebar"

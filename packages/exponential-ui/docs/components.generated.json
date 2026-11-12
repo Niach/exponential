@@ -4344,6 +4344,58 @@
       "macro": null
     },
     {
+      "name": "CountBadge",
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "specimenId": "exponential-ui-count-badge",
+      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "count",
+          "type": "number",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "How many; above max reads `max+`."
+        },
+        {
+          "name": "tone",
+          "type": "attention | muted",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "muted",
+          "description": "attention = waiting on the viewer."
+        },
+        {
+          "name": "max",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 99,
+          "description": "Cap before `+`."
+        }
+      ],
+      "accessibility": {
+        "role": "text",
+        "notes": "text: the drawn label (`3`, `99+`); nothing at all (no node for assistive tech) when the count is 0 or less; never focusable. The row or tab it rides names it (\"Chats, 3\")",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "CountBadge",
+        "count": 3,
+        "tone": "attention"
+      },
+      "macro": null
+    },
+    {
       "name": "CallSurface",
       "kind": "macro",
       "group": "media",

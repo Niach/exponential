@@ -38,6 +38,7 @@
     "Spinner": { "parts": ["root"], "props": ["size"] },
     "Skeleton": { "parts": ["root", "row", "dot", "bar"], "props": ["rounded", "dot"] },
     "VoiceWave": { "parts": ["root", "outer", "mid", "inner", "child", "bar"], "props": ["activity", "size", "variant"] },
+    "CountBadge": { "parts": ["root"], "props": ["tone"] },
     "Chart": { "parts": ["root", "title", "axis", "grid", "legend", "tooltip", "valueLabel"], "props": ["kind"] },
     "Table": { "parts": ["root", "caption", "header", "headerCell", "sortIcon", "row", "cell", "checkbox", "empty", "body"], "props": ["selectable", "striped", "density", "stickyHeader", "align", "totals", "total"] },
     "Button": { "parts": ["root", "icon", "label", "spinner"], "props": ["variant", "size", "disabled", "loading", "tone"] },

@@ -63,7 +63,8 @@ export interface Forge {
   /** The base branch's REQUIRED check names (never hard-coded). */
   requiredChecks(repo: ForgeRepo, base: string): Promise<string[]>
   /** Start ONE pipeline run (merge-train.json `pipeline.inputs`). `missing` =
-   *  the repo has no pipeline installed (the train then lands directly). */
+   *  the repo has no pipeline installed, or the forge lets this App run none
+   *  there (#FEED-223): the train then lands directly. */
   dispatchPipeline(
     repo: ForgeRepo,
     inputs: TrainPipelineInputs

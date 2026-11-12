@@ -12,7 +12,7 @@ enum IssueRefLookup {
     /// The team an editor's refs resolve against: the team of the
     /// issue being viewed/commented on, or of the board an issue is being
     /// created in.
-    enum Scope {
+    enum Scope: Sendable {
         case issue(id: String)
         case board(id: String)
         /// EXP-760 — the steering feed resolves against the SESSION's team
@@ -279,35 +279,49 @@ enum IssueRefLookup {
         accountId: String
     ) -> Chip? {
         guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
-        return (try? pool.read { db -> Chip? in
-            guard let teamId = try teamId(for: scope, db: db) else { return nil }
-            guard let row = try Row.fetchOne(
-                db,
-                sql: """
-                SELECT i.id, i.title, i.status, i.status_id FROM issues i
-                JOIN boards p ON p.id = i.board_id
-                WHERE upper(i.identifier) = ? AND p.team_id = ?
-                """,
-                arguments: [identifier, teamId]
-            ) else { return nil }
-            // The chip paints the issue's status glyph over its `#` (EXP-423),
-            // so the team's statuses come out of the SAME read — one round trip
-            // per token, as before. EXP-1358: the team's resolved rows are
-            // memoised for the span of one chip pass (every token of a pass
-            // used to re-fetch and re-sort them).
-            let team = try TeamStatusMemo.statuses(teamId: teamId, db: db)
-            let statusId: String? = row["status_id"]
-            let anchor: String? = row["status"]
-            let status = IssueStatusResolver.resolve(
-                statusId: statusId,
-                anchor: anchor,
-                team: team
-            )
-            return Chip(issueId: row["id"], title: row["title"], status: status)
-        }) ?? nil
+        return (try? pool.read { db in try fetchChip(identifier, scope: scope, db: db) }) ?? nil
     }
 
-    struct Chip {
+    /// #PERF-5: `resolveChip` without blocking the caller (a layout pass
+    /// peeks `IssueRefChipCache` and this loads its miss).
+    static func loadChip(
+        _ identifier: String,
+        scope: Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) async -> Chip? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? await pool.read { db in try fetchChip(identifier, scope: scope, db: db) }) ?? nil
+    }
+
+    private static func fetchChip(_ identifier: String, scope: Scope, db: Database) throws -> Chip? {
+        guard let teamId = try teamId(for: scope, db: db) else { return nil }
+        guard let row = try Row.fetchOne(
+            db,
+            sql: """
+            SELECT i.id, i.title, i.status, i.status_id FROM issues i
+            JOIN boards p ON p.id = i.board_id
+            WHERE upper(i.identifier) = ? AND p.team_id = ?
+            """,
+            arguments: [identifier, teamId]
+        ) else { return nil }
+        // The chip paints the issue's status glyph over its `#` (EXP-423),
+        // so the team's statuses come out of the SAME read — one round trip
+        // per token, as before. EXP-1358: the team's resolved rows are
+        // memoised for the span of one chip pass (every token of a pass
+        // used to re-fetch and re-sort them).
+        let team = try TeamStatusMemo.statuses(teamId: teamId, db: db)
+        let statusId: String? = row["status_id"]
+        let anchor: String? = row["status"]
+        let status = IssueStatusResolver.resolve(
+            statusId: statusId,
+            anchor: anchor,
+            team: team
+        )
+        return Chip(issueId: row["id"], title: row["title"], status: status)
+    }
+
+    struct Chip: Equatable, Sendable {
         let issueId: String
         let title: String
         let status: ResolvedIssueStatus
@@ -344,14 +358,12 @@ enum IssueRefLookup {
 /// seconds away from chipping.
 @MainActor
 enum IssueRefChipCache {
-    private struct Key: Hashable {
+    private struct Key: Hashable, Sendable {
         let scope: String
         let identifier: String
     }
 
-    private static var entries: [Key: (value: IssueRefLookup.Chip?, at: Date)] = [:]
-    private static let ttl: TimeInterval = 5
-    private static let capacity = 512
+    private static let memo = StoreMemo<Key, IssueRefLookup.Chip>()
 
     static func chip(
         _ identifier: String,
@@ -359,13 +371,22 @@ enum IssueRefChipCache {
         db: DatabaseManager,
         accountId: String
     ) -> IssueRefLookup.Chip? {
-        let key = Key(scope: scope.cacheKey, identifier: identifier.uppercased())
-        let now = Date()
-        if let hit = entries[key], now.timeIntervalSince(hit.at) < ttl { return hit.value }
-        let value = IssueRefLookup.resolveChip(identifier, scope: scope, db: db, accountId: accountId)
-        if entries.count >= capacity { entries.removeAll(keepingCapacity: true) }
-        entries[key] = (value, now)
-        return value
+        memo.value(Key(scope: scope.cacheKey, identifier: identifier.uppercased())) {
+            IssueRefLookup.resolveChip(identifier, scope: scope, db: db, accountId: accountId)
+        }
+    }
+
+    /// #PERF-5: the chip for a layout pass (the read-only Markdown): memory
+    /// only, an unknown or stale one loads off main and renders when it lands.
+    static func peek(
+        _ identifier: String,
+        scope: IssueRefLookup.Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> IssueRefLookup.Chip? {
+        memo.peek(Key(scope: scope.cacheKey, identifier: identifier.uppercased())) {
+            await IssueRefLookup.loadChip(identifier, scope: scope, db: db, accountId: accountId)
+        }
     }
 
     /// The chip's status as the render info `IssueRefs` decorates with, so every

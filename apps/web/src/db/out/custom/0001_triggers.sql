@@ -669,26 +669,35 @@ $$ LANGUAGE sql STABLE;
 
 -- Statement-level, so a bulk insert refreshes each conversation once; an
 -- unchanged digest writes nothing (no shape churn).
+-- #ERR-5: the digest write locks the conversation row and then (the
+-- `mirror_conversation_digest` trigger) its session's. App code locks a
+-- session row before writing its messages (`lockSessionRows`, an UPDATE of
+-- the session), so the conversations' sessions are locked FIRST here, in
+-- the same order (depth, then id): a session always before its
+-- conversation, never the other way round.
 CREATE OR REPLACE FUNCTION refresh_conversation_digests()
 RETURNS TRIGGER AS $$
+DECLARE
+  ids uuid[];
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    UPDATE conversations c SET digest = d.digest
-      FROM (SELECT x.id, conversation_digest(x.id) AS digest
-            FROM (SELECT DISTINCT conversation_id AS id FROM new_rows) x) d
-      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+    SELECT array_agg(DISTINCT conversation_id) INTO ids FROM new_rows;
   ELSIF TG_OP = 'UPDATE' THEN
-    UPDATE conversations c SET digest = d.digest
-      FROM (SELECT x.id, conversation_digest(x.id) AS digest
-            FROM (SELECT conversation_id AS id FROM new_rows
-                  UNION SELECT conversation_id FROM old_rows) x) d
-      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+    SELECT array_agg(DISTINCT x.id) INTO ids
+      FROM (SELECT conversation_id AS id FROM new_rows UNION SELECT conversation_id FROM old_rows) x;
   ELSE
-    UPDATE conversations c SET digest = d.digest
-      FROM (SELECT x.id, conversation_digest(x.id) AS digest
-            FROM (SELECT DISTINCT conversation_id AS id FROM old_rows) x) d
-      WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
+    SELECT array_agg(DISTINCT conversation_id) INTO ids FROM old_rows;
   END IF;
+  IF ids IS NULL THEN
+    RETURN NULL;
+  END IF;
+  PERFORM 1 FROM sessions s
+    WHERE s.id IN (SELECT c.session_id FROM conversations c WHERE c.id = ANY(ids))
+    ORDER BY s.depth, s.id
+    FOR NO KEY UPDATE OF s;
+  UPDATE conversations c SET digest = d.digest
+    FROM (SELECT x.id, conversation_digest(x.id) AS digest FROM unnest(ids) AS x(id)) d
+    WHERE c.id = d.id AND c.digest IS DISTINCT FROM d.digest;
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;

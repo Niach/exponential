@@ -10,6 +10,8 @@ import { useEffect, useState } from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
+import { teamCollection } from "@/lib/collections"
+import { fastTeamGate, rememberTeamMembership } from "@/lib/team-route-gate"
 import { SidebarProvider, useIsMobile } from "@exp/ui"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
@@ -41,15 +43,34 @@ import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
+import { useAppIconBadge } from "@/hooks/use-app-icon-badge"
 import { useWebInstall } from "@/lib/enet/use-web-install"
 import {
   useTeamBySlug,
   useTeamBoards,
 } from "@/hooks/use-team-data"
 
+/** The members-only `teams` shape holds this slug (synced rows only). */
+function teamIsSynced(slug: string): boolean {
+  for (const team of teamCollection.values()) {
+    if ((team as { slug?: string }).slug === slug) return true
+  }
+  return false
+}
+
 export const Route = createFileRoute(`/t/$teamSlug`)({
   beforeLoad: async ({ params, location }) => {
     const slug = params.teamSlug
+    // #PERF-7: a team this user's membership was confirmed for (and still
+    // synced) passes without the two round trips (`lib/team-route-gate.ts`).
+    if (slug !== `default` && typeof window !== `undefined`) {
+      const fast = fastTeamGate(slug, teamIsSynced, () => {
+        if (!window.location.pathname.startsWith(`/t/`)) return
+        const back = `${window.location.pathname}${window.location.search}`
+        window.location.assign(`/auth/login?redirect=${encodeURIComponent(back)}`)
+      })
+      if (fast) return { session: fast.session, user: fast.user }
+    }
     const sessionData = await fetchSessionOnce()
     const session = sessionData?.session ?? null
     const user = sessionData?.user ?? null
@@ -81,6 +102,7 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
     // everyone but members, so any failure funnels into the recovery below.
     try {
       await trpc.teams.getBySlug.query({ slug })
+      if (user?.id) rememberTeamMembership(user.id, slug)
       return { session, user }
     } catch (e) {
       const isNotFound =
@@ -136,6 +158,8 @@ function TeamLayout() {
   // under the team app too (`_authenticated` does not wrap /t/$teamSlug).
   useWebInstall(user?.id)
   useKeyHolder(user?.id)
+  // #FEED-232: the OS app icon's count (every team's Needs you rows).
+  useAppIconBadge(user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (EXP-870: the app's one navigation chord).
