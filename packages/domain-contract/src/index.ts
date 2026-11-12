@@ -116,7 +116,9 @@ export interface DomainContract {
    * weighs its text plus `itemOverheadBytes`; `window`/`windowStep` are how
    * many of the newest rows a transcript renders and how many one "Load
    * earlier" adds; `historyPageMax` is the most events one `history_page`
-   * may ask for. EXP-786: `toolDiffMaxLines`/`toolDiffMaxBytes` cap the
+   * may ask for; `replayTail` is how many of the newest LOG events a device
+   * replays on `join` (the slots always follow; older ones are paged in with
+   * `history_page`, `activity_synced.truncated` says more exist). EXP-786: `toolDiffMaxLines`/`toolDiffMaxBytes` cap the
    * per-call unified diff a `tool_update` carries — the publisher truncates
    * on line boundaries (`steer::truncate_unified_diff`) before it rides the
    * wire, so every client sees the same patch.
@@ -129,6 +131,7 @@ export interface DomainContract {
     window: number
     windowStep: number
     historyPageMax: number
+    replayTail: number
     toolDiffMaxLines: number
     toolDiffMaxBytes: number
     /**

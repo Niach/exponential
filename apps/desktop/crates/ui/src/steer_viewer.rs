@@ -233,6 +233,8 @@ fn orphan_fingerprint(workflow_id: &str) -> u64 {
 /// list's own bookkeeping) is over the window and not over the run. The
 /// contract's `steerFeed.window` — web, iOS and Android render the same.
 const FEED_WINDOW: usize = domain::contract::STEER_FEED_WINDOW;
+#[cfg(test)]
+pub(crate) const FEED_WINDOW_FOR_TEST: usize = FEED_WINDOW;
 
 /// #LOGS-7: a session's conversation cards and (a root's) tree suggestions.
 type ConvMemo = (Rc<Vec<domain::session_tree::SessionChatRow>>, Option<Rc<Vec<domain::session_tree::SessionChatRow>>>);
@@ -305,15 +307,17 @@ pub(crate) enum FeedSource {
     /// EXP-773 — a finished run read off `{data_dir}/journal/<id>.jsonl`
     /// ([`steer::read_journal`]): the SAME events the relay fanned out, folded
     /// and replayed into the same reducer, with no engine and no socket. This
-    /// is what the desktop shows for its OWN past runs; the events are drained
-    /// into the feed by the constructor.
-    Journal { events: Vec<steer::frames::ActivityEvent> },
+    /// is what the desktop shows for its OWN past runs. Large chats: the
+    /// constructor reads the file OFF the main thread and folds only its
+    /// REPLAY TAIL ([`read_journal_tail`]); older events page in from the
+    /// read when the reader scrolls to the top (the Load earlier path).
+    Journal {},
 }
 
 impl FeedSource {
     /// EXP-773 — a read-only view over a past run's on-device journal.
-    pub(crate) fn journal(events: Vec<steer::frames::ActivityEvent>) -> Self {
-        FeedSource::Journal { events }
+    pub(crate) fn journal() -> Self {
+        FeedSource::Journal {}
     }
 
     /// The relay handle, when this source HAS one. Steering, answers and
@@ -634,6 +638,20 @@ pub(crate) struct SteerSessionView {
     /// Numbers the request ids, so a late chunk from a superseded ask is
     /// dropped rather than prepended twice.
     history_requests: u64,
+    /// Large chats: bumped whenever `feed` is REPLACED (a journal read, a
+    /// followed engine), so a memo keyed on its generation never matches
+    /// a different feed's.
+    feed_epoch: u64,
+    /// Large chats: what `rows` was last projected for (feed epoch,
+    /// generation, window start, focused subagent) and what the grouping
+    /// (`transcript`) was last derived at; [`Self::sync_list`] skips both
+    /// while they hold.
+    projection_key: Option<(u64, u64, usize, Option<String>)>,
+    layout_key: Option<u64>,
+    /// Large chats: a journal read's whole run (journal order, with seqs)
+    /// when only its REPLAY TAIL was folded — the older pages come from
+    /// here (the Load earlier path), never off a socket.
+    local_history: Option<Arc<Vec<(u64, steer::frames::ActivityEvent)>>>,
     /// #EDE-65 lane O (was EXP-776's virtualised gpui list): the
     /// transcript is the shared chat document, its List windowed to the
     /// rows in and around the viewport. Its FOLLOW is the old list's
@@ -943,6 +961,10 @@ impl SteerSessionView {
             history_truncated: false,
             history_exhausted: false,
             history_requests: 0,
+            feed_epoch: 0,
+            projection_key: None,
+            layout_key: None,
+            local_history: None,
             // A session tab opens on its newest rows (the question waiting
             // for an answer, the composer's context) and every appended row
             // keeps it there: the transcript starts FOLLOWING.
@@ -994,19 +1016,12 @@ impl SteerSessionView {
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
         // over: there is nothing to connect to and nothing to steer.
-        let journal = match &mut this.source {
-            FeedSource::Journal { events } => Some(std::mem::take(events)),
-            _ => None,
-        };
-        if let Some(events) = journal {
-            for event in events {
-                this.feed.apply(event);
-            }
-            this.refresh_derived();
+        // Large chats: read and folded off the main thread, its REPLAY TAIL
+        // only (the rest pages in on the way up).
+        if matches!(this.source, FeedSource::Journal { .. }) {
             this.connected = false;
             this.phase = ViewerPhase::Ended { outcome: None };
-            // The whole run is already here: open on its end.
-            this.chat.scroll_to_end();
+            this.read_journal(cx);
         }
         if let Some(session) = this.source.session().cloned() {
             // EXP-746 review UI-2: seed the phase from the engine, so a view
@@ -1090,8 +1105,11 @@ impl SteerSessionView {
         }
         self.pending_dial = PendingDial(None);
         self.journal_seeded = false;
+        self.local_history = None;
+        self.history_truncated = false;
         log::info!("[ui] session {}: the view follows its restarted engine", self.session_id);
         self.feed = SteerFeed::new();
+        self.feed_epoch += 1;
         self.derived_for = None;
         self.extras = crate::session_extras::LocalExtras::default();
         self.picked.clear();
@@ -1126,31 +1144,44 @@ impl SteerSessionView {
             self.seed_stream_slots(cx);
             return;
         }
+        self.read_journal(cx);
+    }
+
+    /// Large chats: this device's journal for the session, read, cut to its
+    /// REPLAY TAIL and FOLDED off the main thread ([`read_journal_tail`]);
+    /// the view only swaps the folded feed in.
+    fn read_journal(&mut self, cx: &mut gpui::Context<Self>) {
         let data_dir = crate::coding_flow::coding_data_dir(cx);
         let session_id = self.session_id.clone();
-        let read = cx.background_spawn(async move { steer::read_journal(&data_dir, &session_id) });
+        let read = cx.background_spawn(async move { read_journal_tail(&data_dir, &session_id) });
         cx.spawn(async move |this, cx| {
-            let events = read.await.unwrap_or_default();
-            let _ = this.update(cx, |this, cx| this.apply_journal_seed(events, cx));
+            let read = read.await;
+            let _ = this.update(cx, |this, cx| this.apply_journal_read(read, cx));
         })
         .detach();
     }
 
     /// The journal's answer: too late if the room's replay or a followed
-    /// engine got here first.
-    fn apply_journal_seed(&mut self, events: Vec<steer::frames::ActivityEvent>, cx: &mut gpui::Context<Self>) {
-        if !self.feed.is_empty() || self.feed.is_staging() || !matches!(self.source, FeedSource::Remote { .. }) {
+    /// engine got here first (a relay view's seed).
+    fn apply_journal_read(&mut self, read: Option<JournalTail>, cx: &mut gpui::Context<Self>) {
+        let seed = matches!(self.source, FeedSource::Remote { .. });
+        if !self.feed.is_empty() || self.feed.is_staging() || !(seed || matches!(self.source, FeedSource::Journal { .. })) {
             return;
         }
-        if events.is_empty() {
-            self.seed_stream_slots(cx);
+        let Some(read) = read.filter(|read| !read.feed.is_empty()) else {
+            if seed {
+                self.seed_stream_slots(cx);
+            }
             return;
-        }
-        for event in events {
-            self.feed.apply(event);
-        }
+        };
+        self.feed = read.feed;
+        self.feed_epoch += 1;
+        self.derived_for = None;
+        self.history_truncated = read.older.is_some();
+        self.history_exhausted = false;
+        self.local_history = read.older;
         self.refresh_derived();
-        self.journal_seeded = true;
+        self.journal_seeded = seed;
         self.chat.scroll_to_end();
         cx.notify();
     }
@@ -1596,10 +1627,11 @@ impl SteerSessionView {
         self.history_truncated
             && !self.history_exhausted
             && self.history_request.is_none()
-            && self
-                .source
-                .handle()
-                .is_some_and(|handle| handle.is_connected())
+            && (self.local_history.is_some()
+                || self
+                    .source
+                    .handle()
+                    .is_some_and(|handle| handle.is_connected()))
     }
 
     /// Pull [`FEED_WINDOW_STEP`] more of the run into the window, or — when
@@ -1636,6 +1668,22 @@ impl SteerSessionView {
         if before == 0 {
             self.history_exhausted = true;
             return;
+        }
+        // Large chats: a journal read pages from what it read.
+        if let Some(all) = self.local_history.clone() {
+            let mut before = before;
+            loop {
+                let page = journal_page(&all, before, HISTORY_PAGE_LIMIT as usize);
+                let Some(&(Some(oldest), _)) = page.first() else {
+                    self.history_exhausted = true;
+                    return;
+                };
+                if self.feed.prepend_page(page) > 0 {
+                    return;
+                }
+                // A page of slots and updates only: look further back.
+                before = oldest;
+            }
         }
         let Some(handle) = self.source.handle() else { return };
         self.history_requests += 1;
@@ -1702,8 +1750,52 @@ impl SteerSessionView {
         let focus = self.active_subagent();
         // EXP-850 §3: the lane projection needs them too — a workflow call is
         // its own card inside a lane exactly as it is in the main transcript.
+        // Large chats: the projection is a pure function of the feed, the
+        // window and the tab, so a frame that moved none of them (a scroll
+        // step, a hover, a tick) keeps last frame's rows instead of walking
+        // (and regex-matching) every row of the window again.
+        let projection_key = (self.feed_epoch, self.feed.generation(), start, focus.clone());
+        let project = self.projection_key.as_ref() != Some(&projection_key);
+        if project {
+            self.project_rows(start, focus.as_deref());
+            self.projection_key = Some(projection_key);
+        }
+        // S-3 (dock.json): the relay's waiting card stays inline, answerable
+        // in place; it is never a DockCard any more.
+        // EXP-850 §12: the per-turn file cards are derived state now
+        // (EXP-884, [`Self::refresh_derived`] above).
+        self.prune_dropped_rows();
+        // Session 58cb32df: the conversation's own cards beside the relay rows.
+        self.refresh_conversation_cards(focus.is_none(), cx);
+        // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
+        // the origin only when the main transcript's window holds the feed's
+        // first row (nothing above it, no device page left to load).
+        let from_start =
+            focus.is_none() && start == 0 && (!self.history_truncated || self.history_exhausted);
+        // Large chats: the grouping re-derives when the rows or what it
+        // reads off the store (titles, agents, sessions) moved.
+        let layout_key = {
+            use std::hash::{Hash as _, Hasher as _};
+            let mut hasher = std::hash::DefaultHasher::new();
+            (self.feed_epoch, self.feed.generation(), start, focus.as_deref(), from_start).hash(&mut hasher);
+            crate::markdown::store_revision(cx).hash(&mut hasher);
+            sync::Store::try_global(cx).map(|store| store.collections().agents.read(cx).revision()).hash(&mut hasher);
+            format!("{:?}", self.transcript_origin).hash(&mut hasher);
+            hasher.finish()
+        };
+        if project || self.layout_key != Some(layout_key) {
+            self.refresh_transcript_layout(from_start, cx);
+            self.layout_key = Some(layout_key);
+        }
+        self.sync_list_keys(focus, cx);
+    }
+
+    /// The window's rows off the feed (`start` on, or the focused
+    /// subagent's), settled: workflow agents folded into their cards, an
+    /// unanswered card last, the orphan cards, the silent rows dropped.
+    fn project_rows(&mut self, start: usize, focus: Option<&str>) {
         let held = self.feed.workflow_ids();
-        match focus.as_deref() {
+        match focus {
             Some(subagent_id) => {
                 steer::feed::group_subagent_row_specs_into(self.feed.items(), start, subagent_id, &held, &mut self.rows)
             }
@@ -1732,19 +1824,11 @@ impl SteerSessionView {
         if focus.is_none() {
             drop_silent_rows(&mut self.rows, self.feed.items());
         }
-        // S-3 (dock.json): the relay's waiting card stays inline, answerable
-        // in place; it is never a DockCard any more.
-        // EXP-850 §12: the per-turn file cards are derived state now
-        // (EXP-884, [`Self::refresh_derived`] above).
-        self.prune_dropped_rows();
-        // Session 58cb32df: the conversation's own cards beside the relay rows.
-        self.refresh_conversation_cards(focus.is_none(), cx);
-        // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
-        // the origin only when the main transcript's window holds the feed's
-        // first row (nothing above it, no device page left to load).
-        let from_start =
-            focus.is_none() && start == 0 && (!self.history_truncated || self.history_exhausted);
-        self.refresh_transcript_layout(from_start, cx);
+    }
+
+    /// [`Self::sync_list`]'s second half: the rows' keys (re-fingerprinted
+    /// every frame, EXP-795) diffed into the list.
+    fn sync_list_keys(&mut self, focus: Option<String>, cx: &mut gpui::Context<Self>) {
         // The "Working…" line belongs to the main transcript — a subagent's
         // tab has its own running spinner in the strip.
         self.working = focus.is_none() && self.working_now();
@@ -1983,6 +2067,12 @@ impl SteerSessionView {
     /// pictures).
     pub(crate) fn chat_document(&self) -> Option<&Entity<eui_gpui::view::SurfaceView>> {
         self.chat.view()
+    }
+
+    /// Bench and guard aid: `(feed items held, rows projected)`.
+    #[cfg(test)]
+    pub(crate) fn bench_counts(&self) -> (usize, usize) {
+        (self.feed.items().len(), self.rows.len())
     }
 
     /// #EDE-65 lane O: the transcript's host rows (tests).
@@ -2338,8 +2428,10 @@ impl SteerSessionView {
                 }
             }
             ViewerEvent::Reset => {
-                // #EXP-1412: the room's replay replaces the journal's seed.
+                // #EXP-1412: the room's replay replaces the journal's seed
+                // (and the room pages its history from here on).
                 self.journal_seeded = false;
+                self.local_history = None;
                 self.feed.apply_reset();
                 self.staging_started = Some(Instant::now());
                 self.arm_staging_swap(cx);
@@ -9474,6 +9566,44 @@ mod work_elapsed_tests {
         assert_eq!(device_offline_copy(None), "The device is offline. The transcript lives on that machine.");
         assert_eq!(device_offline_copy(Some("  ")), "The device is offline. The transcript lives on that machine.");
     }
+}
+
+/// Large chats: a journal read, cut and folded off the main thread.
+pub(crate) struct JournalTail {
+    /// The REPLAY TAIL folded (`steerFeed.replayTail` log events).
+    pub(crate) feed: SteerFeed,
+    /// The whole run, when the tail left older events out: the pages.
+    pub(crate) older: Option<Arc<Vec<(u64, steer::frames::ActivityEvent)>>>,
+}
+
+/// Large chats (`fixtures/steer-enet.json` REPLAY TAIL, the same rule a
+/// join replays by): this device's journal for `session_id`, its newest
+/// [`steer::REPLAY_TAIL`] log events (plus every latest-wins slot) folded
+/// into a feed, and the whole read kept for paging. Runs off the main
+/// thread; `None` when there is no journal.
+pub(crate) fn read_journal_tail(data_dir: &std::path::Path, session_id: &str) -> Option<JournalTail> {
+    let events = steer::read_journal_seq(data_dir, session_id)?;
+    let (kept, truncated) = steer::replay_tail(events.iter().map(|(seq, event)| (*seq, event)).collect(), steer::REPLAY_TAIL);
+    let mut feed = SteerFeed::new();
+    for (seq, event) in kept {
+        feed.apply_seq(Some(seq), event.clone());
+    }
+    Some(JournalTail { feed, older: truncated.then(|| Arc::new(events)) })
+}
+
+/// One older page off a journal read: the newest `limit` events below
+/// `before`, oldest first (slots ride along; the page's scratch fold drops
+/// them, [`SteerFeed::prepend_page`]).
+fn journal_page(all: &[(u64, steer::frames::ActivityEvent)], before: u64, limit: usize) -> Vec<(Option<u64>, steer::frames::ActivityEvent)> {
+    let mut page: Vec<(Option<u64>, steer::frames::ActivityEvent)> = all
+        .iter()
+        .rev()
+        .filter(|(seq, _)| *seq < before)
+        .take(limit)
+        .map(|(seq, event)| (Some(*seq), event.clone()))
+        .collect();
+    page.reverse();
+    page
 }
 
 /// #EXP-1412: whether a relay view may start from this machine's journal.

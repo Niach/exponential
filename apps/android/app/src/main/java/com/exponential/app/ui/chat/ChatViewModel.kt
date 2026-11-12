@@ -52,6 +52,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import com.exponential.app.domain.Chats
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -211,6 +212,21 @@ class ChatViewModel @Inject constructor(
             }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1380 (TS `useNewestMessages`): the tree's NEWEST
+     *  [Chats.CHAT_MESSAGE_LIMIT] messages (Load earlier widens it per chat)
+     *  + every waiting card the tree's digests name, however old. */
+    private val messagePage: Flow<Chats.MessagePage> = combine(
+        Chats.messageLimit(rootId),
+        tree.map { rows -> Chats.digestWaitingIds(rows.map { Chats.parseDigest(it.digest) }) }.distinctUntilChanged(),
+    ) { limit, ids -> limit to ids }
+        .flatMapLatest { (limit, ids) ->
+            dbFlow.filterNotNull().flatMapLatest { db ->
+                val newest = db.keyedMessages(db.messageDao().observeNewestByRoot(rootId, limit))
+                val waiting = if (ids.isEmpty()) flowOf(emptyList()) else db.keyedMessages(db.messageDao().observeByIds(ids))
+                combine(newest, waiting) { loaded, cards -> Chats.newestMessagesPage(loaded, cards, limit) }
+            }
+        }
+
     /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
      *  their conversations — the transcript reads THIS tree, never every
      *  synced message. */
@@ -218,11 +234,14 @@ class ChatViewModel @Inject constructor(
         // Only the account's REAL rows (never the signed-out placeholder): the
         // view's first build already holds the whole tree, so the window's
         // first paint pins on the loaded transcript (chats.json WINDOW).
-        dbFlow.filterNotNull().flatMapLatest { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
+        messagePage.map { it.rows }
             // One query + one card parse per change, shared by the view and
             // the referenced-session lookup.
             .flowOn(Dispatchers.Default)
             .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** THE chat's Load earlier: one `windowStep` more messages (TS `loadEarlierMessages`). */
+    fun loadEarlierMessages() = Chats.loadEarlierMessages(rootId)
 
     /** Every message of the tree (the root's conversation + its children's):
      *  the SAME [treeMessages] the view builds from (review of #1218: the

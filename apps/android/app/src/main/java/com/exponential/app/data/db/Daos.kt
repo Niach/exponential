@@ -457,6 +457,16 @@ abstract class MessageDao {
     abstract fun rawObserveByRoot(rootId: String): Flow<List<MessageEntity>>
     fun observeByRoot(rootId: String): Flow<List<MessageEntity>> = rawObserveByRoot(rootId).openedMessages()
 
+    // #EXP-1380 (TS `useNewestMessages`): a chat's NEWEST [limit] messages of
+    // the tree, oldest first; Load earlier widens [limit].
+    @Query(
+        "SELECT * FROM (SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at DESC, id DESC LIMIT :limit) " +
+            "ORDER BY created_at, id",
+    )
+    abstract fun rawObserveNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>>
+    fun observeNewestByRoot(rootId: String, limit: Int): Flow<List<MessageEntity>> =
+        rawObserveNewestByRoot(rootId, limit).openedMessages()
+
     // #EXP-1380: the card-less rows of the given sessions —
     // all a session TITLE reads (its first prompt), never a whole transcript.
     @Query(

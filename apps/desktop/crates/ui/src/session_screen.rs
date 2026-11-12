@@ -101,21 +101,20 @@ pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, Fe
     // ended run with no live engine): a live chat opened without parsing
     // the whole run registry.
     let (journal, record) = if engine.is_none() && ended {
-        let journal = journal_events(session_id, cx);
-        let record = journal
-            .is_none()
+        let journal = has_journal(session_id, cx);
+        let record = (!journal)
             .then(|| coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id))
             .flatten();
         (journal, record)
     } else {
-        (None, None)
+        (false, None)
     };
-    let feed = feed_source_for(engine.is_some(), journal.is_some() || record.is_some(), ended);
+    let feed = feed_source_for(engine.is_some(), journal || record.is_some(), ended);
     match (feed, engine) {
         (SessionFeed::Local, Some(session)) => (SessionFeed::Local, FeedSource::Local { session }),
         (SessionFeed::Replay, _) => match journal {
-            Some(events) => (SessionFeed::Replay, FeedSource::journal(events)),
-            None => match record.and_then(|record| open_transcript(&record, cx)) {
+            true => (SessionFeed::Replay, FeedSource::journal()),
+            false => match record.and_then(|record| open_transcript(&record, cx)) {
                 Some(session) => (SessionFeed::Replay, FeedSource::Replay { session }),
                 // Neither a journal nor a loadable transcript (no steer
                 // runtime, or the run never got as far as an id). The
@@ -128,14 +127,17 @@ pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, Fe
     }
 }
 
-/// EXP-773 — this device's journal for `session_id`, folded and replay-ready
-/// ([`steer::read_journal`]). `None` when the file is not there: this machine
-/// never ran the session, or the retention prune (EXP-886, Settings →
-/// Sessions) took it, and the caller falls
-/// back to the engine replay and then to the relay.
-fn journal_events(session_id: &str, cx: &App) -> Option<Vec<steer::frames::ActivityEvent>> {
-    let events = steer::read_journal(&crate::coding_flow::coding_data_dir(cx), session_id)?;
-    (!events.is_empty()).then_some(events)
+/// EXP-773 — whether this device kept a journal for `session_id`. `false`
+/// when the file is not there (or empty): this machine never ran the
+/// session, or the retention prune (EXP-886, Settings → Sessions) took it,
+/// and the caller falls back to the engine replay and then to the relay.
+/// Large chats: only the file's size is asked here; the view reads it off
+/// the main thread, and folds only its REPLAY TAIL
+/// ([`crate::steer_viewer::read_journal_tail`]).
+fn has_journal(session_id: &str, cx: &App) -> bool {
+    steer::journal_path(&crate::coding_flow::coding_data_dir(cx), session_id)
+        .and_then(|path| std::fs::metadata(path).ok())
+        .is_some_and(|meta| meta.len() > 0)
 }
 
 /// Replay `record`'s conversation through the engine (ACP `session/load`).
