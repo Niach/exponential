@@ -3310,7 +3310,27 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v105 (#FEED-219): the synced `composer_drafts` table (a brand-new
+        // table, no cursor yet): every composer's draft, per (user, key).
+        migrator.registerMigration("v105_composer_drafts") { db in
+            try createComposerDraftsTable(db)
+        }
+
         return migrator
+    }
+
+    /// #FEED-219: the `composer_drafts` table, mirroring the shape allowlist
+    /// (`/api/shapes/composer-drafts`).
+    static func createComposerDraftsTable(_ db: Database) throws {
+        try db.create(table: "composer_drafts", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("user_id", .text).notNull()
+            t.column("team_id", .text).notNull()
+            t.column("key", .text).notNull().indexed()
+            t.column("text", .text).notNull().defaults(to: "")
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1661: the `skills` table, mirroring the shape allowlist
@@ -3623,6 +3643,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
+            // #FEED-219: the composers' drafts.
+            try db.execute(sql: "DELETE FROM composer_drafts")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
             try db.execute(sql: "DELETE FROM session_reads")

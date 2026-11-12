@@ -65,6 +65,9 @@ struct ExponentialApp: App {
                     switch newPhase {
                     case .background:
                         dependencies.syncManager.sceneDidEnterBackground()
+                        // #FEED-219: pending composer drafts go out now.
+                        let composerDrafts = dependencies.composerDrafts
+                        Task { @MainActor in composerDrafts.flushAll() }
                         // No `audio` background mode (App Review 2.5.4): a
                         // call ends cleanly instead of freezing mid-stream.
                         VoiceCallClient.shared.end()

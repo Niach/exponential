@@ -145,7 +145,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts"]
         )
     }
 
@@ -212,7 +213,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts"]
         )
     }
 
@@ -751,7 +753,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -866,7 +869,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
              "v100_app_record_share_name", "v101_merge_train",
-             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers"]
+             "v102_session_scope_team_ids", "v103_one_tree_additive", "v104_agent_mcp_servers",
+             "v105_composer_drafts"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
