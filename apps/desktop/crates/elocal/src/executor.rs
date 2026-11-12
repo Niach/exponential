@@ -25,6 +25,11 @@ use crate::time;
 /// The cap the server holds on started statuses (contract `issueStatusCategory.startedMax`).
 const STARTED_MAX: usize = 4;
 
+/// The server's `COMPOSER_DRAFT_TEXT_MAX` (apps/web lib/trpc/composer-drafts.ts).
+const COMPOSER_DRAFT_TEXT_MAX: usize = 100_000;
+/// The longest key the server takes (`COMPOSER_DRAFT_KEY_MAX`, the column's varchar(80)).
+const COMPOSER_DRAFT_KEY_MAX: usize = 80;
+
 pub struct LocalExecutor {
     store: Arc<LocalStore>,
     blobs: FsBlobStore,
@@ -232,6 +237,8 @@ impl LocalExecutor {
             "issueDrafts.delete" => self.drafts_delete(input),
             // A Local desktop's files ride an issue, never a draft: none to list.
             "issueDrafts.listAttachments" => Ok(json!([])),
+            "composerDrafts.upsert" => self.composer_drafts_upsert(input),
+            "composerDrafts.delete" => self.composer_drafts_delete(input),
             "comments.create" => self.comments_create(input),
             "comments.update" => self.comments_update(input),
             "comments.delete" => self.comments_delete(input),
@@ -579,6 +586,53 @@ impl LocalExecutor {
             self.delete("issue_drafts", id)?;
         }
         Ok(json!({"deleted": deleted, "txId": self.txid()}))
+    }
+
+    /// #EXP-1800: the identity's composer draft for one key (local-parity.json
+    /// `composerDrafts`, the server's `composerDrafts.upsert`): one row per
+    /// key, an empty text refused (that is a delete).
+    fn composer_drafts_upsert(&self, input: Row) -> Out {
+        let key = Self::composer_draft_key(&input)?;
+        if need(&input, "teamId")? != self.team_id {
+            return Err(not_found("Team"));
+        }
+        let draft = text(&input, "text").ok_or_else(|| bad("text is required"))?;
+        if draft.encode_utf16().count() > COMPOSER_DRAFT_TEXT_MAX {
+            return Err(bad("The draft is too long"));
+        }
+        if draft.trim().is_empty() {
+            return Err(bad(parity::composer_draft_empty_refusal()));
+        }
+        let existing = self.composer_draft(key)?;
+        let row = parity::composer_draft_row(&input, &self.identity(), existing.as_ref(), &new_id(), &time::now());
+        self.write("composer_drafts", row.clone())?;
+        Ok(json!({"draft": Value::Object(row), "txId": self.txid()}))
+    }
+
+    /// #EXP-1800: drop the identity's composer draft for one key (a send, an
+    /// emptied field, a discard); deleting nothing is fine.
+    fn composer_drafts_delete(&self, input: Row) -> Out {
+        let key = Self::composer_draft_key(&input)?;
+        let existing = self.composer_draft(key)?;
+        if let Some(id) = existing.as_ref().and_then(|row| text(row, "id")) {
+            self.delete("composer_drafts", id)?;
+        }
+        Ok(json!({"deleted": existing.is_some(), "txId": self.txid()}))
+    }
+
+    /// The input's key, refused as the server's zod schema refuses it.
+    fn composer_draft_key(input: &Row) -> Result<&str, Refusal> {
+        let key = need(input, "key")?;
+        if key.len() > COMPOSER_DRAFT_KEY_MAX || domain::composer_draft::parse_key(key).is_none() {
+            return Err(bad("Unknown composer draft key"));
+        }
+        Ok(key)
+    }
+
+    /// The identity's row for `key` (one per user and key).
+    fn composer_draft(&self, key: &str) -> Result<Option<Row>, Refusal> {
+        let user = self.identity().user_id;
+        Ok(self.rows_where("composer_drafts", "key", key)?.into_iter().find(|row| text(row, "user_id") == Some(user.as_str())))
     }
 
     fn issues_update(&self, input: Row) -> Out {

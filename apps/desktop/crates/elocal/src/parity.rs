@@ -67,12 +67,20 @@ struct Drafts {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ComposerDrafts {
+    empty_refusal: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Spec {
     procedures: Procedures,
     identity: Identity,
     pub seed: Seed,
     issues: Issues,
     drafts: Drafts,
+    #[serde(rename = "composerDrafts")]
+    composer_drafts: ComposerDrafts,
 }
 
 pub static SPEC: LazyLock<Spec> = LazyLock::new(|| serde_json::from_str(LOCAL_PARITY_JSON).expect("local-parity.json parses"));
@@ -240,6 +248,26 @@ pub fn draft_row(input: &Row, identity: &LocalIdentity, existing: Option<&Row>, 
         "label_ids": input.get("labelIds").filter(|v| v.is_array()).cloned().unwrap_or(json!([])),
         "due_date": str_of(input, "dueDate"),
         "session_id": str_of(input, "sessionId"),
+        "created_at": existing.and_then(|e| str_of(e, "created_at")).unwrap_or(now),
+        "updated_at": now,
+    }))
+}
+
+/// #EXP-1800: `composerDrafts.upsert` refused: an empty text is a delete.
+pub fn composer_draft_empty_refusal() -> &'static str {
+    &SPEC.composer_drafts.empty_refusal
+}
+
+/// #EXP-1800: `composerDrafts.upsert`: the identity's one row per `key`
+/// (composer-draft.json); a new key takes `id`, a re-save keeps the row's id
+/// and `created_at` and replaces team and text.
+pub fn composer_draft_row(input: &Row, identity: &LocalIdentity, existing: Option<&Row>, id: &str, now: &str) -> Row {
+    obj(json!({
+        "id": existing.and_then(|e| str_of(e, "id")).unwrap_or(id),
+        "user_id": identity.user_id,
+        "team_id": input.get("teamId").cloned().unwrap_or(Value::Null),
+        "key": str_of(input, "key").unwrap_or(""),
+        "text": str_of(input, "text").unwrap_or(""),
         "created_at": existing.and_then(|e| str_of(e, "created_at")).unwrap_or(now),
         "updated_at": now,
     }))
