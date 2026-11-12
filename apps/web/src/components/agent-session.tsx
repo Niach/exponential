@@ -22,6 +22,7 @@ import {
   createContext,
   Fragment,
   memo,
+  startTransition,
   useContext,
   useCallback,
   useEffect,
@@ -377,13 +378,15 @@ export function AgentSessionView({
    *  subagent id focuses that agent's stream. */
   const [agentTab, setAgentTab] = useState<string | null>(null)
 
-  const sendMessage = (text: string): boolean => store.sendMessage(text)
-  const answerQuestion = (
-    item: QuestionItem,
-    keys: string[],
-    labels: string[],
-    text?: string
-  ) => store.answerQuestion(item, keys, labels, text)
+  // #PERF-9: stable, so a memoized transcript row keeps its element.
+  const sendMessage = useCallback((text: string): boolean => store.sendMessage(text), [store])
+  const answerQuestion = useCallback(
+    (item: QuestionItem, keys: string[], labels: string[], text?: string) =>
+      store.answerQuestion(item, keys, labels, text),
+    [store]
+  )
+  const openSessionRef = useRef(onOpenSession)
+  openSessionRef.current = onOpenSession
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
   // (`useFollowScroll`, shared with the chat Conversation, EXP-1316).
@@ -399,7 +402,7 @@ export function AgentSessionView({
   const sessionEnded = session.status === `ended`
 
   /** Identity-scoped questions stay answerable until they resolve. */
-  const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
+  const questionIds = useSameSet(useMemo(() => activeQuestionIds(feed), [feed]))
   const canAnswer = live && !sessionEnded
   // EXP-783: the transcript keeps the WHOLE session, this view paints a
   // WINDOW over it (`windowFrom` = the oldest rendered row's id).
@@ -520,11 +523,14 @@ export function AgentSessionView({
     anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
     // #EXP-1380: the chat's loaded messages widen with it (its cards, ×4).
     loadEarlierMessages(session.id)
+    // #PERF-9: a page mounts as a transition: React renders its rows in
+    // slices that yield to the browser (one task per page was 130–220 ms).
     if (windowStart > 0) {
-      setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
+      const from = feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id
+      startTransition(() => setWindowFrom(from))
       return
     }
-    setWindowFrom(WINDOW_FROM_START)
+    startTransition(() => setWindowFrom(WINDOW_FROM_START))
     store.loadEarlier()
   }, [feed, windowStart, store, session.id])
   // REPLAY TAIL (steer-enet.json): within one viewport of the top, the
@@ -649,7 +655,7 @@ export function AgentSessionView({
   }, [deviceOnline, store])
 
   /** EXP-850 §3: the subagents that belong to a workflow card. */
-  const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
+  const workflowAgents = useSameSet(useMemo(() => workflowSubagentIds(feed), [feed]))
   /** EXP-1321/1324: the Queue's two folds; the reader's toggles stick for
   /** §4: the duplicate warnings a workflow card carries, by workflow id. */
   const workflowDuplicates = useMemo(() => {
@@ -663,6 +669,7 @@ export function AgentSessionView({
     }
     return byWorkflow
   }, [feed])
+  const stableWorkflowDuplicates = useSameValue(workflowDuplicates, sameDuplicates)
   /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold
    *  land at the TAIL of the transcript. */
   const orphanWorkflows = useMemo(
@@ -804,7 +811,7 @@ export function AgentSessionView({
           return wrap(
             <WorkflowCardRow
               workflow={workflow}
-              duplicates={workflowDuplicates.get(workflow.id)}
+              duplicates={stableWorkflowDuplicates.get(workflow.id)}
               onOpenAgent={setAgentTab}
             />
           )
@@ -847,7 +854,7 @@ export function AgentSessionView({
             author={link ? null : bubbleName}
             relay={
               link && layout?.name && sender
-                ? { name: sender.name, onPress: onOpenSession ? () => onOpenSession(link) : undefined }
+                ? { name: sender.name, onPress: openSessionRef.current ? () => openSessionRef.current?.(link) : undefined }
                 : null
             }
             fold={!link}
@@ -866,7 +873,7 @@ export function AgentSessionView({
           <PermissionRow
             tool={item.tool}
             detail={item.detail}
-            active={live && item.id === feed[feed.length - 1]?.id}
+            active={live && index === list.length - 1 && list === rows && item.id === feed[feed.length - 1]?.id}
           />
         )
       case `subagent`:
@@ -893,6 +900,41 @@ export function AgentSessionView({
     }
     return null
   }
+
+
+  // #PERF-9: a row's element is reused while nothing it reads moved, so a
+  // streamed event or a `Load earlier` page re-renders only the rows it
+  // touched (every row re-rendered: the page's long tasks).
+  const rowCache = useRef(new Map<string, { deps: readonly unknown[]; node: ReactNode }>())
+  const rowGlobals = [
+    live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
+    answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
+  ]
+  const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
+  const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
+    const key = feedRowKey(row)
+    const prev = index === 0 ? undefined : list[index - 1]
+    const deps = [
+      ...rowGlobals,
+      ...(row.kind === `single` ? [row.item] : [row.kind, ...row.items]),
+      prev === undefined ? null : rowClass(prev),
+      prev === undefined ? null : isBubbleRow(prev),
+      prev === undefined ? null : layoutSignature(feedLayouts.get(feedRowKey(prev))),
+      layoutSignature(feedLayouts.get(key)),
+      index === list.length - 1,
+      // The running call's id, only on the row that holds it.
+      liveRowId !== undefined && rowItemIds(row).includes(liveRowId) ? liveRowId : null,
+      // A permission row is `active` while it is the feed's newest event.
+      row.kind === `single` && row.item.kind === `permission` ? feed[feed.length - 1]?.id : null,
+    ]
+    const held = rowCache.current.get(key)
+    const node = held && sameDeps(held.deps, deps) ? held.node : renderTranscriptRow(row, index, list)
+    nextRowCache.set(key, { deps, node })
+    return node
+  }
+  useLayoutEffect(() => {
+    rowCache.current = nextRowCache
+  })
 
   const feedPlaceholder = feed.length === 0
   // NEW-6 (N-1): a session waiting on input with no live room shows no
@@ -1096,7 +1138,7 @@ export function AgentSessionView({
                 {renderToolCards(cardAnchors.unanchored, `head`)}
                 {rows.map((row, index) => (
                   <Fragment key={row.kind === `single` ? `row-${row.item.id}` : `row-${row.id}`}>
-                    {renderTranscriptRow(row, index, rows)}
+                    {memoTranscriptRow(row, index, rows)}
                     {renderToolCards(
                       rowItemIds(row).flatMap((id) => cardAnchors.anchors.get(id) ?? []),
                       `after`
@@ -1664,7 +1706,9 @@ function QueueStrip({
  *  IS a transcript, so its rows take the gap ladder (EXP-787); folded inside a
  *  group row the lane keeps the tighter uniform rhythm, with its tool rows
  *  flush against each other. */
-function LaneRows({
+// #PERF-9: memo: the lane re-rendered with every parent render (a scroll
+// state flip, an unrelated card), not only when its own items moved.
+const LaneRows = memo(function LaneRows({
   items,
   gaps = false,
   live = false,
@@ -1753,7 +1797,7 @@ function LaneRows({
       })}
     </>
   )
-}
+})
 
 // memo: a live feed re-renders on every incoming frame; re-painting the
 // markdown of unchanged text is the one cost worth avoiding here.
@@ -3590,4 +3634,34 @@ function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
         )}
     </Trace>
   )
+}
+
+/** #PERF-9: `value` while it equals the last one held (`equal`), so a
+ *  memoized row reading it keeps its element across recomputes. */
+function useSameValue<T>(value: T, equal: (a: T, b: T) => boolean): T {
+  const held = useRef(value)
+  if (held.current !== value && !equal(held.current, value)) held.current = value
+  return held.current
+}
+
+function useSameSet<S extends ReadonlySet<unknown>>(value: S): S {
+  return useSameValue(value, (a, b) => a.size === b.size && [...a].every((entry) => b.has(entry)))
+}
+
+function sameDuplicates(a: Map<string, string[]>, b: Map<string, string[]>): boolean {
+  if (a.size !== b.size) return false
+  for (const [id, list] of a) {
+    const other = b.get(id)
+    if (!other || other.length !== list.length || list.some((entry, at) => other[at] !== entry)) return false
+  }
+  return true
+}
+
+function sameDeps(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((entry, at) => Object.is(entry, b[at]))
+}
+
+/** A transcript layout by value (it is rebuilt per feed change). */
+function layoutSignature(layout: unknown): string {
+  return layout === undefined ? `` : JSON.stringify(layout)
 }

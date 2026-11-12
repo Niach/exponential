@@ -90,4 +90,27 @@ describe(`Trace`, () => {
     )
     expect(slot(container, `trace-collapsible-content-inner`)!.textContent).toBe(`item`)
   })
+
+  it(`#PERF-9: content mounted open skips Radix's measure, and the first close hands over`, async () => {
+    const { container, getByRole } = render(
+      <TraceCollapsible defaultOpen>
+        <TraceCollapsibleTrigger>Ran tests</TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>ok</TraceCollapsibleContent>
+      </TraceCollapsible>
+    )
+    const content = slot(container, `trace-collapsible-content`)!
+    expect(content.textContent).toBe(`ok`)
+    // Radix stamps its measured height var on its own Content only.
+    expect(content.getAttribute(`style`) ?? ``).not.toContain(`--radix-collapsible-content-height`)
+    const trigger = getByRole(`button`)
+    expect(trigger.getAttribute(`aria-expanded`)).toBe(`true`)
+    fireEvent.click(trigger)
+    // One frame on Radix's Content (still open, measured), then closed.
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+    await new Promise((done) => setTimeout(done, 20))
+    expect(trigger.getAttribute(`aria-expanded`)).toBe(`false`)
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute(`aria-expanded`)).toBe(`true`)
+    expect(slot(container, `trace-collapsible-content-inner`)!.textContent).toBe(`ok`)
+  })
 })
