@@ -48,6 +48,11 @@ vi.mock(`./tools`, () => ({
         async () => ({ content: [{ type: `text`, text: `compacted` }] })
       )
       server.registerTool(
+        `exponential_sessions_quiet`,
+        { description: `Quiet.`, inputSchema: z.strictObject({}) },
+        async () => ({ content: [{ type: `text`, text: `quiet` }] })
+      )
+      server.registerTool(
         `exponential_show`,
         { description: `Show.`, inputSchema: z.strictObject({ replace: z.boolean().optional() }) },
         async () => ({ content: [{ type: `text`, text: `shown` }] })
@@ -149,6 +154,8 @@ describe(`registerNounTools`, () => {
     // In a session the verb is the recorded tool itself.
     expect(text(await surface().get(`exponential_show`)!.handler({}))).toBe(`shown`)
     expect(text(await surface().get(`exponential_session_self`)!.handler({ op: `compact` }))).toBe(`compacted`)
+    // FEED-227: quiet, the op a silent turn calls before ending with no text.
+    expect(text(await surface().get(`exponential_session_self`)!.handler({ op: `quiet` }))).toBe(`quiet`)
   })
 
   it(`coerces a stringified number, boolean, array or object into what the op declares (NEW-44)`, async () => {

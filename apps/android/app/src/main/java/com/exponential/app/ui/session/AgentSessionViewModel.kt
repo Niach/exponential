@@ -1138,6 +1138,54 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
+    // ── #EXP-1793 (composer-menu.json `mcpPick`): an agent chat's MCP servers ›
+
+    /** The session is an agent chat (a root with an agent): its "+" is the
+     *  `agent` surface (web `root.agentId ? agent : session`). */
+    val agentChat: StateFlow<Boolean> =
+        session.map { row -> row != null && row.parentId == null && !row.agentId.isNullOrEmpty() }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** The person's pick in this composer; null = untouched (the seed). */
+    private val _agentMcpPick = MutableStateFlow<List<String>?>(null)
+
+    /** The seed: the conversation's own pick (`sessions.mcpPicks`, the
+     *  [configurePicks] read), unreadable = the agent's `mcpServerIds`. */
+    private fun agentMcpSeed(): List<String> =
+        _configurePicks.value.mcpServerIds ?: agentDefinition.value?.mcpServerIdList.orEmpty()
+
+    /** The agent chat's MCP servers pick as the row shows it: the pick (else
+     *  the seed), ids naming a deleted server dropped. */
+    val agentMcpServerIds: StateFlow<List<String>> = combine(
+        _agentMcpPick,
+        _configurePicks.map { it.mcpServerIds }.distinctUntilChanged(),
+        agentDefinition,
+        _mcpServers,
+    ) { picked, sessionSeed, agent, servers ->
+        val known = servers.mapTo(HashSet()) { it.id }
+        (picked ?: sessionSeed ?: agent?.mcpServerIdList.orEmpty()).filter { it in known }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun toggleAgentMcpServer(id: String) {
+        val current = agentMcpServerIds.value
+        _agentMcpPick.value = if (id in current) current - id else current + id
+    }
+
+    /** What the next send carries: the pick while it differs from the seed
+     *  (an empty pick clears), else null (omitted). */
+    private fun agentMcpSendPick(): List<String>? {
+        if (!agentChat.value || _agentMcpPick.value == null) return null
+        val current = agentMcpServerIds.value
+        return current.takeIf { it.toSet() != agentMcpSeed().toSet() }
+    }
+
+    /** After a send carried [pick]: it is the seed now. */
+    private fun agentMcpSent(pick: List<String>) {
+        _configurePicks.update { it.copy(mcpServerIds = pick) }
+        _agentMcpPick.value = null
+    }
+
     /** `sessions.configure` with the changed fields; the pick shows at once,
      *  stays until the synced row confirms it (bounded: [CONFIGURE_SYNC_WAIT_MS],
      *  web parity) and rolls back on a refusal. */
@@ -1242,6 +1290,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     }
                     ids += id
                 }
+                val mcpPick = agentMcpSendPick()
                 try {
                     val move = appMove
                     // #EXP-1729: an ended app editor root's Account / Model
@@ -1262,9 +1311,10 @@ class AgentSessionViewModel @AssistedInject constructor(
                                 // #EXP-1715: every send to the viewer's Assistant
                                 // carries its Teams pick (null = every team).
                                 scopeTeamIds = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null,
-                            )
+                            ).copy(mcpServerIds = mcpPick)
                         },
                     )
+                    mcpPick?.let(::agentMcpSent)
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     _sendError.value = trpcErrorMessage(t, "")

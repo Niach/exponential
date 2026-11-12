@@ -47,6 +47,7 @@ struct ComposerPlusMenu: View {
             repositories: model.repos.count > 1,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
+            mcpPick: temporary,
             skills: !skills.isEmpty,
             computerUse: model.device?.canToggleComputerUse == true,
             prompts: !model.prompts.isEmpty,

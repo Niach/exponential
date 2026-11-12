@@ -110,6 +110,13 @@ fn settings_mcp_servers_key_typed() {
     shoot_pane("mcp-servers-key-typed", |window, cx| KeyContent::for_shots("STRIPE_API_KEY", Some("sk_live_51HxQ2"), window, cx), |_, _| {});
 }
 
+/// #EXP-1793: a server that declares several names: one masked field each.
+#[test]
+#[ignore]
+fn settings_mcp_servers_key_many() {
+    shoot_pane("mcp-servers-key-many", |window, cx| KeyContent::for_shots_many(&["CF-Access-Client-Id", "CF-Access-Client-Secret", "Authorization"], &["4f1c.access", "", ""], window, cx), |_, _| {});
+}
+
 /// The Disconnect alert's body: the server's name.
 #[test]
 #[ignore]

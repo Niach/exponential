@@ -2354,6 +2354,14 @@ export const agents = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // #EXP-1793: the team MCP servers every run of this agent starts with
+    // (its conversation sessions, trigger firings and the roots its tree
+    // starts; children inherit). SYNCED (ids only; `mcp_servers` stays
+    // server-only).
+    mcpServerIds: jsonb(`mcp_server_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),

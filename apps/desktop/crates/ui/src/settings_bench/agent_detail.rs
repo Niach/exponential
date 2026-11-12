@@ -147,6 +147,46 @@ fn settings_agent_no_login() {
     page("agent-no-login", agent("a1", "agent", "macbook", triggers()), true, Some(Ok(INSTRUCTIONS.into())));
 }
 
+/// #EXP-1793 (agent-settings.json `mcpRow`): the MCP servers row under
+/// Skills, the team's servers handed to the page (`mcpServers.list` is
+/// server-only).
+fn mcp_page(name: &str, agent: domain::rows::AgentDefRow, owner: bool) {
+    let id = agent.id.clone();
+    shoot_pane_acted(name, move |window, cx| {
+        seed(agent, cx);
+        AgentDetailPane::for_shots(&id, window, cx)
+    }, |_, _| {}, None, &[], move |pane, window, cx| {
+        let server = |id: &str, name: &str, url: &str, status: &str| -> api::mcp_servers::McpServerListEntry {
+            serde_json::from_value(json!({"id": id, "teamId": TEAM, "name": name, "url": url, "auth": "oauth", "connection": {"status": status}})).expect("a server row")
+        };
+        let servers = vec![
+            server("m-linear", "Linear", "https://mcp.linear.app/mcp", "connected"),
+            server("m-sentry", "Sentry", "https://mcp.sentry.dev/mcp", "connected"),
+            server("m-notion", "Notion", "https://mcp.notion.com/mcp", "not_connected"),
+        ];
+        pane.seed_mcp_for_shots(TEAM, servers, cx);
+        pane.show(owner, Some(Ok(INSTRUCTIONS.into())), window, cx);
+    });
+}
+
+fn mcp_agent() -> domain::rows::AgentDefRow {
+    let mut agent = agent("a1", "agent", "mint", triggers());
+    agent.mcp_server_ids = vec!["m-linear".into(), "m-sentry".into()];
+    agent
+}
+
+#[test]
+#[ignore]
+fn settings_agent_mcp_owner() {
+    mcp_page("agent-mcp-owner", mcp_agent(), true);
+}
+
+#[test]
+#[ignore]
+fn settings_agent_mcp_member() {
+    mcp_page("agent-mcp-member", mcp_agent(), false);
+}
+
 #[test]
 #[ignore]
 fn settings_agent_assistant() {

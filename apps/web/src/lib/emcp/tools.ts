@@ -1,3 +1,7 @@
+import { AGENT_MCP_ROW } from "@exp/domain-contract/agent-settings"
+import { insertMcpServer, secretValuesFor } from "@/lib/trpc/mcp-servers"
+import { storeSecret } from "@/lib/emcp/upstream/credentials"
+import { probeMcpServer } from "@/lib/emcp/upstream/mcp-client"
 import { linksIssues } from "@exp/domain-contract/session-kind"
 import { classifyAppLink } from "@/lib/app-link"
 import { viaAppOf } from "@/lib/emcp/via-app"
@@ -20,6 +24,8 @@ import {
   issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
   MAX_MCP_SERVER_NAME,
+  MAX_MCP_SERVER_NAMES,
+  mcpVariableNameSchema,
   MESSAGE_BODY_MAX,
   PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_LABEL_KEY_MAX,
@@ -100,6 +106,7 @@ import { teamMergeModeValues } from "@exp/db-schema/domain"
 import { teamColumns } from "@/lib/team-columns"
 import {
   assertTeamMember,
+  assertTeamOwner,
   getTeamMember,
   getAttachmentTeamContext,
   getIssueTeamContext,
@@ -2795,6 +2802,25 @@ export function registerExponentialTools(
     )
   }
 
+  // #FEED-227: a turn with nothing to say (a quiet schedule tick, a routine
+  // event). The desktop lists `exponential_session_self` in Claude Code's
+  // CLAUDE_CODE_TERMINAL_MCP_TOOLS, so a turn that called it may end with no
+  // text: no "[Your previous response had no visible output…]" nudge, no
+  // filler reply. It writes nothing.
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_sessions_quiet`,
+      {
+        description: `Nothing to say this turn (a quiet tick or a routine event): call it, then end your turn with no text at all. Writes nothing.`,
+        inputSchema: strictInput({}),
+      },
+      async () => {
+        if (!sessionId) return err(new Error(noSessionMessage(`exponential_sessions_quiet`)))
+        return ok({ ok: true })
+      }
+    )
+  }
+
   // EXP-1328: follow-ups for a person to start, as ONE suggestions card on
   // the caller's own session (1:1 with the card; it wakes nothing). EXP-1211:
   // `replies` = a replies card, quick replies above the caller's composer.
@@ -4446,6 +4472,7 @@ export function registerExponentialTools(
   const agentFields = {
     instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).optional(),
     skillIds: z.array(uuidString).max(SKILLS_PER_SESSION_MAX).optional(),
+    mcpServerIds: z.array(uuidString).max(AGENT_MCP_ROW.max).optional(),
     triggers: agentTriggersSchema.optional(),
     icon: boardIconSchema.nullable().optional(),
     color: hexColorSchema.nullable().optional(),
@@ -4457,7 +4484,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_agents_create`,
     {
-      description: `Create a team agent (owners only). deviceId = a device you may start on (exponential_devices list). instructions = its markdown prompt. skillIds = skills every run starts with. triggers = [{kind: "schedule", cron: 5-field, tz?: IANA} | {kind: "event", name}], enabled: false switches one off; none = it only waits for messages. cli, account, model = what it runs on (default: the device's). Returns the agent.`,
+      description: `Create a team agent (owners only). deviceId = a device you may start on (exponential_devices list). instructions = its markdown prompt. skillIds / mcpServerIds = skills / team MCP servers every run starts with. triggers = [{kind: "schedule", cron: 5-field, tz?: IANA} | {kind: "event", name}], enabled: false switches one off; none = it only waits for messages. cli, account, model = what it runs on (default: the device's). Returns the agent.`,
       inputSchema: strictInput({
         teamId: uuidString,
         name: agentFacetsSchema.shape.name,
@@ -4844,34 +4871,51 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_mcp_servers_add`,
     {
-      description: `Add a remote (https) MCP server to a team's registry, never a repo .mcp.json. Owner only. Probes the URL to detect OAuth; name defaults from the host. Returns the row and connectUrl, where each member connects once.`,
+      description: `Add a remote (https) MCP server to a team's registry, never a repo .mcp.json. Owner only. Probes the URL to detect OAuth; name defaults from the host. secrets = {headerName: value} for a server behind secret headers (e.g. Cloudflare Access + a bearer token): it is added as a secret server with those header names and the values become YOUR connection (never echoed); no probe. Returns the row and connectUrl, where each member connects once.`,
       inputSchema: strictInput({
         teamId: uuidString,
         url: z.string().url().max(2048),
         name: z.string().trim().min(1).max(MAX_MCP_SERVER_NAME).optional(),
+        secrets: z.record(mcpVariableNameSchema, z.string().min(1).max(4096)).optional(),
       }),
     },
-    async ({ teamId, url, name }) => {
+    async ({ teamId, url, name, secrets }) => {
       try {
         assertTeamFullyGranted(access, teamId)
-        const trpc = caller(user, request)
-        const probe = await trpc.mcpServers.probe({ teamId, url })
-        if (!probe.reachable || probe.error) {
-          throw new Error(
-            `Could not add ${url}: ${probe.error ?? `unreachable`}`
-          )
+        // #EXP-1793: straight to the registry helpers (the tRPC router
+        // refuses an agent's key wholesale); the owner rule still applies.
+        // Adding a NEW server is safe for an agent: a secret it stores is
+        // one it already holds, and nothing here retargets an existing row.
+        const headerNames = secrets ? Object.keys(secrets) : []
+        if (secrets && (headerNames.length === 0 || headerNames.length > MAX_MCP_SERVER_NAMES)) {
+          throw new Error(`secrets takes 1 to ${MAX_MCP_SERVER_NAMES} headers`)
         }
-        const row = await trpc.mcpServers.create({
+        await assertTeamOwner(user.id, teamId)
+        const probe = secrets ? null : await probeMcpServer(url)
+        if (probe && (!probe.reachable || probe.error)) {
+          throw new Error(`Could not add ${url}: ${probe.error ?? `unreachable`}`)
+        }
+        const row = await insertMcpServer(db, user.id, {
           teamId,
-          name: name ?? probe.suggestedName,
+          name: name ?? probe?.suggestedName ?? new URL(url).hostname,
           transport: `http`,
-          url: probe.url,
-          auth: probe.auth,
-          scopes: probe.scopes,
+          url: probe?.url ?? url,
+          auth: secrets ? `secret` : probe!.auth,
+          scopes: probe?.scopes ?? [],
+          headerNames,
         })
+        if (secrets) {
+          await storeSecret(db, {
+            serverId: row.id,
+            userId: user.id,
+            teamId,
+            values: secretValuesFor(row, { values: secrets }),
+          })
+        }
         const slug = await loadTeamSlug(teamId)
         return ok({
           ...row,
+          connection: secrets ? `connected` : undefined,
           connectUrl: row.auth === `none` ? null : mcpConnectUrl(slug, row.id),
         })
       } catch (e) {

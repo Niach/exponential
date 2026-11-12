@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
   // #EXP-1715: the agent behind the root + the viewer's teams.
   agent: null as unknown,
   teams: [] as { id: string; name: string; iconUrl: string | null }[],
+  // #EXP-1793: the team's MCP servers + the conversation's pick.
+  mcpServers: [] as unknown[],
+  mcpPicks: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -44,7 +47,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
     sessions: {
       send: { mutate: mocks.send },
       configure: { mutate: mocks.configure },
-      mcpPicks: { query: () => Promise.resolve({ mcpServerIds: [] }) },
+      mcpPicks: { query: mocks.mcpPicks },
       stop: { mutate: mocks.stop },
       sendReply: { mutate: mocks.sendReply },
       dismissReplies: { mutate: mocks.dismissReplies },
@@ -79,7 +82,7 @@ vi.mock(`@/components/session-account-switch`, () => ({
     },
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
-  useMcpServers: () => ({ servers: [] }),
+  useMcpServers: () => ({ servers: mocks.mcpServers }),
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamById: () => ({ slug: `acme` }),
@@ -200,6 +203,9 @@ beforeEach(() => {
   mocks.prompts = []
   mocks.agent = null
   mocks.teams = []
+  mocks.mcpServers = []
+  mocks.mcpPicks.mockReset()
+  mocks.mcpPicks.mockResolvedValue({ mcpServerIds: [] })
 })
 
 describe(`SessionComposer / menu (NEW-2)`, () => {
@@ -672,5 +678,77 @@ describe(`SessionComposer quick replies (EXP-1211)`, () => {
     mocks.messages = []
     renderComposer()
     expect(screen.queryByTestId(`chat-replies`)).toBeNull()
+  })
+})
+
+// #EXP-1793 (composer-menu.json `mcpPick`): an agent chat's MCP servers ›,
+// seeded from the conversation's pick (`sessions.mcpPicks`), else the
+// agent's `mcpServerIds`; only a changed pick rides the next send.
+describe(`SessionComposer, an agent chat's MCP servers (#EXP-1793)`, () => {
+  const SERVERS = [
+    { id: `m1`, name: `GlitchTip`, url: `https://glitchtip.example/mcp`, command: null, connection: { status: `not_needed` } },
+    { id: `m2`, name: `Linear`, url: `https://mcp.linear.app/mcp`, command: null, connection: { status: `not_needed` } },
+  ]
+  const openMcp = () => {
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    act(() => {
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-mcp-servers`))
+    })
+  }
+  const send = async (field: HTMLTextAreaElement, text: string, calls: number) => {
+    type(field, text)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(calls))
+    return mocks.send.mock.calls[calls - 1]![0] as Record<string, unknown>
+  }
+
+  it(`seeds from the conversation, sends a changed pick once`, async () => {
+    mocks.mcpServers = SERVERS
+    mocks.row = sessionRow({ agentId: `ag-1` })
+    mocks.mcpPicks.mockResolvedValue({ mcpServerIds: [`m1`] })
+    mocks.send.mockResolvedValue({ sessionId: `s1`, txid: 1 })
+    render(<SessionComposer teamId="t1" sessionId="s1" surface="agent" placeholder="Message Triage" />)
+    const field = screen.getByPlaceholderText(`Message Triage`) as HTMLTextAreaElement
+    await waitFor(() => expect(mocks.mcpPicks).toHaveBeenCalledWith({ sessionId: `s1` }, expect.anything()))
+
+    // Unchanged: the plain message.
+    expect(await send(field, `one`, 1)).not.toHaveProperty(`mcpServerIds`)
+
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    await waitFor(() => expect(screen.getByTestId(`agent-composer-menu-mcp-servers`).textContent).toContain(`1`))
+    act(() => {
+      fireEvent.click(screen.getByTestId(`agent-composer-menu-mcp-servers`))
+    })
+    act(() => {
+      fireEvent.click(screen.getByText(`Linear`))
+    })
+    expect(await send(field, `two`, 2)).toMatchObject({ sessionId: `s1`, mcpServerIds: [`m1`, `m2`] })
+    // Sent: the new seed, nothing rides the next one.
+    expect(await send(field, `three`, 3)).not.toHaveProperty(`mcpServerIds`)
+  })
+
+  it(`no conversation yet: seeds from the agent, an emptied pick sends []`, async () => {
+    mocks.mcpServers = SERVERS
+    mocks.row = null
+    mocks.agent = { id: `ag-1`, role: `agent`, ownerId: `u2`, mcpServerIds: [`m2`] }
+    mocks.send.mockResolvedValue({ sessionId: `s-new`, txid: 3 })
+    render(
+      <SessionComposer teamId="t1" sessionId={null} agentId="ag-1" surface="agent" onSent={() => {}} placeholder="Message Triage" />
+    )
+    const field = screen.getByPlaceholderText(`Message Triage`) as HTMLTextAreaElement
+    expect(mocks.mcpPicks).not.toHaveBeenCalled()
+    openMcp()
+    act(() => {
+      fireEvent.click(screen.getByText(`Linear`))
+    })
+    expect(await send(field, `hello`, 1)).toMatchObject({ agentId: `ag-1`, mcpServerIds: [] })
+  })
+
+  it(`a session's composer never asks for the pick`, () => {
+    mocks.mcpServers = SERVERS
+    renderComposer()
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    expect(screen.queryByTestId(`agent-composer-menu-mcp-servers`)).toBeNull()
+    expect(mocks.mcpPicks).not.toHaveBeenCalled()
   })
 })

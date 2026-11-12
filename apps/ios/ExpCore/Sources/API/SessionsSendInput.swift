@@ -88,9 +88,11 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// device, so no runner picks). Needs text or files. EXP-1450:
     /// `issueIds` = the composer's issue chips, forwarded onto it.
     /// #EXP-1715: `scope` = the Assistant's Teams pick (nil = not sent).
+    /// #EXP-1793: `mcpServerIds` = the conversation's MCP servers from now
+    /// on (an empty list clears; nil = not sent, the pick stands).
     case agent(
         agentId: String, text: String? = nil, attachmentIds: [String]? = nil, issueIds: [String]? = nil,
-        scope: TeamsScope? = nil
+        scope: TeamsScope? = nil, mcpServerIds: [String]? = nil
     )
     /// VAPP-110: a message to an APP — into the caller's own EDITOR session
     /// with it (created on first use on `deviceId`, else the caller's default
@@ -167,12 +169,13 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try c.encodeIfPresent(promptId, forKey: .promptId)
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
-        case let .agent(agentId, text, attachmentIds, issueIds, scope):
+        case let .agent(agentId, text, attachmentIds, issueIds, scope, mcpServerIds):
             try c.encode(agentId, forKey: .agentId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try encodeScope(scope)
+            try c.encodeIfPresent(mcpServerIds, forKey: .mcpServerIds)
         case let .app(appId, deviceId, text, attachmentIds, cli, account, model):
             try c.encode(appId, forKey: .appId)
             try c.encodeIfPresent(deviceId, forKey: .deviceId)

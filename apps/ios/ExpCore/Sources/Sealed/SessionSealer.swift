@@ -75,7 +75,7 @@ public final class SessionSealer: @unchecked Sendable {
                 if let session = try SessionEntity.fetchOne(db, key: sessionId) {
                     root = try SessionEntity.fetchOne(db, key: session.rootId)
                 }
-            case let .agent(agentId, _, _, _, _):
+            case let .agent(agentId, _, _, _, _, _):
                 guard let me else { return nil }
                 root = try SessionEntity.fetchOne(db, sql: """
                     SELECT * FROM "sessions" WHERE "agent_id" = ? AND "user_id" = ? AND "parent_id" IS NULL

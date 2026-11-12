@@ -1554,6 +1554,17 @@
         "result": "none"
       },
       {
+        "name": "session_self_quiet",
+        "title": "Nothing to say",
+        "blurb": "Ends this turn without a reply: a quiet check-in or a routine event.",
+        "progressive": "Ending turn quietly",
+        "done": "Ended turn quietly",
+        "progressiveMany": "Ending turn quietly {n} times",
+        "doneMany": "Ended turn quietly {n} times",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
         "name": "session_self_report_bug",
         "title": "Report a bug",
         "blurb": "Files a bug about Exponential itself with the people who build it.",
@@ -2127,6 +2138,7 @@
       { "name": "sessions_end", "refs": "" },
       { "name": "session_self_suggest", "refs": "" },
       { "name": "session_self_compact", "refs": "" },
+      { "name": "session_self_quiet", "refs": "" },
       { "name": "session_self_report_bug", "refs": "issue@" },
       { "name": "apps_list", "refs": "" },
       { "name": "apps_get", "refs": "" },
