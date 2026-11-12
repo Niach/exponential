@@ -424,7 +424,6 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
     match section {
         SettingsSection::General
         | SettingsSection::Storage
-        | SettingsSection::AllBoards
         | SettingsSection::Widget
         | SettingsSection::NewAgent
         | SettingsSection::NewPrompt
@@ -1494,7 +1493,6 @@ mod tests {
         for gated in [
             SettingsSection::General,
             SettingsSection::Storage,
-            SettingsSection::AllBoards,
             // EXP-771: the Features group mirrors the web's
             // `canManageWidgets` gate, which IS `isOwner`.
             SettingsSection::Widget,
@@ -1801,11 +1799,12 @@ mod tests {
     /// EXP-500: archiving the board whose settings pane is open drops it out
     /// of the synced collection, which is exactly the stale-`Board(id)` case
     /// above — the nav clamps to General instead of rendering a blank pane.
-    /// The All boards pane it lands on stays reachable.
+    /// The All boards pane it lands on stays reachable. #EXP-1797: every
+    /// member reaches it (it carries the issue trash; settings-nav.json).
     #[test]
-    fn all_boards_pane_is_owner_only_and_never_clamped() {
+    fn all_boards_pane_is_member_visible_and_never_clamped() {
         assert!(section_visible(&SettingsSection::AllBoards, true));
-        assert!(!section_visible(&SettingsSection::AllBoards, false));
+        assert!(section_visible(&SettingsSection::AllBoards, false));
         assert_eq!(
             effective_selection(SettingsSection::AllBoards, true, |_| false, |_| false),
             SettingsSection::AllBoards
