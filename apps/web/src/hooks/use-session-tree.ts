@@ -19,6 +19,7 @@ import { CHATS_TRANSCRIPT, digestMessages, type ConversationDigest } from "@exp/
 import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
+import { sharedLiveQuery } from "@/lib/shared-live-query"
 import {
   buildSessionChat,
   keyMessageRows,
@@ -550,20 +551,26 @@ function useNewestMessages(input: {
   const rootId = input.rootId ?? null
   const sessionIds = input.sessionIds
   const scopeKey = rootId ?? sessionIds.join(`,`)
+  // #PERF-7: shared per (scope, limit): the chat, its composer and its
+  // quick replies ask the SAME subset once, and a reopened chat reuses it.
   const { data, isReady } = useLiveQuery(
-    (query) =>
+    () =>
       rootId
-        ? query
-            .from({ messages: messageCollection })
-            .where(({ messages }) => eq(messages.rootId, rootId))
-            .orderBy(({ messages }) => messages.createdAt, `desc`)
-            .limit(limit)
-        : sessionIds.length > 0
-          ? query
+        ? sharedLiveQuery(`newest:root:${rootId}:${limit}`, (query) =>
+            query
               .from({ messages: messageCollection })
-              .where(({ messages }) => inArray(messages.sessionId, [...sessionIds]))
+              .where(({ messages }) => eq(messages.rootId, rootId))
               .orderBy(({ messages }) => messages.createdAt, `desc`)
               .limit(limit)
+          )
+        : sessionIds.length > 0
+          ? sharedLiveQuery(`newest:sessions:${scopeKey}:${limit}`, (query) =>
+              query
+                .from({ messages: messageCollection })
+                .where(({ messages }) => inArray(messages.sessionId, [...sessionIds]))
+                .orderBy(({ messages }) => messages.createdAt, `desc`)
+                .limit(limit)
+            )
           : undefined,
     [scopeKey, limit]
   )
@@ -592,9 +599,11 @@ function useNewestMessages(input: {
     .sort()
   const waitingKey = waitingIds.join(`,`)
   const { data: waiting } = useLiveQuery(
-    (query) =>
+    () =>
       waitingIds.length > 0
-        ? query.from({ messages: messageCollection }).where(({ messages }) => inArray(messages.id, waitingIds))
+        ? sharedLiveQuery(`waiting:${waitingKey}`, (query) =>
+            query.from({ messages: messageCollection }).where(({ messages }) => inArray(messages.id, waitingIds))
+          )
         : undefined,
     [waitingKey]
   )
