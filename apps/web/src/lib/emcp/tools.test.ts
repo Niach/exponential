@@ -313,6 +313,7 @@ vi.mock(`@/lib/integrations/pr-checks`, () => prChecks)
 // EXP-1709: the merge train's worker (the only merge).
 const train = vi.hoisted(() => ({
   approvePullRequest: vi.fn(async () => {}),
+  queuePullRequest: vi.fn(async () => {}),
   runRepository: vi.fn(async () => {}),
   queueReport: vi.fn(async () => ({ state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 })),
   holdPullRequest: vi.fn(async () => null),
@@ -3062,7 +3063,7 @@ describe(`pull request tools (EXP-1291)`, () => {
       userId: USER.id,
       callerSessionId: SESSION,
     })
-    expect(train.approvePullRequest).toHaveBeenCalledWith(PR_ID)
+    expect(train.queuePullRequest).toHaveBeenCalledWith(PR_ID)
     expect(train.runRepository).toHaveBeenCalled()
   })
 
@@ -3082,14 +3083,14 @@ describe(`pull request tools (EXP-1291)`, () => {
     const owner = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
     expect(owner).toMatchObject({ queued: true, mergeNow: true })
     expect(train.mergeNowPullRequest).toHaveBeenCalled()
-    expect(train.approvePullRequest).not.toHaveBeenCalled()
+    expect(train.queuePullRequest).not.toHaveBeenCalled()
     train.mergeNowPullRequest.mockClear()
     dbRows.current = [callerRow()]
     const member = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
     expect(member).toMatchObject({ queued: true })
     expect((member as { mergeNow?: boolean }).mergeNow).toBeUndefined()
     expect(train.mergeNowPullRequest).not.toHaveBeenCalled()
-    expect(train.approvePullRequest).toHaveBeenCalled()
+    expect(train.queuePullRequest).toHaveBeenCalled()
   })
 
   it(`#EXP-1711: force from a team agent's session is Merge now`, async () => {
@@ -3114,7 +3115,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     // A closed PR is not re-read from GitHub.
     expect(prChecks.pullRequestChecksBrief).toHaveBeenCalledWith(PR_ID, { repair: false })
     expect(prs.closePullRequestTx).toHaveBeenCalledWith({ userId: USER.id, pullRequestId: PR_ID })
-    expect(train.approvePullRequest).not.toHaveBeenCalled()
+    expect(train.queuePullRequest).not.toHaveBeenCalled()
   })
 
   it(`pr_close holds a confined grant to the PR's team`, async () => {
@@ -3198,7 +3199,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, teamConfined([WS]))
       .get(`exponential_pr_merge`)!({ pullRequestId: PR_ID })
     expect(result.isError).toBe(true)
-    expect(train.approvePullRequest).not.toHaveBeenCalled()
+    expect(train.queuePullRequest).not.toHaveBeenCalled()
   })
 })
 

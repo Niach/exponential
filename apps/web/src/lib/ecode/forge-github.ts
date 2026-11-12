@@ -138,7 +138,14 @@ export const githubForge: Forge = {
       body: { ref: inputs.base, inputs, return_run_details: true },
     })
     if (res.status === 404) return { ok: false, missing: true, message: `no ${GITHUB_TRAIN_WORKFLOW} on ${inputs.base}` }
-    if (!res.ok) return { ok: false, missing: false, message: `GitHub returned ${res.status}: ${await githubErrorMessage(res)}` }
+    if (!res.ok) {
+      const message = `GitHub returned ${res.status}: ${await githubErrorMessage(res)}`
+      // #FEED-223: the installation was never granted Actions (a 403 "not
+      // accessible by integration", never a rate limit): this App can run no
+      // pipeline here, so the repo has none for the train. It used to error
+      // every five minutes forever, the PRs silently `queued`.
+      return { ok: false, missing: res.status === 403 && /not accessible by integration/i.test(message), message }
+    }
     // 200 with the run's id (return_run_details), or 204 without a body.
     let runRef: string | null = null
     if (res.status === 200) {
