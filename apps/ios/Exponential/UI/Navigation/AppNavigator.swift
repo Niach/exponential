@@ -293,8 +293,10 @@ struct AppNavigator: View {
             // NEW-69: a call belongs to the account that started it.
             voiceCall.end()
         }
-        .onChange(of: deps.auth.authenticatedAccountIds) { _, _ in
+        .onChange(of: deps.auth.authenticatedAccountIds) { old, new in
             deps.steerSessions.removeAll()
+            // #PERF-9 STORED TAIL: signing out deletes the account's tails.
+            SteerStoredTailStore.shared.removeAccounts(old.subtracting(new))
             systemSearch?.refresh()
         }
         .task {

@@ -98,7 +98,40 @@ struct SelectableTextLabel: UIViewRepresentable {
         return out
     }
 
+    /// #PERF-9: what the view last painted; an update with the same inputs
+    /// (a parent's re-render) shapes and re-sets nothing.
+    final class Coordinator {
+        var painted: (attributed: NSAttributedString, paint: TextPaint, rtl: Bool, wraps: Bool)?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// #PERF-9 (large chats' scroll): the views a lazy list let go of, reused
+    /// by the next blocks it realizes. A `UITextView` (its TextKit stack, its
+    /// selection interactions) is the costly part of a row coming into view.
+    @MainActor private static var spare: [View] = []
+    private static let spareCap = 48
+
+    static func dismantleUIView(_ view: View, coordinator: Coordinator) {
+        view.onTap = nil
+        guard spare.count < spareCap else { return }
+        spare.append(view)
+    }
+
+    /// A spare view that is off screen by now (one still in a window is
+    /// still someone's).
+    private static func reusable() -> View? {
+        while let view = spare.popLast() {
+            guard view.window == nil else { continue }
+            view.removeFromSuperview()
+            view.selectedRange = NSRange(location: 0, length: 0)
+            return view
+        }
+        return nil
+    }
+
     func makeUIView(context: Context) -> View {
+        if let view = Self.reusable() { return view }
         let view = View(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
@@ -121,7 +154,12 @@ struct SelectableTextLabel: UIViewRepresentable {
 
     func updateUIView(_ view: View, context: Context) {
         let rtl = context.environment.xuiRTL
-        let shaped = NSMutableAttributedString(attributedString: TextLabel.shaped(attributed, context.environment.xuiTextPaint, rtl: rtl))
+        let paint = context.environment.xuiTextPaint
+        view.onTap = onTap
+        if let painted = context.coordinator.painted, painted.attributed === attributed,
+           painted.paint == paint, painted.rtl == rtl, painted.wraps == wraps { return }
+        context.coordinator.painted = (attributed, paint, rtl, wraps)
+        let shaped = NSMutableAttributedString(attributedString: TextLabel.shaped(attributed, paint, rtl: rtl))
         let all = NSRange(location: 0, length: shaped.length)
         if shaped.length > 0, let half = shaped.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat, half > 0 {
             shaped.addAttribute(.baselineOffset, value: half, range: all)
@@ -135,7 +173,6 @@ struct SelectableTextLabel: UIViewRepresentable {
         }
         if view.attributedText != shaped { view.attributedText = shaped }
         view.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
-        view.onTap = onTap
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: View, context: Context) -> CGSize? {

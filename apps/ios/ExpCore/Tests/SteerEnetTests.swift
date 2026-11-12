@@ -48,6 +48,9 @@ final class SteerEnetTests: XCTestCase {
         XCTAssertEqual(f["staleMs"] as? Int, SteerEnet.staleMs)
         XCTAssertEqual(f["joinTimeoutMs"] as? Int, SteerEnet.joinTimeoutMs)
         XCTAssertEqual(f["sendTimeoutMs"] as? Int, SteerEnet.sendTimeoutMs)
+        XCTAssertEqual(f["storedTail"] as? Int, SteerEnet.storedTail)
+        XCTAssertEqual(f["storedTailMaxSessions"] as? Int, SteerEnet.storedTailMaxSessions)
+        XCTAssertEqual(f["storedTailMaxAgeDays"] as? Int, SteerEnet.storedTailMaxAgeDays)
     }
 
     func testParseCases() throws {

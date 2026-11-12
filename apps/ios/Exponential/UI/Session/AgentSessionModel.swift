@@ -1130,7 +1130,7 @@ final class AgentSessionModel {
     /// EXP-656: the activity events of an in-flight join replay. nil = not
     /// staging; non-nil (even empty) = the visible feed is frozen and every
     /// `activity` frame buffers here until the replay commits in ONE pass.
-    @ObservationIgnored private var stagedFrames: [(activity: SteerWireFrame.Activity, seq: Int?)]?
+    @ObservationIgnored private var stagedFrames: [(activity: SteerWireFrame.Activity, seq: Int?, text: String?)]?
     @ObservationIgnored private var stagingStartedAt: Date?
     @ObservationIgnored private var lastStagedFrameAt: Date?
     /// The one task that watches an in-flight staging window (quiet timeout +
@@ -1139,6 +1139,23 @@ final class AgentSessionModel {
     /// Messages this client sent WHILE a replay was staging: the replay
     /// predates them, so the commit re-appends whatever it didn't carry back.
     @ObservationIgnored private var stagedLocalEchoes: [String] = []
+    /// #PERF-9 STORED TAIL (steer-enet.json): the newest `activity` frames
+    /// this viewer applied (the wire texts, seqs inside) plus the latest of
+    /// each slot kind, what is written to disk, debounced and off main, for
+    /// the next open to paint at once.
+    @ObservationIgnored private var tail = SteerStoredTail.Ring()
+    @ObservationIgnored private var tailWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var tailRestoreStarted = false
+    /// The store's generation for this account when the model started: a
+    /// sign-out since then drops this model's writes.
+    @ObservationIgnored private var tailGeneration: Int?
+    /// The feed on screen is the stored tail, not yet replaced by a replay.
+    @ObservationIgnored private var showingStoredTail = false
+    /// The stored tail's numbered rows: the replay that replaces it gives
+    /// the rows both hold (matched by seq) the tail's ids, so they keep
+    /// their identity and the reader's anchor holds.
+    @ObservationIgnored private var storedTailRows: [(item: AgentFeedItem, seq: Int)] = []
+    private static let tailWriteDebounce: Duration = .seconds(1)
 
     /// How long an optimistic answer lock holds without an `answer_ack` or a
     /// `question_resolved` — long enough to cover a slow desktop injection,
@@ -1214,6 +1231,7 @@ final class AgentSessionModel {
         configureDraftEditor()
         startActivityClock()
         openViewStats()
+        restoreStoredTail()
         if phase == .idle { connect() }
     }
 
@@ -1325,6 +1343,7 @@ final class AgentSessionModel {
     /// merely goes off-view (EXP-621).
     func shutdown() {
         logger.info("shutdown")
+        if tailWriteTask != nil { writeTail() }
         endViewStats()
         stopped = true
         retryTask?.cancel()
@@ -2216,14 +2235,14 @@ final class AgentSessionModel {
                 // frame of an earlier dial never reaches this one.
                 guard connected else { break }
                 guard batch[index].generation == dialGeneration, let frame else { continue }
-                onFrame(frame)
+                onFrame(frame, text: batch[index].text)
             }
             applyingBatch = false
             reproject()
         }
     }
 
-    private func onFrame(_ frame: SteerWireFrame) {
+    private func onFrame(_ frame: SteerWireFrame, text: String? = nil) {
         let t = frame.t
         // EXP-656: the replay frames go through the pure staging rule first —
         // an `activity_reset` no longer wipes anything, it opens a staging
@@ -2238,12 +2257,13 @@ final class AgentSessionModel {
                 beginStaging()
             case .stage:
                 markLive()
-                stageFrame(frame.activity, seq: frame.seq)
+                stageFrame(frame.activity, seq: frame.seq, text: text)
             case .apply:
                 markLive()
                 currentSeq = frame.seq
                 handleActivityEvent(frame.activity)
                 currentSeq = nil
+                if t == "activity", let event = frame.activity.event, let text { noteTail(text, event: event) }
             case .commit:
                 // `activity_synced` is the device's end-of-replay marker; a
                 // `keepalive` (its own beat) proves the burst is over for
@@ -2416,6 +2436,171 @@ final class AgentSessionModel {
         }
     }
 
+    // MARK: - Stored tail (#PERF-9)
+
+    /// The tree the stored tail is sealed for: the root, its current key (nil
+    /// = keyless) and whether its row is known here (an unknown one stores
+    /// nothing and opens only a sealed tail).
+    private func storedTailTree() -> (rootId: String, key: TreeSealKey?, known: Bool) {
+        let rootId = session?.rootId ?? root?.id ?? sessionId
+        if let root, root.id == rootId { return (rootId, root.sealKey, true) }
+        if let pool = try? db.pool(forAccountId: accountId),
+           let row = (try? pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil {
+            return (rootId, row.sealKey, true)
+        }
+        return (rootId, nil, false)
+    }
+
+    /// STORED TAIL: paint what this viewer last held of the session at once,
+    /// while discovery and the join run (read, opened and parsed off main,
+    /// usually already under way since the chat screen opened). A tail that
+    /// does not open is not shown.
+    private func restoreStoredTail() {
+        if tailGeneration == nil { tailGeneration = SteerStoredTailStore.shared.generation(accountId: accountId) }
+        guard !tailRestoreStarted, feed.isEmpty, !replayed else { return }
+        tailRestoreStarted = true
+        let read = StoredTailReads.take(accountId: accountId, sessionId: sessionId)
+            ?? StoredTailReads.read(accountId: accountId, sessionId: sessionId, db: db)
+        Task { [weak self] in
+            let restored = await read.value
+            self?.applyStoredTail(restored)
+        }
+    }
+
+    /// Fold the stored tail into the empty feed, unless a replay got there
+    /// first. Only its ROWS are taken: the latest-wins slots it carries (the
+    /// turn, the queue, the usage…) may be stale, and the join's replay
+    /// restates them a moment later; until then the screen keeps what it had
+    /// (the Dock's last-known slots). The replay replaces all of it.
+    private func applyStoredTail(_ restored: [(frame: SteerWireFrame, text: String)]) {
+        guard !restored.isEmpty, !stopped, feed.isEmpty, !replayed else { return }
+        let slots = (
+            turn: turn, background: backgroundTasks, tasks: taskList, queued: queued, workflows: workflows,
+            compacting: compacting, config: sessionConfig, usage: sessionUsage,
+            layout: sessionContextLayout, rateLimit: sessionRateLimit, diff: latestDiff
+        )
+        let nested = applyingBatch
+        applyingBatch = true
+        for entry in restored {
+            currentSeq = entry.frame.seq
+            handleActivityEvent(entry.frame.activity)
+        }
+        currentSeq = nil
+        turn = slots.turn
+        if backgroundTasks != slots.background { backgroundTasks = slots.background }
+        if taskList != slots.tasks { taskList = slots.tasks }
+        if queued != slots.queued { queued = slots.queued }
+        if workflows != slots.workflows { workflows = slots.workflows }
+        if slots.compacting == nil, compacting != nil { clearCompaction() }
+        sessionConfig = slots.config
+        sessionUsage = slots.usage
+        sessionContextLayout = slots.layout
+        sessionRateLimit = slots.rateLimit
+        latestDiff = slots.diff
+        applyingBatch = nested
+        guard !feed.isEmpty else { return }
+        showingStoredTail = true
+        storedTailRows = feed.compactMap { item in seqById[item.id].map { (item, $0) } }
+        if tail.isEmpty {
+            for entry in restored {
+                tail.append(entry.text, slotKind: entry.frame.activity.event.flatMap(SteerStoredTail.slotKind))
+            }
+        }
+        if !nested { reproject() }
+        logger.info("stored tail shown items=\(self.feed.count)")
+    }
+
+    /// The replay that replaced the stored tail keeps the tail's ids for the
+    /// rows both hold (matched by seq, the same kind of row), the rows only
+    /// the replay holds numbered around them (older ones below, like a
+    /// prepended page): they keep their identity and the reader's anchor
+    /// holds. No room between two matched rows = the replay keeps its own
+    /// ids (Android `adoptRowIds`).
+    private func alignToStoredTail() {
+        let previous = storedTailRows
+        storedTailRows = []
+        guard !feed.isEmpty, !previous.isEmpty else { return }
+        var bySeq: [Int: AgentFeedItem] = [:]
+        for (item, seq) in previous where bySeq[seq] == nil { bySeq[seq] = item }
+        var target = [Int](repeating: 0, count: feed.count)
+        var matched = [Bool](repeating: false, count: feed.count)
+        var first = -1, last = -1
+        for (index, item) in feed.enumerated() {
+            guard let seq = seqById[item.id], let old = bySeq[seq], Self.sameKind(old, item) else { continue }
+            if last >= 0 {
+                guard old.id - target[last] >= index - last else { return }
+            } else {
+                first = index
+            }
+            target[index] = old.id
+            matched[index] = true
+            last = index
+        }
+        guard first >= 0 else { return }
+        var anchor = first
+        var renumbered: [AgentFeedItem] = []
+        var seqs: [Int: Int] = [:]
+        renumbered.reserveCapacity(feed.count)
+        for (index, item) in feed.enumerated() {
+            let id: Int
+            if matched[index] {
+                id = target[index]
+                anchor = index
+            } else if index < first {
+                id = target[first] - (first - index)
+            } else {
+                id = target[anchor] + (index - anchor)
+            }
+            if let seq = seqById[item.id] { seqs[id] = seq }
+            renumbered.append(id == item.id ? item : item.withId(id))
+        }
+        feed = renumbered
+        seqById = seqs
+        nextEventId = (renumbered.last?.id ?? nextEventId) + 1
+    }
+
+    private static func sameKind(_ a: AgentFeedItem, _ b: AgentFeedItem) -> Bool {
+        Mirror(reflecting: a).children.first?.label == Mirror(reflecting: b).children.first?.label
+    }
+
+    private func noteTail(_ text: String, event: AgentActivityEvent) {
+        tail.append(text, slotKind: SteerStoredTail.slotKind(event))
+        scheduleTailWrite()
+    }
+
+    private func replaceTail(_ staged: [(activity: SteerWireFrame.Activity, seq: Int?, text: String?)]) {
+        var next = SteerStoredTail.Ring()
+        for frame in staged {
+            guard let text = frame.text, let event = frame.activity.event else { continue }
+            next.append(text, slotKind: SteerStoredTail.slotKind(event))
+        }
+        guard !next.isEmpty else { return }
+        tail = next
+        scheduleTailWrite()
+    }
+
+    private func scheduleTailWrite() {
+        tailWriteTask?.cancel()
+        tailWriteTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.tailWriteDebounce)
+            guard let self, !Task.isCancelled else { return }
+            self.writeTail()
+        }
+    }
+
+    /// Hands the tail to the store, which seals (a keyed tree) and writes it
+    /// off main. An unknown root stores nothing.
+    private func writeTail() {
+        tailWriteTask?.cancel()
+        tailWriteTask = nil
+        let tree = storedTailTree()
+        guard tree.known, !tail.isEmpty, let generation = tailGeneration else { return }
+        SteerStoredTailStore.shared.write(
+            accountId: accountId, sessionId: sessionId, frames: tail.frames,
+            key: tree.key, crypto: SealedOpener.shared.crypto, generation: generation
+        )
+    }
+
     // MARK: - Staged join replay (EXP-656)
 
     private var isStaging: Bool { stagedFrames != nil }
@@ -2432,9 +2617,9 @@ final class AgentSessionModel {
         armStagingWatcher()
     }
 
-    private func stageFrame(_ activity: SteerWireFrame.Activity, seq: Int?) {
+    private func stageFrame(_ activity: SteerWireFrame.Activity, seq: Int?, text: String?) {
         guard activity.event != nil else { return }
-        stagedFrames?.append((activity: activity, seq: seq))
+        stagedFrames?.append((activity: activity, seq: seq, text: text))
         lastStagedFrameAt = Date()
     }
 
@@ -2504,7 +2689,8 @@ final class AgentSessionModel {
         // proved older than the replay, so one of them makes this the full
         // swap it has always been.
         var retained: [AgentFeedItem] = []
-        if let firstSeq {
+        // #PERF-9: a stored tail on screen is no loaded page: it is replaced.
+        if let firstSeq, !showingStoredTail {
             var split = 0
             while split < feed.count,
                   let seq = seqById[feed[split].id], seq < firstSeq {
@@ -2542,6 +2728,11 @@ final class AgentSessionModel {
             handleActivityEvent(staging.activity)
         }
         currentSeq = nil
+        if showingStoredTail {
+            showingStoredTail = false
+            alignToStoredTail()
+        }
+        replaceTail(staged)
         for text in echoes where !tailCarriesEcho(text) {
             // Not in the replay: re-show it, and re-arm the dedupe so its
             // transcript-derived twin doesn't render a second copy (EXP-78).
@@ -3291,5 +3482,53 @@ final class TranscriptEntry: Identifiable, Equatable {
             prev = cur
         }
         return out
+    }
+}
+
+/// #PERF-9 STORED TAIL: one session's stored tail, read, opened and parsed
+/// off main. The chat screen starts it as it opens (`start`), beside its own
+/// snapshot read; the session model that paints it takes it (`take`).
+@MainActor
+enum StoredTailReads {
+    typealias Restored = [(frame: SteerWireFrame, text: String)]
+
+    private static var started: [String: (task: Task<Restored, Never>, at: Date)] = [:]
+    /// A read older than this may predate the tail on disk: read again.
+    private static let fresh: TimeInterval = 5
+
+    static func start(accountId: String, sessionId: String, db: DatabaseManager) {
+        let key = "\(accountId)/\(sessionId)"
+        if let read = started[key], Date().timeIntervalSince(read.at) < fresh { return }
+        started = started.filter { Date().timeIntervalSince($0.value.at) < fresh }
+        started[key] = (read(accountId: accountId, sessionId: sessionId, db: db), Date())
+    }
+
+    static func take(accountId: String, sessionId: String) -> Task<Restored, Never>? {
+        guard let read = started.removeValue(forKey: "\(accountId)/\(sessionId)"),
+              Date().timeIntervalSince(read.at) < fresh else { return nil }
+        return read.task
+    }
+
+    /// The tree is read off main too: the session's root and its current
+    /// key (a keyed or unknown tree opens only a sealed tail).
+    static func read(accountId: String, sessionId: String, db: DatabaseManager) -> Task<Restored, Never> {
+        let opener = SealedOpener.shared
+        return Task.detached(priority: .userInitiated) {
+            var rootId = sessionId, key: TreeSealKey?, known = false
+            if let pool = try? db.pool(forAccountId: accountId),
+               let row = (try? pool.read { try SessionEntity.fetchOne($0, key: sessionId) }) ?? nil {
+                rootId = row.rootId.isEmpty ? row.id : row.rootId
+                let root = rootId == row.id ? row : (try? pool.read { try SessionEntity.fetchOne($0, key: rootId) }) ?? nil
+                if let root { key = root.sealKey; known = true }
+            }
+            guard let body = SteerStoredTailStore.shared.read(accountId: accountId, sessionId: sessionId),
+                  let texts = SteerStoredTail.open(
+                      body, keyed: !known || key != nil, keys: opener.ring.keys(rootId: rootId), crypto: opener.crypto
+                  ) else { return [] }
+            return texts.compactMap { text in
+                guard let frame = SteerWireFrame.parse(text), frame.t == "activity" else { return nil }
+                return (frame, text)
+            }
+        }
     }
 }

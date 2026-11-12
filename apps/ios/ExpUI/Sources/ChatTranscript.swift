@@ -279,17 +279,35 @@ struct BubbleColumn: Layout {
     var spacing: CGFloat
     var trailingLast: Bool
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+    /// #PERF-9: the subviews' sizes per offered width, kept until they
+    /// change (sizing and placing measured every line twice).
+    struct Cache {
+        var sizes: [CGFloat?: [CGSize]] = [:]
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.sizes.removeAll(keepingCapacity: true) }
+
+    private func sizes(_ subviews: Subviews, width: CGFloat?, cache: inout Cache) -> [CGSize] {
+        if let hit = cache.sizes[width], hit.count == subviews.count { return hit }
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
+        cache.sizes[width] = sizes
+        return sizes
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let sizes = sizes(subviews, width: proposal.width, cache: &cache)
         let width = sizes.map(\.width).max() ?? 0
         let height = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         var y = bounds.minY
+        let sizes = sizes(subviews, width: bounds.width, cache: &cache)
         for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            let size = sizes[index]
             let trailing = trailingLast && subviews.count > 1 && index == subviews.count - 1
             let x = trailing ? bounds.maxX - size.width : bounds.minX
             subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: size.width, height: size.height))
@@ -309,16 +327,33 @@ struct BubbleWidthCap: Layout {
         return width * fraction
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    /// #PERF-9: the child's size per capped width, kept until the child
+    /// changes (sizing and placing a bubble measured it twice).
+    struct Cache {
+        var sizes: [CGFloat?: CGSize] = [:]
+    }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.sizes.removeAll(keepingCapacity: true) }
+
+    private func childSize(_ child: LayoutSubview, width: CGFloat?, cache: inout Cache) -> CGSize {
+        if let hit = cache.sizes[width] { return hit }
+        let size = child.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        cache.sizes[width] = size
+        return size
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         guard let child = subviews.first else { return .zero }
-        let size = child.sizeThatFits(ProposedViewSize(width: cap(proposal.width), height: nil))
+        let size = childSize(child, width: cap(proposal.width), cache: &cache)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? size.width
         return CGSize(width: width, height: size.height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard let child = subviews.first else { return }
-        let size = child.sizeThatFits(ProposedViewSize(width: cap(bounds.width), height: nil))
+        let size = childSize(child, width: cap(bounds.width), cache: &cache)
         let x = trailing ? bounds.maxX - size.width : bounds.minX
         child.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: size.width, height: size.height))
     }
