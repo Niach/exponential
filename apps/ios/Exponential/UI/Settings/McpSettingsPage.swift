@@ -260,7 +260,7 @@ struct McpSettingsPage: View {
                 ForEach(bands) { band in
                     toolBand(band.label, id: band.id) {
                         ForEach(band.tools) { tool in
-                            toolRow(title: tool.title, blurb: tool.blurb, mark: true)
+                            toolRow(title: tool.title, blurb: tool.blurb)
                         }
                     }
                 }
@@ -347,13 +347,10 @@ struct McpSettingsPage: View {
         .accessibilityIdentifier("mcp-tool-band-\(id)")
     }
 
-    /// One tool under an open row: its title (medium) + its muted blurb
-    /// (the built-in rows keep the Exponential mark).
-    private func toolRow(title: String, blurb: String, mark: Bool = false) -> some View {
+    /// One tool under an open row: its title (medium) + its muted blurb, no
+    /// per-row mark (web, desktop).
+    private func toolRow(title: String, blurb: String) -> some View {
         HStack(spacing: 8) {
-            if mark {
-                ExpLogoMark(size: 12, color: .white.opacity(TextOpacity.tertiary))
-            }
             Text(title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
