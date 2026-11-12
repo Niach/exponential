@@ -9,26 +9,6 @@ import SwiftUI
 //   NeedsYouList      one reading column of THE inbox page's row look, else
 //                     THE EmptyState
 
-/// The entry's count Badge: the needs-you tone, 16 pt tall (web `Badge`).
-public struct NeedsYouCountBadge: View {
-    let count: Int
-
-    public init(count: Int) {
-        self.count = count
-    }
-
-    public var body: some View {
-        Text("\(count)")
-            .font(.system(size: 11, weight: .semibold))
-            .monospacedDigit()
-            .foregroundStyle(Color.black)
-            .padding(.horizontal, 4)
-            .frame(minWidth: 16, minHeight: 16)
-            .background(DesignTokens.Semantic.yellow, in: Capsule())
-            .fixedSize()
-    }
-}
-
 /// THE ENTRY on phones: as tall as the Archived row, the glyph in the
 /// needs-you tone centred in the lead disc's column (no disc), the title
 /// `copy.entry`, the count Badge in the needs-you tone trailing.

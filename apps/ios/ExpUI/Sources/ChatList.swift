@@ -98,7 +98,7 @@ public struct ChatRowView<Lead: View>: View {
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if let needsYouCount {
-                        NeedsYouCountBadge(count: needsYouCount)
+                        CountBadge(count: needsYouCount, tone: .attention)
                     } else {
                         Text(time)
                             .font(.subheadline)
@@ -125,16 +125,7 @@ public struct ChatRowView<Lead: View>: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .fixedSize()
                     }
-                    if unread {
-                        Text("\(unreadCount)")
-                            .font(.caption.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(needsYou ? Color.black : DesignTokens.Palette.background)
-                            .padding(.horizontal, 6)
-                            .frame(minWidth: 22, minHeight: 22)
-                            .background(needsYou ? DesignTokens.Semantic.yellow : .white, in: Capsule())
-                            .fixedSize()
-                    }
+                    CountBadge(NavBadges.rowBadge(unreadCount: unreadCount, needsYou: needsYou))
                 }
                 }
             }
