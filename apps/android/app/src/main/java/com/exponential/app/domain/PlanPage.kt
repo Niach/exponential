@@ -45,6 +45,8 @@ object PlanPage {
         const val TAB_MAX_WIDTH = 260f
         /** #FEED-191: the questions rail, WIDE only (phones keep the panel). */
         const val RAIL_WIDTH = 360f
+        /** #EXP-1786: the document's readable floor ([planPaneLayout]). */
+        const val DOCUMENT_MIN_WIDTH = 360f
     }
 
     /** #EXP-1662: THE questions, floating over the document's foot. */
@@ -326,6 +328,18 @@ object PlanPage {
         val held = kept?.let { id -> plans.firstOrNull { it.id == id } } ?: return null
         return if (held.decision == "approved" || held.decision == "rejected") held.id else null
     }
+
+    /** #EXP-1786: which wide columns the plan body's OWN width holds
+     *  (`paneCases`). [outline] false = no outline column; [rail] false = the
+     *  questions float ([Panel]). */
+    data class PaneLayout(val outline: Boolean, val rail: Boolean)
+
+    /** The three columns while the document keeps [Layout.DOCUMENT_MIN_WIDTH]
+     *  beside both, else the document + the rail, else the document alone. */
+    fun planPaneLayout(width: Float): PaneLayout = PaneLayout(
+        outline = width >= Layout.OUTLINE_WIDTH + Layout.RAIL_WIDTH + Layout.DOCUMENT_MIN_WIDTH,
+        rail = width >= Layout.RAIL_WIDTH + Layout.DOCUMENT_MIN_WIDTH,
+    )
 
     /** #FEED-191: the plan tab's lead glyph. [icon] = an icon concept id,
      *  [tone] = `text` (the chip's own text colour) or `approved` (emerald,

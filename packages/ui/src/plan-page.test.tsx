@@ -18,6 +18,20 @@ describe(`PlanPage`, () => {
     expect(screen.getByTestId(`plan-rail`).textContent).toContain(PLAN_PAGE_SPECIMEN.card.questions[0]!.prompt)
   })
 
+  it(`#EXP-1786: a narrow pane (beside the chat) drops the outline column and floats the questions; the document keeps the pane`, () => {
+    for (const [width, outline, rail] of [[640, false, false], [800, false, true], [1000, true, true]] as const) {
+      const measured = vi.spyOn(HTMLElement.prototype, `getBoundingClientRect`).mockReturnValue({ width } as DOMRect)
+      const { unmount } = render(<PlanPageSpecimen />)
+      expect(screen.queryByTestId(PLAN_PAGE_TEST_IDS.outline) !== null).toBe(outline)
+      expect(document.querySelector(`[data-slot=plan-questions-rail]`) !== null).toBe(rail)
+      expect(document.querySelector(`[data-slot=plan-questions-panel]`) !== null).toBe(!rail)
+      expect(screen.queryByTestId(PLAN_PAGE_TEST_IDS.outlineToggle)).toBeNull()
+      expect(screen.getAllByTestId(PLAN_PAGE_TEST_IDS.mosaic)).toHaveLength(1)
+      unmount()
+      measured.mockRestore()
+    }
+  })
+
   it(`phone: the group = THE Carousel, the questions float (no Dock, no composer), ☰ opens the outline`, () => {
     render(<PlanPageSpecimen size="phone" />)
     expect(screen.getByTestId(PLAN_PAGE_TEST_IDS.carousel)).toBeTruthy()
