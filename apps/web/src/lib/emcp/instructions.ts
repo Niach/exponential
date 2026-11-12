@@ -27,9 +27,10 @@ export function mcpServerInstructions(gates: {
   reportBug: boolean
 }): string {
   const paragraphs = [
-    // NEW-4 → EXP-1657: 22 tools, one per noun (+ 2 verbs), each with an `op`; statuses change
-    // AUTOMATICALLY on PR open/merge; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (roots, children, team agents) with PRs and results. 22 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr {op: "open"}, then end your turn. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    // NEW-4 → EXP-1657: one tool per noun (+ 2 verbs), each with an `op`;
+    // #VAPP-293: a noun's reads and its writes (`_write`) are two tools.
+    // Statuses change AUTOMATICALLY on PR open/merge; set one only when asked.
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (roots, children, team agents) with PRs and results. Each noun is a read tool plus a _write twin, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}). Coding session: issues get, comments list, implement, commit, push, screenshots as results, exponential_pr_write {op: "open"}, then end your turn. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
     // S-3: a launched session (the header) also carries the runbook, which
     // says this at length; only an outside client needs the verb spelled out.
     ...(gates.inSession
@@ -48,9 +49,12 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start root sessions with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else call exponential_session_self {op: "quiet"} and end your turn with no text at all (never \`Noted.\` or \`Nothing new.\`); update your card (exponential_show replace: true) rather than posting again.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events_write {op: "emit"} posts one); start root sessions with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else call exponential_session_self {op: "quiet"} and end your turn with no text at all (never \`Noted.\` or \`Nothing new.\`); update your card (exponential_show replace: true) rather than posting again.`
     )
   }
+  // #VAPP-293: a session's end stays on the read tool's name (first-party
+  // callers may still send it there): a desktop gateway released before the
+  // `_write` twin seals only `exponential_sessions` end summaries.
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
       `This session is unattended (another session started it). Finish with exponential_sessions {op: "end", summary} LAST, worktree clean: the summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you.`
@@ -71,7 +75,7 @@ export function mcpServerInstructions(gates: {
   // is server-written (a summary + the pictures by platform).
   if (gates.inSession && !gates.agent) {
     paragraphs.push(
-      `Show your work as results: exponential_show with pictures (label = platform-prefixed: 'web …', 'ios …') before exponential_pr {op: "open"}; the PR body is written for you.`
+      `Show your work as results: exponential_show with pictures (label = platform-prefixed: 'web …', 'ios …') before exponential_pr_write {op: "open"}; the PR body is written for you.`
     )
   }
   return paragraphs.join(`\n\n`)

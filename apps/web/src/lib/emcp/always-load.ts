@@ -16,9 +16,13 @@
 // Keep this list short. Each entry costs context on every single session.
 export const ALWAYS_LOAD_TOOLS = [
   `exponential_issues`,
+  // #VAPP-293: a noun's writes are its `_write` twin, loaded with it.
+  `exponential_issues_write`,
   `exponential_comments`,
+  `exponential_comments_write`,
   `exponential_sessions_send`,
   `exponential_pr`,
+  `exponential_pr_write`,
   // S-3: show / ask / plan, the card every turn may end with.
   `exponential_show`,
 ] as const

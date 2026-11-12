@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-mcp-read-and-write-tools",
+    date: "2026-11-12",
+    title: "Exponential's MCP tools come as reads and writes",
+    summary: "Every MCP tool now comes as a read-only tool plus a _write twin with titles and hints, ready for Claude's connector directory.",
+    body: r##"- **Reads and writes apart**: each area of Exponential's MCP server is now two tools, one that only reads (exponential_issues) and a _write twin for changes (exponential_issues_write), so Claude reads without asking and asks before it changes something.
+- **Titles and hints**: every tool carries a title and a read-only or destructive hint, as Claude's connector directory asks for.
+- **Use Exponential in Claude**: a new docs page covers connecting claude.ai, Claude Desktop, the mobile apps and Claude Code."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_255: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-quiet-scheduled-ticks",
     date: "2026-11-12",
     title: "Scheduled agents stay quiet when there is nothing to say",

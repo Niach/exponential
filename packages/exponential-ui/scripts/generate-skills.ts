@@ -39,7 +39,7 @@ export const MOTION_GALLERY = [`pulse-dot`, `progress-ring`, `typing-dots`, `hea
 const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 
 const DESCRIPTIONS: Record<string, string> = {
-  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,
+  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps_write upsert) or its records.`,
   "exponential-genui": `Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
   "exponential-motion": `Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
 }

@@ -98,11 +98,16 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // NEW-4: the surface is the 22 tools (EXP-1657, + skills EXP-1663), the same for every caller.
-  expect(defs.map((def) => def.name).sort()).toEqual(
-    NOUN_TOOLS.map((spec) => `exponential_${spec.name}`).sort()
+  // NEW-4: the surface is the 22 nouns and verbs (EXP-1657, + skills EXP-1663),
+  // the same for every caller; #VAPP-293: a noun with reads and writes
+  // registers its writes as the `_write` twin (only session_self has no reads).
+  const twins = NOUN_TOOLS.filter((spec) => !spec.verb && spec.name !== `session_self`).map(
+    (spec) => `exponential_${spec.name}_write`
   )
-  expect(defs).toHaveLength(22)
+  expect(defs.map((def) => def.name).sort()).toEqual(
+    [...NOUN_TOOLS.map((spec) => `exponential_${spec.name}`), ...twins].sort()
+  )
+  expect(defs).toHaveLength(41)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -122,12 +127,13 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   // (cards, ask, plan) is, since every turn may end with one.
   expect(flagged).not.toContain(`exponential_session_self`)
   expect(flagged).toContain(`exponential_show`)
-  expect(flagged).toHaveLength(5)
+  expect(flagged).toHaveLength(8)
 })
 
-// NEW-4 (plan 3.11): NO conditional registration — the 22 register for
-// every caller; an op the caller cannot use errors when called.
-it(`registers the same 22 tools for every caller`, () => {
+// NEW-4 (plan 3.11): NO conditional registration — the 22 (41 tools since
+// #VAPP-293's read/write split) register for every caller; an op the caller
+// cannot use errors when called.
+it(`registers the same 41 tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -139,7 +145,7 @@ it(`registers the same 22 tools for every caller`, () => {
     agent: false,
   }).map((def) => def.name)
   expect([...headerless].sort()).toEqual([...inSession].sort())
-  expect(headerless).toHaveLength(22)
+  expect(headerless).toHaveLength(41)
   // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,
@@ -168,8 +174,9 @@ it(`keeps the serialized MCP tool context within budget`, () => {
     alwaysLoadedNames.includes(def.name as string)
   )
   // What EVERY session pays, on every turn. Keep it lean — a tool added here
-  // is a tool every agent carries whether it needs it or not.
-  expect(JSON.stringify(alwaysLoaded).length).toBeLessThan(10_000)
+  // is a tool every agent carries whether it needs it or not. #VAPP-293: 11k
+  // since the read/write split made the three always-loaded nouns six tools.
+  expect(JSON.stringify(alwaysLoaded).length).toBeLessThan(11_000)
   // EXP-1051: the shipped helper measures the same set, in UTF-8 BYTES (never
   // fewer than the JS string length, and within the same ceiling) — the
   // number `codingSessions.contextBudget` hands the launcher for the `tools`
@@ -178,7 +185,7 @@ it(`keeps the serialized MCP tool context within budget`, () => {
   expect(budget.mcpAlwaysLoadBytes).toBeGreaterThanOrEqual(
     JSON.stringify(alwaysLoaded).length
   )
-  expect(budget.mcpAlwaysLoadBytes).toBeLessThan(10_000)
+  expect(budget.mcpAlwaysLoadBytes).toBeLessThan(11_000)
   expect(budget.mcpInstructionsBytes).toBeGreaterThanOrEqual(
     MCP_SERVER_INSTRUCTIONS.length
   )
@@ -207,7 +214,7 @@ it(`keeps the serialized MCP tool context within budget`, () => {
 it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.length).toBeLessThan(2_000)
   const opening = MCP_SERVER_INSTRUCTIONS.slice(0, 512)
-  expect(opening).toContain(`exponential_pr {op: "open"}`)
+  expect(opening).toContain(`exponential_pr_write {op: "open"}`)
   expect(opening).toContain(`Search for exponential_*`)
   // EXP-660: the deferred families an agent would never guess at by name.
   expect(opening).toContain(`sessions`)

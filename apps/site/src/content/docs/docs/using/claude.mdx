@@ -1,0 +1,86 @@
+---
+title: Use Exponential in Claude
+description: Connect Claude to your teams and boards; read, file and change issues, follow sessions and open apps from a conversation.
+---
+
+import { Steps } from "@astrojs/starlight/components"
+
+The Exponential connector gives Claude your issue tracker: it reads and changes issues, comments, boards and pull requests, follows and starts sessions, and draws Exponential's own views (the issue list, an issue, your inbox, your devices, apps) inside the conversation. It is Exponential's [MCP server](/docs/build/mcp/), signed in as you and limited to the teams and boards you pick.
+
+## Connect in claude.ai, Claude Desktop and the mobile apps
+
+<Steps>
+
+1. In Claude, open **Settings → Connectors**. Find **Exponential** in the directory and choose **Connect**. Not listed for you? Choose **Add custom connector** and paste:
+
+   ```text
+   https://app.exponential.at/api/mcp
+   ```
+
+   Self-hosted: `https://<your host>/api/mcp`. Claude reaches the connector from Anthropic's cloud, so the instance must be reachable from the internet.
+2. Claude opens Exponential's consent screen. Sign in, pick what the connection may reach (everything, some teams, or some boards) and choose **Allow access**.
+3. Turn the connector on in a conversation from the tools menu. A connector added on claude.ai or Claude Desktop is available in the mobile apps too.
+
+</Steps>
+
+To change the grant, connect again and pick differently. To disconnect, revoke the client in Exponential under **Settings → MCP → Clients**: its tokens stop working at once. Owners can revoke any member's client in their team there.
+
+## Claude Code
+
+Install the plugin, which adds the server and a skill that tells Claude how to use it:
+
+```text
+/plugin install exponential
+```
+
+If the plugin is not in your directory yet, add its marketplace first:
+
+```text
+/plugin marketplace add Niach/exponential-claude-plugin
+```
+
+Run `/mcp` to sign in; the same consent screen opens in your browser.
+
+## Tools
+
+Every area is two tools: one that only reads (marked read-only, so Claude can call it without asking) and a `_write` twin for changes (Claude asks before it runs one, depending on your settings). Each call names an `op`, for example `exponential_issues {op: "get", id: "EXP-12"}` or `exponential_issues_write {op: "create", boardId, title}`.
+
+| area | read tool | write tool |
+|---|---|---|
+| Issues | `exponential_issues`: list, get, show, activity | `exponential_issues_write`: create, update, delete, status, labels, relations, subscribe |
+| Comments | `exponential_comments`: list | `exponential_comments_write`: create, update, delete |
+| Pull requests | `exponential_pr`: files | `exponential_pr_write`: open, merge, close, retarget, update, unlink |
+| Boards, labels, statuses, files | `exponential_boards`, `exponential_labels`, `exponential_statuses`, `exponential_attachments` | their `_write` twins |
+| Teams, people, repositories, devices | `exponential_teams`, `exponential_people`, `exponential_repositories`, `exponential_devices` | their `_write` twins |
+| Agents, prompts, skills, MCP servers | `exponential_agents`, `exponential_prompts`, `exponential_skills`, `exponential_mcp_servers` | their `_write` twins |
+| Sessions | `exponential_sessions`: get, list | `exponential_sessions_write`: link, unlink, configure, escalate, end; `exponential_sessions_send` starts or messages a session |
+| Apps | `exponential_apps`: list, get, catalog, records | `exponential_apps_write`: upsert, publish, delete, record writes |
+| Activity | `exponential_events`, `exponential_notifications`: list | `exponential_events_write` (emit), `exponential_notifications_write` (mark read) |
+
+`exponential_show` draws a genUI card in the conversation. Every op with its parameters: [MCP tool reference](/docs/build/mcp/#tool-reference).
+
+## Views in the conversation
+
+- **Issue list**: `exponential_issues` op `show`, grouped by status with priorities and PR numbers; it opens full size and pages with **Show more**.
+- **Issue**: a row opens the issue in place (status, priority, labels, description, comments), with a way back.
+- **Inbox**: `exponential_notifications` op `list`.
+- **Devices**: `exponential_devices` op `list`, your machines and their agent accounts.
+- **Sessions**: a session's tree, its issues, PRs and latest messages.
+- **Cards and apps**: `exponential_show` cards (buttons send their text as your next message) and your team's [apps](/docs/sdk/apps/), which run in the conversation with their records, actions and screens.
+
+## Example prompts
+
+- "Show my open issues on the iOS board."
+- "File a bug on Web: the settings page crashes when I clear my name. Priority high, label it regression."
+- "What changed on EXP-412 this week? Summarise the comments."
+- "Move everything in review that has a merged PR to Done."
+- "Start a session on EXP-98 on my laptop and tell me when the PR is open."
+- "Open the Timesheet app and log 3 hours on Friday for the client call."
+
+## Data and privacy
+
+The connector acts as you, within the teams and boards you granted, and Exponential receives only the tool calls Claude sends, never the conversation. Every call is recorded in the team's MCP audit (Settings → MCP → Activity), without its arguments. Details: [Privacy policy](/privacy/).
+
+## Support
+
+Write to [support@exponential.at](mailto:support@exponential.at).

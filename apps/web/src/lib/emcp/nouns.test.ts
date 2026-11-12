@@ -23,6 +23,7 @@ vi.mock(`./tools`, () => ({
       {
         description: `Get one issue.`,
         inputSchema: z.strictObject({ id: z.string(), commentsLimit: z.number().optional() }),
+        annotations: { readOnlyHint: true },
         _meta: { "anthropic/alwaysLoad": true },
       },
       async (args: Record<string, unknown>) => ({ content: [{ type: `text`, text: JSON.stringify({ got: args }) }] })
@@ -31,6 +32,7 @@ vi.mock(`./tools`, () => ({
       `exponential_issues_list`,
       {
         description: `List.`,
+        annotations: { readOnlyHint: true },
         inputSchema: z.strictObject({
           limit: z.number().int().min(1).max(200).default(50),
           includeClosed: z.boolean().default(false),
@@ -40,6 +42,11 @@ vi.mock(`./tools`, () => ({
         }),
       },
       async (args: Record<string, unknown>) => ({ content: [{ type: `text`, text: JSON.stringify(args) }] })
+    )
+    server.registerTool(
+      `exponential_issues_create`,
+      { description: `Create.`, inputSchema: z.strictObject({ title: z.string() }) },
+      async (args: Record<string, unknown>) => ({ content: [{ type: `text`, text: JSON.stringify({ created: args }) }] })
     )
     if (gates.inSession) {
       server.registerTool(
@@ -79,29 +86,35 @@ import {
   scalarKinds,
 } from "./nouns"
 import { ALL_MCP_TOOL_GATES } from "./gates"
-import { FULL_ACCESS } from "./scope"
+import { FULL_ACCESS, NO_ACCESS, type McpAccess } from "./scope"
 import type { McpUser } from "./server"
 
 type Handler = (args: Record<string, unknown>, extra?: unknown) => Promise<{ content: { text?: string }[]; isError?: boolean }>
 
-function surface(gates = ALL_MCP_TOOL_GATES) {
+function surface(gates = ALL_MCP_TOOL_GATES, access: McpAccess = FULL_ACCESS) {
   const tools = new Map<string, { def: Record<string, unknown>; handler: Handler }>()
   const server = {
     registerTool: (name: string, def: Record<string, unknown>, handler: Handler) => {
       tools.set(name, { def, handler })
     },
   }
-  registerNounTools(server as never, { id: `u` } as unknown as McpUser, new Request(`https://x.test/api/mcp`), FULL_ACCESS, null, gates)
+  registerNounTools(server as never, { id: `u` } as unknown as McpUser, new Request(`https://x.test/api/mcp`), access, null, gates)
   return tools
 }
 
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 22 tools, every caller alike`, () => {
+  it(`registers the 22 nouns and verbs, every caller alike`, () => {
     const names = [...surface().keys()]
-    expect(names).toEqual(NOUN_TOOLS.map((spec) => `exponential_${spec.name}`))
-    expect(names).toHaveLength(22)
+    // #VAPP-293: a noun with reads AND writes registers both halves (the
+    // mock records only issues' reads, so every other noun is all writes).
+    expect(names).toEqual(
+      NOUN_TOOLS.flatMap((spec) =>
+        spec.name === `issues` ? [`exponential_issues`, `exponential_issues_write`] : [`exponential_${spec.name}`]
+      )
+    )
+    expect(names).toHaveLength(23)
     expect(names).not.toContain(`exponential_team_config`)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
@@ -122,6 +135,50 @@ describe(`registerNounTools`, () => {
     const bad = await issues.handler({ op: `explode` })
     expect(bad.isError).toBe(true)
     expect(text(bad)).toContain(`Unknown op "explode"`)
+  })
+
+  // #VAPP-293: Claude's directory rejects a tool mixing reads and writes and
+  // wants a title plus readOnlyHint or destructiveHint on every tool.
+  it(`splits a noun into its read tool and its _write twin, annotated`, async () => {
+    const tools = surface()
+    const read = tools.get(`exponential_issues`)!
+    const write = tools.get(`exponential_issues_write`)!
+    expect(read.def.title).toBe(`Read issues`)
+    expect(read.def.annotations).toEqual({ title: `Read issues`, readOnlyHint: true })
+    expect(write.def.title).toBe(`Change issues`)
+    expect(write.def.annotations).toMatchObject({ title: `Change issues`, readOnlyHint: false, destructiveHint: true })
+    expect(read.def.description).toContain(`Writes: exponential_issues_write.`)
+    expect(read.def.description).not.toContain(`create{`)
+    expect(write.def.description).toContain(`Reads: exponential_issues.`)
+    expect(write.def.description).toContain(`create{title}`)
+    expect(write.def.description).not.toContain(`get{`)
+    expect(text(await write.handler({ op: `create`, title: `T` }))).toBe(`{"created":{"title":"T"}}`)
+    // The twin takes writes only.
+    const misplaced = await write.handler({ op: `get`, id: `EXP-1` })
+    expect(misplaced.isError).toBe(true)
+    expect(text(misplaced)).toContain(`issues.get is on exponential_issues: call exponential_issues {op: "get"}`)
+    // Every tool carries a title and the applicable hint.
+    for (const [name, tool] of tools) {
+      const annotations = tool.def.annotations as Record<string, unknown> | undefined
+      expect(typeof tool.def.title, name).toBe(`string`)
+      expect(annotations?.title, name).toBe(tool.def.title)
+      expect(annotations?.readOnlyHint === true || typeof annotations?.destructiveHint === `boolean`, name).toBe(true)
+    }
+    // A write op that only adds stays non-destructive; anything else is not.
+    expect((tools.get(`exponential_sessions_send`)!.def.annotations as { destructiveHint: boolean }).destructiveHint).toBe(true)
+    expect((tools.get(`exponential_show`)!.def.annotations as { destructiveHint: boolean }).destructiveHint).toBe(false)
+  })
+
+  it(`the read tool still routes a write for first-party callers, never for OAuth (#VAPP-293)`, async () => {
+    const firstParty = surface().get(`exponential_issues`)!
+    expect(text(await firstParty.handler({ op: `create`, title: `T` }))).toBe(`{"created":{"title":"T"}}`)
+    const oauth = surface(ALL_MCP_TOOL_GATES, { ...NO_ACCESS, origin: `oauth` }).get(`exponential_issues`)!
+    const refused = await oauth.handler({ op: `create`, title: `T` })
+    expect(refused.isError).toBe(true)
+    expect(text(refused)).toContain(`issues.create is on exponential_issues_write`)
+    const schema = oauth.def.inputSchema as z.ZodType
+    expect(schema.safeParse({ op: `create` }).error?.issues[0]?.message).toContain(`exponential_issues_write`)
+    expect(schema.safeParse({ op: `get` }).success).toBe(true)
   })
 
   it(`an unknown op's enum refusal names the noun`, () => {

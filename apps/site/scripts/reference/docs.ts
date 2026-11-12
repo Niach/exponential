@@ -221,7 +221,7 @@ Auto-update is on unless you opted out: commands check once a day, the daemon ev
 
 /* ── MCP: the live tool definitions ── */
 interface McpParam { name: string; type: string; required: boolean; description: string }
-interface McpTool { name: string; alwaysLoad: boolean; blurb: string; ops: { op: string; description: string; params: McpParam[] }[]; params?: McpParam[] }
+interface McpTool { name: string; title: string; readOnly: boolean; alwaysLoad: boolean; blurb: string; ops: { op: string; description: string; params: McpParam[] }[]; params?: McpParam[] }
 
 function mcpSurface(): { groups: { id: string; label: string; tools: McpTool[] }[] } {
   const out = join(mkdtempSync(join(tmpdir(), `site-mcp-`)), `tools.json`)
@@ -245,14 +245,15 @@ function mcpReference(): string {
   const out = [
     `## Tool reference`,
     ``,
-    `${count} tools in ${groups.length} groups, one per noun. A call carries an \`op\` and that op's fields beside it: \`exponential_issues {op: "get", id: "EXP-42"}\`. Every caller gets the same tools; an op that needs a session or the cloud answers with a message saying so. Calls stay inside the OAuth grant or the API key's scope. Issue parameters take an identifier (\`EXP-42\`) wherever they take a UUID. Parameters with \`?\` are optional. Tools marked *always loaded* are in an agent's context from its first turn; the rest load through tool search.`,
+    `${count} tools in ${groups.length} groups. Each noun is two tools: \`exponential_<noun>\` takes its read ops (read-only) and \`exponential_<noun>_write\` the ops that change something. A call carries an \`op\` and that op's fields beside it: \`exponential_issues {op: "get", id: "EXP-42"}\`, \`exponential_issues_write {op: "create", boardId, title}\`. Every caller gets the same tools; an op that needs a session or the cloud answers with a message saying so. Calls stay inside the OAuth grant or the API key's scope. Issue parameters take an identifier (\`EXP-42\`) wherever they take a UUID. Parameters with \`?\` are optional. Tools marked *always loaded* are in an agent's context from its first turn; the rest load through tool search.`,
     ``,
   ]
   for (const g of groups) {
     out.push(`### ${g.label}`, ``)
     for (const t of g.tools) {
       out.push(`#### \`${t.name}\``, ``)
-      if (t.alwaysLoad) out.push(`*Always loaded.*`, ``)
+      const marks = [t.title, ...(t.readOnly ? [`read-only`] : []), ...(t.alwaysLoad ? [`always loaded`] : [])]
+      out.push(`*${marks.join(` · `)}.*`, ``)
       if (t.blurb) out.push(esc(t.blurb), ``)
       if (t.ops.length) {
         for (const o of t.ops) out.push(`- \`${o.op}{${signature(o.params)}}\`: ${esc(o.description).replace(/\\\|/g, `|`)}`)
@@ -279,9 +280,9 @@ Self-hosted: \`https://<your-instance>/api/mcp\`. Streamable HTTP only.
 
 | client | setup |
 |---|---|
-| Claude (desktop, claude.ai) | Settings → Connectors → Add custom connector, paste the URL, Connect. Connectors dial from Anthropic's cloud, so the instance must be reachable from the internet. |
+| Claude (desktop, claude.ai, mobile) | Settings → Connectors: **Exponential** from the directory, or Add custom connector with the URL, then Connect (${link(`/docs/using/claude/`, `Use Exponential in Claude`)}). Connectors dial from Anthropic's cloud, so the instance must be reachable from the internet. |
 | ChatGPT | Settings → Apps & Connectors → Advanced → Developer mode, then Create connector with OAuth. |
-| Claude Code | \`claude mcp add --transport http --scope user exponential https://app.exponential.at/api/mcp\`, then \`/mcp\` to sign in (or add \`--header "Authorization: Bearer expu_…"\`). |
+| Claude Code | \`/plugin install exponential\` (or \`/plugin marketplace add Niach/exponential-claude-plugin\` first); by hand: \`claude mcp add --transport http --scope user exponential https://app.exponential.at/api/mcp\`, then \`/mcp\` to sign in (or add \`--header "Authorization: Bearer expu_…"\`). |
 | Codex CLI | \`codex mcp add exponential --url https://app.exponential.at/api/mcp\` and \`codex mcp login exponential\`; or \`bearer_token_env_var\` in \`config.toml\`. |
 | Cursor | \`{"mcpServers": {"exponential": {"url": "https://app.exponential.at/api/mcp"}}}\` in \`~/.cursor/mcp.json\`, then Connect. |
 | OpenClaw | \`openclaw plugins install clawhub:@exponential/openclaw-plugin\` with \`EXPONENTIAL_API_KEY\`, or \`openclaw mcp add … --auth oauth\`. |

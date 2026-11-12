@@ -1,0 +1,827 @@
+{
+  "formatVersion": 5,
+  "id": "exponential.leave-planner",
+  "name": "Leave planner",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "description": "Plan the team's time off: request leave, see the month as a calendar (who is out, every day) and the next twelve weeks per person as a timeline. On phones the calendar is a compact month with the selected day's list. Agents read who is out over MCP.",
+  "icon": {
+    "glyph": "ui-due-date"
+  },
+  "sources": [
+    "records:leave"
+  ],
+  "functions": [
+    "records.*",
+    "bind",
+    "harness.toast"
+  ],
+  "screens": [
+    {
+      "template": "calendar",
+      "title": "Calendar",
+      "icon": "calendar"
+    },
+    {
+      "template": "timeline",
+      "title": "Timeline",
+      "icon": "users"
+    }
+  ],
+  "records": {
+    "leave": {
+      "title": "Leave",
+      "description": "Time off one member takes: from a day to a day, inclusive.",
+      "policy": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "who": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "Who is out"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Vacation",
+              "Sick",
+              "Home office",
+              "Parental leave",
+              "Conference",
+              "Day off",
+              "Training"
+            ]
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "description": "The first day off"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "description": "The last day off (empty = one day)"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Requested",
+              "Approved",
+              "Declined"
+            ]
+          }
+        },
+        "required": [
+          "who",
+          "type",
+          "start"
+        ],
+        "additionalProperties": false
+      },
+      "computed": {
+        "label": "who + ' · ' + type",
+        "detail": "end != null && end != start ? start + ' – ' + end : 'All day'"
+      }
+    }
+  },
+  "queries": {
+    "month": {
+      "from": "leave",
+      "month": {
+        "field": "start",
+        "key": "${month}",
+        "until": "end",
+        "day": "${day}",
+        "tone": "who"
+      },
+      "sort": [
+        [
+          "start",
+          "asc"
+        ]
+      ],
+      "limit": 500
+    },
+    "timeline": {
+      "from": "leave",
+      "timeline": {
+        "field": "start",
+        "until": "end",
+        "row": "who",
+        "scale": "week",
+        "start": "${start}",
+        "columns": 12,
+        "tone": "who"
+      },
+      "sort": [
+        [
+          "start",
+          "asc"
+        ]
+      ],
+      "limit": 500
+    },
+    "out": {
+      "from": "leave",
+      "where": [
+        [
+          "start",
+          "<=",
+          "${day}"
+        ],
+        {
+          "or": [
+            [
+              [
+                "end",
+                ">=",
+                "${day}"
+              ]
+            ],
+            [
+              [
+                "start",
+                "==",
+                "${day}"
+              ]
+            ]
+          ]
+        }
+      ],
+      "sort": [
+        [
+          "who",
+          "asc"
+        ]
+      ],
+      "limit": 100
+    }
+  },
+  "actions": {
+    "request": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "who": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date"
+          },
+          "end": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "who",
+          "type",
+          "start"
+        ]
+      },
+      "steps": [
+        {
+          "require": "size(params.who) > 0",
+          "message": "Say who is out"
+        },
+        {
+          "require": "!has(params.end) || params.end == '' || params.end >= params.start",
+          "message": "The last day is on or after the first"
+        },
+        {
+          "records.upsert": {
+            "kind": "leave",
+            "data": {
+              "who": "params.who",
+              "type": "params.type",
+              "start": "params.start",
+              "end": "has(params.end) && params.end != '' ? params.end : params.start",
+              "note": "has(params.note) ? params.note : ''",
+              "status": "'Requested'"
+            }
+          }
+        },
+        {
+          "set": {
+            "path": "/draft/open",
+            "value": false
+          }
+        },
+        {
+          "call": "harness.toast",
+          "args": {
+            "message": "'Requested ' + params.type + ' for ' + params.who"
+          }
+        }
+      ]
+    }
+  },
+  "exposes": [
+    {
+      "name": "who_is_out",
+      "title": "Who is out",
+      "description": "The leave that covers one day (day = YYYY-MM-DD): who, the type, the first and last day, the status.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+            "description": "YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "day"
+        ]
+      },
+      "access": "read",
+      "run": {
+        "records": {
+          "op": "list",
+          "kind": "leave",
+          "query": "out"
+        }
+      }
+    }
+  ],
+  "templates": {
+    "calendar": {
+      "bindings": [
+        {
+          "path": "/leave",
+          "source": "records:leave?query=month"
+        }
+      ],
+      "data": {
+        "leave": {
+          "rows": [],
+          "count": 0,
+          "month": {
+            "key": "",
+            "label": "",
+            "prev": "",
+            "next": "",
+            "today": "",
+            "days": [],
+            "labels": [],
+            "counts": [],
+            "sums": [],
+            "weeks": [],
+            "day": "",
+            "agenda": {
+              "date": "",
+              "label": "",
+              "count": 0,
+              "items": []
+            }
+          }
+        },
+        "draft": {
+          "open": false,
+          "who": "",
+          "type": "Vacation",
+          "start": "",
+          "end": "",
+          "note": ""
+        }
+      },
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Leave planner",
+          "subtitle": {
+            "path": "/leave/month/label"
+          },
+          "children": [
+            "toolbar",
+            "cal",
+            "editor"
+          ]
+        },
+        {
+          "id": "toolbar",
+          "component": "Toolbar",
+          "children": [
+            "prev",
+            "today",
+            "next"
+          ],
+          "slots": {
+            "trailing": "requestBtn"
+          }
+        },
+        {
+          "id": "prev",
+          "component": "Button",
+          "icon": "ui-chevron-left",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/leave",
+                  "source": "records:leave?query=month",
+                  "params": {
+                    "month": {
+                      "path": "/leave/month/prev"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "today",
+          "component": "Button",
+          "label": "Today",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/leave",
+                  "source": "records:leave?query=month",
+                  "params": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "next",
+          "component": "Button",
+          "icon": "ui-chevron-right",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/leave",
+                  "source": "records:leave?query=month",
+                  "params": {
+                    "month": {
+                      "path": "/leave/month/next"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "requestBtn",
+          "component": "Button",
+          "label": "Request leave",
+          "icon": "ui-add",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft",
+                  "value": {
+                    "open": true,
+                    "who": "",
+                    "type": "Vacation",
+                    "start": {
+                      "path": "/leave/month/day"
+                    },
+                    "end": {
+                      "path": "/leave/month/day"
+                    },
+                    "note": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "cal",
+          "component": "Calendar",
+          "source": "/leave",
+          "labelField": "label",
+          "detailField": "detail",
+          "metaField": "status",
+          "on": {
+            "select": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/leave",
+                  "source": "records:leave?query=month",
+                  "params": {
+                    "month": {
+                      "path": "/leave/month/key"
+                    },
+                    "day": {
+                      "path": "date"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "editor",
+          "component": "Dialog",
+          "title": "Request leave",
+          "open": {
+            "path": "/draft/open"
+          },
+          "children": [
+            "form"
+          ]
+        },
+        {
+          "id": "form",
+          "component": "Form",
+          "name": "leave",
+          "children": [
+            "fields",
+            "formActions"
+          ],
+          "on": {
+            "submit": {
+              "functionCall": {
+                "call": "actions.request",
+                "args": {
+                  "who": {
+                    "path": "/draft/who"
+                  },
+                  "type": {
+                    "path": "/draft/type"
+                  },
+                  "start": {
+                    "path": "/draft/start"
+                  },
+                  "end": {
+                    "path": "/draft/end"
+                  },
+                  "note": {
+                    "path": "/draft/note"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "fields",
+          "component": "FieldGroup",
+          "columns": 2,
+          "children": [
+            "who",
+            "type",
+            "start",
+            "end",
+            "note"
+          ]
+        },
+        {
+          "id": "who",
+          "component": "Input",
+          "label": "Who",
+          "name": "who",
+          "value": {
+            "path": "/draft/who"
+          }
+        },
+        {
+          "id": "type",
+          "component": "Select",
+          "label": "Type",
+          "name": "type",
+          "options": [
+            {
+              "value": "Vacation",
+              "label": "Vacation"
+            },
+            {
+              "value": "Sick",
+              "label": "Sick"
+            },
+            {
+              "value": "Home office",
+              "label": "Home office"
+            },
+            {
+              "value": "Parental leave",
+              "label": "Parental leave"
+            },
+            {
+              "value": "Conference",
+              "label": "Conference"
+            },
+            {
+              "value": "Day off",
+              "label": "Day off"
+            },
+            {
+              "value": "Training",
+              "label": "Training"
+            }
+          ],
+          "value": {
+            "path": "/draft/type"
+          }
+        },
+        {
+          "id": "start",
+          "component": "DatePicker",
+          "label": "From",
+          "name": "start",
+          "value": {
+            "path": "/draft/start"
+          }
+        },
+        {
+          "id": "end",
+          "component": "DatePicker",
+          "label": "To",
+          "name": "end",
+          "value": {
+            "path": "/draft/end"
+          }
+        },
+        {
+          "id": "note",
+          "component": "Textarea",
+          "label": "Note",
+          "name": "note",
+          "rows": 2,
+          "value": {
+            "path": "/draft/note"
+          }
+        },
+        {
+          "id": "formActions",
+          "component": "FormActions",
+          "submit": "Request",
+          "cancel": true,
+          "on": {
+            "cancel": {
+              "functionCall": {
+                "call": "set",
+                "args": {
+                  "path": "/draft/open",
+                  "value": false
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "timeline": {
+      "bindings": [
+        {
+          "path": "/road",
+          "source": "records:leave?query=timeline"
+        }
+      ],
+      "data": {
+        "road": {
+          "rows": [],
+          "count": 0,
+          "timeline": {
+            "scale": "week",
+            "key": "",
+            "label": "",
+            "prev": "",
+            "next": "",
+            "today": "",
+            "columns": [],
+            "bands": [],
+            "rows": [],
+            "now": null
+          }
+        }
+      },
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "Who is out",
+          "subtitle": {
+            "path": "/road/timeline/label"
+          },
+          "children": [
+            "toolbar",
+            "tl"
+          ]
+        },
+        {
+          "id": "toolbar",
+          "component": "Toolbar",
+          "children": [
+            "prev",
+            "today",
+            "next"
+          ]
+        },
+        {
+          "id": "prev",
+          "component": "Button",
+          "icon": "ui-chevron-left",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/road",
+                  "source": "records:leave?query=timeline",
+                  "params": {
+                    "start": {
+                      "path": "/road/timeline/prev"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "today",
+          "component": "Button",
+          "label": "Today",
+          "variant": "outline",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/road",
+                  "source": "records:leave?query=timeline",
+                  "params": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "next",
+          "component": "Button",
+          "icon": "ui-chevron-right",
+          "variant": "outline",
+          "size": "icon",
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "bind",
+                "args": {
+                  "path": "/road",
+                  "source": "records:leave?query=timeline",
+                  "params": {
+                    "start": {
+                      "path": "/road/timeline/next"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "tl",
+          "component": "Timeline",
+          "source": "/road",
+          "labelField": "type",
+          "rowTitle": "Person",
+          "showCount": true
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "name": "a span covers every day it spans in the month view",
+      "now": "2026-11-03T09:00:00.000Z",
+      "records": {
+        "leave": [
+          {
+            "id": "a",
+            "author": "member",
+            "who": "Anna",
+            "type": "Vacation",
+            "start": "2026-11-02",
+            "end": "2026-11-06"
+          },
+          {
+            "id": "b",
+            "author": "member",
+            "who": "Max",
+            "type": "Sick",
+            "start": "2026-11-03"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "m.month.agenda.count",
+        "vars": {
+          "m": {
+            "source": "records:leave?query=month&day=2026-11-03"
+          }
+        }
+      },
+      "expect": 2
+    },
+    {
+      "name": "the computed label and detail",
+      "now": "2026-11-03T09:00:00.000Z",
+      "records": {
+        "leave": [
+          {
+            "id": "a",
+            "author": "member",
+            "who": "Anna",
+            "type": "Vacation",
+            "start": "2026-11-02",
+            "end": "2026-11-06"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "m.rows[0].label + ' / ' + m.rows[0].detail",
+        "vars": {
+          "m": {
+            "source": "records:leave?query=month"
+          }
+        }
+      },
+      "expect": "Anna · Vacation / 2026-11-02 – 2026-11-06"
+    },
+    {
+      "name": "a request writes Requested and closes the dialog",
+      "now": "2026-11-03T09:00:00.000Z",
+      "action": {
+        "name": "request",
+        "params": {
+          "who": "Lena",
+          "type": "Day off",
+          "start": "2026-11-25"
+        }
+      },
+      "expect": {
+        "records": {
+          "leave": [
+            {
+              "who": "Lena",
+              "type": "Day off",
+              "start": "2026-11-25",
+              "end": "2026-11-25",
+              "status": "Requested"
+            }
+          ]
+        },
+        "sets": [
+          {
+            "path": "/draft/open",
+            "value": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the last day before the first is refused",
+      "action": {
+        "name": "request",
+        "params": {
+          "who": "Lena",
+          "type": "Day off",
+          "start": "2026-11-25",
+          "end": "2026-11-20"
+        }
+      },
+      "expect": {
+        "error": "The last day is on or after the first"
+      }
+    }
+  ]
+}

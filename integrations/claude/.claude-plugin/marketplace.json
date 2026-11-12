@@ -1,0 +1,18 @@
+{
+  "name": "exponential",
+  "description": "Exponential's Claude plugin: the Exponential issue tracker connector and its skills.",
+  "owner": {
+    "name": "Exponential",
+    "email": "support@exponential.at",
+    "url": "https://exponential.at"
+  },
+  "plugins": [
+    {
+      "name": "exponential",
+      "source": "./",
+      "description": "Exponential, the open-source realtime issue tracker with coding agents: issues, boards, pull requests, coding agents on your devices, genUI cards, apps and Motion.",
+      "category": "productivity",
+      "tags": ["issue-tracker", "coding-agents", "mcp"]
+    }
+  ]
+}

@@ -39,7 +39,7 @@ One set of rules, shared by the agent recipe and the mapping dialog (fixture `ap
 When a person attaches a CSV, TSV or xlsx to an editor chat (or any session that may write the app), the agent:
 
 1. **Reads the file.** `exponential_attachments {op: "get", id}`, then download its `downloadUrl` into the working directory and read it with real tooling: for xlsx, a spreadsheet library, one table per sheet. Header rows, merged title rows and total rows are not records.
-2. **Picks or declares the kind.** Use an existing kind of the app when its fields fit. Otherwise propose a kind: one field per kept column, typed by the rules above (`date` format for dates, `number` for amounts and hours, an enum for a column with a handful of repeated values). Then save it with `exponential_apps {op: "upsert"}` before writing records.
+2. **Picks or declares the kind.** Use an existing kind of the app when its fields fit. Otherwise propose a kind: one field per kept column, typed by the rules above (`date` format for dates, `number` for amounts and hours, an enum for a column with a handful of repeated values). Then save it with `exponential_apps_write {op: "upsert"}` before writing records.
 3. **Dry run.** Map every row with §10.1. Do not write anything yet. Show the person the mapping in ONE `exponential_show` card:
    - the column → field pairs;
    - the first rows as a Table;
@@ -47,7 +47,7 @@ When a person attaches a CSV, TSV or xlsx to an editor chat (or any session that
    - every issue as `row N: field: message`;
 
    ask them to confirm or correct. A slash date, an unknown member or an ambiguous column is asked about, never guessed.
-4. **Writes in batches.** `exponential_apps {op: "records_upsert", slug, kind, data}`, one call per row. Pass `author` (a member's user id from `exponential_people {op: "list"}`) for a row that belongs to someone else (owners only). Send up to 50 calls in parallel per batch, and check each batch's results before the next. Stop at the first refused batch and report it: a schema refusal names the field, and a plan-limit refusal is the team's records quota. The writes land as `via: mcp` in each record's history (§3.5), so a person can see and restore them.
+4. **Writes in batches.** `exponential_apps_write {op: "records_upsert", slug, kind, data}`, one call per row. Pass `author` (a member's user id from `exponential_people {op: "list"}`) for a row that belongs to someone else (owners only). Send up to 50 calls in parallel per batch, and check each batch's results before the next. Stop at the first refused batch and report it: a schema refusal names the field, and a plan-limit refusal is the team's records quota. The writes land as `via: mcp` in each record's history (§3.5), so a person can see and restore them.
 5. **Checks the result.** `exponential_apps {op: "records_list", slug, kind, query}` with the app's own query (a sum per month, a count per member) compared with the spreadsheet's totals. The reply is one line: how many records, and any rows that were skipped.
 
 A NEW app may instead ship its data inside an `.app.json` file with `records` (§10 table, ≤ 2,000 records), which the person imports from the Apps list.
