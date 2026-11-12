@@ -71,6 +71,8 @@ class SteerStoredTailTest {
         val path = System.getProperty("exponential.steer.enetFixture") ?: error("exponential.steer.enetFixture is not set")
         val fixture = Json.parseToJsonElement(File(path).readText()).jsonObject
         assertEquals(fixture.getValue("storedTail").jsonPrimitive.int, STEER_STORED_TAIL)
+        assertEquals(fixture.getValue("storedTailMaxSessions").jsonPrimitive.int, STEER_STORED_TAIL_MAX_SESSIONS)
+        assertEquals(fixture.getValue("storedTailMaxAgeDays").jsonPrimitive.int, STEER_STORED_TAIL_MAX_AGE_DAYS)
     }
 
     @Test
@@ -153,6 +155,61 @@ class SteerStoredTailTest {
         assertEquals(151, kept.size)
         assertEquals((1L..150L).toList(), kept.dropLast(1).map { it.seq })
         assertEquals(JsonPrimitive(499), kept.last().event["tokens"])
+    }
+
+    private val day = 24L * 60L * 60L * 1000L
+    private val now = 1_800_000_000_000L
+
+    /** Writes `s-<i>` for each entry, last used `daysAgo` days before [now]. */
+    private fun tails(files: SteerTailFiles, account: String, vararg daysAgo: Double) {
+        daysAgo.forEachIndexed { i, ago ->
+            assertTrue(files.write(account, "s-$i", "tail", files.generation(account)))
+            files.touch(account, "s-$i", now - (ago * day).toLong())
+        }
+    }
+
+    private fun kept(files: SteerTailFiles, account: String, count: Int) =
+        (0 until count).filter { files.read(account, "s-$it") != null }
+
+    @Test
+    fun pruningDropsTailsNotOpenedWithin30Days() {
+        val files = SteerTailFiles(dir)
+        tails(files, "acct", 0.0, 29.9, 30.1, 400.0)
+        tails(files, "other", 400.0)
+        assertEquals(setOf("s-2", "s-3"), files.prune("acct", now).toSet())
+        assertEquals(listOf(0, 1), kept(files, "acct", 4))
+        // Per account: another account's tails are its own.
+        assertEquals(listOf(0), kept(files, "other", 1))
+    }
+
+    @Test
+    fun pruningKeepsOnlyThe100MostRecentlyOpened() {
+        val files = SteerTailFiles(dir)
+        // 120 fresh tails, s-0 the most recently opened.
+        tails(files, "acct", *DoubleArray(120) { it * 0.01 })
+        files.prune("acct", now)
+        assertEquals((0 until 100).toList(), kept(files, "acct", 120))
+    }
+
+    @Test
+    fun whicheverRuleKeepsFewerWins() {
+        val files = SteerTailFiles(dir)
+        // 150 tails, only 40 opened within the 30 days: the age rule keeps fewer.
+        tails(files, "acct", *DoubleArray(150) { if (it < 40) it * 0.1 else 31.0 + it })
+        files.prune("acct", now)
+        assertEquals((0 until 40).toList(), kept(files, "acct", 150))
+    }
+
+    @Test
+    fun openingASessionStampsItsLastUse() {
+        val files = SteerTailFiles(dir)
+        tails(files, "acct", *DoubleArray(101) { it.toDouble() * 0.1 })
+        // s-100 is the oldest: opening it makes it the newest, s-99 goes instead.
+        files.touch("acct", "s-100", now)
+        files.prune("acct", now)
+        assertNotNull(files.read("acct", "s-100"))
+        assertNull(files.read("acct", "s-99"))
+        assertEquals(100, kept(files, "acct", 101).size)
     }
 
     @Test

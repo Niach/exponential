@@ -25,6 +25,13 @@ import kotlinx.serialization.json.put
 /** fixtures/steer-enet.json `storedTail`: the feed events a viewer keeps per opened session. */
 const val STEER_STORED_TAIL = 200
 
+/** fixtures/steer-enet.json PRUNING: past the `storedTailMaxSessions` most recently opened
+ *  sessions only the newest tails stay, per account. */
+const val STEER_STORED_TAIL_MAX_SESSIONS = 100
+
+/** fixtures/steer-enet.json PRUNING: a tail not opened within `storedTailMaxAgeDays` is deleted. */
+const val STEER_STORED_TAIL_MAX_AGE_DAYS = 30
+
 /** How long a changed tail waits before it is written (at most one write per window). */
 internal const val STEER_TAIL_WRITE_DEBOUNCE_MS = 2_000L
 
@@ -136,6 +143,35 @@ class SteerTailFiles(private val root: File) {
         synchronized(lock) { file(accountId, sessionId).delete() }
     }
 
+    /** PRUNING: opening a session stamps its tail's last use (the file's mtime; a write while open stamps it too). */
+    fun touch(accountId: String, sessionId: String, nowMs: Long = System.currentTimeMillis()) {
+        synchronized(lock) {
+            val file = file(accountId, sessionId)
+            if (file.isFile) file.setLastModified(nowMs)
+        }
+    }
+
+    /**
+     * PRUNING (LRU, per account): deletes every tail not used within
+     * [maxAgeDays], and every one past the [maxSessions] most recently used;
+     * both rules apply, so whichever keeps fewer wins. Returns the deleted
+     * session file names. Runs off the main thread, after each write.
+     */
+    fun prune(
+        accountId: String,
+        nowMs: Long = System.currentTimeMillis(),
+        maxSessions: Int = STEER_STORED_TAIL_MAX_SESSIONS,
+        maxAgeDays: Int = STEER_STORED_TAIL_MAX_AGE_DAYS,
+    ): List<String> = synchronized(lock) {
+        val files = File(root, safe(accountId)).listFiles { f -> f.isFile && f.name.endsWith(TAIL_SUFFIX) }
+            ?: return emptyList()
+        val cutoff = nowMs - maxAgeDays * 24L * 60L * 60L * 1000L
+        val byUse = files.map { it to it.lastModified() }
+            .sortedWith(compareByDescending<Pair<File, Long>> { it.second }.thenBy { it.first.name })
+        val doomed = byUse.filterIndexed { index, (_, used) -> index >= maxSessions || used < cutoff }.map { it.first }
+        doomed.filter { it.delete() }.map { it.name.removeSuffix(TAIL_SUFFIX) }
+    }
+
     fun forget(accountId: String) {
         synchronized(lock) {
             generations[accountId] = (generations[accountId] ?: 0) + 1
@@ -143,7 +179,11 @@ class SteerTailFiles(private val root: File) {
         }
     }
 
-    private fun file(accountId: String, sessionId: String) = File(File(root, safe(accountId)), "${safe(sessionId)}.tail")
+    private fun file(accountId: String, sessionId: String) = File(File(root, safe(accountId)), "${safe(sessionId)}$TAIL_SUFFIX")
+
+    private companion object {
+        const val TAIL_SUFFIX = ".tail"
+    }
 
     private fun safe(id: String) = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }

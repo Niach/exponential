@@ -167,7 +167,8 @@ class SteerConnectionStore @Inject constructor(
             val tree = tailTree(accountId, sessionId) ?: return@SteerTailRecorder
             val stored = StoredTailCodec.seal(StoredTailCodec.encode(sessionId, events), tree, SealedFfi)
                 ?: return@SteerTailRecorder
-            tailFiles.write(accountId, sessionId, stored, generation)
+            // PRUNING: checked off the main thread whenever a tail is written.
+            if (tailFiles.write(accountId, sessionId, stored, generation)) tailFiles.prune(accountId)
         })
     }
 
@@ -182,6 +183,8 @@ class SteerConnectionStore @Inject constructor(
     }
 
     private suspend fun loadTail(accountId: String, sessionId: String): ActivityFeedState? {
+        // PRUNING: opening the session stamps its tail's last use.
+        tailFiles.touch(accountId, sessionId)
         val stored = tailFiles.read(accountId, sessionId) ?: return null
         val tree = tailTree(accountId, sessionId) ?: return null
         val clear = StoredTailCodec.open(stored, tree, SealedKeys.of(tree.rootId), SealedFfi)

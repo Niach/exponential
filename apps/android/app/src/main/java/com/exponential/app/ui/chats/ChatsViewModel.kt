@@ -58,6 +58,17 @@ import kotlinx.coroutines.launch
  * live here too.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+/**
+ * #PERF-9: what only the Chats LIST reads (the grouped rows and everything
+ * derived from them) stops the moment the list leaves the screen: the usual
+ * 5 s grace kept the whole list recomputing on every sync tick of the chat
+ * just opened, on the cold open's busiest CPU. The state keeps its last
+ * value, so returning shows the last list at once while it recomputes; the
+ * nav dots ([SessionTree.chatsNavDots]) are the only derivation that runs
+ * under an open chat.
+ */
+private val LIST_SHARING = SharingStarted.WhileSubscribed(stopTimeoutMillis = 0)
+
 @HiltViewModel
 class ChatsViewModel @Inject constructor(
     private val auth: AuthRepository,
@@ -157,7 +168,7 @@ class ChatsViewModel @Inject constructor(
             // NEW-1: Recent's 24 h window (read on every input change).
             now = SessionTree.nowIso(),
         ) }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /**
      * #PERF-9: the Chats tab's three dots, derived on their own. The nav bar
@@ -198,7 +209,7 @@ class ChatsViewModel @Inject constructor(
             rows.associate { it.id to it.cli },
             devices.associate { it.deviceId to ChatRowDevice(it.label, it.icon, it.kind == "server") },
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * EXP-1309 (web `chatRowWord` ×4): each listed row's ONE quiet word off
@@ -220,7 +231,7 @@ class ChatsViewModel @Inject constructor(
                 offline = row.offline,
             )?.let { row.sessionId to it }
         }.toMap()
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * NEW-41 (`chat-list.json`, web `rowLead`): each listed root's PR
@@ -236,7 +247,7 @@ class ChatsViewModel @Inject constructor(
         g.flatMap { it.rows }.mapNotNull { row ->
             chatRowPrLead(byRoot[row.sessionId].orEmpty().map { it.state })?.let { row.sessionId to it }
         }.toMap()
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * The phone home's Running band (`composer-home.json`: phones keep their
@@ -252,7 +263,7 @@ class ChatsViewModel @Inject constructor(
                 .flatMap { it.rows }
                 .filter { owner[it.sessionId] == me }
         }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     private val agentDefinitions = dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() }
         .map { rows -> rows.map(SessionTree::agentDefinition) }
@@ -311,7 +322,7 @@ class ChatsViewModel @Inject constructor(
             owner = facts.owner,
             devices = facts.devices,
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /** #EXP-1710: what the Needs you fold reads beyond the list's inputs. */
     private data class NeedsYouTeamFacts(
@@ -384,7 +395,7 @@ class ChatsViewModel @Inject constructor(
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
             visible = input.sessions.mapTo(HashSet()) { it.id },
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList()))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, Chats.ChatList(emptyList()))
 
     /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
      *  list, [agents] order (the viewer's Assistant first); none on the
@@ -405,7 +416,7 @@ class ChatsViewModel @Inject constructor(
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /** #EXP-1733: the ACTIVE team's live apps (the dao hides trashed rows). */
     private val teamApps: Flow<List<Chats.AppChatInput>> = activeTeam.flatMapLatest { team ->
@@ -436,7 +447,7 @@ class ChatsViewModel @Inject constructor(
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /** What a chat row's menu needs per root: its status, whether the
      *  viewer may steer it (shared, or the starter) and whether the viewer
@@ -452,7 +463,7 @@ class ChatsViewModel @Inject constructor(
                 mine = me != null && row.userId == me,
             )
         }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /** The viewer owns the active team (the agent menu's Agent settings). */
     val isOwner: StateFlow<Boolean> = combine(activeTeam, auth.userId) { team, me -> team to me }
