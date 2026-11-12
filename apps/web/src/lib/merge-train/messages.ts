@@ -3,7 +3,7 @@
 // an ended root keeps it pre-consumed for display), plus the starter's
 // Assistant: ONE merged line per landed batch, and the stuck line of a PR
 // held by the limits. Agents never poll: this is how they hear the train.
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import {
   assistantBatchLines,
   prMergeRoute,
@@ -11,8 +11,8 @@ import {
   type HoldReason,
   type MergeOutcome,
 } from "@exp/domain-contract/merge-train"
-import { agents, issues, pullRequestIssues, pullRequests, sessions } from "@/db/schema"
-import { insertMessage } from "@/lib/sessions/messages"
+import { agents, issues, messages, pullRequestIssues, pullRequests, sessions } from "@/db/schema"
+import { inSession, insertMessage } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { generateTxId } from "@/lib/trpc"
 
@@ -92,6 +92,7 @@ export async function postPrMerge(
     }
     const row = target.sessionId === ownTarget.id ? ownTarget : await sessionRow(tx, target.sessionId)
     if (!row) continue
+    await supersedePrMerge(tx, row.id, pr.id)
     await insertMessage(tx, row, {
       authorKind: `user`,
       authorId: row.userId,
@@ -102,6 +103,26 @@ export async function postPrMerge(
     })
   }
   return { own: ownTarget.id, assistant: routedAssistant }
+}
+
+/** #FEED-225 (merge-train.json `routing`): a PR's newer `pr_merge` line
+ *  supersedes its older ones the session has not read yet: they stay in the
+ *  Conversation but never reach the agent. A held line still pending when
+ *  the PR landed (a device that missed the wake) used to arrive after the
+ *  merged one and read as the current state. */
+export async function supersedePrMerge(tx: Tx, sessionId: string, pullRequestId: string): Promise<void> {
+  const now = new Date()
+  await tx
+    .update(messages)
+    .set({ consumedAt: now, updatedAt: now })
+    .where(
+      and(
+        inSession(sessionId),
+        isNull(messages.consumedAt),
+        sql`${messages.card}->>'event' = 'pr_merge'`,
+        sql`${messages.card}->>'pullRequestId' = ${pullRequestId}`
+      )
+    )
 }
 
 /** The Assistant's stuck line for a PR held by the limits. */
