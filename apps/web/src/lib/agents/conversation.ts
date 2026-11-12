@@ -69,6 +69,8 @@ export async function conversationInTx(
       model: agent.model,
       // #EXP-1656: the agent's skills (its triggers fire into this row too).
       skillIds: agent.skillIds.length > 0 ? agent.skillIds : null,
+      // #EXP-1793: and its MCP servers.
+      mcpServerIds: agent.mcpServerIds.length > 0 ? agent.mcpServerIds : null,
       repositoryId: null,
       status: `queued`,
       shared: device.shared,

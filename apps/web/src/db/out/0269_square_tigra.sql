@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "mcp_server_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

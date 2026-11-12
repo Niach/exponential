@@ -31,8 +31,13 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
 import { dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
-import { assertRunnerVocabulary, resolveSessionDevice, resolveSessionDeviceInTx } from "@/lib/sessions/send"
-import { ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
+import {
+  assertMcpServersInTeam,
+  assertRunnerVocabulary,
+  resolveSessionDevice,
+  resolveSessionDeviceInTx,
+} from "@/lib/sessions/send"
+import { AGENT_MCP_ROW, ASSISTANT_COPY, COORDINATOR_COPY, LEAD_COPY } from "@exp/domain-contract/agent-settings"
 import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib/agents/assistant"
 
 // NEW-2: team AGENTS = definition rows (Settings → Agents; owner writes,
@@ -42,6 +47,8 @@ import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib
 
 const uuid = z.string().uuid()
 const agentSkillIdsSchema = z.array(uuid).max(SKILLS_PER_SESSION_MAX)
+// #EXP-1793 (agent-settings.json `mcpRow.max`): the send's own cap.
+export const agentMcpServerIdsSchema = z.array(uuid).max(AGENT_MCP_ROW.max)
 
 /** Agent triggers as stored: every trigger carries an id (minted here). */
 export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): AgentTrigger[] {
@@ -260,7 +267,13 @@ export const agentsRouter = router({
   }),
 
   create: authedProcedure
-    .input(agentFacetsSchema.extend({ teamId: uuid, skillIds: agentSkillIdsSchema.optional() }))
+    .input(
+      agentFacetsSchema.extend({
+        teamId: uuid,
+        skillIds: agentSkillIdsSchema.optional(),
+        mcpServerIds: agentMcpServerIdsSchema.optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       await assertTeamOwner(userId, input.teamId)
@@ -272,6 +285,7 @@ export const agentsRouter = router({
         // team), read under the machine's share lock (#EXP-1259).
         await resolveSessionDeviceInTx(tx, userId, input.teamId, input.deviceId)
         const skillIds = (await assertSkillsInTeam(tx, input.teamId, input.skillIds)) ?? []
+        const mcpServerIds = (await assertMcpServersInTeam(tx, input.teamId, input.mcpServerIds)) ?? []
         const [agent] = await tx
           .insert(agents)
           .values({
@@ -288,6 +302,7 @@ export const agentsRouter = router({
             account: input.account ?? null,
             model,
             skillIds,
+            mcpServerIds,
             ownerId: userId,
           })
           .returning()
@@ -313,6 +328,8 @@ export const agentsRouter = router({
         sortOrder: z.number().finite().optional(),
         // #EXP-1656: the skills every run of the agent starts with.
         skillIds: agentSkillIdsSchema.optional(),
+        // #EXP-1793: the team MCP servers every run of the agent starts with.
+        mcpServerIds: agentMcpServerIdsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -362,6 +379,10 @@ export const agentsRouter = router({
         const accountWrite = input.account !== undefined || account !== agent.account ? { account } : {}
         const skillIds =
           input.skillIds === undefined ? undefined : ((await assertSkillsInTeam(tx, agent.teamId, input.skillIds)) ?? [])
+        const mcpServerIds =
+          input.mcpServerIds === undefined
+            ? undefined
+            : ((await assertMcpServersInTeam(tx, agent.teamId, input.mcpServerIds)) ?? [])
         const [updated] = await tx
           .update(agents)
           .set({
@@ -378,6 +399,7 @@ export const agentsRouter = router({
             ...accountWrite,
             ...(model !== undefined ? { model } : {}),
             ...(skillIds !== undefined ? { skillIds } : {}),
+            ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
             updatedAt: now,
@@ -396,6 +418,8 @@ export const agentsRouter = router({
               ...(model !== undefined ? { model } : {}),
               // #EXP-1656: and the skills its next launch installs.
               ...(skillIds !== undefined ? { skillIds: skillIds.length > 0 ? skillIds : null } : {}),
+              // #EXP-1793: and the MCP servers it resolves (re-read between turns).
+              ...(mcpServerIds !== undefined ? { mcpServerIds: mcpServerIds.length > 0 ? mcpServerIds : null } : {}),
               ...(moved
                 ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }
                 : {}),

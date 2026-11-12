@@ -19,8 +19,12 @@ export interface McpCredentialPayload {
   /** Where the refresh posts (non-secret, but kept beside the token it
    * refreshes rather than re-discovered on every launch). */
   tokenEndpoint?: string
-  /** A typed secret (`auth = secret`). */
+  /** A typed secret (`auth = secret`): the value of the server's FIRST
+   * declared header/env name (a row written before #EXP-1793). */
   value?: string
+  /** #EXP-1793: a `secret` server's values keyed by declared header/env
+   * name (several headers, e.g. Cloudflare Access + a bearer token). */
+  values?: Record<string, string>
 }
 
 /** The columns that locate a credential row's seal. */

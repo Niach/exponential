@@ -275,3 +275,15 @@ export function leadOptions<T extends { userId: string; name: string }>(members:
   )
   return [LEAD_NONE, ...sorted]
 }
+
+/** #EXP-1793: the agent page's MCP servers row (`mcpRow`). */
+export const AGENT_MCP_ROW = fixture.mcpRow
+
+/** The MCP servers row's value: the picked servers' names (team list order)
+ *  through the shared picker summary (`a` / `a, b` / `a, b +N`), `None`
+ *  when empty (`mcpValueCases`). */
+export function agentMcpServersValue(names: readonly string[]): string {
+  if (names.length === 0) return fixture.mcpRow.none
+  if (names.length <= 2) return names.join(`, `)
+  return `${names.slice(0, 2).join(`, `)} +${names.length - 2}`
+}
