@@ -40,3 +40,40 @@ files next to ~33 GB of everything else.
 
 Logs: `journalctl -t exp-disk-keeper`; the scheduled tasks' runs are under the
 service's Scheduled Tasks in Coolify (a failure notifies like the disk alert).
+
+# A DB restart no longer needs a web restart
+
+On 2026-11-12 (16:55–16:56:39 UTC) the PITR go-live restarted Postgres; the new
+container got a new IP (172.18.0.14 → 172.18.0.4) and the web app kept dialing
+the old one, `/api/health` said `db: false` and Coolify served 503 until the
+web container was restarted by hand.
+
+Cause: Bun's `node:dns` (which `net.connect`, and so `pg`, uses) resolves
+through c-ares, whose query cache keeps an answer for its record TTL, and
+Docker's embedded DNS answers with TTL 600. Every new pool connection dialed
+the dead IP for up to ten minutes. `BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS` does
+not reach that cache; Bun's `fetch` is unaffected.
+
+Fix (`apps/web/src/db/resilient-pool.ts`, used by `db/connection.ts`):
+
+- every connection resolves the host fresh (libc `getaddrinfo`, no in-process
+  cache) right before it dials; TLS still verifies the hostname;
+- the connect phase retries with backoff (5 attempts, 100 ms doubling, capped
+  at 2 s, logged as `[db] connect failed (…), retry n`); a statement is never
+  re-run;
+- a connection-class error (`ECONNREFUSED`, `EHOSTUNREACH`, `ETIMEDOUT`,
+  terminated connections, `57P0x`, `08xxx`) drops every idle pooled
+  connection; connects time out after 5 s, sockets use TCP keepalive;
+- `/api/health` answers within 3 s: 503 while the DB is unreachable, 200 on
+  the first query the healed pool answers.
+
+Electric reconnects on its own while Postgres refuses connections, but exits
+when the DB hostname stops resolving (container gone): it needs
+`restart: unless-stopped` (selfhost compose and dev compose have it; check the
+Coolify resource keeps it). The relays don't use the DB.
+
+Proved locally (2026-11-12): compose `postgres` + `electric`, the web pool in a
+Bun container on the same network, Postgres removed and recreated on a new IP
+(the old one held by a placeholder container). The old pool stayed on
+`ECONNREFUSED` to the old IP; the new one answered from the new IP 2–3 s after
+Postgres was up, Electric 3 s after.

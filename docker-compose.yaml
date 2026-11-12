@@ -3,6 +3,7 @@ name: "exponential"
 services:
   postgres:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: exponential
       POSTGRES_USER: postgres
@@ -25,6 +26,10 @@ services:
     # Pinned (like postgres/garage) so an upstream protocol change can't land
     # silently in every dev environment — bump deliberately.
     image: electricsql/electric:1.8.1
+    # Electric retries a refused connection itself, but EXITS when the DB
+    # hostname stops resolving (DB container recreated): the restart brings it
+    # back once Postgres is up.
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/exponential?sslmode=disable
       ELECTRIC_INSECURE: true
