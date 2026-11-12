@@ -7755,8 +7755,8 @@
         "file": "shots/trace/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 37716,
-        "sha256": "c044048c2371a282b277800f7663f040e74c6f28ab05d83a2fc14008097e5bb4"
+        "bytes": 37594,
+        "sha256": "f68f911b72f239467b831452043e09e57887e18805e1c97c4071fc6f35de2752"
       },
       "desktop": {
         "file": "shots/trace/desktop.webp",
@@ -7776,15 +7776,15 @@
         "file": "shots/trace/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 49824,
-        "sha256": "4a13d6b19b234b12eb7d2ed32803c922fd0e852872fc5a0856d972b989bd0eae"
+        "bytes": 48794,
+        "sha256": "ff930f82fdc5e6a1de331db3b8604936be9a76ac75b98628ddda3abe0f2ebaab"
       },
       "web-mobile": {
         "file": "shots/trace/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 37316,
-        "sha256": "616c8e5f6397d645ef0a483e220c2a5b7e627c967d51112ea71c08ee3af9110f"
+        "bytes": 36492,
+        "sha256": "8e830a0403f0aa01fc1ad746890b50cc42db8f3870c7f779ca31ee8a6dd84179"
       }
     },
     "voice-call": {
