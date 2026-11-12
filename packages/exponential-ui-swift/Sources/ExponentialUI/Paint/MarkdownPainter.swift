@@ -346,8 +346,11 @@ struct MarkdownView: View {
     @ViewBuilder
     private func codeFills(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
         if lines.hasChips {
-            let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
-            let placed = TextShaper.codeRects(in: lines, lineHeight: spec.lineHeight, baseline: baseline, rtl: model.isRTL)
+            let rtl = model.isRTL
+            let placed = lines.memoized("code|\(spec.size)|\(spec.weight)|\(spec.lineHeight)|\(spec.family ?? "")|\(rtl)") {
+                let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
+                return TextShaper.codeRects(in: lines, lineHeight: spec.lineHeight, baseline: baseline, rtl: rtl)
+            }
             if !placed.isEmpty {
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
@@ -374,7 +377,7 @@ struct MarkdownView: View {
             let runs = lines.text, width = lines.wrap
             let chipped = lines.hasChips
             SelectableTextLabel(
-                attributed: chipped ? TextShaper.withLineSeparators(lines) : runs,
+                attributed: chipped ? lines.memoized("separated") { TextShaper.withLineSeparators(lines) } : runs,
                 lineHeight: spec.lineHeight, wraps: !chipped,
                 onTap: lines.hasLinks ? { point in
                     if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }

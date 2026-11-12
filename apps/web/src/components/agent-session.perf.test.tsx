@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { SteerSessionSnapshot } from "@/lib/steer-session-store"
 import type { SessionRow } from "@/lib/session-tree"
@@ -50,7 +50,11 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionCard: () => null,
   loadEarlierMessages: () => {},
 }))
-vi.mock(`@/hooks/use-session-nav`, () => ({ useXrefAgent: () => () => null }))
+// Stable like the real hook (memoized over the agent rows).
+vi.mock(`@/hooks/use-session-nav`, () => {
+  const xref = () => null
+  return { useXrefAgent: () => xref }
+})
 const openPlan = vi.hoisted(() => vi.fn())
 vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => openPlan }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
@@ -125,6 +129,45 @@ describe(`large chat render`, () => {
     // Generous for CI; a laptop renders this window in well under a second.
     expect(renderMs).toBeLessThan(5_000)
     if (path) process.stderr.write(`${JSON.stringify({ events: events.length, items: opened.items, rows: opened.rows, storeMs: opened.ms, renderMs, nodes })}\n`)
+    view.unmount()
+  })
+
+  // #PERF-9: the two re-renders a reader feels: a `Load earlier` page (one
+  // more window mounts over the rows already there) and a streamed event
+  // (one row moves). Unchanged rows keep their element (no re-render).
+  it(`a Load earlier page and a streamed event re-render only what moved`, async () => {
+    const path = process.env.STEER_REAL_JOURNAL
+    const events = path ? realJournal(path) : syntheticJournal(20_000)
+    const opened = await openChat(replay(events, REPLAY_TAIL).frames)
+    snapshot = { ...opened.snapshot, phase: { kind: `live` } }
+    const view = render(
+      <TooltipProvider>
+        <AgentSessionView session={session} />
+      </TooltipProvider>
+    )
+    const timeIt = (step: () => void) => {
+      const started = performance.now()
+      act(step)
+      return performance.now() - started
+    }
+    const streamed: number[] = []
+    for (let n = 0; n < 5; n++) {
+      const last = snapshot.feed[snapshot.feed.length - 1]!
+      snapshot = { ...snapshot, feed: [...snapshot.feed, { ...last, id: last.id + 1_000_000 + n }] }
+      streamed.push(
+        timeIt(() =>
+          view.rerender(
+            <TooltipProvider>
+              <AgentSessionView session={{ ...session }} />
+            </TooltipProvider>
+          )
+        )
+      )
+    }
+    const button = screen.queryByRole(`button`, { name: /load earlier/i })
+    const loadEarlierMs = button ? timeIt(() => fireEvent.click(button)) : null
+    expect(view.container.querySelectorAll(`*`).length).toBeGreaterThan(0)
+    if (path) process.stderr.write(`${JSON.stringify({ streamedMs: streamed.map((ms) => Math.round(ms)), loadEarlierMs: loadEarlierMs && Math.round(loadEarlierMs) })}\n`)
     view.unmount()
   })
 })

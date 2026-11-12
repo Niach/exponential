@@ -21,6 +21,8 @@ import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.TURN_STATE_STARTED
+import com.exponential.app.domain.TailEvent
+import com.exponential.app.domain.adoptRowIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerMessage
@@ -227,6 +229,8 @@ class SteerConnection internal constructor(
     stats: SteerConnStatsSink? = null,
     version: String = "",
     private val settleAfterMs: Long = SteerConnStatsSpec.SETTLE_AFTER_MS,
+    /** #PERF-9 (steer-enet.json STORED TAIL): the newest feed events, kept on disk; null = none. */
+    private val tail: SteerTailRecorder? = null,
 ) {
 
     /** The connection's own lifetime — outlives every screen that attaches. */
@@ -289,6 +293,10 @@ class SteerConnection internal constructor(
      * committed feed is folded from them in one go.
      */
     private var stagedFrames: MutableList<StagedFrame>? = null
+
+    /** #PERF-9: [activity] holds the STORED TAIL painted on open, not yet
+     *  replaced by a join's replay ([seedStoredTail]). */
+    private var showingStoredTail = false
     /** EXP-783: the `history_page` ask in flight — a chunk for any other id is
      *  not ours; whether the device said its log is a TAIL (so there IS older
      *  transcript to ask the device for); and whether a page came back with
@@ -658,6 +666,8 @@ class SteerConnection internal constructor(
         val wasFinished = isFinished
         closed = true
         Log.i(TAG, "[$sid] close")
+        // #PERF-9: what the tail gained since its last write goes out now.
+        tail?.flush()
         closeView()
         connectJob?.cancel()
         connectJob = null
@@ -1094,6 +1104,9 @@ class SteerConnection internal constructor(
 
     private fun handleActivityEvent(event: JsonObject?, seq: Long? = null) {
         if (event == null) return
+        // #PERF-9: every applied event goes into the stored tail (an echoed
+        // `user_message` too: the tail is folded without local echoes).
+        tail?.append(TailEvent(event, seq))
         val before = _activity.value
         val after = before.applyActivityEvent(event, { consumeEcho(it) }, seq)
         if (after === before) return
@@ -1187,7 +1200,8 @@ class SteerConnection internal constructor(
         // locally echoed message, never a replayed one — so it ends the
         // retained prefix.
         val firstSeq = markerFirstSeq ?: staged.firstNotNullOfOrNull { it.decoded(json)?.second }
-        val retained = if (firstSeq == null) {
+        // #PERF-9: a painted stored tail is REPLACED, never kept as a prefix.
+        val retained = if (firstSeq == null || showingStoredTail) {
             emptyList()
         } else {
             previous.feed.takeWhile { it.seq != null && it.seq!! < firstSeq }
@@ -1205,7 +1219,7 @@ class SteerConnection internal constructor(
         }
         val dispatcher = foldDispatcher
         if (dispatcher == null) {
-            finishCommit(why, seed, folded = 0)
+            finishCommit(why, seed, folded = emptyList())
             return
         }
         // EXP-1522: a long replay (thousands of events, re-sent to every
@@ -1219,7 +1233,7 @@ class SteerConnection internal constructor(
         staged.clear()
         commitJob = scope.launch {
             val folded = withContext(dispatcher) { foldReplay(seed, batch) }
-            if (stagedFrames === staged) finishCommit(why, folded, folded = batch.size)
+            if (stagedFrames === staged) finishCommit(why, folded, folded = batch)
         }
     }
 
@@ -1228,7 +1242,7 @@ class SteerConnection internal constructor(
 
     /** The commit's second half, on the connection's thread: the frames still
      *  staged on top of [base], the carried echoes and locks, ONE write. */
-    private fun finishCommit(why: String, base: ActivityFeedState, folded: Int) {
+    private fun finishCommit(why: String, base: ActivityFeedState, folded: List<StagedFrame>) {
         val staged = stagedFrames ?: return
         stageQuietJob?.cancel()
         stageQuietJob = null
@@ -1264,7 +1278,21 @@ class SteerConnection internal constructor(
         ackTimeouts.keys.toList().forEach { key ->
             if (key !in carried) ackTimeouts.remove(key)?.cancel()
         }
+        // #PERF-9: the replay replaces a painted stored tail in this ONE
+        // write; the rows both hold keep the tail's ids (the reader's anchor).
+        if (showingStoredTail) {
+            next = next.adoptRowIds(previous.feed)
+            showingStoredTail = false
+        }
         _activity.value = next
+        // #PERF-9: the replay is the new tail (its newest events).
+        // (Latest-wins slots ride at the replay's end, so its newest
+        // `storedTail` frames plus a margin hold the newest rows.)
+        val keep = STEER_STORED_TAIL * 2
+        tail?.replace(
+            (if (staged.size >= keep) staged.takeLast(keep) else folded.takeLast(keep - staged.size) + staged)
+                .mapNotNull { frame -> frame.decoded(json)?.let { (event, seq) -> TailEvent(event, seq) } },
+        )
         _replayed.value = true
         // EXP-724: the swap re-derived the compaction state from the replay —
         // arm the backstop for a start it carried, drop it otherwise. The
@@ -1275,9 +1303,23 @@ class SteerConnection internal constructor(
         armCompactionTimeout(next.compacting)
         Log.i(
             TAG,
-            "[$sid] replay committed (why=$why frames=${folded + staged.size} " +
+            "[$sid] replay committed (why=$why frames=${folded.size + staged.size} " +
                 "ms=${nowMs() - stageStartedAtMs})",
         )
+    }
+
+    /**
+     * #PERF-9 (steer-enet.json STORED TAIL): paint the tail this install kept
+     * as the transcript while discovery and the join run. Only onto an empty
+     * feed that no replay has reached yet; the join's replay replaces it.
+     */
+    internal fun seedStoredTail(state: ActivityFeedState) {
+        if (closed || state.feed.isEmpty() || _replayed.value || _activity.value.feed.isNotEmpty()) return
+        com.exponential.app.domain.perfTrace("SteerConnection.storedTail") {
+            showingStoredTail = true
+            _activity.value = state
+        }
+        Log.i(TAG, "[$sid] stored tail painted (rows=${state.feed.size})")
     }
 
     /** Drop a staged replay that will never be completed — a socket that died

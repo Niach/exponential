@@ -28,6 +28,10 @@ final class ChatScreenModel {
     @ObservationIgnored private var observationTask: Task<Void, Never>?
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var missingTask: Task<Void, Never>?
+    /// #PERF-9: the first snapshot, read BESIDE the first digest.
+    @ObservationIgnored private var firstTask: Task<Void, Never>?
+    /// The digest observation has delivered: its snapshots rule from here.
+    @ObservationIgnored private var digestSeen = false
     /// #EXP-1380: the chat's message limit widened (Load earlier): reload.
     @ObservationIgnored private var limitObserver: NSObjectProtocol?
 
@@ -38,6 +42,8 @@ final class ChatScreenModel {
     }
 
     func start() {
+        // #PERF-9: the root's stored feed tail is read beside the snapshot.
+        StoredTailReads.start(accountId: accountId, sessionId: rootId, db: db)
         startObserving()
         if limitObserver == nil {
             let rootId = rootId
@@ -67,6 +73,8 @@ final class ChatScreenModel {
     func stop() {
         observationTask?.cancel()
         observationTask = nil
+        firstTask?.cancel()
+        firstTask = nil
         if let limitObserver { NotificationCenter.default.removeObserver(limitObserver) }
         limitObserver = nil
         clockTask?.cancel()
@@ -100,16 +108,35 @@ final class ChatScreenModel {
         let observation = ValueObservation
             .tracking { db in try ChatRows.signature(db: db, rootId: rootId) }
             .removeDuplicates()
+        // #PERF-9 (large chats' cold open): the digest is a whole-root scan
+        // (~250 ms on an 8k-message chat), and the snapshot used to wait for
+        // it. The first snapshot is read beside it instead (`prefetch`, which
+        // the digest's first snapshot reuses when nothing moved).
+        if rows == nil, firstTask == nil {
+            digestSeen = false
+            firstTask = Task { [weak self] in
+                let limit = Chats.MessageLimits.shared.limit(rootId)
+                guard let rows = await ChatRowsLoads.shared.prefetch(pool: pool, rootId: rootId, limit: limit) else { return }
+                let snapshot = await Task.detached(priority: .userInitiated) {
+                    let now = Date()
+                    return (rows, rows.view(now: now), now)
+                }.value
+                guard !Task.isCancelled, let self, !self.digestSeen, self.rows == nil else { return }
+                self.apply(snapshot)
+            }
+        }
         observationTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     for try await signature in observation.values(in: pool) {
                         guard signature != nil else {
+                            self?.digestSeen = true
                             self?.apply(nil)
                             continue
                         }
                         let snapshot = try await Self.snapshot(pool: pool, rootId: rootId, signature: signature)
                         guard !Task.isCancelled else { return }
+                        self?.digestSeen = true
                         self?.apply(snapshot)
                     }
                     return

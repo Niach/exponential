@@ -812,18 +812,75 @@ actor ChatRowsLoads {
     private var order: [Key] = []
     private static let kept = 8
 
+    /// #PERF-9: the newest snapshot read per (store, root, limit), for a
+    /// view that opens inside a chat already on screen (its first frame
+    /// draws with it instead of waiting for its own digest).
+    private var latest: [Key: ChatRows] = [:]
+
+    func latest(pool: DatabasePool, rootId: String, limit: Int) -> ChatRows? {
+        latest[Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: "", limit: limit)]
+    }
+
+    private func keep(_ rows: ChatRows?, pool: DatabasePool, rootId: String, limit: Int) {
+        let key = Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: "", limit: limit)
+        if latest[key] == nil, latest.count >= Self.kept { latest.removeAll() }
+        latest[key] = rows
+    }
+
+    /// #PERF-9: first reads (`prefetch`) by (store, root, limit): the rows
+    /// AND the digest of the same read transaction.
+    private var prefetches: [Key: Task<(rows: ChatRows?, signature: String?)?, Never>] = [:]
+
+    /// #PERF-9 (large chats' cold open): the first snapshot of a chat, not
+    /// waiting for the digest (a whole-root scan the observation reads
+    /// first): the rows come back as soon as they are read, and the SAME
+    /// read then takes the digest, so the observation's first `load` with
+    /// an equal digest is this snapshot (no second read). Nil = not read.
+    func prefetch(pool: DatabasePool, rootId: String, limit: Int) async -> ChatRows? {
+        let first = Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: "", limit: limit)
+        let (rows, delivered) = AsyncStream<ChatRows?>.makeStream()
+        prefetches[first] = Task { () -> (rows: ChatRows?, signature: String?)? in
+            defer { delivered.finish() }
+            return try? await pool.read { db in
+                let loaded = try ChatRows.load(db: db, rootId: rootId, limit: limit)
+                delivered.yield(loaded)
+                return (loaded, try ChatRows.signature(db: db, rootId: rootId))
+            }
+        }
+        for await loaded in rows {
+            keep(loaded, pool: pool, rootId: rootId, limit: limit)
+            return loaded
+        }
+        return nil
+    }
+
     func load(pool: DatabasePool, rootId: String, signature: String?, limit: Int) async throws -> ChatRows? {
         guard let signature else {
-            return try await pool.read { db in try ChatRows.load(db: db, rootId: rootId, limit: limit) }
+            let rows = try await pool.read { db in try ChatRows.load(db: db, rootId: rootId, limit: limit) }
+            keep(rows, pool: pool, rootId: rootId, limit: limit)
+            return rows
         }
         let key = Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: signature, limit: limit)
+        if let pending = loads[key] { return try await pending.value }
+        let first = Key(pool: ObjectIdentifier(pool), rootId: rootId, signature: "", limit: limit)
+        if let prefetch = prefetches.removeValue(forKey: first),
+           let read = await prefetch.value, read.signature == signature {
+            if let pending = loads[key] { return try await pending.value }
+            let rows = read.rows
+            loads[key] = Task { rows }
+            order.append(key)
+            if order.count > Self.kept { loads[order.removeFirst()] = nil }
+            return rows
+        }
         if let pending = loads[key] { return try await pending.value }
         let task = Task { try await pool.read { db in try ChatRows.load(db: db, rootId: rootId, limit: limit) } }
         loads[key] = task
         order.append(key)
         if order.count > Self.kept { loads[order.removeFirst()] = nil }
         do {
-            return try await task.value
+            let rows = try await task.value
+            keep(rows, pool: pool, rootId: rootId, limit: limit)
+            return rows
         } catch {
             if let index = order.firstIndex(of: key) { order.remove(at: index) }
             loads[key] = nil

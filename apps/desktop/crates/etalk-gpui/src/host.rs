@@ -197,6 +197,23 @@ pub trait TalkHost: 'static {
     /// Visit every message row the host holds; answers whether they have
     /// synced (talk treats the first synced rows as history).
     fn messages(&self, cx: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) -> bool;
+    /// #PERF-9: [`Self::messages`] narrowed to the rows changed since
+    /// `since`, a cursor an earlier look returned (None = every row; a host
+    /// may always visit more). Answers whether they have synced, and the
+    /// cursor for the next look. The default visits every row.
+    fn messages_since(&self, since: Option<u64>, cx: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) -> (bool, Option<u64>) {
+        let _ = since;
+        (self.messages(cx, visit), None)
+    }
+    /// #PERF-9: the rows of one session (a conversation), any order. The
+    /// default filters every row.
+    fn session_messages(&self, session_id: &str, cx: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) {
+        self.messages(cx, &mut |row| {
+            if row.message.session_id == Some(session_id) {
+                visit(row);
+            }
+        });
+    }
     /// Prepare a send (None = signed out).
     fn send(&self, outgoing: Outgoing, cx: &App) -> Option<SendJob>;
     /// Store a settings change; the host hands the stored settings to

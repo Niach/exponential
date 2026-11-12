@@ -23,6 +23,12 @@ public enum SteerEnet {
     public static let staleMs = 75_000
     public static let joinTimeoutMs = 8_000
     public static let sendTimeoutMs = 20_000
+    /// #PERF-9 STORED TAIL: the newest feed events a viewer keeps per session.
+    public static let storedTail = 200
+    /// STORED TAIL PRUNING (LRU per account): the most recently opened
+    /// sessions whose tails stay, and how long an unopened one is kept.
+    public static let storedTailMaxSessions = 100
+    public static let storedTailMaxAgeDays = 30
 
     /// One parsed envelope; every frame as its own JSON text (what the steer
     /// model's reducer reads off the relay socket too).

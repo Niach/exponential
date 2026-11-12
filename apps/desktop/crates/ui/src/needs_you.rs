@@ -60,13 +60,19 @@ fn input(team_id: &str, now: i64, cx: &App) -> NeedsYouInput {
             id: session.id.clone(),
             root_id: session.root_id_or_self().to_string(),
             // An agent conversation = the agent's name, else THE session title.
-            name: session
-                .agent_id
-                .as_deref()
-                .and_then(|agent_id| agents.get(agent_id))
-                .and_then(|agent| agent.name.clone())
-                .or_else(|| crate::session_data::session_title_of(&session.id, cx))
-                .unwrap_or_default(),
+            // #PERF-9: only a ROOT's name is ever shown (a row's `chat`): a
+            // boot titled every session of the team (1.6k) on the main thread.
+            name: if session.root_id_or_self() != session.id {
+                String::new()
+            } else {
+                session
+                    .agent_id
+                    .as_deref()
+                    .and_then(|agent_id| agents.get(agent_id))
+                    .and_then(|agent| agent.name.clone())
+                    .or_else(|| crate::session_data::session_title_of(&session.id, cx))
+                    .unwrap_or_default()
+            },
             status: session.status.clone().unwrap_or_default(),
             agent_id: session.agent_id.clone(),
             user_id: session.user_id.clone(),

@@ -1,5 +1,6 @@
 package com.exponential.app.data.steer
 
+import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.exponential.app.AppConstants
@@ -16,7 +17,12 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.sealed.SealedFfi
+import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.sealed.SealedKeys
+import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.foldStoredTail
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import io.ktor.client.HttpClient
 import javax.inject.Inject
 import javax.inject.Named
@@ -32,6 +38,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 private const val TAG = "SteerConnectionStore"
@@ -53,8 +60,13 @@ class SteerConnectionStore @Inject constructor(
     private val installsApi: InstallsApi,
     private val steerApi: SteerApi,
     @Named(STEER_CLIENT) private val steerClient: HttpClient,
+    @ApplicationContext context: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** #PERF-9 (steer-enet.json STORED TAIL): the tails' reads and writes, never on the main thread. */
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val tailFiles = SteerTailFiles(File(context.filesDir, "steer-tail"))
 
     /**
      * EXP-1522: work that must outlive the screen that started it. A send
@@ -118,6 +130,7 @@ class SteerConnectionStore @Inject constructor(
     fun acquire(codingSessionId: String): SteerConnection {
         synchronized(lock) {
             val connection = connections.getOrPut(codingSessionId) {
+                val accountId = auth.activeAccountId.value
                 SteerConnection(
                     codingSessionId = codingSessionId,
                     // EXP-1529: eNet first, the sealed relay tunnel as its fallback.
@@ -137,12 +150,64 @@ class SteerConnectionStore @Inject constructor(
                     foldDispatcher = Dispatchers.Default,
                     stats = connStats,
                     version = AppConstants.VERSION_NAME,
-                )
+                    tail = accountId?.let { tailRecorder(it, codingSessionId) },
+                ).also { opened -> if (accountId != null) paintStoredTail(opened, accountId, codingSessionId) }
             }
             connection.setBackground(!foreground)
             connection.refCount += 1
             return connection
         }
+    }
+
+    /** #PERF-9: the connection's tail, written (sealed for a keyed tree) off the main thread. */
+    private fun tailRecorder(accountId: String, sessionId: String): SteerTailRecorder {
+        val generation = tailFiles.generation(accountId)
+        return SteerTailRecorder(ioScope, persist = { events ->
+            // An unknown tree is never written: it could be a keyed one.
+            val tree = tailTree(accountId, sessionId) ?: return@SteerTailRecorder
+            val stored = StoredTailCodec.seal(StoredTailCodec.encode(sessionId, events), tree, SealedFfi)
+                ?: return@SteerTailRecorder
+            // PRUNING: checked off the main thread whenever a tail is written.
+            if (tailFiles.write(accountId, sessionId, stored, generation)) tailFiles.prune(accountId)
+        })
+    }
+
+    /** #PERF-9: read, open and fold the stored tail off the main thread, then paint it. */
+    private fun paintStoredTail(connection: SteerConnection, accountId: String, sessionId: String) {
+        scope.launch {
+            val state = withContext(Dispatchers.IO) {
+                runCatching { loadTail(accountId, sessionId) }.getOrNull()
+            } ?: return@launch
+            connection.seedStoredTail(state)
+        }
+    }
+
+    private suspend fun loadTail(accountId: String, sessionId: String): ActivityFeedState? {
+        // PRUNING: opening the session stamps its tail's last use.
+        tailFiles.touch(accountId, sessionId)
+        val stored = tailFiles.read(accountId, sessionId) ?: return null
+        val tree = tailTree(accountId, sessionId) ?: return null
+        val clear = StoredTailCodec.open(stored, tree, SealedKeys.of(tree.rootId), SealedFfi)
+        if (clear == null) {
+            // A clear tail of a keyed tree is never shown, nor kept.
+            if (!SealedContent.isSealedBody(stored)) tailFiles.delete(accountId, sessionId)
+            return null
+        }
+        val events = StoredTailCodec.decode(clear, sessionId) ?: return null
+        return foldStoredTail(events).takeIf { it.feed.isNotEmpty() }
+    }
+
+    private suspend fun tailTree(accountId: String, sessionId: String): TailTree? {
+        val sessions = holder.database(accountId).sessionDao()
+        val row = sessions.getById(sessionId) ?: return null
+        val rootId = row.rootId.ifEmpty { row.id }
+        val root = if (rootId == row.id) row else sessions.getById(rootId) ?: return null
+        return TailTree(rootId, root.sealPublicKey, root.sealEpoch ?: 1)
+    }
+
+    /** #PERF-9: signing out of [accountId] deletes its stored tails. */
+    suspend fun forgetTails(accountId: String) {
+        withContext(Dispatchers.IO) { tailFiles.forget(accountId) }
     }
 
     /// VAPP-33: steer over the active account's eNet node, the PRIMARY

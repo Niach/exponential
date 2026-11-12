@@ -1930,6 +1930,19 @@ private fun ActivityFeed(
     // cards · the rows, each row carrying the cards its calls posted).
     val cardScroll = LocalCardScrollRequest.current
     val feedFooter = LocalFeedFooter.current
+    // #PERF-9: the FIRST layout of a following feed starts at its newest row.
+    // Started at index 0 it composed and measured the window's oldest rows
+    // (never on screen) before the re-pin above moved to the end; requested
+    // here, in composition, the first measure already lands on the end.
+    val firstPin = remember(listState) { booleanArrayOf(false) }
+    if (!firstPin[0] && follow && focused == null && rows.isNotEmpty()) {
+        firstPin[0] = true
+        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+            val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
+                orphanWorkflows.size + (if (working) 1 else 0) + (if (feedFooter != null) 1 else 0)
+            listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
+        }
+    }
     // #FEED-191: a way in (a Needs you row) may ask before the rows load: the
     // request is live for its highlight, so a row landing in that time retries.
     LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {

@@ -437,20 +437,6 @@ impl<T: ShapeRow> Collection<T> {
         }
     }
 
-    fn reindex(&mut self) {
-        let mut groups: HashMap<String, HashSet<RowKey>> = HashMap::new();
-        for (key, row) in self.rows.iter().chain(self.seeded.iter()) {
-            if let Some(group) = row.group() {
-                groups.entry(group.to_string()).or_default().insert(key.clone());
-            }
-        }
-        self.groups = groups;
-        self.group_revisions.clear();
-        self.group_floor = self.revision + 1;
-        self.log.clear();
-        self.log_floor = self.revision + 1;
-    }
-
     /// Optimistically insert a locally-built row (EXP-470). No-op when sync
     /// already delivered the key.
     pub fn seed(&mut self, key: RowKey, row: T) {
@@ -475,13 +461,30 @@ impl<T: ShapeRow> Collection<T> {
     }
 
     fn replace_all(&mut self, rows: Vec<(RowKey, T)>) {
-        self.rows = rows.into_iter().collect();
+        drop(self.install(Hydrated::build(rows)));
+    }
+
+    /// #PERF-9: a wholesale write from a table [`Hydrated::build`] read and
+    /// indexed off the main thread: here only the maps swap (the seeded
+    /// overlay, a handful of rows, is re-indexed). Returns what it replaced,
+    /// for the caller to drop off the main thread too.
+    fn install(&mut self, hydrated: Hydrated<T>) -> Hydrated<T> {
+        let old = Hydrated { rows: std::mem::replace(&mut self.rows, hydrated.rows), groups: std::mem::replace(&mut self.groups, hydrated.groups) };
         // Only a snapshot that CONTAINS a seeded key confirms it; a snapshot
         // without it may predate the mutation (stale where clause) and must
         // not evict the optimistic row.
         self.seeded.retain(|key, _| !self.rows.contains_key(key));
-        self.reindex();
+        for (key, row) in &self.seeded {
+            if let Some(group) = row.group() {
+                self.groups.entry(group.to_string()).or_default().insert(key.clone());
+            }
+        }
+        self.group_revisions.clear();
+        self.group_floor = self.revision + 1;
+        self.log.clear();
+        self.log_floor = self.revision + 1;
         self.revision += 1;
+        old
     }
 
     fn upsert(&mut self, key: RowKey, row: T) {
@@ -519,6 +522,76 @@ impl<T: ShapeRow> Collection<T> {
         self.revision += 1;
         self.caught_up = false;
     }
+}
+
+/// #PERF-9: a whole table read, decoded and grouped OFF the main thread;
+/// [`Collection::install`] swaps it in. (46.6k messages took 0.65–1.8 s
+/// to read, decode and index on the main thread at boot.)
+pub(crate) struct Hydrated<T> {
+    rows: HashMap<RowKey, T>,
+    groups: HashMap<String, HashSet<RowKey>>,
+}
+
+impl<T: ShapeRow> Hydrated<T> {
+    pub(crate) fn build(rows: Vec<(RowKey, T)>) -> Self {
+        let rows: HashMap<RowKey, T> = rows.into_iter().collect();
+        let mut groups: HashMap<String, HashSet<RowKey>> = HashMap::new();
+        for (key, row) in &rows {
+            if let Some(group) = row.group() {
+                groups.entry(group.to_string()).or_default().insert(key.clone());
+            }
+        }
+        Self { rows, groups }
+    }
+
+    /// The table of `T` from `sqlite`, ready to install (background).
+    fn read(sqlite: &ShapeStore) -> Option<Self> {
+        let spec = T::spec();
+        let _span = tracing::debug_span!("sync.hydrate", shape = spec.name).entered();
+        match sqlite.read_all(spec) {
+            Ok(maps) => Some(Self::build(decode_rows::<T>(maps))),
+            Err(err) => {
+                log::warn!("[sync {}] hydrate read failed: {err}", spec.name);
+                None
+            }
+        }
+    }
+}
+
+/// #PERF-9: the shapes whose startup hydrate runs off the main thread
+/// ([`Collections::hydrate_all`]): 15–400 ms each on a real store (47k
+/// messages, 34k PR checks, 26k issue events, 9k events, 3k issues;
+/// sessions and conversations open sealed content per row). The rest (a
+/// few ms together) stay on the foreground so the first frame paints the
+/// last-known teams and boards; readers of these check `is_ready`.
+const HYDRATE_OFF_MAIN: &[&str] = &["messages", "conversations", "sessions", "issues", "issue_events", "pull_request_checks", "events"];
+
+/// #PERF-9: a heavy shape read off the main thread, ready to swap in
+/// (main thread); answers what it replaced, to drop off the main thread
+/// (a dropped installer frees its rows wherever it is dropped).
+type Installer = Box<dyn FnOnce(&mut App) -> Box<dyn Send> + Send>;
+
+fn read_off_main<T: ShapeRow>(entity: &Entity<Collection<T>>, sqlite: &Arc<ShapeStore>, cx: &mut App) -> gpui::Task<Option<Installer>> {
+    let (entity, sqlite) = (entity.clone(), Arc::clone(sqlite));
+    cx.background_executor().spawn(async move {
+        let name = T::spec().name;
+        let rows = Hydrated::<T>::read(&sqlite)?;
+        let phase = phase_from_store(&sqlite, name);
+        let install: Installer = Box::new(move |cx: &mut App| {
+            let replaced = entity.update(cx, |collection, cx| {
+                let replaced = collection.install(rows);
+                collection.set_phase(phase);
+                cx.notify();
+                replaced
+            });
+            Box::new(replaced) as Box<dyn Send>
+        });
+        Some(install)
+    })
+}
+
+fn entity_spec<T: ShapeRow>(_: &Entity<Collection<T>>) -> &'static ShapeSpec {
+    T::spec()
 }
 
 /// #LOGS-11: how many row writes a collection tells
@@ -612,6 +685,13 @@ pub struct Collections {
     pub app_records: Entity<Collection<AppRecordRow>>,
     /// #EXP-1656 the team's skills, body-less (the 34th shape).
     pub skills: Entity<Collection<SkillRow>>,
+    /// #PERF-9: the heavy shapes ([`HYDRATE_OFF_MAIN`]) whose startup
+    /// hydrate is still being read off the main thread; a delta of one waits
+    /// for its install ([`Self::hydrated`]). Disconnects = installed.
+    hydrating: Arc<Mutex<HashMap<&'static str, flume::Receiver<()>>>>,
+    /// #PERF-9: bumped by every hydrate and clear: a hydrate read under an
+    /// older one (the account switched or signed out meanwhile) is dropped.
+    generation: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
@@ -727,7 +807,64 @@ impl Collections {
             app_versions: cx.new(|_| Collection::new()),
             app_records: cx.new(|_| Collection::new()),
             skills: cx.new(|_| Collection::new()),
+            hydrating: Arc::default(),
+            generation: Arc::default(),
         }
+    }
+
+    /// #PERF-9: resolves once `shape`'s startup hydrate is installed (at
+    /// once when none is pending). The delta drain awaits it before reading
+    /// a batch, so no batch commits between a hydrate's snapshot read and
+    /// its install (the race the synchronous hydrate used to rule out).
+    pub(crate) async fn hydrated(&self, shape: &str) {
+        let pending = self.hydrating.lock().expect("hydrating poisoned").get(shape).cloned();
+        if let Some(pending) = pending {
+            let _ = pending.recv_async().await;
+        }
+    }
+
+    /// #PERF-9: every pending startup hydrate is installed (benches, tests,
+    /// and readers that must see the whole store).
+    pub async fn all_hydrated(&self) {
+        let pending: Vec<flume::Receiver<()>> = self.hydrating.lock().expect("hydrating poisoned").values().cloned().collect();
+        for pending in pending {
+            let _ = pending.recv_async().await;
+        }
+    }
+
+    /// #PERF-9 (benches): re-read `shape` and install it as the boot's
+    /// off-main hydrate does, the read done before; the caller times the
+    /// install and what it wakes. Answers the read's milliseconds.
+    #[doc(hidden)]
+    pub fn reinstall_for_bench(&self, shape: &str, sqlite: &ShapeStore, cx: &mut App) -> f64 {
+        fn one<T: ShapeRow>(entity: &Entity<Collection<T>>, sqlite: &ShapeStore, cx: &mut App) -> f64 {
+            let started = Instant::now();
+            let rows = Hydrated::<T>::read(sqlite).expect("the table");
+            let read = started.elapsed().as_secs_f64() * 1e3;
+            let replaced = entity.update(cx, |collection, cx| {
+                let replaced = collection.install(rows);
+                cx.notify();
+                replaced
+            });
+            std::mem::forget(replaced);
+            read
+        }
+        match shape {
+            "messages" => one(&self.messages, sqlite, cx),
+            "sessions" => one(&self.sessions, sqlite, cx),
+            "conversations" => one(&self.conversations, sqlite, cx),
+            "issues" => one(&self.issues, sqlite, cx),
+            "issue_events" => one(&self.issue_events, sqlite, cx),
+            "pull_request_checks" => one(&self.pull_request_checks, sqlite, cx),
+            "events" => one(&self.events, sqlite, cx),
+            other => panic!("not a heavy shape: {other}"),
+        }
+    }
+
+    /// #PERF-9: no startup hydrate is pending for `shape` (its collection
+    /// holds the store's rows, not an empty placeholder).
+    pub fn is_hydrated(&self, shape: &str) -> bool {
+        self.hydrating.lock().expect("hydrating poisoned").get(shape).is_none_or(|pending| pending.is_disconnected())
     }
 
     /// Apply one committed batch's keys to the matching typed collection
@@ -800,6 +937,7 @@ impl Collections {
     /// Read, decode and commit one batch; the read runs on the background
     /// executor while the main thread waits on nothing.
     pub(crate) async fn apply(&self, shape: &str, keys: Vec<RowKey>, full_replace: bool, up_to_date: bool, sqlite: &Arc<ShapeStore>, cx: &mut AsyncApp) {
+        self.hydrated(shape).await;
         let read = {
             let (shape, sqlite) = (shape.to_string(), Arc::clone(sqlite));
             cx.background_executor().spawn(async move { Self::prepare(&shape, &keys, full_replace, up_to_date, &sqlite) })
@@ -810,17 +948,69 @@ impl Collections {
     }
 
     /// Full hydrate of all 34 collections from SQLite (§5.8 "hydrate typed
-    /// in-memory collections from SQLite at startup"). Runs synchronously on
-    /// the foreground — deliberately: every batch committed to SQLite has a
-    /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
-    /// here can never lose a concurrent write (the delta re-reads the row
-    /// right after). A background hydrate would open exactly that race. The
-    /// per-account working set is small; this is a few ms.
+    /// in-memory collections from SQLite at startup"). The light shapes run
+    /// synchronously on the foreground, so the first frame paints the
+    /// last-known board: every batch committed to SQLite has a matching
+    /// [`ShapeDelta`] queued behind this call, so a snapshot read here can
+    /// never lose a concurrent write (the delta re-reads the row right
+    /// after). #PERF-9: the heavy ones ([`HYDRATE_OFF_MAIN`]: 46.6k messages
+    /// held the main thread 0.65–1.8 s) are read, decoded and indexed on the
+    /// background executor and swapped in; their deltas wait for the swap
+    /// ([`Self::hydrated`]), which keeps the same guarantee. Until then the
+    /// collection stays empty and `Waiting` (not ready).
     fn hydrate_all(&self, sqlite: &Arc<ShapeStore>, cx: &mut App) {
-        for_each_collection!(self, entity => hydrate_collection(entity, sqlite, cx));
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        for_each_collection!(self, entity => {
+            let name = entity_spec(entity).name;
+            if HYDRATE_OFF_MAIN.contains(&name) {
+                self.hydrate_off_main(name, read_off_main(entity, sqlite, cx), sqlite, generation, cx);
+            } else {
+                hydrate_collection(entity, sqlite, cx);
+            }
+        });
+    }
+
+    /// One heavy shape: its read runs on the background executor (all of
+    /// them in parallel), its install is ONE short main-thread update of its
+    /// own. (Installing them all in one update woke every derived view over
+    /// the whole store at once: 115–145 ms on a real store, against ≤ 41 ms
+    /// for the largest single shape.)
+    fn hydrate_off_main(&self, name: &'static str, read: gpui::Task<Option<Installer>>, sqlite: &Arc<ShapeStore>, generation: u64, cx: &mut App) {
+        let (done, pending) = flume::bounded::<()>(1);
+        self.hydrating.lock().expect("hydrating poisoned").insert(name, pending);
+        let (collections, sqlite, current) = (self.clone(), Arc::clone(sqlite), Arc::clone(&self.generation));
+        cx.spawn(async move |cx| {
+            let Some(install) = read.await else {
+                drop(done);
+                return;
+            };
+            if current.load(Ordering::SeqCst) != generation {
+                // Signed out or switched accounts while it read.
+                cx.background_executor().spawn(async move { drop(install) }).detach();
+                drop(done);
+                return;
+            }
+            let replaced = cx.update(|cx| {
+                let _span = tracing::debug_span!("sync.install", shape = name).entered();
+                install(cx)
+            });
+            cx.background_executor().spawn(async move { drop(replaced) }).detach();
+            drop(done);
+            // EXP-1459: keys that arrived while it read re-open what stayed
+            // closed (the reopen pass then saw an empty collection).
+            match name {
+                "sessions" => reopen_closed(&collections.sessions, &sqlite, cx).await,
+                "messages" => reopen_closed(&collections.messages, &sqlite, cx).await,
+                "conversations" => reopen_closed(&collections.conversations, &sqlite, cx).await,
+                _ => {}
+            }
+        })
+        .detach();
     }
 
     fn clear_all(&self, cx: &mut App) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.hydrating.lock().expect("hydrating poisoned").clear();
         for_each_collection!(self, entity => entity.update(cx, |collection, cx| {
             collection.clear();
             cx.notify();
@@ -1084,8 +1274,8 @@ fn hydrate_collection<T: ShapeRow>(
 /// on the main thread. A point read waits on the disk, and on a busy machine
 /// (agents building, swap) that wait reached seconds on the UI thread.
 enum Batch<T> {
-    /// §5.6c atomic refetch: the whole table.
-    Replace(Vec<(RowKey, T)>),
+    /// §5.6c atomic refetch: the whole table (#PERF-9: indexed off main).
+    Replace(Hydrated<T>),
     /// Per key: the row (an upsert) or `None` (gone: a delete).
     Rows(Vec<(RowKey, Option<T>)>),
 }
@@ -1100,13 +1290,7 @@ fn read_batch<T: ShapeRow>(keys: &[RowKey], full_replace: bool, sqlite: &ShapeSt
     if full_replace {
         // §5.6c atomic refetch: the batch replaced the WHOLE table in one
         // commit — re-hydrate wholesale (point reads are not enough).
-        return match sqlite.read_all(spec) {
-            Ok(maps) => Some((Batch::Replace(decode_rows::<T>(maps)), phase)),
-            Err(err) => {
-                log::warn!("[sync {}] refetch re-hydrate failed: {err}", spec.name);
-                None
-            }
-        };
+        return Hydrated::read(sqlite).map(|rows| (Batch::Replace(rows), phase));
     }
     let mut rows = Vec::with_capacity(keys.len());
     for key in keys {
@@ -1130,9 +1314,10 @@ fn read_batch<T: ShapeRow>(keys: &[RowKey], full_replace: bool, sqlite: &ShapeSt
 fn commit_batch<T: ShapeRow>(entity: &Entity<Collection<T>>, batch: Batch<T>, phase: ShapeSyncPhase, up_to_date: bool, cx: &mut AsyncApp) {
     // #LOGS-2: the foreground half of a shape batch (the writes + notify).
     let _span = tracing::debug_span!("sync.apply", shape = T::spec().name).entered();
-    entity.update(cx, |collection, cx| {
+    let replaced = entity.update(cx, |collection, cx| {
+        let mut replaced = None;
         match batch {
-            Batch::Replace(rows) => collection.replace_all(rows),
+            Batch::Replace(rows) => replaced = Some(collection.install(rows)),
             Batch::Rows(rows) => {
                 for (key, row) in rows {
                     match row {
@@ -1145,7 +1330,12 @@ fn commit_batch<T: ShapeRow>(entity: &Entity<Collection<T>>, batch: Batch<T>, ph
         collection.set_phase(phase);
         collection.caught_up |= up_to_date;
         cx.notify();
+        replaced
     });
+    // #PERF-9: a whole table's worth of rows is freed off the main thread.
+    if let Some(replaced) = replaced {
+        cx.background_executor().spawn(async move { drop(replaced) }).detach();
+    }
 }
 
 fn prepare_for<T: ShapeRow + Send + 'static>(
@@ -1618,6 +1808,8 @@ impl Store {
                 // #LOGS-3: read + decode off the main thread, then commit
                 // unless the account switched (or signed out) meanwhile.
                 drop(delta_span);
+                // #PERF-9: a heavy shape's startup hydrate lands first.
+                self.collections.hydrated(shape).await;
                 let read = {
                     let sqlite = Arc::clone(&sqlite);
                     cx.background_executor().spawn(async move { Collections::prepare(shape, &keys, full_replace, up_to_date, &sqlite) })
@@ -2124,5 +2316,67 @@ mod tests {
         assert_eq!(cmp_identifiers("EXP-2", "EXP-10"), std::cmp::Ordering::Less);
         // Malformed identifiers fall back to a plain string compare.
         assert_eq!(cmp_identifiers("EXP-x", "EXP-y"), std::cmp::Ordering::Less);
+    }
+}
+
+/// #PERF-9: per-shape hydrate cost on a real store, split into the
+/// background half (SQLite read + decode + index build) and the main-thread
+/// commit.
+///
+/// ```sh
+/// PERF9_DB=/tmp/copy/sync-v2.sqlite cargo test -p sync --release --lib hydrate_bench -- --ignored --nocapture
+/// ```
+#[cfg(test)]
+mod hydrate_bench {
+    use super::*;
+
+    fn one<T: ShapeRow>(sqlite: &ShapeStore, total: &mut (f64, f64)) {
+        let started = Instant::now();
+        let maps = sqlite.read_all(T::spec()).expect("rows");
+        let rows = decode_rows::<T>(maps);
+        let n = rows.len();
+        let built = Hydrated::build(rows);
+        let background = started.elapsed().as_secs_f64() * 1e3;
+        let started = Instant::now();
+        let mut collection: Collection<T> = Collection::new();
+        collection.install(built);
+        let main = started.elapsed().as_secs_f64() * 1e3;
+        if HYDRATE_OFF_MAIN.contains(&T::spec().name) {
+            total.0 += background;
+            total.1 += main;
+        } else {
+            total.1 += background + main;
+        }
+        if n > 500 {
+            println!("[hydrate] {:<22} {n:6} rows · background {background:7.1} ms · main {main:6.2} ms", T::spec().name);
+        }
+    }
+
+    #[test]
+    #[ignore = "a release bench on a real store"]
+    fn hydrate_bench() {
+        let Some(db) = std::env::var_os("PERF9_DB") else { return };
+        let sqlite = ShapeStore::open(std::path::Path::new(&db)).expect("store");
+        let mut total = (0., 0.);
+        one::<Team>(&sqlite, &mut total);
+        one::<Board>(&sqlite, &mut total);
+        one::<Issue>(&sqlite, &mut total);
+        one::<Label>(&sqlite, &mut total);
+        one::<IssueLabel>(&sqlite, &mut total);
+        one::<User>(&sqlite, &mut total);
+        one::<TeamMember>(&sqlite, &mut total);
+        one::<Comment>(&sqlite, &mut total);
+        one::<Attachment>(&sqlite, &mut total);
+        one::<Notification>(&sqlite, &mut total);
+        one::<IssueEvent>(&sqlite, &mut total);
+        one::<SessionRow>(&sqlite, &mut total);
+        one::<SessionIssueRow>(&sqlite, &mut total);
+        one::<MessageRow>(&sqlite, &mut total);
+        one::<ConversationRow>(&sqlite, &mut total);
+        one::<PullRequestRow>(&sqlite, &mut total);
+        one::<PullRequestIssueRow>(&sqlite, &mut total);
+        one::<PullRequestCheckRow>(&sqlite, &mut total);
+        one::<EventRow>(&sqlite, &mut total);
+        println!("[hydrate] total off main {:.1} ms · on main {:.2} ms (before: {:.1} ms on main)", total.0, total.1, total.0 + total.1);
     }
 }

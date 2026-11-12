@@ -895,6 +895,18 @@ final class TextLines {
     private(set) lazy var hasLinks: Bool = TextShaper.hasLinks(text)
     private(set) lazy var hasChips: Bool = TextShaper.hasChips(text)
 
+    /// #PERF-9: what a painter derives from these lines (the inline code
+    /// fills, the chip text's separators), kept with them: a lazy row that
+    /// comes back into view derives nothing again.
+    private var derived: [String: Any] = [:]
+
+    func memoized<T>(_ key: String, _ make: () -> T) -> T {
+        if let hit = derived[key] as? T { return hit }
+        let value = make()
+        derived[key] = value
+        return value
+    }
+
     private func lineBreaks() -> (ranges: [NSRange], breaks: [Int]) {
         if let broken { return broken }
         let ns = text.string as NSString

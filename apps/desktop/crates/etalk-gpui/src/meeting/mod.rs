@@ -1111,7 +1111,8 @@ impl MeetingHost {
         // the conversation (any after it is `turnDone`).
         let mut sent_at = None;
         let mut replies: Vec<i64> = Vec::new();
-        host.messages(cx, &mut |row| {
+        // #PERF-9: the conversation's rows only (was every message held).
+        host.session_messages(&turn.session_id, cx, &mut |row| {
             let message = &row.message;
             if turn.message_id.as_deref() == Some(row.id) && sent_at.is_none() {
                 sent_at = Some(message.created_at.and_then(etalk::voice::parse_instant));

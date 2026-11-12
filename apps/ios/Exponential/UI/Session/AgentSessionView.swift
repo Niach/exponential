@@ -1599,6 +1599,13 @@ struct AgentSessionView: View {
         let observation = ValueObservation
             .tracking { db in try ChatRows.signature(db: db, rootId: rootId) }
             .removeDuplicates()
+        // #PERF-9: inside a chat already on screen, its snapshot draws the
+        // senders from the first frame; the digest's own read follows.
+        if transcriptRows == nil, let rows = await ChatRowsLoads.shared.latest(
+            pool: pool, rootId: rootId, limit: Chats.MessageLimits.shared.limit(rootId)
+        ) {
+            transcriptRows = rows
+        }
         do {
             for try await signature in observation.values(in: pool) {
                 // Large chats: the chat screen hosting this view observes the
