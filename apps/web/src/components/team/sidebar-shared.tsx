@@ -4,81 +4,33 @@ import {
   conceptIcon,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  SidebarMenuDot,
+  Badge,
   SidebarMenuTrailing,
-  type SidebarDotTone,
   UserAvatar as UserAvatarView,
 } from "@exp/ui"
+import type { CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import { isAdminUser } from "@/lib/auth/app-user"
-import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 
-// The main menu's shared pieces: the nav dots, the team's live dot and the
-// account menu. One set of counts for every row that reads them.
+// The main menu's shared pieces: the nav count badge and the account menu.
 
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 
-// EXP-699: nav badges are dots — same colors and logic as the mobile tab
-// bars, in the row's trailing column (EXP-1477).
-function NavDot({ tone }: { tone: SidebarDotTone }) {
+/** #FEED-232 (nav-badges.json): a nav row's count badge in the row's
+ *  trailing column (EXP-1477); a count of 0 renders nothing. */
+export function NavCountBadge({
+  value,
+  ...rest
+}: { value: CountBadgeValue } & Omit<React.ComponentProps<`span`>, `children`>) {
+  if (value.count <= 0) return null
   return (
     <SidebarMenuTrailing className="pointer-events-none">
-      <SidebarMenuDot tone={tone} className="pointer-events-none" />
+      <Badge count={value.count} tone={value.tone} {...rest} />
     </SidebarMenuTrailing>
-  )
-}
-
-/** EXP-1075: live sessions of MINE in ANOTHER team — the team picker's dot
- * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
- * the mobile tab bar's chat badge: yellow while one of them waits on the
- * person, green otherwise. A dot, never a count — the picker only says
- * "look over there"; the team you are in lists its chats in the Running
- * section.
- * `corner` hangs it off an icon (the switcher chevron), `trailing` sits at
- * the right edge of a team row. */
-export function TeamLiveDot({
-  live,
-  placement,
-  className,
-  ...rest
-}: {
-  /** Absent = nothing of mine is live there, and the dot does not render. */
-  live: { needsInput: boolean } | undefined | null
-  placement: `corner` | `trailing`
-} & React.ComponentProps<`span`>) {
-  if (!live) return null
-  return (
-    <SidebarMenuDot
-      tone={live.needsInput ? `needsYou` : `live`}
-      className={cn(
-        // Hit-testable on purpose (unlike `NavDot`): the `title` is the only
-        // thing that says WHY the dot is there, and a click still bubbles to
-        // the row or trigger underneath.
-        placement === `corner`
-          ? `absolute -right-0.5 -top-0.5 ring-2 ring-sidebar`
-          : `ml-auto`,
-        className
-      )}
-      {...rest}
-    />
-  )
-}
-
-/** EXP-1293: the Chats entry's dot — green while a chat of the team
- *  runs, yellow while one needs you (`chatsNavState`); EXP-1323: else the
- *  unread dot (the Inbox's) while a chat holds an unread reply. */
-export function ChatsLiveBadge({
-  state,
-}: {
-  state: { live: boolean; needsYou: boolean; unread?: boolean }
-}) {
-  if (!state.live && !state.unread) return null
-  return (
-    <NavDot tone={state.needsYou ? `needsYou` : state.live ? `live` : `unread`} />
   )
 }
 

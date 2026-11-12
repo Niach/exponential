@@ -212,7 +212,7 @@ mod tests {
         // VAPP-162: + MessageBubble, CallSurface, Plan, QrCode, QrScanner; EXP-1495: + Outline, Mosaic;
         // EXP-1586: + ZoomableImage; EXP-1604: + Motion; VAPP-232: + Calendar, Timeline; VAPP-217: + RecordForm, RecordTable; VAPP-280: + SettingsRow; #VAPP-285: + Tree.
         // Round 8: + Canvas. + Window. #EXP-1629: + KeyRecorder, KbdGroup. #EDE-65: + Embed.
-        assert_eq!(parts.len(), 106);
+        assert_eq!(parts.len(), 107);
         assert!(parts["Carousel"].parts.iter().any(|p| p == "thumbnail"));
         assert!(parts["Carousel"].props.iter().any(|p| p == "counter"));
         assert!(parts["DockCard"].parts.iter().any(|p| p == "trigger"));

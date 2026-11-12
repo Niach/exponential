@@ -7,8 +7,9 @@ import SwiftUI
 /// the large inline navigation title on the left and `header.buttons` as the
 /// NATIVE toolbar circles on the right (plain ToolbarItems: the system's
 /// iOS 26 Liquid Glass circles, never hand-drawn ones): SEARCH (the search
-/// screen) then the INBOX (the inbox page; a sky dot while any notification
-/// of the active team is unread — MainNavigator publishes `\.inboxUnread`).
+/// screen) then the INBOX (the inbox page; #FEED-232 THE count badge, muted,
+/// of the active team's unread notifications — MainNavigator publishes
+/// `\.inboxUnreadCount`).
 /// A pushed page (Devices, `pushed: true`) gets the bare back arrow before
 /// its title (EXP-1554, `bareBackButton`): the system centres an inline
 /// title on a pushed page, so there the large title rides the back arrow's
@@ -20,8 +21,9 @@ extension View {
 }
 
 extension EnvironmentValues {
-    /// The page header's inbox dot: an unread notification of the ACTIVE team.
-    @Entry var inboxUnread = false
+    /// #FEED-232: the page header's Inbox count: the ACTIVE team's unread
+    /// notifications.
+    @Entry var inboxUnreadCount = 0
     /// #NEW-12: the iPad's split columns host a `pushed` page (Needs you,
     /// Devices) as a column ROOT: no back arrow to carry its title.
     @Entry var pageHeaderAsRoot = false
@@ -33,7 +35,7 @@ extension EnvironmentValues {
 private struct PageHeaderModifier: ViewModifier {
     let title: String
     let requestedPushed: Bool
-    @Environment(\.inboxUnread) private var inboxUnread
+    @Environment(\.inboxUnreadCount) private var inboxUnreadCount
     @Environment(\.pageHeaderAsRoot) private var asRoot
 
     init(title: String, pushed: Bool) {
@@ -54,13 +56,13 @@ private struct PageHeaderModifier: ViewModifier {
             titled.toolbar {
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(dot: inboxUnread) }
+                ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
             }
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     PageHeaderSearchButton()
-                    PageHeaderInboxButton(dot: inboxUnread)
+                    PageHeaderInboxButton(count: inboxUnreadCount)
                 }
             }
         }
@@ -72,7 +74,7 @@ private struct PageHeaderModifier: ViewModifier {
 struct PageHeaderSearchButton: View {
     var body: some View {
         NavigationLink(value: AppRoute.search) {
-            PageHeaderGlyph(icon: AppIcons.navSearch, dot: false)
+            PageHeaderGlyph(icon: AppIcons.navSearch)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Search")
@@ -80,16 +82,16 @@ struct PageHeaderSearchButton: View {
     }
 }
 
-/// The header's inbox entry, its sky dot while the active team has news.
+/// The header's inbox entry, its count badge while the active team has news.
 struct PageHeaderInboxButton: View {
-    let dot: Bool
+    let count: Int
 
     var body: some View {
         NavigationLink(value: AppRoute.myWork) {
-            PageHeaderGlyph(icon: AppIcons.navInbox, dot: dot)
+            PageHeaderGlyph(icon: AppIcons.navInbox, count: count)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(dot ? "\(Chats.Copy.inbox), unread" : Chats.Copy.inbox)
+        .accessibilityLabel(count > 0 ? "\(Chats.Copy.inbox), \(count) unread" : Chats.Copy.inbox)
         .accessibilityIdentifier(Chats.TestIds.inboxButton)
     }
 }
@@ -97,19 +99,15 @@ struct PageHeaderInboxButton: View {
 /// One header glyph (the system draws the circle around it on iOS 26).
 struct PageHeaderGlyph: View {
     let icon: String
-    let dot: Bool
+    var count = 0
 
     var body: some View {
         AppIcon(icon, size: AppIcon.Size.medium)
             .foregroundStyle(.white)
             .frame(width: 32, height: 32)
             .overlay(alignment: .topTrailing) {
-                if dot {
-                    Circle()
-                        .fill(DesignTokens.Semantic.blue)
-                        .frame(width: 8, height: 8)
-                        .offset(x: 1, y: 1)
-                }
+                CountBadge(count: count, tone: .muted)
+                    .offset(x: 4, y: -2)
             }
             .contentShape(Circle())
     }

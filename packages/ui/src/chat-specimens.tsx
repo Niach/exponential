@@ -62,7 +62,7 @@ export function ChatListSpecimen() {
       data-testid="chat-list-specimen"
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
-      <ChatsHeader inboxUnread />
+      <ChatsHeader inboxCount={3} />
       <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} appRows={APP_ROWS} agentOf={() => `claude`} />
     </div>
   )
@@ -165,7 +165,7 @@ export function ChatSelectionSpecimen() {
     >
       {/* The phones' screen: the title over the list; the Agents section stays
           while selecting (agents are never selectable), every form factor. */}
-      {isMobile && <ChatsHeader inboxUnread />}
+      {isMobile && <ChatsHeader inboxCount={3} />}
       <ChatList
         rows={LIST_ROWS}
         agentRows={AGENT_ROWS}
@@ -622,7 +622,7 @@ function Tabs({ selected, dragging = false }: { selected: BarTab; dragging?: boo
         label={COPY.tabs.chats}
         icon={<ChatsIcon className="size-5" />}
         selected={selected === `chats`}
-        dot="bg-yellow-400"
+        badge={{ count: 2, tone: `attention` }}
       />
       <PhoneTab
         label={COPY.tabs.apps}
@@ -708,7 +708,7 @@ export function PhoneBoardMenuSpecimen() {
 
 // ── page-header ──────────────────────────────────────────────────────────
 // #EXP-1384 (chats.json `shell.header`): THE phone page header: the large
-// title and the round search + inbox circles, the inbox's sky dot on and
+// title and the round search + inbox circles, the inbox count badge on and
 // off; Devices (pushed from the Team page) with the back control.
 
 export function PhonePageHeaderSpecimen() {
@@ -717,8 +717,8 @@ export function PhonePageHeaderSpecimen() {
       data-testid="phone-page-header-specimen"
       className="flex w-[390px] max-w-full flex-col gap-4 rounded-xl bg-background p-4"
     >
-      {caption(`Unread notification (the inbox dot)`)}
-      <PageHeader title={COPY.headers.chats} inboxUnread />
+      {caption(`Unread notification (the inbox count badge)`)}
+      <PageHeader title={COPY.headers.chats} inboxCount={3} />
       {caption(`All read`)}
       <PageHeader title={ACTIVE_BOARD.name} />
       {caption(`Pushed (Devices, the back control)`)}

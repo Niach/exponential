@@ -184,7 +184,7 @@ struct ChatListSpecimens: View {
             }
             .pageHeader(Chats.Copy.Headers.chats)
         }
-        .environment(\.inboxUnread, true)
+        .environment(\.inboxUnreadCount, 3)
         .overlay(alignment: .bottom) {
             if let selection {
                 ChatSelectionBar(
@@ -198,7 +198,7 @@ struct ChatListSpecimens: View {
             } else {
                 MobileTabBar(
                     selected: .chats, board: PhoneShellSpecimen.activeBoard, team: Self.team,
-                    chatsNeedYou: true
+                    chatsBadge: NavBadges.Value(count: 2, tone: .attention)
                 )
             }
         }
@@ -269,7 +269,7 @@ struct PhoneTabBarSpecimens: View {
             onBoardView: onBoardView,
             onTeamPage: onTeamPage,
             team: PhoneShellSpecimen.team,
-            chatsNeedYou: true,
+            chatsBadge: NavBadges.Value(count: 2, tone: .attention),
             specimen: specimen
         )
     }
@@ -294,7 +294,7 @@ struct PhoneBoardMenuSpecimens: View {
                         .foregroundStyle(.white)
                     Spacer(minLength: 8)
                     ForEach([AppIcons.navSearch, AppIcons.navInbox], id: \.self) { icon in
-                        PageHeaderGlyph(icon: icon, dot: false)
+                        PageHeaderGlyph(icon: icon)
                             .frame(width: 44, height: 44)
                             .background(GlassTokens.fillCard, in: Circle())
                     }
@@ -394,7 +394,7 @@ struct TeamAvatarSpecimens: View {
 struct PhonePageHeaderSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            PhoneShellSpecimen.caption("Unread notification (the inbox dot)")
+            PhoneShellSpecimen.caption("Unread notifications (the inbox count)")
             header(Chats.Copy.Headers.chats, unread: true)
             PhoneShellSpecimen.caption("All read")
             header(PhoneShellSpecimen.activeBoard.name, unread: false)
@@ -410,7 +410,7 @@ struct PhonePageHeaderSpecimens: View {
     /// cleared.
     private func header(_ title: String, unread: Bool, pushed: Bool = false) -> some View {
         PageHeaderFrame(title: title, pushed: pushed)
-            .environment(\.inboxUnread, unread)
+            .environment(\.inboxUnreadCount, unread ? 3 : 0)
             .frame(height: 64)
     }
 }

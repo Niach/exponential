@@ -368,7 +368,8 @@ impl InboxButton {
 impl RenderOnce for InboxButton {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let open = self.nav.read(cx).inbox_open;
-        let unread = queries::inbox_unread(cx);
+        let team = crate::navigation::active_team_id(&self.nav, cx);
+        let unread = queries::inbox_unread_count(team.as_deref(), cx);
         let body = window.use_keyed_state("inbox-popover-body", cx, |_, cx| InboxPopoverBody::new(cx));
         let trigger = Button::new("nav-inbox")
             .ghost()
@@ -398,15 +399,10 @@ impl RenderOnce for InboxButton {
                     })
                     .content(move |_, _, _| body.clone()),
             )
-            .when(unread, |this| {
-                this.child(
-                    crate::sidebar::rail_dot(theme::tokens::PRIMARY.to_hsla())
-                        .id("nav-inbox-dot")
-                        .absolute()
-                        .top(px(4.))
-                        .right(px(4.)),
-                )
-            })
+            // #FEED-232: THE count badge, muted (nothing at zero).
+            .children(crate::surface::count_badge(unread, crate::surface::BadgeTone::Muted, cx).map(|badge| {
+                badge.id("nav-inbox-count").absolute().top(px(-2.)).right(px(-4.))
+            }))
     }
 }
 

@@ -262,6 +262,9 @@ class SurfaceMeasurer(
                 }
                 "Spinner" -> plain(20f, 20f)
                 "Ring" -> plain(32f, 32f)
+                // #FEED-232: one line of the label (the core's `text`, tabular by its
+                // style); the recipe adds the padding, height and minimum width.
+                "CountBadge" -> Content(line(props.shownText("text"), ts), ts.lineHeight, baseline(ts))
                 "Skeleton" -> skeleton(props, inner).let { plain(it.width, it.height) }
                 "Chart" -> chart(leaf, inner).let { plain(it.width, it.height) }
                 "Composer" -> composer(leaf, inner).let { plain(it.width, it.height) }

@@ -3,6 +3,7 @@ import Combine
 import ExpUI
 import ExpCore
 import SwiftUI
+import UserNotifications
 import GRDB
 
 enum AppRoute: Hashable {
@@ -487,8 +488,8 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     /// EXP-1373: the team of every unread notification the inbox can render
-    /// (nil = a team-less row): the Chats header's inbox dot reads the
-    /// ACTIVE team's, the Team tab's team rows their own amber dots.
+    /// (nil = a team-less row): the page header's Inbox count reads the
+    /// ACTIVE team's (#FEED-232).
     @State private var unreadTeamIds: [String?] = []
     /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
     /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
@@ -579,8 +580,13 @@ struct MainNavigator: View {
         .environment(\.chatLanding, chatLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        // #EXP-1384: every page header's inbox dot.
-        .environment(\.inboxUnread, activeInboxUnread)
+        // #EXP-1384: every page header's inbox count (#FEED-232).
+        .environment(\.inboxUnreadCount, activeInboxUnreadCount)
+        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = every
+        // team's needs-you rows summed; 0 clears it.
+        .onChange(of: appIconBadgeCount, initial: true) { _, count in
+            UNUserNotificationCenter.current().setBadgeCount(count)
+        }
         .sheet(item: $createBoardTarget) { target in
             CreateBoardSheet(
                 accountId: target.accountId,
@@ -669,10 +675,6 @@ struct MainNavigator: View {
         // Issues tab's current board.
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
-        }
-        // EXP-1075: the board switcher's per-team dots ride TeamState.
-        .onChange(of: sessionLists.liveByTeam, initial: true) { _, live in
-            teamState.liveRunsByTeam = live
         }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
@@ -797,9 +799,7 @@ struct MainNavigator: View {
                     // The Team page itself; a pushed page's tap returns to it.
                     onTeamPage: tab == .team && path.isEmpty,
                     team: teamState.activeTeam,
-                    chatsRunning: sessionLists.chatsRunning(teamId: teamState.activeTeamId),
-                    chatsNeedYou: sessionLists.chatsNeedYou(teamId: teamState.activeTeamId),
-                    chatsUnread: sessionLists.chatsUnread(teamId: teamState.activeTeamId),
+                    chatsBadge: sessionLists.chatsBadge(teamId: teamState.activeTeamId),
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
@@ -881,10 +881,18 @@ struct MainNavigator: View {
         }
     }
 
-    /// The Chats header's inbox dot: an unread row of the ACTIVE team (or a
-    /// team-less one).
-    private var activeInboxUnread: Bool {
-        unreadTeamIds.contains { $0 == nil || $0 == teamState.activeTeamId }
+    /// #FEED-232: the page header's Inbox count: the unread rows of the
+    /// ACTIVE team (or team-less ones).
+    private var activeInboxUnreadCount: Int {
+        unreadTeamIds.filter { $0 == nil || $0 == teamState.activeTeamId }.count
+    }
+
+    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
+    /// team's needs-you rows).
+    private var appIconBadgeCount: Int {
+        NavBadges.appIconBadge(teamState.teams.map {
+            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count
+        })
     }
 
     /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
@@ -972,7 +980,6 @@ struct MainNavigator: View {
             )
         case .team:
             TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             )
                 .environment(\.accountId, accountId)
@@ -1284,7 +1291,6 @@ extension MainNavigator {
             return AnyView(AppsListScreen().environment(\.accountId, accountId))
         case .settings:
             return AnyView(TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             ).environment(\.accountId, accountId))
         case .board:
@@ -1416,7 +1422,6 @@ extension MainNavigator {
                 .environment(\.accountId, accountId)
         case .settings:
             TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             )
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")

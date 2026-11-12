@@ -517,6 +517,8 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Image" | "Avatar" | "Video" | "Chart" | "ZoomableImage", _) => Role::Image,
         ("Icon", _) if str_of(n, "label").is_some() => Role::Image,
         ("Ring" | "Spinner", _) => Role::ProgressIndicator,
+        // #FEED-232: text (its label); a hidden (0) badge has no node.
+        ("CountBadge", _) => Role::Label,
         // NEW-77: an img named by its label; decorative without one.
         ("VoiceWave", None) if str_of(n, "label").is_some() => Role::Image,
         ("VoiceWave", None) => return None,

@@ -455,6 +455,16 @@ internal fun LinkLeaf(cx: LeafContext) {
     }
 }
 
+/** #FEED-232: a CountBadge: its label (the core's `text`; a `""` badge is
+ *  hidden by the core) centred in the box the `CountBadge/root` recipe fills
+ *  and rounds, one line in the leaf's (tabular) type. */
+@Composable
+internal fun CountBadgeLeaf(cx: LeafContext) {
+    InnerBox(cx, Alignment.Center) {
+        BasicText(cx.props.shownText("text"), modifier = Modifier.textSlack(0f), style = cx.composeTextStyle(), softWrap = false, maxLines = 1)
+    }
+}
+
 /** The `Unknown` placeholder note in the `Unknown/label` recipe. */
 @Composable
 internal fun UnknownLeaf(cx: LeafContext) {

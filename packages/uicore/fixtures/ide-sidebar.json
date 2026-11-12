@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. An agent's dot = amber (needs you) before green (busy). gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). tabs: the bottom tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged, activeTab = the active key while a tab holds the screen.",
+  "$comment": "#EXP-1725 (IDE adopts the eDE shell): what the IDE's sidebar shows, a pure projection of the host's state, replayed in TS (src/ide.ts) and Rust (uicore-model ide.rs). The document apps/ede/ui/sidebar.json binds the result under /shell/ide; eDE never feeds that path. The nav's order is Needs you (while any, or on its page), Chats, Devices, Drafts (while any, or on its page): the IDE has no start menu (#EXP-1741), so Devices is a nav row; the person's Assistant is the sidebar's corner. screen = the open screen as <kind> or <kind>:<id>. A row's selected follows screen; an active row is lit on its root and on any session of its tree; an app row on its id or its slug. #FEED-232 (domain-contract nav-badges.json): a row's badge is THE count badge, never a dot: count = its label (null at zero, 99+ past 99), tone = attention | muted (null without a count). Needs you = its rows, attention; Chats = the host's chatsBadge {count, tone}; Drafts = its pile, muted; an agent = rowBadge(unread, needsYou): its unread, at least 1 while it needs you, attention when it does; busy is no count; devices, apps, boards none. gear = the row's hover gear: agents and apps for every member, boards for owners; agents.add = the owner's new agent button. boards.empty = the team has no boards, the list's empty state. Pinned and Active hide while empty: the document reads their length. base holds the input every case starts from; a case overrides keys of it. copy = the nav's words (chat-list.json copy.title and needs-you.json copy.entry). tabs: the bottom tab bar (#EXP-1726, docs/tabbar.json): every open tab in tab order, work tabs and terminals merged, activeTab = the active key while a tab holds the screen.",
   "version": 1,
   "copy": {
     "needs-you": "Needs you",
@@ -11,7 +11,10 @@
     "screen": "chats",
     "needsYou": 0,
     "drafts": 0,
-    "chatsDot": null,
+    "chats": {
+      "count": 0,
+      "tone": "muted"
+    },
     "owner": true,
     "pins": [],
     "agents": [],
@@ -31,7 +34,7 @@
             "icon": "nav-chats",
             "selected": true,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -39,7 +42,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -70,7 +73,7 @@
             "icon": "nav-needs-you",
             "selected": false,
             "count": "3",
-            "dot": null
+            "tone": "attention"
           },
           {
             "id": "chats",
@@ -78,7 +81,7 @@
             "icon": "nav-chats",
             "selected": true,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -86,7 +89,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -116,8 +119,8 @@
             "title": "Needs you",
             "icon": "nav-needs-you",
             "selected": true,
-            "count": "0",
-            "dot": null
+            "count": null,
+            "tone": null
           },
           {
             "id": "chats",
@@ -125,7 +128,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -133,7 +136,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -164,7 +167,7 @@
             "icon": "nav-chats",
             "selected": true,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -172,7 +175,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "drafts",
@@ -180,7 +183,7 @@
             "icon": "nav-drafts",
             "selected": false,
             "count": "2",
-            "dot": null
+            "tone": "muted"
           }
         ],
         "pins": [],
@@ -211,7 +214,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -219,15 +222,15 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "drafts",
             "title": "Drafts",
             "icon": "nav-drafts",
             "selected": true,
-            "count": "0",
-            "dot": null
+            "count": null,
+            "tone": null
           }
         ],
         "pins": [],
@@ -246,10 +249,13 @@
       }
     },
     {
-      "name": "the Chats dot is the host's",
+      "name": "the Chats count is the host's",
       "input": {
-        "chatsDot": "amber",
-        "screen": "chats"
+        "screen": "chats",
+        "chats": {
+          "count": 3,
+          "tone": "attention"
+        }
       },
       "expected": {
         "nav": [
@@ -258,8 +264,8 @@
             "title": "Chats",
             "icon": "nav-chats",
             "selected": true,
-            "count": null,
-            "dot": "amber"
+            "count": "3",
+            "tone": "attention"
           },
           {
             "id": "devices",
@@ -267,7 +273,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -310,7 +316,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -318,7 +324,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [
@@ -350,7 +356,7 @@
       }
     },
     {
-      "name": "an agent's dot says needs you before it says busy",
+      "name": "an agent's count is its unread, at least 1 while it needs you, attention when it does; busy is no count",
       "input": {
         "agents": [
           {
@@ -358,21 +364,28 @@
             "name": "Reviewer",
             "icon": "ide:agent:a1",
             "needsYou": true,
-            "busy": true
+            "unread": 0
           },
           {
             "id": "a2",
             "name": "Triage",
             "icon": "ide:agent:a2",
             "needsYou": false,
-            "busy": true
+            "unread": 0
           },
           {
             "id": "a3",
             "name": "Docs",
             "icon": "ide:agent:a3",
             "needsYou": false,
-            "busy": false
+            "unread": 3
+          },
+          {
+            "id": "a4",
+            "name": "Release",
+            "icon": "ide:agent:a4",
+            "needsYou": true,
+            "unread": 2
           }
         ],
         "screen": "agent:a2"
@@ -385,7 +398,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -393,7 +406,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -405,7 +418,8 @@
               "title": "Reviewer",
               "icon": "ide:agent:a1",
               "selected": false,
-              "dot": "amber",
+              "count": "1",
+              "tone": "attention",
               "gear": true
             },
             {
@@ -413,7 +427,8 @@
               "title": "Triage",
               "icon": "ide:agent:a2",
               "selected": true,
-              "dot": "green",
+              "count": null,
+              "tone": null,
               "gear": true
             },
             {
@@ -421,7 +436,17 @@
               "title": "Docs",
               "icon": "ide:agent:a3",
               "selected": false,
-              "dot": null,
+              "count": "3",
+              "tone": "muted",
+              "gear": true
+            },
+            {
+              "id": "a4",
+              "title": "Release",
+              "icon": "ide:agent:a4",
+              "selected": false,
+              "count": "2",
+              "tone": "attention",
               "gear": true
             }
           ]
@@ -461,7 +486,7 @@
             "name": "Reviewer",
             "icon": "ide:agent:a1",
             "needsYou": false,
-            "busy": false
+            "unread": 0
           }
         ]
       },
@@ -473,7 +498,7 @@
             "icon": "nav-chats",
             "selected": true,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -481,7 +506,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -493,7 +518,8 @@
               "title": "Reviewer",
               "icon": "ide:agent:a1",
               "selected": false,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             }
           ]
@@ -505,7 +531,8 @@
               "title": "CRM",
               "icon": "ide:app:x1",
               "selected": false,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             }
           ]
@@ -517,7 +544,8 @@
               "title": "Mobile app",
               "icon": "ide:board:b1",
               "selected": false,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": false
             }
           ],
@@ -553,7 +581,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -561,7 +589,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -576,7 +604,8 @@
               "title": "CRM",
               "icon": "ide:app:x1",
               "selected": true,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             },
             {
@@ -584,7 +613,8 @@
               "title": "HR",
               "icon": "ide:app:x2",
               "selected": false,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             }
           ]
@@ -621,7 +651,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -629,7 +659,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],
@@ -647,7 +677,8 @@
               "title": "Mobile app",
               "icon": "ide:board:b1",
               "selected": true,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             },
             {
@@ -655,7 +686,8 @@
               "title": "Web",
               "icon": "ide:board:b2",
               "selected": false,
-              "dot": null,
+              "count": null,
+              "tone": null,
               "gear": true
             }
           ],
@@ -698,7 +730,7 @@
             "icon": "nav-chats",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           },
           {
             "id": "devices",
@@ -706,7 +738,7 @@
             "icon": "nav-devices",
             "selected": false,
             "count": null,
-            "dot": null
+            "tone": null
           }
         ],
         "pins": [],

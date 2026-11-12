@@ -57,11 +57,11 @@ vi.mock(`@/hooks/use-issue-drafts`, () => ({
   },
 }))
 const chatsNav = vi.hoisted(() => ({
-  value: { live: false, needsYou: false, unread: false },
+  value: { count: 0, tone: `muted` } as { count: number; tone: `attention` | `muted` },
   scope: undefined as string | readonly string[] | undefined,
 }))
 vi.mock(`@/hooks/use-nav-counts`, () => ({
-  useChatsNav: (teamIds: string | readonly string[] | undefined) => {
+  useChatsBadge: (teamIds: string | readonly string[] | undefined) => {
     chatsNav.scope = teamIds
     return chatsNav.value
   },
@@ -179,14 +179,13 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 })
 
-// EXP-1293 → chat 58cb32df: Chats — always a tab, its dot amber while a
-// chat needs you, green while one runs, else the unread dot; phones read
-// the ONE active team (chats.json `shell`).
+// EXP-1293 → #FEED-232: Chats — always a tab, wearing THE count badge
+// (`chatsBadge`); phones read the ONE active team (chats.json `shell`).
 describe(`MobileTabBar Chats (chats.json)`, () => {
   beforeEach(() => {
     route.value = ``
     memberTeams.value = null
-    chatsNav.value = { live: false, needsYou: false, unread: false }
+    chatsNav.value = { count: 0, tone: `muted` }
   })
 
   const chatsTab = () => screen.getByTestId(`tab-chats`)
@@ -199,36 +198,32 @@ describe(`MobileTabBar Chats (chats.json)`, () => {
     expect(chatsTab().getAttribute(`aria-current`)).toBe(`page`)
   })
 
-  it(`dots Chats amber while it needs you, green while running, else unread`, () => {
+  it(`badges Chats with its count, attention while one needs you`, () => {
     const view = renderBar()
-    expect(chatsTab().querySelector(`[data-slot=phone-tab-dot]`)).toBeNull()
+    expect(chatsTab().querySelector(`[data-slot=phone-tab-badge]`)).toBeNull()
     view.unmount()
-    chatsNav.value = { live: true, needsYou: false, unread: false }
-    const running = renderBar()
-    expect(chatsTab().querySelector(`.bg-green-500`)).toBeTruthy()
-    running.unmount()
-    chatsNav.value = { live: true, needsYou: true, unread: false }
-    const needs = renderBar()
-    expect(chatsTab().querySelector(`.bg-yellow-400`)).toBeTruthy()
-    needs.unmount()
-    chatsNav.value = { live: false, needsYou: false, unread: true }
+    chatsNav.value = { count: 3, tone: `muted` }
+    const unread = renderBar()
+    const badge = chatsTab().querySelector(`[data-slot=phone-tab-badge]`)!
+    expect(badge.textContent).toBe(`3`)
+    expect(badge.getAttribute(`data-tone`)).toBe(`muted`)
+    unread.unmount()
+    chatsNav.value = { count: 2, tone: `attention` }
     renderBar()
-    expect(chatsTab().querySelector(`.bg-primary`)).toBeTruthy()
+    expect(chatsTab().querySelector(`[data-slot=phone-tab-badge]`)!.getAttribute(`data-tone`)).toBe(`attention`)
   })
 
-  it(`reads the dot off the active team only`, () => {
+  it(`reads the badge off the active team only`, () => {
     memberTeams.value = [team, { id: `t2`, name: `Beta` }]
     renderBar()
     expect(chatsNav.scope).toBe(`t1`)
   })
 
-  // EXP-1327: the live dot rides Chats, never the chat arm.
-  it(`never dots the chat arm`, () => {
-    chatsNav.value = { live: true, needsYou: true, unread: false }
+  // EXP-1327: the count rides Chats, never the chat arm.
+  it(`never badges the chat arm`, () => {
+    chatsNav.value = { count: 2, tone: `attention` }
     renderBar()
-    expect(
-      screen.getByTestId(`chat-button`).querySelector(`.bg-green-500, .bg-yellow-400`)
-    ).toBeNull()
+    expect(screen.getByTestId(`chat-button`).querySelector(`[data-slot=badge], [data-slot=phone-tab-badge]`)).toBeNull()
   })
 })
 
@@ -241,6 +236,7 @@ describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
     route.value = ``
     memberTeams.value = null
     perms.canCreate = true
+    chatsNav.value = { count: 0, tone: `muted` }
   })
 
   it(`draws Board · Chats · Apps · Team and nothing else`, () => {
