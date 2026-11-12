@@ -666,16 +666,15 @@ private fun ToolSubLabel(label: String) {
 
 /** One tool of an open row: the title in medium + its muted blurb. */
 @Composable
-private fun ToolRow(title: String, blurb: String, mark: Boolean = false) {
+private fun ToolRow(title: String, blurb: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = if (mark) TOOL_INDENT - 20.dp else TOOL_INDENT, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .padding(start = TOOL_INDENT, end = 12.dp, top = 4.dp, bottom = 4.dp)
             .testTag("mcp-tool-row"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (mark) Box(Modifier.size(12.dp)) { ExponentialMark(size = 12.dp) }
         Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
         Text(
             blurb,
@@ -842,7 +841,7 @@ private fun BuiltinTools() {
     } else {
         bands.forEach { band ->
             ToolSubLabel(band.label)
-            band.tools.forEach { ToolRow(it.title, it.blurb, mark = true) }
+            band.tools.forEach { ToolRow(it.title, it.blurb) }
         }
     }
 }
