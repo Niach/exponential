@@ -1,33 +1,37 @@
 import Foundation
 
 /// #VAPP-185: Settings › MCP, ONE page ×4 (`fixtures/settings-mcp.json`, its
-/// `$comment` is the spec): Endpoint · Servers · Clients (Mine | Everyone) ·
-/// Access (+ Activity) · Built-in Exponential tools. A 1:1 port of the TS
-/// reference `settings-mcp.ts` (web `mcp-settings-page.tsx`, desktop
-/// `settings/mcp.rs`, Android `McpSettings.kt`), locked by
-/// `McpSettingsTests` replaying the fixture's cases.
+/// `$comment` is the spec): Overview · Servers (the built-ins first, every
+/// row expandable to its tools) · Access (+ Activity) · Clients (Mine |
+/// Everyone). A 1:1 port of the TS reference `settings-mcp.ts` (web
+/// `mcp-settings-page.tsx`, desktop `settings/mcp.rs`, Android
+/// `McpSettings.kt`), locked by `McpSettingsTests` replaying the fixture's
+/// cases.
 public enum McpSettings {
     public static let title = "MCP"
 
     public enum Section: String, CaseIterable, Sendable {
-        case endpoint, servers, clients, access, builtin
+        case overview, servers, access, clients
 
-        public var label: String {
+        /// The label over the section's group; the Overview line has none.
+        public var label: String? {
             switch self {
-            case .endpoint: "Endpoint"
+            case .overview: nil
             case .servers: "Servers"
-            case .clients: "Clients"
             case .access: "Access"
-            case .builtin: "Built-in Exponential tools"
+            case .clients: "Clients"
             }
         }
 
         public var testId: String { "settings-mcp-\(rawValue)" }
     }
 
+    /// The muted line at the top of the page (`overview`).
+    public static let overview =
+        "MCP servers your team's sessions, agents and apps can call."
+
     public static let copy = "Copy"
     public static let copied = "Copied"
-    public static let endpointPath = "/api/mcp/apps"
     public static let revoke = "Revoke"
     public static let activity = "Activity"
 
@@ -65,13 +69,82 @@ public enum McpSettings {
 
     public enum TestId {
         public static let page = "settings-mcp-page"
+        public static let builtin = "settings-mcp-builtin"
+        public static let appsServer = "settings-mcp-apps-server"
+        public static let serverTools = "settings-mcp-server-tools"
         public static let activity = "settings-mcp-activity"
     }
 
-    /// The global apps endpoint on an instance (`<instance>/api/mcp/apps`).
-    public static func endpoint(instanceUrl: String) -> String {
-        let base = instanceUrl.hasSuffix("/") ? String(instanceUrl.dropLast()) : instanceUrl
-        return base + endpointPath
+    // MARK: - Servers (owner 2026-11-12: ONE group, every row expandable)
+
+    /// The built-in servers (`builtins`): Exponential always, Team apps when
+    /// an app exposes tools.
+    public enum Builtin: String, CaseIterable, Sendable {
+        case exponential, apps
+
+        public var name: String {
+            switch self {
+            case .exponential: "Exponential"
+            case .apps: "Team apps"
+            }
+        }
+
+        public var path: String {
+            switch self {
+            case .exponential: "/api/mcp"
+            case .apps: "/api/mcp/apps"
+            }
+        }
+
+        /// Its key in `serverOrder` (`builtin:<id>`).
+        public var key: String { "builtin:\(rawValue)" }
+    }
+
+    public static let builtinPill = "Built-in"
+    public static let toolsConnect = "Connect to see its tools."
+    public static let toolsStdio = "A local command: its tools list where a session runs it."
+    public static let toolsNone = "No tools."
+    public static let retry = "Retry"
+
+    /// "Could not list its tools: <reason>" (TS `toolsFailedLine`).
+    public static func toolsFailedLine(_ reason: String) -> String {
+        "Could not list its tools: \(reason)"
+    }
+
+    /// A built-in's URL: the instance origin + its path (TS `builtinEndpoint`).
+    public static func builtinEndpoint(instanceUrl: String, _ builtin: Builtin) -> String {
+        var base = Substring(instanceUrl)
+        while base.hasSuffix("/") { base = base.dropLast() }
+        return String(base) + builtin.path
+    }
+
+    /// One row of the Servers group: a built-in or a team server.
+    public enum ServerEntry<Server> {
+        case builtin(Builtin)
+        case server(Server)
+    }
+
+    /// The Servers group's order (TS `mcpServerOrder`, `serverOrder.cases`):
+    /// built-ins first (Exponential, then Team apps when an app exposes
+    /// tools), then the team's servers in list order.
+    public static func serverOrder<Server>(appTools: Bool, servers: [Server]) -> [ServerEntry<Server>] {
+        [.builtin(.exponential)] + (appTools ? [.builtin(.apps)] : []) + servers.map { .server($0) }
+    }
+
+    /// What an open team server row shows under it (TS `mcpToolsState`,
+    /// `toolsStateCases`).
+    public enum ToolsState: String, Sendable {
+        /// tRPC `mcpServers.tools` on first open.
+        case list
+        /// The muted `toolsConnect` line (sign in first).
+        case connect
+        /// The muted `toolsStdio` line (a local command).
+        case stdio
+    }
+
+    public static func toolsState(transport: String, status: String) -> ToolsState {
+        guard transport == "http" else { return .stdio }
+        return status == "connected" || status == "not_needed" ? .list : .connect
     }
 
     /// A server row's "Used by …" caption (nil = no app uses it).
@@ -186,6 +259,16 @@ public enum McpSettings {
             $0.title.lowercased().contains(needle)
                 || $0.blurb.lowercased().contains(needle)
                 || $0.name.lowercased().contains(needle)
+        }
+    }
+}
+
+extension McpSettings.ServerEntry: Identifiable where Server: Identifiable, Server.ID == String {
+    /// `builtin:<id>` or the team server's own id.
+    public var id: String {
+        switch self {
+        case .builtin(let builtin): builtin.key
+        case .server(let server): server.id
         }
     }
 }

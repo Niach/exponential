@@ -1,10 +1,13 @@
 //! VAPP-185: Settings › MCP, ONE page ×4 (`packages/domain-contract/
 //! fixtures/settings-mcp.json` is the spec; web `components/mcp/
 //! mcp-settings-page.tsx` + `routes/t/$teamSlug/settings/mcp_.activity.tsx`).
-//! Endpoint · Servers ([`super::mcp_servers`], unchanged rows + "Used by") ·
-//! Clients (Mine | Everyone for owners, Revoke) · Access (one group per app
-//! with the members' levels, + the Activity row) · Built-in Exponential
-//! tools, last. The Activity page ([`McpActivityPane`]) is its own section.
+//! Overview (one muted line) · Servers ([`super::mcp_servers`]: ONE group,
+//! the built-ins Exponential + Team apps first, then the team's servers,
+//! every row a disclosure opening its tools; the built-in tool bands live
+//! inside the open Exponential row) · Access (one group per app with the
+//! members' levels, + the Activity row) · Clients (Mine | Everyone for
+//! owners, Revoke), last. The Activity page ([`McpActivityPane`]) is its
+//! own section.
 //!
 //! Everything here is a server read (tRPC `mcpClients`, `appAccess`,
 //! `mcpActivity`), fetched on entry like the servers list.
@@ -23,7 +26,6 @@ use crate::icons::registry;
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
-use crate::toast::Toast;
 
 use super::doc::{empty_state, hex, path, IdeToasts, Ink, SM, XS};
 use super::mcp_servers::McpServersPane;
@@ -34,11 +36,16 @@ use super::SettingsSection;
 // ---------------------------------------------------------------------------
 
 pub(crate) struct McpLabels {
-    pub endpoint: &'static str,
     pub servers: &'static str,
     pub clients: &'static str,
     pub access: &'static str,
-    pub builtin: &'static str,
+}
+
+/// A built-in server (`builtins.<id>`): its name and its path on the
+/// instance.
+pub(crate) struct McpBuiltin {
+    pub name: &'static str,
+    pub path: &'static str,
 }
 
 pub(crate) struct McpCopy {
@@ -46,7 +53,15 @@ pub(crate) struct McpCopy {
     pub labels: McpLabels,
     pub copy: &'static str,
     pub copied: &'static str,
-    pub endpoint_path: &'static str,
+    pub builtin_exponential: McpBuiltin,
+    pub builtin_apps: McpBuiltin,
+    pub builtin_pill: &'static str,
+    /// An open team server row's lines (`toolsStateCases`).
+    pub tools_connect: &'static str,
+    pub tools_stdio: &'static str,
+    pub tools_failed: &'static str,
+    pub tools_none: &'static str,
+    pub retry: &'static str,
     pub revoke: &'static str,
     pub activity: &'static str,
     pub never: &'static str,
@@ -65,15 +80,20 @@ pub(crate) struct McpCopy {
 pub(crate) const SETTINGS_MCP: McpCopy = McpCopy {
     title: "MCP",
     labels: McpLabels {
-        endpoint: "Endpoint",
         servers: "Servers",
         clients: "Clients",
         access: "Access",
-        builtin: "Built-in Exponential tools",
     },
     copy: "Copy",
     copied: "Copied",
-    endpoint_path: "/api/mcp/apps",
+    builtin_exponential: McpBuiltin { name: "Exponential", path: "/api/mcp" },
+    builtin_apps: McpBuiltin { name: "Team apps", path: "/api/mcp/apps" },
+    builtin_pill: "Built-in",
+    tools_connect: "Connect to see its tools.",
+    tools_stdio: "A local command: its tools list where a session runs it.",
+    tools_failed: "Could not list its tools: {reason}",
+    tools_none: "No tools.",
+    retry: "Retry",
     revoke: "Revoke",
     activity: "Activity",
     never: "never used",
@@ -87,9 +107,24 @@ pub(crate) const SETTINGS_MCP: McpCopy = McpCopy {
     tool_other: "{n} tools",
 };
 
+/// The fixture, read once for the copy that is not mirrored as a constant.
+const FIXTURE_JSON: &str = include_str!("../../../../../../packages/domain-contract/fixtures/settings-mcp.json");
+
+/// `overview`: the muted line over the first group (no label), read from
+/// the fixture itself.
+pub(crate) fn overview() -> &'static str {
+    static OVERVIEW: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    OVERVIEW.get_or_init(|| {
+        serde_json::from_str::<Value>(FIXTURE_JSON)
+            .ok()
+            .and_then(|fixture| fixture["overview"].as_str().map(str::to_string))
+            .unwrap_or_default()
+    })
+}
+
 /// `sections`, in order (the page renders them in this order).
 #[cfg(test)]
-const SECTIONS: [&str; 5] = ["endpoint", "servers", "clients", "access", "builtin"];
+const SECTIONS: [&str; 4] = ["overview", "servers", "access", "clients"];
 /// `scopes` (value, label).
 const SCOPES: [(&str, &str); 2] = [("mine", "Mine"), ("everyone", "Everyone")];
 /// `levels` (value, label), the Picker's rows in order.
@@ -107,26 +142,29 @@ const STATUS_LABELS: [(&str, &str); 5] = [
     ("upstream", "Upstream"),
 ];
 /// `testIds`.
-const TEST_IDS: [(&str, &str); 7] = [
+const TEST_IDS: [(&str, &str); 9] = [
     ("page", "settings-mcp-page"),
-    ("endpoint", "settings-mcp-endpoint"),
+    ("overview", "settings-mcp-overview"),
     ("servers", "settings-mcp-servers"),
-    ("clients", "settings-mcp-clients"),
-    ("access", "settings-mcp-access"),
     ("builtin", "settings-mcp-builtin"),
+    ("appsServer", "settings-mcp-apps-server"),
+    ("serverTools", "settings-mcp-server-tools"),
+    ("access", "settings-mcp-access"),
     ("activity", "settings-mcp-activity"),
+    ("clients", "settings-mcp-clients"),
 ];
 
 /// EXP-1657 — `builtinFilter` (the filter field's placeholder) and its test
 /// id, the anchor every client's capture and test use.
-const BUILTIN_FILTER: &str = "Filter tools";
-const BUILTIN_FILTER_TEST_ID: &str = "mcp-builtin-tools-filter";
+pub(super) const BUILTIN_FILTER: &str = "Filter tools";
+#[allow(dead_code)]
+pub(super) const BUILTIN_FILTER_TEST_ID: &str = "mcp-builtin-tools-filter";
 
 fn lookup(table: &[(&'static str, &'static str)], key: &str) -> Option<&'static str> {
     table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
 }
 
-fn test_id(key: &str) -> &'static str {
+pub(super) fn test_id(key: &str) -> &'static str {
     lookup(&TEST_IDS, key).unwrap_or("settings-mcp")
 }
 
@@ -215,9 +253,54 @@ fn status_label(status: &str) -> &str {
     lookup(&STATUS_LABELS, status).unwrap_or(status)
 }
 
-/// The global apps endpoint: `<instance>/api/mcp/apps`.
-fn endpoint_url(instance_url: &str) -> String {
-    format!("{}{}", instance_url.trim_end_matches('/'), SETTINGS_MCP.endpoint_path)
+/// The built-in server ids, in the Servers group's order.
+pub(crate) const BUILTIN_EXPONENTIAL: &str = "exponential";
+pub(crate) const BUILTIN_APPS: &str = "apps";
+
+/// The Servers group's order (`serverOrder.cases`): the built-ins first
+/// (`builtin:exponential`, then `builtin:apps` when an app exposes tools),
+/// then the team's servers in list order.
+pub(crate) fn mcp_server_order<S: AsRef<str>>(app_tools: bool, servers: &[S]) -> Vec<String> {
+    let mut order = vec![format!("builtin:{BUILTIN_EXPONENTIAL}")];
+    if app_tools {
+        order.push(format!("builtin:{BUILTIN_APPS}"));
+    }
+    order.extend(servers.iter().map(|server| server.as_ref().to_string()));
+    order
+}
+
+/// What an open team server row shows under it (`toolsStateCases`), from
+/// the viewer's own connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpToolsState {
+    /// `mcpServers.tools` on first open.
+    List,
+    /// The muted `toolsConnect` line: sign in first.
+    Connect,
+    /// The muted `toolsStdio` line: a local command lists its tools where a
+    /// session runs it.
+    Stdio,
+}
+
+pub(crate) fn mcp_tools_state(transport: &str, status: &str) -> McpToolsState {
+    if transport != "http" {
+        McpToolsState::Stdio
+    } else if status == "connected" || status == "not_needed" {
+        McpToolsState::List
+    } else {
+        McpToolsState::Connect
+    }
+}
+
+/// A built-in's URL: the instance origin + its path.
+pub(crate) fn builtin_endpoint(instance_url: &str, id: &str) -> String {
+    let path = if id == BUILTIN_APPS { SETTINGS_MCP.builtin_apps.path } else { SETTINGS_MCP.builtin_exponential.path };
+    format!("{}{}", instance_url.trim_end_matches('/'), path)
+}
+
+/// "Could not list its tools: <reason>".
+pub(crate) fn tools_failed_line(reason: &str) -> String {
+    SETTINGS_MCP.tools_failed.replace("{reason}", reason)
 }
 
 /// The one level a member row shows (web: an unset app reads `write`).
@@ -246,7 +329,8 @@ pub(crate) struct McpShot {
     /// `None` = no team selected.
     pub team: Option<String>,
     pub owner: bool,
-    pub endpoint: String,
+    /// The instance the built-in rows' URLs start with.
+    pub instance: String,
     pub scope: &'static str,
     /// `None` = loading.
     pub clients: Option<McpClientsOut>,
@@ -257,6 +341,10 @@ pub(crate) struct McpShot {
     pub revoking: bool,
     /// The servers list: `None` loading, `Some(Err)` failed.
     pub servers: Option<Result<Vec<api::mcp_servers::McpServerListEntry>, String>>,
+    /// The open rows (`builtin:exponential`, `builtin:apps`, a server id).
+    pub open: Vec<&'static str>,
+    /// A team server's tools: `None` loading, `Some(Err)` failed.
+    pub tools: Vec<(&'static str, Option<Result<Vec<api::mcp_servers::McpToolRow>, String>>)>,
 }
 
 /// The data-model path the documents' projections are written at.
@@ -268,19 +356,12 @@ const LEVEL_POPUP_WIDTH: f32 = 256.;
 /// The built-in tools filter field's width (today's 192 px box).
 const FILTER_W: f32 = 192.;
 
-/// The filter Input's text field (its focus decides the box's stroke).
-const FILTER_FIELD: &str = "filter.field";
-
 /// #EXP-1629: the page is two documents on eUI's native host binding
-/// around the servers pane (itself a document): the Endpoint, then the
-/// Clients, Access and Built-in sections. Every read and write is as before.
+/// around the servers pane (itself a document): the Overview line, then the
+/// Access and Clients sections. Every read and write is as before.
 pub struct McpPane {
     nav: Entity<Navigation>,
     servers: Entity<McpServersPane>,
-    /// EXP-1274: the built-in tools band's inline filter, as typed, and as
-    /// the field was last given it (its bound value).
-    filter: String,
-    filter_focused: bool,
     team_id: Option<String>,
     /// `mine` | `everyone` (owners only).
     scope: &'static str,
@@ -337,8 +418,8 @@ impl McpPane {
                 binding
             })
         };
-        let top = new_binding(&["copy"], cx);
-        let body = new_binding(&["scope", "revoke", "level", "activity", "filter", "filterFocus", "filterBlur", "clear", "focusFilter"], cx);
+        let top = new_binding(&[], cx);
+        let body = new_binding(&["scope", "revoke", "level", "activity"], cx);
         let ink = Ink::of(cx);
         let chrome = Chrome::of(cx);
         let plugin = || -> Rc<dyn HostPlugin> { Rc::new(PanePlugin { inner: super::doc::ide_plugin() }) };
@@ -351,8 +432,6 @@ impl McpPane {
         Self {
             nav,
             servers,
-            filter: String::new(),
-            filter_focused: false,
             team_id: None,
             scope: "mine",
             clients: None,
@@ -384,8 +463,16 @@ impl McpPane {
         self.clients = shot.clients.clone();
         self.access = shot.access.clone();
         self.revoking = shot.revoking;
-        self.filter = shot.filter.to_string();
-        let servers = super::mcp_servers::McpShot { team: shot.team.clone(), owner: shot.owner };
+        let servers = super::mcp_servers::McpShot {
+            team: shot.team.clone(),
+            owner: shot.owner,
+            instance: shot.instance.clone(),
+            filter: shot.filter.to_string(),
+            open: shot.open.iter().map(|key| key.to_string()).collect(),
+            tools: shot.tools.iter().map(|(id, load)| (id.to_string(), load.clone())).collect(),
+        };
+        let apps = shot.access.as_ref().map(|access| access.apps.clone()).unwrap_or_default();
+        self.servers.update(cx, |pane, cx| pane.set_apps(apps, cx));
         let load = shot.servers.clone();
         self.servers.update(cx, |pane, cx| pane.show(servers, load, false, None, None, cx));
         self.shot = Some(shot);
@@ -422,17 +509,6 @@ impl McpPane {
         super::is_owner(cx, team_id)
     }
 
-    /// The global apps endpoint of the active account.
-    fn endpoint(&self, cx: &App) -> String {
-        #[cfg(test)]
-        if let Some(shot) = &self.shot {
-            return shot.endpoint.clone();
-        }
-        queries::active_account(cx)
-            .map(|account| endpoint_url(&queries::display_instance_url(&account.instance_url)))
-            .unwrap_or_else(|| SETTINGS_MCP.endpoint_path.to_string())
-    }
-
     /// Every entry refetches (server reads: a client authorized or a level
     /// changed on the web has to show on re-entry).
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
@@ -451,6 +527,7 @@ impl McpPane {
             self.scope = "mine";
             self.clients = None;
             self.access = None;
+            self.servers.update(cx, |pane, cx| pane.set_apps(Vec::new(), cx));
             self.stale = true;
         }
         if !std::mem::take(&mut self.stale) {
@@ -500,6 +577,9 @@ impl McpPane {
                     return;
                 }
                 this.access = result.ok();
+                // The Servers group's Team apps row (and its tools).
+                let apps = this.access.as_ref().map(|access| access.apps.clone()).unwrap_or_default();
+                this.servers.update(cx, |pane, cx| pane.set_apps(apps, cx));
                 cx.notify();
             });
         })
@@ -521,10 +601,6 @@ impl McpPane {
         let value = payload.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
         let key = |field: &str| context.get(field).and_then(Value::as_str).unwrap_or_default().to_string();
         match name {
-            "copy" => {
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(self.endpoint(cx)));
-                crate::toast::show(Toast::success(SETTINGS_MCP.copied), window, cx);
-            }
             "scope" => {
                 let value = key("value");
                 if let Some((scope, _)) = SCOPES.iter().find(|(scope, _)| *scope == value) {
@@ -546,23 +622,6 @@ impl McpPane {
                 }
             }
             "activity" => open_activity(window, cx),
-            "filter" => {
-                self.filter = value;
-                cx.notify();
-            }
-            "filterFocus" | "filterBlur" => {
-                self.filter_focused = name == "filterFocus";
-                cx.notify();
-            }
-            "clear" => {
-                // A focused field keeps its own text over a later write.
-                self.body_view.update(cx, |view, cx| view.blur_field(FILTER_FIELD, window, cx));
-                self.filter.clear();
-                self.push(cx);
-                cx.notify();
-                super::doc::focus_input(self.body_view.clone(), "filter", window, cx);
-            }
-            "focusFilter" => super::doc::focus_input(self.body_view.clone(), "filter", window, cx),
             _ => {}
         }
     }
@@ -704,37 +763,16 @@ impl McpPane {
         json!({"shown": true, "rows": rows})
     }
 
-    /// The built-in tools: per contract band, shown + its rows, and which
-    /// band carries the filter (the first shown one).
-    fn project_builtin(&self) -> Value {
-        let bands = steer::exp_tool::builtin_tool_bands(&self.filter);
-        let first = bands.first().map(|band| band.id);
-        let mut out = serde_json::Map::new();
-        for band in steer::exp_tool::builtin_tool_bands("") {
-            let hit = bands.iter().find(|shown| shown.id == band.id);
-            let rows: Vec<Value> = hit
-                .map(|band| band.tools.iter().map(|tool| json!({"key": tool.name, "name": tool.name, "title": tool.title, "blurb": tool.blurb})).collect())
-                .unwrap_or_default();
-            out.insert(band.id.to_string(), json!({"shown": hit.is_some(), "first": first == Some(band.id), "rows": rows}));
-        }
-        json!({"bands": out, "none": bands.is_empty()})
-    }
-
     /// Write both documents' projections now.
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
         let team = self.active_team(cx);
         let owner = team.as_deref().is_some_and(|team| self.owner(team, cx));
-        let top = json!({"noTeam": team.is_none(), "hasTeam": team.is_some(), "url": self.endpoint(cx)});
+        let top = json!({"noTeam": team.is_none(), "hasTeam": team.is_some()});
         let clients = self.project_clients(owner, cx);
         let body = json!({
             "hasTeam": team.is_some(),
             "clients": clients,
             "access": self.project_access(cx),
-            "builtin": self.project_builtin(),
-            "filter": self.filter,
-            "hasFilter": !self.filter.is_empty(),
-            "filterFocused": self.filter_focused,
-            "filterIdle": !self.filter_focused,
         });
         self.top.update(cx, |binding, cx| binding.update_state(|state| *state = top, cx));
         self.body.update(cx, |binding, cx| binding.update_state(|state| *state = body, cx));
@@ -755,7 +793,7 @@ impl Render for McpPane {
         if self.shot.is_some() && !self.body_view.read(cx).layers().is_empty() {
             self.body_view.update(cx, |view, cx| view.advance_clock(std::time::Duration::from_millis(500), cx));
         }
-        let page = v_flex().id(test_id("page")).w_full().min_w_0().gap_6().child(self.top_view.clone());
+        let page = v_flex().id(test_id("page")).w_full().min_w_0().gap_6().child(div().id(test_id("overview")).w_full().min_w_0().child(self.top_view.clone()));
         if team.is_none() {
             return page;
         }
@@ -770,7 +808,7 @@ fn app_icon_name(icon: Option<&str>) -> String {
 }
 
 /// The built-in rows' mark and the Assistant's: the IDE's own logo.
-const LOGO: &str = "brand-exponential";
+pub(super) const LOGO: &str = "brand-exponential";
 
 /// The pane's plugin: the IDE's, and the Exponential mark of the built-in
 /// rows (`ExpIcon::Logo`, as today).
@@ -796,7 +834,7 @@ impl HostPlugin for PanePlugin {
 }
 
 /// The colours the documents need beyond [`Ink`].
-struct Chrome {
+pub(super) struct Chrome {
     list_hover: String,
     skeleton: String,
     /// The segmented capsule (`controls::segmented`).
@@ -821,7 +859,7 @@ struct Chrome {
 }
 
 impl Chrome {
-    fn of(cx: &App) -> Self {
+    pub(super) fn of(cx: &App) -> Self {
         let theme = cx.theme();
         let chrome = crate::controls::ide_chrome();
         Self {
@@ -846,7 +884,7 @@ impl Chrome {
 
 /// An outline `web_sm` `Button` (32 px, `px 12`, a 1 px stroke, the theme
 /// radius, `text_sm` on a line of 1); `off` = its disabled face.
-fn outline_button(ink: &Ink, chrome: &Chrome, id: &str, label: &str, off: bool, event: Value) -> Value {
+pub(super) fn outline_button(ink: &Ink, chrome: &Chrome, id: &str, label: &str, off: bool, event: Value) -> Value {
     let size = ink.r(SM);
     // Disabled: the face at half (one layer at half opacity: a `#rrggbbaa`
     // alpha byte can't say the half of a faint fill).
@@ -908,7 +946,7 @@ fn row_style(ink: &Ink) -> Value {
 }
 
 /// One run on one line, truncating.
-fn line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
+pub(super) fn line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
     let mut node = ink.text(id, text, rems, color);
     node["props"]["lines"] = json!(1);
     node["style"]["minWidth"] = json!(0);
@@ -917,7 +955,7 @@ fn line(ink: &Ink, id: &str, text: Value, rems: f32, color: &str) -> Value {
 }
 
 /// An `Icon` at `size`.
-fn glyph(id: &str, name: Value, size: f32, color: &str) -> Value {
+pub(super) fn glyph(id: &str, name: Value, size: f32, color: &str) -> Value {
     json!({"id": id, "component": "Icon", "props": {"name": name}, "style": {"width": size, "height": size, "color": color, "flexShrink": 0}})
 }
 
@@ -939,35 +977,31 @@ fn section_box(ink: &Ink, id: &str, visible: Value, children: Vec<Value>) -> Val
 }
 
 /// A list of `row` over `data` (its template's own wrapper).
-fn list(id: &str, visible: Value, data: &str, row: Value) -> Value {
+pub(super) fn list(id: &str, visible: Value, data: &str, row: Value) -> Value {
     let wrap = format!("{id}_wrap");
     json!({"id": id, "component": "List", "visible": visible, "props": {"gap": "none"},
         "template": {"component": wrap, "path": data, "key": "key"},
         "children": [{"id": wrap, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0}, "children": [row]}]})
 }
 
-/// The Endpoint (and the no-team state): the url in mono, the outline Copy.
+/// The Overview line (no label; `text_sm` muted) and the no-team state.
 fn top_document(ink: &Ink, _chrome: &Chrome) -> Value {
-    let mut url = line(ink, "url", path("/pane/url"), SM, &ink.foreground);
-    url["style"]["fontFamily"] = json!(ink.mono);
-    url["style"]["flexGrow"] = json!(1);
-    url["style"]["flexBasis"] = json!(0);
-    let copy = outline_button(ink, _chrome, "copy", SETTINGS_MCP.copy, false, json!({"name": "copy"}));
-    let row = json!({"id": "endpoint_row", "component": "Box", "style": row_style(ink), "children": [url, copy]});
-    let endpoint = section_box(ink, "endpoint", path("/pane/hasTeam"), vec![ink.band("endpoint_band", SETTINGS_MCP.labels.endpoint, None), row]);
+    let mut overview = ink.text("overview", json!(overview()), SM, &ink.muted);
+    overview["visible"] = path("/pane/hasTeam");
+    overview["style"]["paddingHorizontal"] = json!(ink.r(0.25));
     json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-        "children": [endpoint, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
+        "children": [overview, empty_state(ink, "no_team", "ui-team", crate::empty_state_copy::NO_TEAM_SELECTED, path("/pane/noTeam"))]})
 }
 
 /// The search field (`controls::search_field(.., Sm)` in a 192 px box): the
 /// 28 px `glass_input` frame with the glyph inside and the clear once there
 /// is text; Box, Icon and a `bare` Input.
-fn filter_field(ink: &Ink, chrome: &Chrome) -> Value {
+pub(super) fn filter_field(ink: &Ink, chrome: &Chrome) -> Value {
     let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": ink.r(1.25), "height": ink.r(1.25), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.ghost_hover}},
         "children": [glyph("clear_icon", json!("ui-clear"), ink.r(0.75), &ink.muted)]});
-    let clear = json!({"id": "clear_tip", "component": "Tooltip", "visible": path("/pane/hasFilter"), "props": {"content": "Clear search"}, "children": [clear_box]});
-    let field = json!({"id": "filter", "component": "Input", "props": {"label": BUILTIN_FILTER, "name": "filter", "variant": "bare", "placeholder": BUILTIN_FILTER, "value": path("/pane/filter")},
+    let clear = json!({"id": "clear_tip", "component": "Tooltip", "visible": path("/pane/builtin/hasFilter"), "props": {"content": "Clear search"}, "children": [clear_box]});
+    let field = json!({"id": "filter", "component": "Input", "props": {"label": BUILTIN_FILTER, "name": "filter", "variant": "bare", "placeholder": BUILTIN_FILTER, "value": path("/pane/builtin/filter")},
         "style": {"flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0},
         "on": {
             "change": {"event": {"name": "filter"}},
@@ -976,19 +1010,81 @@ fn filter_field(ink: &Ink, chrome: &Chrome) -> Value {
         }});
     let frame = |id: &str, stroke: &str, visible: Value| json!({"id": id, "component": "Box", "visible": visible,
         "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "borderRadius": ink.radius_lg, "borderWidth": 1, "borderColor": stroke, "backgroundColor": chrome.field_fill}});
-    // The box sits over the first shown band's trailing slot (the header
-    // keeps a slot its size), so the ONE field keeps its focus whichever
-    // band carries it.
+    // The open Exponential row's FIRST line: the box at the tools' indent,
+    // never inside a list (the ONE field keeps its focus while the bands
+    // under it filter).
     json!({"id": "filter_box", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": BUILTIN_FILTER}, "on": {"press": {"event": {"name": "focusFilter"}}},
-        "style": {"position": "absolute", "top": ink.r(0.375), "right": ink.r(0.75), "display": "flex", "flexDirection": "row", "alignItems": "center", "width": FILTER_W, "height": eui_gpui::controls::SEARCH_FIELD_SM_H, "paddingHorizontal": 9, "gap": 4},
+        "style": {"position": "relative", "display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "width": FILTER_W, "height": eui_gpui::controls::SEARCH_FIELD_SM_H, "paddingHorizontal": 9, "gap": 4},
         "children": [
-            frame("filter_frame", &chrome.field_stroke, path("/pane/filterIdle")),
-            frame("filter_frame_on", &chrome.field_active, path("/pane/filterFocused")),
+            frame("filter_frame", &chrome.field_stroke, path("/pane/builtin/filterIdle")),
+            frame("filter_frame_on", &chrome.field_active, path("/pane/builtin/filterFocused")),
             glyph("filter_icon", json!("nav-search"), 14., &ink.muted), field, clear,
         ]})
 }
 
-/// The Clients, Access and Built-in sections (`gap_6`).
+/// A sub-label inside an open server row (a tool group, an app): `text_xs`
+/// medium, muted, at the tools' indent.
+pub(super) fn sub_label(ink: &Ink, id: &str, label: Value, indent: f32) -> Value {
+    let mut text = line(ink, id, label, XS, &ink.muted);
+    text["style"]["fontWeight"] = json!(500);
+    json!({"id": format!("{id}_box"), "component": "Box", "style": {"display": "flex", "flexDirection": "row", "width": "100%", "minWidth": 0, "paddingLeft": indent, "paddingRight": ink.r(0.75), "paddingTop": ink.r(0.5), "paddingBottom": ink.r(0.125)}, "children": [text]})
+}
+
+/// One tool row under an open server: the title (medium) and its muted
+/// blurb on one line, the wire name as the tooltip; `mark` = the
+/// Exponential mark before it (the built-ins).
+pub(super) fn tool_row(ink: &Ink, id: &str, indent: f32, mark: bool) -> Value {
+    let mut title = ink.text(&format!("{id}_title"), path("title"), SM, &ink.foreground);
+    title["style"]["flexShrink"] = json!(0);
+    title["style"]["fontWeight"] = json!(500);
+    let blurb = line(ink, &format!("{id}_blurb"), path("blurb"), XS, &ink.muted);
+    let mut children = Vec::new();
+    if mark {
+        children.push(glyph(&format!("{id}_mark"), json!(LOGO), ink.r(0.75), &ink.muted));
+    }
+    children.extend([title, blurb]);
+    let row = json!({"id": id, "component": "Box",
+        "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingLeft": indent, "paddingRight": ink.r(0.75), "paddingVertical": ink.r(0.375)},
+        "children": children});
+    json!({"id": format!("{id}_tip"), "component": "Tooltip", "props": {"content": path("name")}, "children": [row]})
+}
+
+/// The open Exponential row's content (projection at `/pane/builtin`): the
+/// filter field first, then one sub-label + rows per contract tool group
+/// that has a match, or the ONE no-match empty state.
+pub(super) fn builtin_tools(ink: &Ink, chrome: &Chrome, indent: f32) -> Value {
+    let filter = json!({"id": "filter_line", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "width": "100%", "minWidth": 0, "paddingLeft": indent, "paddingRight": ink.r(0.75), "paddingVertical": ink.r(0.25)},
+        "children": [filter_field(ink, chrome)]});
+    let mut children = vec![filter];
+    for band in steer::exp_tool::builtin_tool_bands("") {
+        let id = band.id;
+        let data = format!("/pane/builtin/bands/{id}");
+        children.push(json!({"id": format!("band_{id}"), "component": "Box", "visible": path(&format!("{data}/shown")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
+            "children": [
+                sub_label(ink, &format!("band_{id}_label"), json!(band.label), indent),
+                list(&format!("band_{id}_rows"), json!(true), &format!("{data}/rows"), tool_row(ink, &format!("tool_{id}"), indent, true)),
+            ]}));
+    }
+    children.push(empty_state(ink, "band_none_empty", "ui-empty-search", crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH, path("/pane/builtin/none")));
+    json!({"id": "builtin_tools", "component": "Box", "visible": path("/pane/builtin/open"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "paddingBottom": ink.r(0.5)}, "children": children})
+}
+
+/// The built-in tools' projection (`builtinCases`): per contract band,
+/// shown + its rows, and whether every band is filtered away.
+pub(super) fn project_builtin(filter: &str, focused: bool, open: bool) -> Value {
+    let bands = steer::exp_tool::builtin_tool_bands(filter);
+    let mut out = serde_json::Map::new();
+    for band in steer::exp_tool::builtin_tool_bands("") {
+        let hit = bands.iter().find(|shown| shown.id == band.id);
+        let rows: Vec<Value> = hit
+            .map(|band| band.tools.iter().map(|tool| json!({"key": tool.name, "name": tool.name, "title": tool.title, "blurb": tool.blurb})).collect())
+            .unwrap_or_default();
+        out.insert(band.id.to_string(), json!({"shown": hit.is_some(), "rows": rows}));
+    }
+    json!({"open": open, "bands": out, "none": bands.is_empty(), "filter": filter, "hasFilter": !filter.is_empty(), "filterFocused": focused, "filterIdle": !focused})
+}
+
+/// The Access and Clients sections (`gap_6`), Clients last.
 fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
     // Clients: the owners' Mine | Everyone over the rows.
     // Web `SegmentedControl` (not embedded): a 32 px capsule that hugs its
@@ -1063,34 +1159,7 @@ fn body_document(ink: &Ink, chrome: &Chrome) -> Value {
         "children": [list("access_rows", json!(true), "/pane/access/rows", access_row), activity]});
     let access = section_box(ink, "access", path("/pane/access/shown"), vec![ink.band("access_band", SETTINGS_MCP.labels.access, None), groups]);
 
-    // Built-in: one band per contract group, the filter over the first.
-    let slot = |id: String, visible: Value| json!({"id": id, "component": "Box", "visible": visible, "style": {"width": FILTER_W, "height": eui_gpui::controls::SEARCH_FIELD_SM_H, "flexShrink": 0}});
-    let mut bands = Vec::new();
-    for band in steer::exp_tool::builtin_tool_bands("") {
-        let id = band.id;
-        let data = format!("/pane/builtin/bands/{id}");
-        let mut title = ink.text(&format!("tool_{id}_title"), path("title"), SM, &ink.foreground);
-        title["style"]["flexShrink"] = json!(0);
-        let blurb = line(ink, &format!("tool_{id}_blurb"), path("blurb"), XS, &ink.muted);
-        let row = json!({"id": format!("tool_{id}"), "component": "Box",
-            "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.375), "borderRadius": ink.radius_md},
-            "children": [glyph(&format!("tool_{id}_mark"), json!(LOGO), ink.r(0.75), &ink.muted), title, blurb]});
-        let row = json!({"id": format!("tool_{id}_tip"), "component": "Tooltip", "props": {"content": path("name")}, "children": [row]});
-        bands.push(json!({"id": format!("band_{id}"), "component": "Box", "visible": path(&format!("{data}/shown")), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-            "children": [
-                ink.band(&format!("band_{id}_header"), band.label, Some(slot(format!("band_{id}_slot"), path(&format!("{data}/first"))))),
-                list(&format!("band_{id}_rows"), json!(true), &format!("{data}/rows"), row),
-            ]}));
-    }
-    bands.push(json!({"id": "band_none", "component": "Box", "visible": path("/pane/builtin/none"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-        "children": [
-            ink.band("band_none_header", SETTINGS_MCP.labels.builtin, Some(slot("band_none_slot".into(), json!(true)))),
-            empty_state(ink, "band_none_empty", "ui-empty-search", crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH, json!(true)),
-        ]}));
-    bands.push(filter_field(ink, chrome));
-    let builtin = json!({"id": "builtin", "component": "Box", "style": {"position": "relative", "display": "flex", "flexDirection": "column", "gap": ink.r(0.75), "width": "100%", "minWidth": 0}, "children": bands});
-
-    json!({"id": "root", "component": "Box", "visible": path("/pane/hasTeam"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%", "minWidth": 0}, "children": [clients, access, builtin]})
+    json!({"id": "root", "component": "Box", "visible": path("/pane/hasTeam"), "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(1.5), "width": "100%", "minWidth": 0}, "children": [access, clients]})
 }
 
 // ---------------------------------------------------------------------------
@@ -1299,7 +1368,7 @@ mod tests {
             outline_fg: "#fafafaff".into(),
             outline_fg_off: "#a1a1aa80".into(),
         };
-        for tree in [top_document(&ink(), &chrome), body_document(&ink(), &chrome), activity_document(&ink(), &chrome)] {
+        for tree in [top_document(&ink(), &chrome), body_document(&ink(), &chrome), activity_document(&ink(), &chrome), super::super::mcp_servers::test_document(&ink(), &chrome)] {
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new("settings-mcp", Default::default());
             let outcome = surface.set_nested(serde_json::from_value(tree).expect("parses"));
@@ -1308,8 +1377,7 @@ mod tests {
         }
     }
 
-    const FIXTURE: &str =
-        include_str!("../../../../../../packages/domain-contract/fixtures/settings-mcp.json");
+    const FIXTURE: &str = FIXTURE_JSON;
 
     fn fixture() -> Value {
         serde_json::from_str(FIXTURE).unwrap()
@@ -1351,15 +1419,26 @@ mod tests {
         let s = &SETTINGS_MCP;
         assert_eq!(f["title"], s.title);
         assert_eq!(strings(&f["sections"]), SECTIONS.map(String::from).to_vec());
-        assert_eq!(f["labels"]["endpoint"], s.labels.endpoint);
+        assert_eq!(f["labels"].as_object().unwrap().len(), 3, "labels: servers, clients, access");
         assert_eq!(f["labels"]["servers"], s.labels.servers);
         assert_eq!(f["labels"]["clients"], s.labels.clients);
         assert_eq!(f["labels"]["access"], s.labels.access);
-        assert_eq!(f["labels"]["builtin"], s.labels.builtin);
         assert_eq!(f["builtinFilter"], BUILTIN_FILTER);
         assert_eq!(f["copy"], s.copy);
         assert_eq!(f["copied"], s.copied);
-        assert_eq!(f["endpointPath"], s.endpoint_path);
+        assert_eq!(f["overview"], overview());
+        assert!(!overview().is_empty());
+        assert_eq!(f["builtins"].as_object().unwrap().len(), 2);
+        assert_eq!(f["builtins"][BUILTIN_EXPONENTIAL]["name"], s.builtin_exponential.name);
+        assert_eq!(f["builtins"][BUILTIN_EXPONENTIAL]["path"], s.builtin_exponential.path);
+        assert_eq!(f["builtins"][BUILTIN_APPS]["name"], s.builtin_apps.name);
+        assert_eq!(f["builtins"][BUILTIN_APPS]["path"], s.builtin_apps.path);
+        assert_eq!(f["builtinPill"], s.builtin_pill);
+        assert_eq!(f["toolsConnect"], s.tools_connect);
+        assert_eq!(f["toolsStdio"], s.tools_stdio);
+        assert_eq!(f["toolsFailed"], s.tools_failed);
+        assert_eq!(f["toolsNone"], s.tools_none);
+        assert_eq!(f["retry"], s.retry);
         assert_eq!(f["revoke"], s.revoke);
         assert_eq!(f["activity"], s.activity);
         assert_eq!(f["never"], s.never);
@@ -1374,6 +1453,26 @@ mod tests {
         assert_eq!(map(&f["accessLabels"]), owned(&ACCESS_LABELS));
         assert_eq!(map(&f["statusLabels"]), owned(&STATUS_LABELS));
         assert_eq!(map(&f["testIds"]), owned(&TEST_IDS));
+    }
+
+    #[test]
+    fn server_order_cases_replay() {
+        for case in fixture()["serverOrder"]["cases"].as_array().unwrap() {
+            let order = mcp_server_order(case["appTools"].as_bool().unwrap(), &strings(&case["servers"]));
+            assert_eq!(order, strings(&case["expected"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn tools_state_cases_replay() {
+        for case in fixture()["toolsStateCases"].as_array().unwrap() {
+            let state = match mcp_tools_state(case["transport"].as_str().unwrap(), case["status"].as_str().unwrap()) {
+                McpToolsState::List => "list",
+                McpToolsState::Connect => "connect",
+                McpToolsState::Stdio => "stdio",
+            };
+            assert_eq!(state, case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
     }
 
     #[test]
@@ -1426,12 +1525,14 @@ mod tests {
     }
 
     #[test]
-    fn counts_levels_and_the_endpoint() {
+    fn counts_levels_and_the_endpoints() {
         assert_eq!(tool_count_label(1), "1 tool");
         assert_eq!(tool_count_label(3), "3 tools");
         assert_eq!(level_label("read"), "Read only");
         assert_eq!(status_label("upstream"), "Upstream");
-        assert_eq!(endpoint_url("https://app.exponential.at/"), "https://app.exponential.at/api/mcp/apps");
+        assert_eq!(builtin_endpoint("https://app.exponential.at/", BUILTIN_EXPONENTIAL), "https://app.exponential.at/api/mcp");
+        assert_eq!(builtin_endpoint("https://app.exponential.at//", BUILTIN_APPS), "https://app.exponential.at/api/mcp/apps");
+        assert_eq!(tools_failed_line("401"), "Could not list its tools: 401");
         assert_eq!(member_level(&Default::default(), "a-1"), "write");
     }
 }

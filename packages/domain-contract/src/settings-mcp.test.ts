@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fixture from "../fixtures/settings-mcp.json" with { type: "json" }
-import { activityCaption, builtinToolBands, clientCaption, levelLabel, runsOnCaption, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
+import { activityCaption, builtinEndpoint, builtinToolBands, mcpServerOrder, mcpToolsState, toolsFailedLine, clientCaption, levelLabel, runsOnCaption, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
 import contract from "../contract.json" with { type: "json" }
 
 describe(`settings-mcp.json (VAPP-185)`, () => {
@@ -31,6 +31,17 @@ describe(`settings-mcp.json (VAPP-185)`, () => {
     const live = contract.expToolDisplay.tools.filter((t) => !(`aliasOf` in t)).map((t) => `exponential_${t.name}`)
     expect([...listed].sort()).toEqual([...live].sort())
     expect(listed.some((n) => n.includes(`team_config`))).toBe(false)
+  })
+  it.each(fixture.serverOrder.cases)(`server order: $name`, ({ appTools, servers, expected }) => {
+    expect(mcpServerOrder(appTools, servers)).toEqual(expected)
+  })
+  it.each(fixture.toolsStateCases)(`tools state: $name`, ({ transport, status, expected }) => {
+    expect(mcpToolsState({ transport, status })).toBe(expected)
+  })
+  it(`built-in endpoints`, () => {
+    expect(builtinEndpoint(`https://app.exponential.at/`, `exponential`)).toBe(`https://app.exponential.at/api/mcp`)
+    expect(builtinEndpoint(`https://app.exponential.at`, `apps`)).toBe(`https://app.exponential.at/api/mcp/apps`)
+    expect(toolsFailedLine(`HTTP 500`)).toBe(`Could not list its tools: HTTP 500`)
   })
   it(`labels`, () => {
     expect(toolCountLabel(1)).toBe(`1 tool`)

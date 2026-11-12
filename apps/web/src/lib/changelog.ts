@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-mcp-servers-one-list`,
+    date: `2026-11-12`,
+    title: `One list for every MCP server`,
+    summary: `Settings › MCP lists the built-in Exponential and Team apps servers with your team's own, each unfolds to its tools, and Clients moved to the bottom.`,
+    body: `- **One Servers list**: the built-in Exponential server (and Team apps, once an app exposes tools) sits in the same list as the servers your team added, with its URL and a Copy button for clients like Claude. The old Endpoint box is gone.
+- **Tools on every row**: unfold any server to see its tools. Exponential's stay grouped (Work, Tracker, …) behind the filter, Team apps' by app, and a connected server lists its own.
+- **Clients last**: the connected clients moved to the bottom of the page.`,
+  },
+  {
     id: `2026-11-12-one-conversation-store`,
     date: `2026-11-12`,
     title: `Every Claude login shares one set of conversations`,

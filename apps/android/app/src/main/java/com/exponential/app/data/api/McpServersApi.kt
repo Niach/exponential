@@ -48,6 +48,14 @@ data class McpConnectionDto(
     val shared: Boolean = false,
 )
 
+/** Settings › MCP: one tool of an open server row (`mcpServers.tools`, `appAccess.list` apps). */
+@Serializable
+data class McpToolDto(val name: String = "", val title: String = "", val blurb: String = "")
+
+/** `mcpServers.tools {serverId}`: the caller's own listing of a team server's tools. */
+@Serializable
+data class McpServerToolsDto(val ok: Boolean = false, val tools: List<McpToolDto>? = null, val error: String? = null)
+
 @Serializable
 private data class McpServersListInput(@SerialName("teamId") val teamId: String)
 
@@ -82,6 +90,16 @@ class McpServersApi @Inject constructor(private val trpc: TrpcClient) {
                 command = row.command,
             )
         }
+
+    /** Settings › MCP: an open http server row's tools, with the caller's own credential. */
+    suspend fun tools(accountId: String, serverId: String): McpServerToolsDto =
+        trpc.query(
+            accountId,
+            path = "mcpServers.tools",
+            input = McpServerIdInput(serverId),
+            inputSerializer = McpServerIdInput.serializer(),
+            outputSerializer = McpServerToolsDto.serializer(),
+        )
 
     suspend fun disconnect(accountId: String, serverId: String) {
         trpc.mutationUnit(accountId, "mcpServers.disconnect", McpServerIdInput(serverId), McpServerIdInput.serializer())
@@ -121,6 +139,8 @@ data class AppAccessApp(
     val icon: String? = null,
     val color: String? = null,
     val toolCount: Int = 0,
+    /** Settings › MCP: the app's exposed tools (the open Team apps row). */
+    val tools: List<McpToolDto> = emptyList(),
 )
 
 @Serializable
