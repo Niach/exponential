@@ -179,8 +179,9 @@ object AskDock {
         .sortedByEpoch(tie = compareBy { it.first.id }) { WireTimestamps.parseEpochMs(it.first.createdAt) ?: 0L }
         .map { it.second }
 
-    /** A settled feed call as the anchoring reads it. */
-    data class FeedCall(val id: Long, val name: String?, val settled: Boolean, val failed: Boolean)
+    /** A settled feed call as the anchoring reads it; #FEED-231: [cardId] =
+     *  the card it posted or edited (its `preview.id`). */
+    data class FeedCall(val id: Long, val name: String?, val settled: Boolean, val failed: Boolean, val cardId: String? = null)
 
     /** Where each session card draws: right after the SETTLED, unfailed call
      *  that posted it, paired newest back PER KIND; a card with no call left =
@@ -199,12 +200,20 @@ object AskDock {
             .firstOrNull { trimmed.endsWith(DomainContract.expToolPrefix + it) }
     }
 
-    /** Legacy calls of the card's kind first, then the shared `show` calls (S-3). */
+    /** #FEED-231: the call naming the card (the newest; a named call never
+     *  joins the count pool), else legacy calls of the card's kind, then the
+     *  shared `show` calls (S-3), counting only calls with no card id. */
     fun anchorSessionCards(calls: List<FeedCall>, cards: List<SessionCard>): Anchors {
         val byRow = HashMap<String, MutableList<Long>>()
+        val named = HashMap<String, Long>()
         for (call in calls) {
             if (!call.settled || call.failed) continue
             val row = cardCallRow(call.name) ?: continue
+            val card = call.cardId
+            if (!card.isNullOrEmpty()) {
+                named[card] = call.id
+                continue
+            }
             byRow.getOrPut(row) { mutableListOf() }.add(call.id)
         }
         val used = HashMap<String, Int>()
@@ -218,7 +227,7 @@ object AskDock {
         val after = LinkedHashMap<Long, MutableList<String>>()
         val unanchored = ArrayList<String>()
         for (card in cards.asReversed()) {
-            val call = take(card.kind.postingCall) ?: take(SHOW_CARD_CALL)
+            val call = named[card.id] ?: take(card.kind.postingCall) ?: take(SHOW_CARD_CALL)
             if (call == null) unanchored.add(0, card.id) else after.getOrPut(call) { mutableListOf() }.add(0, card.id)
         }
         return Anchors(after, unanchored)
@@ -226,6 +235,6 @@ object AskDock {
 
     /** The feed's tool calls, as [anchorSessionCards] reads them. */
     fun feedCalls(feed: List<AgentFeedItem>): List<FeedCall> = feed.mapNotNull { item ->
-        (item as? AgentFeedItem.Tool)?.let { FeedCall(it.id, it.name, it.settled, it.failed) }
+        (item as? AgentFeedItem.Tool)?.let { FeedCall(it.id, it.name, it.settled, it.failed, it.preview?.id) }
     }
 }

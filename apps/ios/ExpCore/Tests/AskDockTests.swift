@@ -190,7 +190,8 @@ final class AskDockTests: XCTestCase {
                     id: (raw["id"] as? NSNumber)?.intValue ?? -1,
                     name: raw["name"] as? String,
                     settled: raw["settled"] as? Bool ?? false,
-                    failed: raw["failed"] as? Bool ?? false
+                    failed: raw["failed"] as? Bool ?? false,
+                    cardId: raw["cardId"] as? String
                 )
             }
             let cards = try XCTUnwrap(c["cards"] as? [[String: Any]]).map { raw in

@@ -465,9 +465,14 @@ export function AgentSessionView({
   // tool-posted card; a `reply` press sends its text as the next message.
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
   // EXP-1398 (ask-dock.json `anchorCases`): every card after the call that
-  // posted it, paired per kind; the rest at the head.
+  // posted it (#FEED-231: the card a show call names, its `preview.id`),
+  // the rest paired per kind; the rest at the head.
   const cardAnchors = useMemo(
-    () => anchorSessionCards(feed, sessionCards(sessionMessages.map(toTreeMessage))),
+    () =>
+      anchorSessionCards(
+        feed.map((item) => (item.kind === `tool` ? { ...item, cardId: item.preview?.id ?? null } : item)),
+        sessionCards(sessionMessages.map(toTreeMessage))
+      ),
     [feed, sessionMessages]
   )
   const surfaceArrived = useLiveArrivals(surfaceCards.map((row) => row.id))
