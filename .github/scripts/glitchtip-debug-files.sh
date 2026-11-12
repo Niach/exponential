@@ -43,6 +43,58 @@ for path in "$@"; do
   if [ -e "$path" ]; then files+=("$path"); else echo "::warning title=GlitchTip::debug file missing: $path"; fi
 done
 [ ${#files[@]} -eq 0 ] && fail "no debug files to upload"
+tmp="${RUNNER_TEMP:-/tmp}"
+command -v cygpath >/dev/null && tmp="$(cygpath -u "$tmp")" # Windows (Git Bash)
+
+# #ERR-15: upload only what symbolication reads. An ELF carrying DWARF
+# (an unstripped binary, or a .debug file) goes up as its debug sections
+# alone, zlib-compressed (objcopy --only-keep-debug
+# --compress-debug-sections=zlib): the same build-id, the same lookups in
+# GlitchTip's symbolic, a fifth of the bytes (Linux exp-desktop 1.2 GB →
+# 0.24 GB). A directory holding such an ELF is uploaded file by file.
+# dSYMs, PDBs, stripped .so files and R8 mappings go up as they are.
+is_elf() { [ -f "$1" ] && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = 7f454c46 ]; }
+has_dwarf() { is_elf "$1" && [[ "$(readelf -SW "$1" 2>/dev/null)" == *" .debug_info "* ]]; }
+bytes() { wc -c <"$1" | tr -d ' '; }
+dir_has_dwarf() {
+  local f
+  while IFS= read -r -d '' f; do has_dwarf "$f" && return 0; done < <(find "$1" -type f -print0)
+  return 1
+}
+if [ -z "$proguard_uuid" ] && command -v readelf >/dev/null; then
+  if command -v objcopy >/dev/null; then
+    slim="$tmp/glitchtip-dif"
+    rm -rf "$slim"
+    expanded=()
+    for path in "${files[@]}"; do
+      if [ -d "$path" ] && dir_has_dwarf "$path"; then
+        while IFS= read -r -d '' f; do expanded+=("$f"); done < <(find "$path" -type f -print0)
+      else
+        expanded+=("$path")
+      fi
+    done
+    files=()
+    before=0 after=0 n=0
+    for f in "${expanded[@]}"; do
+      if has_dwarf "$f"; then
+        n=$((n + 1))
+        mkdir -p "$slim/$n"
+        out="$slim/$n/$(basename "$f")"
+        if objcopy --only-keep-debug --compress-debug-sections=zlib "$f" "$out"; then
+          before=$((before + $(bytes "$f"))) after=$((after + $(bytes "$out")))
+          echo "$(basename "$f"): $(bytes "$f") → $(bytes "$out") bytes"
+          files+=("$out")
+          continue
+        fi
+        echo "::warning title=GlitchTip::objcopy failed on $f: uploading it whole"
+      fi
+      files+=("$f")
+    done
+    [ "$n" -gt 0 ] && echo "GlitchTip debug files: $before → $after bytes"
+  elif [ -n "$(for f in "${files[@]}"; do has_dwarf "$f" && echo y; done)" ]; then
+    echo "::warning title=GlitchTip::no objcopy: the ELF files go up whole, debug info uncompressed"
+  fi
+fi
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) asset=sentry-cli-Linux-x86_64 sum=36b689311b399d9332950d84f4299aee682d2d290a770a77372b30a74f7e7add ;;
@@ -51,8 +103,6 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) asset=sentry-cli-Windows-x86_64.exe sum=99c1bf7a3d18df2b62ee5052f7e8f5d1e065e218442cdf0cfa2ede0b9cf7b938 ;;
   *) fail "sentry-cli: unsupported platform $(uname -s)-$(uname -m)" ;;
 esac
-tmp="${RUNNER_TEMP:-/tmp}"
-command -v cygpath >/dev/null && tmp="$(cygpath -u "$tmp")" # Windows (Git Bash)
 cli="$tmp/$asset"
 if [ ! -x "$cli" ]; then
   curl -fsSL --retry 3 -o "$cli" "https://github.com/getsentry/sentry-cli/releases/download/$SENTRY_CLI_VERSION/$asset" \
