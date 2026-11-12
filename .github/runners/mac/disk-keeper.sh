@@ -8,7 +8,7 @@
 #   disk-keeper.sh --dry-run  list what a cleanup would delete, delete nothing
 #
 # Deletes ONLY stale build output, each step only while free space is still low:
-#   1. cargo `debug/deps` files and `incremental/` dirs older than a day, in the
+#   1. cargo `deps` files (every profile) and `incremental/` dirs older than a day, in the
 #      `target*` dirs of idle worktrees, then in the shared CARGO_TARGET_DIR
 #      (a profile only while no build holds its `.cargo-lock`)
 #   2. Xcode DerivedData entries with nothing written for a day, and idle
@@ -18,6 +18,13 @@
 #   5. finished capture stacks: docker containers exited over a day ago, then the
 #      volumes no container (running or not) uses; never the `exponential` stack,
 #      never starts docker
+#   6. /tmp scratch: the user's top-level /private/tmp entries nothing wrote to
+#      for a day and no process has open (lane DerivedData, capture stacks, logs)
+#   7. idle worktrees' `node_modules` and `apps/ios/Tuist/.build` (~5 GB of
+#      SwiftPM binary artifacts each)
+#   8. lane simulators (`exp-*`, never the shared `exp-store`) nothing wrote to
+#      for two days, then cargo git checkouts unused for three days (they
+#      re-check out from ~/.cargo/git/db offline)
 # A worktree is LIVE (never touched) when it is locked (`git worktree lock`, a
 # Claude agent's), holds a `.git` index.lock, is some process's cwd, has a file
 # written in the last day (build output aside), or has anything uncommitted
@@ -40,7 +47,7 @@ MODE=clean
 case "${1:-}" in
   "") ;;
   --dry-run) MODE=dry-run ;;
-  -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;;
 esac
 [ "$(uname -s)" = "Darwin" ] || { echo "disk-keeper: macOS only" >&2; exit 0; }
@@ -98,9 +105,9 @@ remove_old_files() {
     log "deleted $(human "$kb") of files older than a day in $dir"
   fi
 }
-# The stale part of one cargo target dir: debug/deps files and debug/incremental
-# dirs older than a day (also under <triple>/), skipping a profile while a build
-# holds its .cargo-lock.
+# The stale part of one cargo target dir: every profile's (debug, release,
+# <triple>/<profile>) deps files and incremental dirs older than a day,
+# skipping a profile while a build holds its .cargo-lock.
 clean_cargo_target() {
   local t="$1" p sub
   [ -d "$t" ] || return 0
@@ -110,7 +117,7 @@ clean_cargo_target() {
     [ -d "$p/incremental" ] || continue
     while IFS= read -r -d '' sub; do remove "$sub"; done \
       < <(find "$p/incremental" -mindepth 1 -maxdepth 1 -mtime +0 -print0 2>/dev/null)
-  done < <(find "$t" -mindepth 1 -maxdepth 2 -type d -name debug -print0 2>/dev/null)
+  done < <(find "$t" -mindepth 2 -maxdepth 3 -type d -name deps -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | tr '\n' '\0')
 }
 
 start="$(free_gb)"
@@ -221,6 +228,48 @@ if low && command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     if [ "$MODE" = "dry-run" ]; then log "would remove volume $v"
     else docker volume rm "$v" >/dev/null 2>&1 && log "removed volume $v"; fi
   done
+fi
+
+# 6. /tmp scratch nobody uses: no write for a day, no process cwd or open file in it.
+if low; then
+  OPEN="$(lsof -u "$(id -un)" -Fn 2>/dev/null | sed -n 's/^n//p' | sed 's#^/tmp/#/private/tmp/#' | awk -F/ '$2 == "private" && $3 == "tmp" && NF > 3 { print "/private/tmp/" $4 }' | sort -u)"
+  while IFS= read -r -d '' e; do
+    [ -O "$e" ] || continue
+    printf '%s\n' "$OPEN" | grep -qxF "$e" && continue
+    [ -n "$(find "$e" -mtime -1 -print 2>/dev/null | head -1)" ] && continue
+    remove "$e"
+    low || break
+  done < <(find /private/tmp -mindepth 1 -maxdepth 1 -mtime +0 -print0 2>/dev/null)
+fi
+
+# 7. Idle worktrees' dependency installs.
+if low; then
+  for wt in ${IDLE[@]+"${IDLE[@]}"}; do
+    for d in "$wt"/node_modules "$wt"/apps/ios/Tuist/.build; do
+      [ -d "$d" ] && ignored "$wt" "$d" && remove "$d"
+    done
+  done
+fi
+
+# 8. Lane simulators left behind, then stale cargo git checkouts.
+if low && command -v xcrun >/dev/null; then
+  sims="$HOME/Library/Developer/CoreSimulator/Devices"
+  xcrun simctl list devices 2>/dev/null | sed -n 's/^ *\(exp-[^ ]*\) (\([0-9A-F-]\{36\}\)).*/\1 \2/p' |
+  while read -r name udid; do
+    [ "$name" = "exp-store" ] && continue
+    [ -d "$sims/$udid" ] || continue
+    [ -n "$(find "$sims/$udid" -mtime -2 -print 2>/dev/null | head -1)" ] && continue
+    if [ "$MODE" = "dry-run" ]; then log "would delete simulator $name $(human "$(kb_of "$sims/$udid")")"
+    else
+      kb="$(kb_of "$sims/$udid")"
+      xcrun simctl shutdown "$udid" >/dev/null 2>&1
+      xcrun simctl delete "$udid" && log "deleted simulator $name $(human "$kb")"
+    fi
+  done
+fi
+if low && [ -d "$HOME/.cargo/git/checkouts" ]; then
+  while IFS= read -r -d '' c; do remove "$c"; done \
+    < <(find "$HOME/.cargo/git/checkouts" -mindepth 2 -maxdepth 2 -type d -mtime +3 -print0 2>/dev/null)
 fi
 
 end="$(free_gb)"

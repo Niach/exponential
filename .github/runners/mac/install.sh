@@ -40,7 +40,7 @@ fi
 cat > .env <<ENV
 RUSTC_WRAPPER=$(command -v sccache)
 SCCACHE_DIR=$HOME/Library/Caches/sccache-ci
-SCCACHE_CACHE_SIZE=40G
+SCCACHE_CACHE_SIZE=15G
 CARGO_INCREMENTAL=0
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ENV
