@@ -16,7 +16,6 @@ use std::collections::HashSet;
 
 use domain::rows::MessageRow;
 
-use crate::collections::decode_rows;
 use crate::store::{ShapeStore, StoreError};
 
 /// One [`newest_page`] read.
@@ -35,14 +34,14 @@ pub struct NewestPage {
 pub fn newest_page(sqlite: &ShapeStore, root_id: &str, limit: usize, named: &[String]) -> Result<NewestPage, StoreError> {
     let newest = sqlite.read_newest_messages(root_id, limit)?;
     let count = newest.len();
-    let mut rows: Vec<MessageRow> = decode_rows::<MessageRow>(newest).into_iter().map(|(_, row)| row).collect();
+    let mut rows: Vec<MessageRow> = decode_messages(newest);
     let held: HashSet<&str> = rows.iter().map(|row| row.id.as_str()).collect();
     let mut missing: Vec<&str> = named.iter().map(String::as_str).filter(|id| !held.contains(id)).collect();
     missing.sort_unstable();
     missing.dedup();
     if !missing.is_empty() {
         let extra = sqlite.read_messages_by_ids(&missing)?;
-        rows.extend(decode_rows::<MessageRow>(extra).into_iter().map(|(_, row)| row));
+        rows.extend(decode_messages(extra));
     }
     Ok(NewestPage { rows, newest: count })
 }
@@ -51,7 +50,7 @@ pub fn newest_page(sqlite: &ShapeStore, root_id: &str, limit: usize, named: &[St
 /// with a card (`author_session_id` set, a card), oldest first.
 pub fn result_cards(sqlite: &ShapeStore, root_id: &str) -> Result<Vec<MessageRow>, StoreError> {
     let maps = sqlite.read_result_cards(root_id)?;
-    Ok(decode_rows::<MessageRow>(maps).into_iter().map(|(_, row)| row).collect())
+    Ok(decode_messages(maps))
 }
 
 #[cfg(test)]
@@ -177,4 +176,23 @@ mod tests {
             assert!(!plan.contains("TEMP B-TREE"), "no sort: {plan}");
         }
     }
+}
+
+/// Decode and open (EXP-1459) the rows read back, dropping the unhydratable
+/// ones like a delta does. Here, not `collections::decode_rows`: that module
+/// is the gpui seam, and this one is read by the gpui-free CLI build too.
+fn decode_messages(maps: Vec<serde_json::Map<String, serde_json::Value>>) -> Vec<MessageRow> {
+    let opener = crate::sealed::Opener::global();
+    maps.into_iter()
+        .filter_map(|map| match serde_json::from_value::<MessageRow>(serde_json::Value::Object(map)) {
+            Ok(mut row) => {
+                opener.open_message(&mut row);
+                Some(row)
+            }
+            Err(err) => {
+                log::warn!("[sync messages] dropping unhydratable row: {err}");
+                None
+            }
+        })
+        .collect()
 }
