@@ -164,6 +164,10 @@ enum Observability {
 
 /// Re-addresses the SDK's envelope POST (to the DSN's ingest host) to
 /// `<server>/api/monitoring`, body and headers unchanged (gzip envelope).
+/// #ERR-17: sentry-cocoa deletes an envelope on any 4xx/5xx answer and keeps
+/// it only when none came, so a transient answer (408, 429, 5xx) for an
+/// error or crash envelope reaches it as a failed request: kept on disk,
+/// sent again once the backoff is over (`Monitoring.TunnelRetry`).
 final class MonitoringTunnelProtocol: URLProtocol, @unchecked Sendable {
     private static let forwardSession = URLSession(configuration: .ephemeral)
     private var forwardTask: URLSessionDataTask?
@@ -176,6 +180,18 @@ final class MonitoringTunnelProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
             return
         }
+        let body = request.httpBody ?? request.httpBodyStream.map(Self.read)
+        let kept = body.map(Monitoring.TunnelRetry.carriesEvent) ?? false
+        if MonitoringState.shared.tunnelBackingOff() {
+            // Nothing goes out before the deadline: an event waits on disk,
+            // the rest is let go as the SDK would on a 429.
+            if kept {
+                client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
+            } else {
+                finish(HTTPURLResponse(url: tunnel, statusCode: 429, httpVersion: nil, headerFields: nil), data: nil)
+            }
+            return
+        }
         var forwarded = URLRequest(url: tunnel)
         forwarded.httpMethod = "POST"
         forwarded.timeoutInterval = request.timeoutInterval
@@ -183,20 +199,53 @@ final class MonitoringTunnelProtocol: URLProtocol, @unchecked Sendable {
             forwarded.setValue(value, forHTTPHeaderField: field)
         }
         forwarded.setValue(AppConstants.clientVersionHeaderValue, forHTTPHeaderField: "x-client-version")
-        forwarded.httpBody = request.httpBody ?? request.httpBodyStream.map(Self.read)
+        forwarded.httpBody = body
         forwardTask = Self.forwardSession.dataTask(with: forwarded) { [weak self] data, response, error in
             guard let self else { return }
+            let http = response as? HTTPURLResponse
+            switch Monitoring.TunnelRetry.outcome(status: error == nil ? http?.statusCode : nil) {
+            case .sent:
+                MonitoringState.shared.tunnelSent()
+            case .retry:
+                let retryAfter = Monitoring.TunnelRetry.retryAfter(
+                    http?.value(forHTTPHeaderField: "Retry-After"),
+                    rateLimits: http?.value(forHTTPHeaderField: "X-Sentry-Rate-Limits")
+                )
+                if let at = MonitoringState.shared.tunnelFailed(retryAfter: retryAfter) { Self.resend(at: at) }
+                if kept {
+                    self.client?.urlProtocol(self, didFailWithError: error ?? URLError(.badServerResponse))
+                    return
+                }
+            case .drop:
+                break
+            }
             if let error {
                 self.client?.urlProtocol(self, didFailWithError: error)
                 return
             }
-            if let response {
-                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            }
-            if let data { self.client?.urlProtocol(self, didLoad: data) }
-            self.client?.urlProtocolDidFinishLoading(self)
+            self.finish(response, data: data)
         }
         forwardTask?.resume()
+    }
+
+    private func finish(_ response: URLResponse?, data: Data?) {
+        if let response {
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        }
+        if let data { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    /// The SDK sends what it kept only on its next capture, launch or
+    /// network change: a flush at the deadline sends it (one planned at a time).
+    private static func resend(at deadline: Date) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + max(deadline.timeIntervalSinceNow, 0)) {
+            if let later = MonitoringState.shared.tunnelRetryDue() {
+                resend(at: later)
+            } else if SentrySDK.isEnabled {
+                SentrySDK.flush(timeout: 30)
+            }
+        }
     }
 
     override func stopLoading() {
