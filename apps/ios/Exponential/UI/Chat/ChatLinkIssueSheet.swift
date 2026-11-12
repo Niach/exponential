@@ -39,7 +39,7 @@ struct ChatIssueSearchList: View {
         Group {
             if sheet { SearchListSheet(list) } else { list }
         }
-        .task { load() }
+        .task { await load() }
     }
 
     private var list: SearchListView<String> {
@@ -74,10 +74,11 @@ struct ChatIssueSearchList: View {
     }
 
     /// The team's issues (issues sync no team id: through its boards).
-    private func load() {
+    /// #PERF-5: GRDB's async read, off main.
+    private func load() async {
         guard let dbPool = try? deps.db.pool(forAccountId: accountId) else { return }
         let teamId = teamId
-        pool = (try? dbPool.read { db in
+        pool = (try? await dbPool.read { db in
             let boardIds = try BoardEntity
                 .filter(Column("team_id") == teamId)
                 .fetchAll(db)

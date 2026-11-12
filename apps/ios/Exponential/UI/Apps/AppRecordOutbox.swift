@@ -67,6 +67,8 @@ final class AppRecordOutbox {
     private let auth: AuthRepository
     /// Each account's store over the pool it opened on (a wiped database = a new pool = a new queue).
     private var stores: [String: (pool: DatabasePool, store: SyncedRecordStore)] = [:]
+    /// A store being opened (`store(_:)`), so concurrent callers share one.
+    private var opening: [String: (pool: DatabasePool, task: Task<SyncedRecordStore, Error>)] = [:]
     /// The account's waiting retry (`retryWhilePending`).
     private var retrying: [String: Task<Void, Never>] = [:]
     private static let retryInterval: Duration = .seconds(30)
@@ -80,15 +82,30 @@ final class AppRecordOutbox {
         self.auth = auth
     }
 
-    private func store(_ accountId: String) throws -> SyncedRecordStore {
+    /// #PERF-5: the Engine reads the log as it opens a store (`entriesJson`,
+    /// a blocking pool read): that runs on `replays`, never on main.
+    private func store(_ accountId: String) async throws -> SyncedRecordStore {
         let pool = try db.pool(forAccountId: accountId)
         if let open = stores[accountId], open.pool === pool { return open.store }
-        let store = try SyncedRecordStore(
-            log: AppOutboxLog(pool: pool),
-            transport: AppOutboxTransport(accountId: accountId, api: api, pool: pool),
-            listener: AppOutboxToasts(),
-            clock: nil
-        )
+        if let pending = opening[accountId], pending.pool === pool { return try await pending.task.value }
+        let api = api
+        let task = Task { () throws -> SyncedRecordStore in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SyncedRecordStore, Error>) in
+                Self.replays.async {
+                    continuation.resume(with: Result {
+                        try SyncedRecordStore(
+                            log: AppOutboxLog(pool: pool),
+                            transport: AppOutboxTransport(accountId: accountId, api: api, pool: pool),
+                            listener: AppOutboxToasts(),
+                            clock: nil
+                        )
+                    })
+                }
+            }
+        }
+        opening[accountId] = (pool, task)
+        defer { if opening[accountId]?.pool === pool { opening[accountId] = nil } }
+        let store = try await task.value
         stores[accountId] = (pool, store)
         return store
     }
@@ -97,7 +114,7 @@ final class AppRecordOutbox {
     /// `records_batch`): the only pending entry awaits its first replay,
     /// otherwise it answers from the entry at once.
     func write(accountId: String, appId: String, function: String, args: [String: CardJSON]) async throws -> AppRecordOutboxAnswer {
-        let store = try store(accountId)
+        let store = try await store(accountId)
         let json = CardJSON.object(args).compactString
         let submitted = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Submitted, Error>) in
             Self.replays.async {
@@ -123,19 +140,23 @@ final class AppRecordOutbox {
     /// Run the account's flusher (one at a time: the Engine turns a call while
     /// it runs into another pass).
     func flush(accountId: String) {
-        guard let store = try? store(accountId) else { return }
-        Self.replays.async {
-            store.flush()
-            Task { @MainActor in self.retryWhilePending(accountId: accountId) }
+        Task { @MainActor in
+            guard let store = try? await self.store(accountId) else { return }
+            Self.replays.async {
+                store.flush()
+                Task { @MainActor in self.retryWhilePending(accountId: accountId) }
+            }
         }
     }
 
     /// The synced rows of `appId` a binding read: acked entries they reflect
     /// (or past the grace) leave.
     func reflect(accountId: String, appId: String, rows: [AppRecords.Row]) {
-        guard let store = try? store(accountId) else { return }
         let json = CardJSON.array(rows.map(Self.rowJSON)).compactString
-        Self.replays.async { try? store.setRows(app: appId, rowsJson: json) }
+        Task { @MainActor in
+            guard let store = try? await self.store(accountId) else { return }
+            Self.replays.async { try? store.setRows(app: appId, rowsJson: json) }
+        }
     }
 
     private nonisolated static func rowJSON(_ row: AppRecords.Row) -> CardJSON {

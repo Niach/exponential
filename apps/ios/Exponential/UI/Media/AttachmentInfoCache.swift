@@ -6,10 +6,10 @@ import GRDB
 /// EXP-824 — attachment id → `AttachmentMediaInfo` off the local store, for
 /// renderers that have no live attachments observation of their own: comment
 /// cards and the agent transcript. Same shape as `IssueRefChipCache`: a
-/// short-TTL memo over a synchronous GRDB read, so a media block resolves on
-/// first render and a row landing later is picked up within seconds (the
-/// issue detail feeds its editor from its live observation instead).
-/// #PERF-5: a layout pass `peek`s (never a blocking read).
+/// short-TTL memo over the local store, so a row landing later is picked up
+/// within seconds (the issue detail feeds its editor from its live
+/// observation instead).
+/// #PERF-5: never a blocking read: every caller `peek`s.
 @MainActor
 enum AttachmentInfoCache {
     private struct Key: Hashable, Sendable {
@@ -19,15 +19,8 @@ enum AttachmentInfoCache {
 
     private static let memo = StoreMemo<Key, AttachmentMediaInfo>()
 
-    static func info(_ attachmentId: String, db: DatabaseManager, accountId: String) -> AttachmentMediaInfo? {
-        memo.value(Key(accountId: accountId, attachmentId: attachmentId.lowercased())) {
-            guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
-            return ((try? pool.read { try fetch(attachmentId, $0) }) ?? nil)
-        }
-    }
-
-    /// #PERF-5: `info` for a layout pass (the read-only Markdown): memory
-    /// only, an unknown or stale row loads off main and renders when it lands.
+    /// #PERF-5: memory only: an unknown or stale row loads off main and
+    /// renders when it lands (`StoreMemoLoads`).
     static func peek(_ attachmentId: String, db: DatabaseManager, accountId: String) -> AttachmentMediaInfo? {
         memo.peek(Key(accountId: accountId, attachmentId: attachmentId.lowercased())) {
             guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
@@ -41,6 +34,6 @@ enum AttachmentInfoCache {
 
     /// A resolver closure for an `IssueEditorModel` bound to one account.
     static func resolver(db: DatabaseManager, accountId: String) -> (String) -> AttachmentMediaInfo? {
-        { id in info(id, db: db, accountId: accountId) }
+        { id in peek(id, db: db, accountId: accountId) }
     }
 }

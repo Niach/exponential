@@ -32,6 +32,7 @@ public final class DatabaseManager: @unchecked Sendable {
         var config = Configuration()
         config.foreignKeysEnabled = true
         config.journalMode = .wal
+        MainThreadReads.watch(&config)
         let pool = try DatabasePool(path: path, configuration: config)
         try DatabaseManager.runMigrations(on: pool)
         pools[accountId] = pool

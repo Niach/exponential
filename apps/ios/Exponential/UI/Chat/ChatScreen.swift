@@ -515,12 +515,14 @@ struct ChatScreen: View {
             setTab(.sessions)
             openItem(.session(sessionId))
         } else {
-            let route = AppRoute.openingSession(sessionId, accountId: accountId, deps: deps)
-            if case let .chat(_, chatId, _) = route, chatId == (rows?.root.id ?? rootId) {
-                // This very chat (a session the tree does not hold).
-                pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-            } else {
-                pushRoute(route)
+            Task {
+                let route = await AppRoute.openingSession(sessionId, accountId: accountId, deps: deps)
+                if case let .chat(_, chatId, _) = route, chatId == (rows?.root.id ?? rootId) {
+                    // This very chat (a session the tree does not hold).
+                    pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                } else {
+                    pushRoute(route)
+                }
             }
         }
     }

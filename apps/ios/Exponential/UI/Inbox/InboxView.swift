@@ -88,7 +88,7 @@ struct InboxListContent: View {
             markRead()
             switch target {
             case let .session(sessionId):
-                pushRoute(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                Task { pushRoute(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps)) }
             case let .device(deviceRowId):
                 deps.deepLinkBus.navigateToDevice(deviceRowId, accountId: accountId)
             case .issue, .none:

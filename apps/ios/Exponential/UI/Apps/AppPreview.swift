@@ -312,7 +312,7 @@ private struct AppPackageSurface: View {
         }
         .modifier(AppConsentCard(gate: consent))
         .modifier(LiftedLayersCover(model: model, consent: consent))
-        .onAppear(perform: build)
+        .task { await build() }
         .onChange(of: shownKey) { _, _ in
             if let appHost { open(appHost) }
         }
@@ -357,8 +357,12 @@ private struct AppPackageSurface: View {
         .accessibilityIdentifier(AppUpstream.bannerTestId)
     }
 
-    private func build() {
+    /// #PERF-5: the team's zone and slug are read off main before the host builds.
+    private func build() async {
         guard appHost == nil else { return }
+        let zone = await AppHostStore.teamTimeZone(teamId: teamId, pool: deps.db.poolIfOpen(forAccountId: accountId))
+        let slug = await LinkOpener.loadTeamSlug(teamId: teamId, accountId: accountId, deps: deps)
+        guard appHost == nil, !Task.isCancelled else { return }
         let host = ExpAppHost(
             packages: [packageJSON],
             appId: appId,
@@ -367,6 +371,8 @@ private struct AppPackageSurface: View {
             accountId: accountId,
             deps: deps,
             consent: consent,
+            teamZone: zone,
+            linkBase: AppLink.expandTeamLink("~/", team: slug),
             grants: grants,
             readOnly: readOnly,
             migrateFrom: migrateFrom,

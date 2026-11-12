@@ -260,13 +260,18 @@ final class IssueDetailViewModel {
     /// EXP-1343: a chat pager's NEIGHBOUR page reads its issue ONCE (no
     /// observation), so a swipe lands on the page instead of a skeleton;
     /// `startObserving` takes over once the page is shown.
+    /// #PERF-5: the read runs off main; an observation that landed first wins.
     func preload() {
         guard issue == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let issueId = issueId
-        guard let found = try? pool.read({ db in try IssueEntity.fetchOne(db, key: issueId) }) else { return }
-        issue = found
-        editingTitle = found.title
-        editor.load(markdown: getIssueDescriptionText(found.description), baseURL: baseURL)
+        Task { [weak self] in
+            guard let found = (try? await pool.read({ db in try IssueEntity.fetchOne(db, key: issueId) })) ?? nil,
+                  let self, self.issue == nil
+            else { return }
+            self.issue = found
+            self.editingTitle = found.title
+            self.editor.load(markdown: getIssueDescriptionText(found.description), baseURL: self.baseURL)
+        }
     }
 
     func startObserving() {
@@ -1202,11 +1207,15 @@ final class IssueDetailViewModel {
         return result ?? []
     }
 
+    /// #PERF-5: off main; an answer for a board the issue has since left is dropped.
     private func refreshBoard(issue: IssueEntity, pool: DatabasePool) {
         guard board?.id != issue.boardId else { return }
-        board = (try? pool.read { db in
-            try BoardEntity.fetchOne(db, key: issue.boardId)
-        }) ?? nil
+        let boardId = issue.boardId
+        Task { [weak self] in
+            let found = (try? await pool.read { db in try BoardEntity.fetchOne(db, key: boardId) }) ?? nil
+            guard let self, self.issue?.boardId == boardId else { return }
+            self.board = found
+        }
     }
 
     private func refreshDuplicateOf(issue: IssueEntity, pool: DatabasePool) {
@@ -1215,9 +1224,11 @@ final class IssueDetailViewModel {
             return
         }
         guard duplicateOf?.id != canonicalId else { return }
-        duplicateOf = (try? pool.read { db in
-            try IssueEntity.fetchOne(db, key: canonicalId)
-        }) ?? nil
+        Task { [weak self] in
+            let found = (try? await pool.read { db in try IssueEntity.fetchOne(db, key: canonicalId) }) ?? nil
+            guard let self, self.issue?.duplicateOfId == canonicalId else { return }
+            self.duplicateOf = found
+        }
     }
 
     func deleteIssue() async -> Bool {
