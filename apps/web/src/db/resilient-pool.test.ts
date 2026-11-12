@@ -39,7 +39,7 @@ describe(`freshDnsSocket`, () => {
     const before = await listen(`127.0.0.1`)
     const after = await listen(`127.0.0.2`, before.port)
     let current = `127.0.0.1`
-    const resolver = vi.fn(async () => current)
+    const resolver = vi.fn(async () => [current])
 
     expect(await dial(freshDnsSocket(resolver), before.port, `postgres`)).toBe(`127.0.0.1`)
     current = `127.0.0.2`
@@ -52,9 +52,37 @@ describe(`freshDnsSocket`, () => {
 
   it(`passes IPs through without resolving`, async () => {
     const srv = await listen(`127.0.0.1`)
-    const resolver = vi.fn(async () => `10.255.255.1`)
+    const resolver = vi.fn(async () => [`10.255.255.1`])
     expect(await dial(freshDnsSocket(resolver), srv.port, `127.0.0.1`)).toBe(`127.0.0.1`)
     expect(resolver).not.toHaveBeenCalled()
+  })
+
+  it(`dials every resolved address in order: localhost answering ::1 first still reaches an IPv4-only DB`, async () => {
+    // Postgres on 127.0.0.1 only; nothing on ::1 (refused, or unavailable without IPv6).
+    const srv = await listen(`127.0.0.1`)
+    const resolver = vi.fn(async () => [`::1`, `127.0.0.1`])
+    const socket = freshDnsSocket(resolver)
+    const errors: Array<unknown> = []
+    socket.on(`error`, (e) => errors.push(e))
+    expect(await dial(socket, srv.port, `localhost`)).toBe(`127.0.0.1`)
+    expect(srv.accepted()).toBe(1)
+    expect(errors).toEqual([])
+  })
+
+  it(`every address refused surfaces the LAST address's error, once`, async () => {
+    const srv = await listen(`127.0.0.1`)
+    const port = srv.port
+    await new Promise((r) => servers.splice(0).forEach((s) => s.close(r)))
+    const socket = freshDnsSocket(async () => [`127.0.0.3`, `127.0.0.2`])
+    const errors: Array<unknown> = []
+    socket.on(`error`, (e) => errors.push(e))
+    await expect(dial(socket, port, `localhost`)).rejects.toMatchObject({ code: `ECONNREFUSED`, address: `127.0.0.2` })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(errors).toHaveLength(1)
+  })
+
+  it(`an empty answer surfaces ENOTFOUND`, async () => {
+    await expect(dial(freshDnsSocket(async () => []), 5432, `postgres`)).rejects.toMatchObject({ code: `ENOTFOUND` })
   })
 
   it(`a failed lookup surfaces as a socket error`, async () => {
@@ -131,7 +159,7 @@ describe(`ResilientPool`, () => {
   it(`retries the connect phase until the DB is back (pool.query path)`, async () => {
     // Nothing listens here at first: ECONNREFUSED. pg itself is the client, so
     // we only assert the connect attempts happened through the fresh resolver.
-    const resolver = vi.fn(async () => `127.0.0.1`)
+    const resolver = vi.fn(async () => [`127.0.0.1`])
     const closed = await listen(`127.0.0.1`)
     const port = closed.port
     await new Promise((r) => servers.pop()!.close(r))
