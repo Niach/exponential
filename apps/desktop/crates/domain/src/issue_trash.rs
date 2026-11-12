@@ -21,6 +21,14 @@ pub const RESTORE: &str = "Restore";
 /// The owners' pill (asks `prompts::purge_issue` first).
 pub const PURGE: &str = "Delete forever";
 
+/// #EXP-1799: the team stream's trash events (`events`), what a Local
+/// desktop writes where the server emits them.
+pub const EVENT_DELETED: &str = "issue.deleted";
+pub const EVENT_RESTORED: &str = "issue.restored";
+pub const EVENT_PURGED: &str = "issue.purged";
+/// The events' payload keys, in order (`eventPayload`).
+pub const EVENT_PAYLOAD: [&str; 8] = ["issueId", "identifier", "title", "boardId", "actorUserId", "actorAgentId", "sessionId", "viaMcp"];
+
 /// The role whose rows also carry Delete forever (`access.purge`).
 pub const PURGE_ROLE: &str = "owner";
 
@@ -113,6 +121,11 @@ mod tests {
         assert_eq!(trash["copy"]["restore"].as_str(), Some(RESTORE));
         assert_eq!(trash["copy"]["purge"].as_str(), Some(PURGE));
         assert_eq!(trash["access"]["purge"].as_str(), Some(PURGE_ROLE));
+        assert_eq!(trash["events"]["deleted"].as_str(), Some(EVENT_DELETED));
+        assert_eq!(trash["events"]["restored"].as_str(), Some(EVENT_RESTORED));
+        assert_eq!(trash["events"]["purged"].as_str(), Some(EVENT_PURGED));
+        let payload: Vec<&str> = trash["eventPayload"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(payload, EVENT_PAYLOAD);
     }
 
     #[test]

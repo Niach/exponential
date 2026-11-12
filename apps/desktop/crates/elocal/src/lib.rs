@@ -39,7 +39,7 @@ pub mod store;
 pub mod time;
 
 pub use blobs::FsBlobStore;
-pub use desktops::{ede_legacy_root, machine_root, DesktopEntry, DesktopMeta, Desktops, Imported, LocalDesktop, LocalRepository, SharedAs, MIGRATED_MARKER};
+pub use desktops::{ede_legacy_root, machine_root, DesktopEntry, DesktopMeta, Desktops, Imported, LocalDesktop, LocalRepository, SharedAs, TrashedIssue, MIGRATED_MARKER};
 pub use executor::LocalExecutor;
 pub use identity::LocalIdentity;
 pub use store::{LocalDelta, LocalStore};

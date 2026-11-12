@@ -78,6 +78,34 @@ pub struct DesktopMeta {
     /// repositories (a board's `repository_id` names one).
     #[serde(default)]
     pub repositories: Vec<LocalRepository>,
+    /// #EXP-1799: the desktop's issue trash (issue-lifecycle.json `trash`):
+    /// a trashed issue's row and its children, out of the synced tables so
+    /// every read hides them, until a restore puts them back or a purge
+    /// drops them. An older sidecar without it reads as an empty trash.
+    #[serde(default)]
+    pub issue_trash: Vec<TrashedIssue>,
+}
+
+/// #EXP-1799: one issue in a Local desktop's trash.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashedIssue {
+    /// The issue row as it left the store, plus `deleted_at`, `deleted_by`
+    /// and `deleted_by_agent_id`.
+    pub issue: Map<String, Value>,
+    /// Its child rows by table, as they left the store.
+    #[serde(default)]
+    pub children: std::collections::BTreeMap<String, Vec<Map<String, Value>>>,
+}
+
+impl TrashedIssue {
+    pub fn id(&self) -> &str {
+        self.issue.get("id").and_then(Value::as_str).unwrap_or("")
+    }
+
+    pub fn deleted_at(&self) -> Option<&str> {
+        self.issue.get("deleted_at").and_then(Value::as_str)
+    }
 }
 
 /// A git working copy on disk, a Local desktop's repository.
@@ -369,7 +397,7 @@ impl LocalDesktop {
         let meta_path = dir.join("desktop.json");
         let fresh = !meta_path.exists();
         let meta: DesktopMeta = if fresh {
-            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new(), repositories: Vec::new() }
+            DesktopMeta { identity: LocalIdentity::for_machine(), device_id: format!("local-{}", &entry.id[..entry.id.len().min(8)]), prompt_bodies: Default::default(), agent_instructions: Default::default(), agent_prompt: String::new(), repositories: Vec::new(), issue_trash: Vec::new() }
         } else {
             let text = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
             serde_json::from_str(&text).map_err(|e| format!("desktop.json: {e}"))?
@@ -387,6 +415,8 @@ impl LocalDesktop {
         }
         let blobs = FsBlobStore::new(dir.join("blobs"));
         let executor = Arc::new(LocalExecutor::new(store.clone(), blobs.clone(), meta, meta_path, entry.id.clone()));
+        // #EXP-1799: the trash sweep, as the server's watchdog runs it.
+        executor.purge_due_issues(jiff::Timestamp::now().as_millisecond());
         Ok(Self { entry, dir, store, blobs, executor })
     }
 

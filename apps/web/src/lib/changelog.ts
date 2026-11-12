@@ -39,7 +39,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Deleting an issue moves it to the team's trash for 30 days, with its comments, relations and links, and anyone on the team can restore it.`,
     body: `- **Issue trash**: deleting an issue, one or many, from any app or over MCP moves it to the team's trash. It disappears everywhere, keeps its comments, files, relations and links, and is deleted for good after 30 days.
 - **Restore**: team settings › Boards lists the deleted issues with Restore for every member, and Delete forever for owners. Agents restore with the MCP issues_write restore operation.
-- **In the event stream**: issue.deleted, issue.restored and issue.purged go to the team's events, so agents and apps can react.`,
+- **In the event stream**: issue.deleted, issue.restored and issue.purged go to the team's events, so agents and apps can react.
+- **Local desktops too**: a Local desktop's deleted issues go to its own trash the same way, offline, with Restore and Delete forever in its settings.`,
   },
   {
     id: `2026-11-12-large-chats-desktop`,
