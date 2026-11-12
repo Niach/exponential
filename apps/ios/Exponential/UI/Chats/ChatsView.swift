@@ -129,17 +129,11 @@ struct ChatsView: View {
     // MARK: - List
 
     private var list: Chats.ChatList {
-        Chats.chatList(
-            groups: lists.teamGroups(teamState.activeTeamId),
-            messages: lists.chatMessages,
-            reads: lists.reads,
-            prStates: lists.prStates,
-            words: lists.words,
+        lists.chatList(
+            teamId: teamState.activeTeamId,
             view: view,
             now: Self.iso.string(from: now),
-            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60,
-            // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
-            visible: Set(lists.sessions.map(\.id))
+            utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
         )
     }
 

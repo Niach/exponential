@@ -107,6 +107,14 @@ struct ChatRows: Sendable {
     /// #EXP-1611: the Guide PR's CI rows (`pull_request_checks`, synced):
     /// the header `…`'s Checks submenu and the failing Merge confirm.
     var guideChecks: [PrChecks.Check] = []
+    /// results-tab.json: the tree's session-authored card rows
+    /// (`SessionQueries.resultCardMessages`), however old: the Results tab
+    /// and its count fold THESE, never the loaded window (#EXP-1380).
+    var resultCards: [SessionMessage] = []
+    /// The fold's message inputs off `resultCards` (sealed cards opened) and
+    /// each one's opened card (its surface), built ONCE in `indexed()`.
+    var resultInputs: [ResultsTab.MessageInput] = []
+    var resultCardsById: [String: TreeMessageCard] = [:]
 
     /// A conversation WITH someone: an agent's (its header names the agent,
     /// its `…` is the agent menu), or (VAPP-110) an app's editor session.
@@ -169,6 +177,20 @@ struct ChatRows: Sendable {
         copy.usersById = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         copy.messageCreatedAt = Dictionary(messages.map { ($0.id, $0.createdAt) }, uniquingKeysWith: { first, _ in first })
         copy.sessionTitles = copy.computeSessionTitles()
+        var inputs: [ResultsTab.MessageInput] = []
+        var cards: [String: TreeMessageCard] = [:]
+        for row in resultCards {
+            guard row.authorSessionId == row.sessionId,
+                  let card = TreeMessage(messageRow: row).card, card.kind == "surface",
+                  let createdAt = SessionTree.ms(row.createdAt)
+            else { continue }
+            cards[row.id] = card
+            inputs.append(ResultsTab.MessageInput(
+                id: row.id, sessionId: row.sessionId, authorSessionId: row.authorSessionId, createdAt: createdAt, card: card
+            ))
+        }
+        copy.resultInputs = inputs
+        copy.resultCardsById = cards
         return copy
     }
 
@@ -573,6 +595,7 @@ struct ChatRows: Sendable {
             ),
             namedCards: namedCards,
             guideChecks: guideChecks,
+            resultCards: try SessionQueries.resultCardMessages(db: db, rootId: root.id),
             messagesMore: page.more,
             messageLimit: messageLimit,
             stackIssueIds: stackIssueIds,

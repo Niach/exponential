@@ -44,50 +44,133 @@ object SealedContent {
     fun isSealedCard(card: JsonObject?): Boolean = card?.containsKey(CARD_SEALED) == true
 
     /** [body] opened with [rootId]'s keys, or itself (plaintext, or not openable here). */
-    fun openBody(rootId: String, body: String, keys: TreeKeys = SealedKeys.keys.value): String = bodyResult(rootId, body, keys).first
+    fun openBody(rootId: String, body: String, keys: TreeKeys = SealedKeys.keys.value): String = bodyResult(rootId, body, keys).text
 
     /** A card's JSON opened (the sealed card with the clear fields over it), or itself. */
     fun openCardJson(rootId: String, cardJson: String, keys: TreeKeys = SealedKeys.keys.value): String {
-        val (json, status) = cardResult(rootId, cardJson, keys)
-        return if (status == SealStatus.Opened) json else cardJson
+        val result = cardResult(rootId, cardJson, keys)
+        return if (result.status == SealStatus.Opened) result.json else cardJson
     }
 
+    /** One body's opening: the text (or the body itself when it does not
+     *  open), the status and the epoch it was sealed with. */
+    private class BodyResult(val text: String, val status: SealStatus, val epoch: Int?)
+
+    /** One card's opening: [json] = the full card (plain / opened) or its
+     *  clear part, the status and the epoch. */
+    private class CardResult(val json: String, val status: SealStatus, val epoch: Int?)
+
     /** The text (or the body itself when it does not open) and the open status. */
-    private fun bodyResult(rootId: String, body: String, keys: TreeKeys): Pair<String, SealStatus> {
-        if (!isSealedBody(body)) return body to SealStatus.Plain
+    private fun bodyResult(rootId: String, body: String, keys: TreeKeys): BodyResult {
+        if (!isSealedBody(body)) return BodyResult(body, SealStatus.Plain, null)
         val cacheKey = "b|$rootId|$body"
         // Only while the tree's keys are held (a signed-out account's are dropped).
-        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it to SealStatus.Opened }
+        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return BodyResult(it, SealStatus.Opened, null) }
         val opened = try {
             crypto.openBody(body, keys[rootId].orEmpty())
         } catch (err: Throwable) {
             Log.w(TAG, "open body failed: ${err.javaClass.simpleName}")
-            return body to SealStatus.Malformed
+            return BodyResult(body, SealStatus.Malformed, null)
         }
         return when (opened.status) {
-            SealStatus.Opened, SealStatus.Plain -> (opened.text ?: body).also { synchronized(cache) { cache[cacheKey] = it } } to SealStatus.Opened
-            SealStatus.NoKey -> body.also { askFor(rootId, opened.epoch) } to SealStatus.NoKey
-            else -> body to opened.status
+            SealStatus.Opened, SealStatus.Plain ->
+                BodyResult((opened.text ?: body).also { synchronized(cache) { cache[cacheKey] = it } }, SealStatus.Opened, opened.epoch)
+            SealStatus.NoKey -> BodyResult(body.also { askFor(rootId, opened.epoch) }, SealStatus.NoKey, opened.epoch)
+            else -> BodyResult(body, opened.status, opened.epoch)
         }
     }
 
     /** The opened card JSON, or its clear part when it does not open, and the open status. */
-    private fun cardResult(rootId: String, cardJson: String, keys: TreeKeys): Pair<String, SealStatus> {
-        if (!cardJson.contains("\"$CARD_SEALED\"")) return cardJson to SealStatus.Plain
+    private fun cardResult(rootId: String, cardJson: String, keys: TreeKeys): CardResult {
+        if (!cardJson.contains("\"$CARD_SEALED\"")) return CardResult(cardJson, SealStatus.Plain, null)
         val cacheKey = "c|$rootId|$cardJson"
-        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return it to SealStatus.Opened }
+        if (keys[rootId].isNullOrEmpty().not()) synchronized(cache) { cache[cacheKey] }?.let { return CardResult(it, SealStatus.Opened, null) }
         val opened = try {
             crypto.openCard(cardJson, keys[rootId].orEmpty())
         } catch (err: Throwable) {
             Log.w(TAG, "open card failed: ${err.javaClass.simpleName}")
-            return clearPart(cardJson) to SealStatus.Malformed
+            return CardResult(clearPart(cardJson), SealStatus.Malformed, null)
         }
         return when (opened.status) {
-            SealStatus.Opened -> opened.cardJson.also { synchronized(cache) { cache[cacheKey] = it } } to SealStatus.Opened
-            SealStatus.Plain -> cardJson to SealStatus.Plain
-            SealStatus.NoKey -> opened.cardJson.also { askFor(rootId, opened.epoch) } to SealStatus.NoKey
-            else -> opened.cardJson to opened.status
+            SealStatus.Opened -> CardResult(opened.cardJson.also { synchronized(cache) { cache[cacheKey] = it } }, SealStatus.Opened, opened.epoch)
+            SealStatus.Plain -> CardResult(cardJson, SealStatus.Plain, opened.epoch)
+            SealStatus.NoKey -> CardResult(opened.cardJson.also { askFor(rootId, opened.epoch) }, SealStatus.NoKey, opened.epoch)
+            else -> CardResult(opened.cardJson, opened.status, opened.epoch)
         }
+    }
+
+    /**
+     * Large chats: ONE opening per message row, whatever its outcome — a
+     * `noKey` / unreadable row too, which the content cache above never holds
+     * (it keeps only opened text), so every re-emitted query re-ran the native
+     * open for each locked row, twice (the DAO, then [SessionTree.message]).
+     * Keyed by the message id and valid while the row's body and card are the
+     * same (length + hash) and the root's keys are the same map: [SealedKeys]
+     * replaces a root's key map when keys for it arrive (`merge`) or go
+     * (`drop`), which invalidates exactly that tree's rows.
+     */
+    private class RowOpening(
+        val rootId: String,
+        val bodyLength: Int,
+        val bodyHash: Int,
+        val cardLength: Int,
+        val cardHash: Int,
+        val rootKeys: Map<Int, ByteArray>?,
+        /** Null = the row's own body (plain / not openable here). */
+        val bodyText: String?,
+        val bodyStatus: SealStatus,
+        val bodyEpoch: Int?,
+        /** Null = the row's own card. */
+        val cardJson: String?,
+        val cardStatus: SealStatus?,
+        val cardEpoch: Int?,
+    )
+
+    private const val ROWS_MAX = 32_768
+    private val rows = object : LinkedHashMap<String, RowOpening>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RowOpening>?) = size > ROWS_MAX
+    }
+
+    private fun openRow(id: String, rootId: String, body: String, card: String?, keys: TreeKeys): Pair<BodyResult, CardResult?> {
+        val sealedCard = card != null && card.contains("\"$CARD_SEALED\"")
+        // Nothing sealed: no lookup, no entry (an opened row read again).
+        if (!isSealedBody(body) && !sealedCard) {
+            return BodyResult(body, SealStatus.Plain, null) to card?.let { CardResult(it, SealStatus.Plain, null) }
+        }
+        val rootKeys = keys[rootId]
+        val bodyHash = body.hashCode()
+        val cardHash = card?.hashCode() ?: 0
+        val cardLength = card?.length ?: -1
+        val hit = synchronized(rows) { rows[id] }?.takeIf {
+            it.rootId == rootId && it.bodyLength == body.length && it.bodyHash == bodyHash &&
+                it.cardLength == cardLength && it.cardHash == cardHash && it.rootKeys === rootKeys
+        }
+        if (hit != null) {
+            val bodyResult = BodyResult(hit.bodyText ?: body, hit.bodyStatus, hit.bodyEpoch)
+            val cardResult = card?.let { CardResult(hit.cardJson ?: it, hit.cardStatus ?: SealStatus.Plain, hit.cardEpoch) }
+            // The holder is still asked (throttled) while a row stays keyless.
+            if (bodyResult.status == SealStatus.NoKey) askFor(rootId, bodyResult.epoch)
+            if (cardResult?.status == SealStatus.NoKey) askFor(rootId, cardResult.epoch)
+            return bodyResult to cardResult
+        }
+        val bodyResult = bodyResult(rootId, body, keys)
+        val cardResult = card?.let { cardResult(rootId, it, keys) }
+        val entry = RowOpening(
+            rootId = rootId,
+            bodyLength = body.length,
+            bodyHash = bodyHash,
+            cardLength = cardLength,
+            cardHash = cardHash,
+            rootKeys = rootKeys,
+            bodyText = bodyResult.text.takeIf { it !== body },
+            bodyStatus = bodyResult.status,
+            bodyEpoch = bodyResult.epoch,
+            cardJson = cardResult?.json?.takeIf { it !== card },
+            cardStatus = cardResult?.status,
+            cardEpoch = cardResult?.epoch,
+        )
+        synchronized(rows) { rows[id] = entry }
+        return bodyResult to cardResult
     }
 
     private fun clearPart(cardJson: String): String =
@@ -106,16 +189,24 @@ object SealedContent {
     /** A message opened (the TS reference `openMessage`): when the body or card stays sealed it is [OpenedMessage.locked], with an empty body and the card's clear part. */
     data class OpenedMessage(val body: String, val cardJson: String?, val locked: String?)
 
-    fun openMessage(rootId: String, body: String, cardJson: String?, keys: TreeKeys = SealedKeys.keys.value): OpenedMessage {
-        val (text, bodyStatus) = bodyResult(rootId, body, keys)
-        val card = cardJson?.let { cardResult(rootId, it, keys) }
-        val reasons = listOfNotNull(lockedReason(bodyStatus), card?.let { lockedReason(it.second) })
+    fun openMessage(rootId: String, body: String, cardJson: String?, keys: TreeKeys = SealedKeys.keys.value): OpenedMessage =
+        openedMessage(bodyResult(rootId, body, keys), cardJson?.let { cardResult(rootId, it, keys) })
+
+    /** [openMessage] of a synced (or DAO-opened) row: its outcome is cached
+     *  per message id ([openRow]), a locked row's too. */
+    fun openMessage(row: MessageEntity, keys: TreeKeys = SealedKeys.keys.value): OpenedMessage {
+        val (body, card) = openRow(row.id, row.rootId, row.body, row.card, keys)
+        return openedMessage(body, card)
+    }
+
+    private fun openedMessage(body: BodyResult, card: CardResult?): OpenedMessage {
+        val reasons = listOfNotNull(lockedReason(body.status), card?.let { lockedReason(it.status) })
         val locked = when {
             LOCKED_NO_KEY in reasons -> LOCKED_NO_KEY
             LOCKED_UNREADABLE in reasons -> LOCKED_UNREADABLE
             else -> null
         }
-        return OpenedMessage(body = if (locked != null) "" else text, cardJson = card?.first, locked = locked)
+        return OpenedMessage(body = if (locked != null) "" else body.text, cardJson = card?.json, locked = locked)
     }
 
     fun openCard(rootId: String, card: JsonObject, keys: TreeKeys = SealedKeys.keys.value): JsonObject {
@@ -125,8 +216,10 @@ object SealedContent {
     }
 
     fun message(row: MessageEntity, keys: TreeKeys = SealedKeys.keys.value): MessageEntity {
-        val body = openBody(row.rootId, row.body, keys)
-        val card = row.card?.let { openCardJson(row.rootId, it, keys) }
+        val (opened, openedCard) = openRow(row.id, row.rootId, row.body, row.card, keys)
+        val body = opened.text
+        // [openCardJson]: only an OPENED card replaces the synced one.
+        val card = if (openedCard != null && openedCard.status == SealStatus.Opened) openedCard.json else row.card
         return if (body === row.body && card === row.card) row else row.copy(body = body, card = card)
     }
 
@@ -135,9 +228,90 @@ object SealedContent {
      *  root's keys (#EXP-1730: the digest lives on the session). */
     fun session(row: SessionEntity, keys: TreeKeys = SealedKeys.keys.value): SessionEntity {
         val rootId = row.rootId.ifEmpty { row.id }
+        val sealedTitle = row.sealedTitle
+        val digest = row.digest
+        // Nothing to open natively (no sealed title, no sealed digest slot):
+        // the plain path, no lookup.
+        val sealed = (sealedTitle != null && isSealedBody(sealedTitle)) ||
+            (digest != null && (digest.contains(BODY_PREFIX) || digest.contains("\"$CARD_SEALED\"")))
+        if (!sealed) return openSession(row, rootId, keys)
+        // Large chats: ONE opening per session row whatever its outcome (a
+        // keyless title / digest too), valid while its sealed title and digest
+        // are the same and the root's keys are the same map ([RowOpening]).
+        val rootKeys = keys[rootId]
+        val titleHash = sealedTitle?.hashCode() ?: 0
+        val titleLength = sealedTitle?.length ?: -1
+        val digestHash = digest?.hashCode() ?: 0
+        val digestLength = digest?.length ?: -1
+        val hit = synchronized(sessionRows) { sessionRows[row.id] }?.takeIf {
+            it.rootId == rootId && it.titleLength == titleLength && it.titleHash == titleHash &&
+                it.digestLength == digestLength && it.digestHash == digestHash && it.rootKeys === rootKeys
+        }
+        if (hit != null) {
+            // The holder is still asked (throttled) while a part stays keyless.
+            for (epoch in hit.asks) askFor(rootId, epoch)
+            var out = row
+            if (hit.titleChanged) out = out.copy(title = hit.title)
+            if (hit.digestChanged) out = out.copy(digest = hit.digest)
+            return out
+        }
+        val asks = mutableListOf<Int?>()
+        val opened = recordingAsks(asks) { openSession(row, rootId, keys) }
+        val entry = SessionOpening(
+            rootId = rootId,
+            titleLength = titleLength,
+            titleHash = titleHash,
+            digestLength = digestLength,
+            digestHash = digestHash,
+            rootKeys = rootKeys,
+            titleChanged = opened.title !== row.title,
+            title = opened.title.takeIf { it !== row.title },
+            digestChanged = opened.digest !== row.digest,
+            digest = opened.digest.takeIf { it !== row.digest },
+            asks = asks.distinct(),
+        )
+        synchronized(sessionRows) { sessionRows[row.id] = entry }
+        return opened
+    }
+
+    private fun openSession(row: SessionEntity, rootId: String, keys: TreeKeys): SessionEntity {
         val titled = sessionTitle(row, rootId, keys)
         val opened = digest(titled.digest, rootId, keys)
         return if (opened === titled.digest) titled else titled.copy(digest = opened)
+    }
+
+    /** One session row's opening ([session]): what changed + the keyless epochs it asked for. */
+    private class SessionOpening(
+        val rootId: String,
+        val titleLength: Int,
+        val titleHash: Int,
+        val digestLength: Int,
+        val digestHash: Int,
+        val rootKeys: Map<Int, ByteArray>?,
+        val titleChanged: Boolean,
+        val title: String?,
+        val digestChanged: Boolean,
+        val digest: String?,
+        val asks: List<Int?>,
+    )
+
+    private const val SESSIONS_MAX = 8_192
+    private val sessionRows = object : LinkedHashMap<String, SessionOpening>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SessionOpening>?) = size > SESSIONS_MAX
+    }
+
+    // The keyless epochs an opening meets ([askFor]), recorded so a cached
+    // hit asks the holder again exactly as the opening did.
+    private val askLog = ThreadLocal<MutableList<Int?>?>()
+
+    private inline fun <T> recordingAsks(into: MutableList<Int?>, block: () -> T): T {
+        val previous = askLog.get()
+        askLog.set(into)
+        try {
+            return block()
+        } finally {
+            askLog.set(previous)
+        }
     }
 
     private fun sessionTitle(row: SessionEntity, rootId: String, keys: TreeKeys): SessionEntity {
@@ -201,6 +375,7 @@ object SealedContent {
     private val DIGEST_SLOTS = listOf("first", "preview", "waiting")
 
     private fun askFor(rootId: String, epoch: Int?) {
+        askLog.get()?.add(epoch)
         val key = "$rootId|$epoch"
         val now = System.currentTimeMillis()
         val ask = synchronized(asked) {
@@ -213,6 +388,8 @@ object SealedContent {
     /** Test hook: forget opened results (keys changed under a test). */
     internal fun clearCache() {
         synchronized(cache) { cache.clear() }
+        synchronized(rows) { rows.clear() }
+        synchronized(sessionRows) { sessionRows.clear() }
         synchronized(asked) { asked.clear() }
     }
 }

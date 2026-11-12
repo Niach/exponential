@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,9 +92,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatResultsPage(
     rootId: String,
-    /** The tree's rows and messages: every result of the root's tree. */
-    sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    /** THE fold ([ChatViewModel.results]: every result of the root's tree,
+     *  never only the chat's loaded window), built off the main thread. */
+    results: List<ResultsTab.Result>,
+    /** The tree's session-authored card rows ([ChatViewModel.resultCards]):
+     *  a result's inline surface. */
+    cards: List<SessionTree.Message>,
     /** An inline surface's reply press (session id, text). */
     onReply: (String, String) -> Unit,
     pullRequests: List<PullRequestEntity>,
@@ -115,19 +121,7 @@ fun ChatResultsPage(
         files?.let { list -> GuideChangeSet(list, list.sumOf { it.additions }, list.sumOf { it.deletions }) }
     }
     var review by rememberSaveable { mutableStateOf(false) }
-    // The ages follow the clock.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(60_000)
-            now = System.currentTimeMillis()
-        }
-    }
-    val inputs = remember(sessions, messages) { resultsTabInputs(sessions, messages) }
-    val results = remember(inputs, rootId, now) {
-        ResultsTab.resultsTab(now, rootId, inputs.first, inputs.second)
-    }
-    val messagesById = remember(messages) { messages.associateBy { it.id } }
+    val cardsById = remember(cards) { cards.associateBy { it.id } }
     var opened by remember { mutableStateOf<PictureViewerSet?>(null) }
 
     if (review && files != null) {
@@ -135,15 +129,20 @@ fun ChatResultsPage(
         return
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .detailHazeSource()
-            .verticalScroll(rememberScrollState())
-            .padding(padding)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
+    // ONE lazy list (large chats: a hundred results never compose in one
+    // frame): the page's insets + the 16/16/16/32 margins as content padding,
+    // the PR block and the results as items with THE [ResultsTabContent] gaps.
+    val direction = LocalLayoutDirection.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().detailHazeSource(),
+        contentPadding = PaddingValues(
+            start = padding.calculateStartPadding(direction) + 16.dp,
+            top = padding.calculateTopPadding() + 16.dp,
+            end = padding.calculateEndPadding(direction) + 16.dp,
+            bottom = padding.calculateBottomPadding() + 32.dp,
+        ),
     ) {
-        ResultsTabContent(
+        resultsTabItems(
             results = results,
             onOpenPicture = { result, index -> opened = resultPictureSet(result, index) },
             lead = if (pr != null) {
@@ -161,7 +160,7 @@ fun ChatResultsPage(
                 null
             },
             surface = { result ->
-                messagesById[result.id]?.let(SessionTree::surfaceRow)?.let { row ->
+                cardsById[result.id]?.let(SessionTree::surfaceRow)?.let { row ->
                     SurfaceCard(
                         row = row,
                         animate = false,
@@ -175,13 +174,13 @@ fun ChatResultsPage(
     opened?.let { set -> PictureViewer(items = set.items, start = set.start, onClose = { opened = null }) }
 }
 
-/** The fold's input off the tree's synced rows. */
+/** The fold's input off the tree's synced rows and its card rows. */
 internal fun resultsTabInputs(
     sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    cards: List<SessionTree.Message>,
 ): Pair<List<ResultsTab.SessionInput>, List<ResultsTab.MessageInput>> = Pair(
     sessions.map { ResultsTab.SessionInput(it.id, it.rootId, it.title.orEmpty()) },
-    messages.mapNotNull { message ->
+    cards.mapNotNull { message ->
         val created = WireTimestamps.parseEpochMs(message.createdAt) ?: return@mapNotNull null
         ResultsTab.MessageInput(message.id, message.sessionId, message.authorSessionId, created, message.card)
     },
@@ -375,12 +374,12 @@ private fun ResultsReview(files: List<Diff.File>, padding: PaddingValues, onBack
 }
 
 /** #EXP-1732 (session-screen.json `count`): the Results tab's count = the
- *  fold's results of the root's tree. */
+ *  fold's results of the root's tree, off its card rows (never the window). */
 internal fun chatResultsCount(
     rootId: String,
     sessions: List<SessionEntity>,
-    messages: List<SessionTree.Message>,
+    cards: List<SessionTree.Message>,
 ): Int {
-    val inputs = resultsTabInputs(sessions, messages)
+    val inputs = resultsTabInputs(sessions, cards)
     return ResultsTab.resultsTab(System.currentTimeMillis(), rootId, inputs.first, inputs.second).size
 }

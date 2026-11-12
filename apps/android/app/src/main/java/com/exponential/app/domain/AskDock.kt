@@ -175,12 +175,8 @@ object AskDock {
                 else -> null
             }
         }
-        .sortedWith(
-            compareBy<Pair<SessionTree.Message, SessionCard>>(
-                { WireTimestamps.parseEpochMs(it.first.createdAt) ?: 0L },
-                { it.first.id },
-            ),
-        )
+        // The time parsed once per card ([sortedByEpoch]), ties by id.
+        .sortedByEpoch(tie = compareBy { it.first.id }) { WireTimestamps.parseEpochMs(it.first.createdAt) ?: 0L }
         .map { it.second }
 
     /** A settled feed call as the anchoring reads it. */

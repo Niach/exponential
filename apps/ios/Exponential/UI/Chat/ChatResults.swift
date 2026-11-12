@@ -9,7 +9,8 @@ import UIKit
 // ONE pull request (`guidePullRequest`): the Stack band + THE StackRail when it
 // sits in a linear open stack, then ONE Changes row opening THE review page
 // (the complete diff, back row `‹ Results`). Then the results INLINE
-// (`ResultsTab.results`, off the chat's own messages: no sync of its own). A
+// (`ResultsTab.results`, off the tree's card rows `ChatRows.resultCards`,
+// never the loaded window: no sync of its own). A
 // press on a picture opens THE lightbox over that result's pictures at its index.
 
 /// One picture's bytes in a thumbnail's frame, cropped from the top.
@@ -100,8 +101,8 @@ struct ChatResultsPage: View {
     @State private var fileSheet = false
     @State private var mergeThrough: PullRequestStack.Confirm?
 
-    /// THE fold over the chat's own messages, and each result's raw card
-    /// (its surface). Only a session's own cards are read.
+    /// THE fold over the tree's card rows (`ChatRows.resultInputs`, opened
+    /// off main in `load`), and each result's card (its surface).
     private var fold: (results: [ResultsTab.Result], cards: [String: TreeMessageCard]) {
         Self.foldResults(rootId: rootId, rows: rows, now: now)
     }
@@ -114,24 +115,13 @@ struct ChatResultsPage: View {
     private static func foldResults(
         rootId: String, rows: ChatRows, now: Date
     ) -> (results: [ResultsTab.Result], cards: [String: TreeMessageCard]) {
-        var cards: [String: TreeMessageCard] = [:]
-        let messages = rows.messages.compactMap { row -> ResultsTab.MessageInput? in
-            guard row.card != nil, row.authorSessionId == row.sessionId,
-                  let card = TreeMessage(messageRow: row).card, card.kind == "surface",
-                  let createdAt = SessionTree.ms(row.createdAt)
-            else { return nil }
-            cards[row.id] = card
-            return ResultsTab.MessageInput(
-                id: row.id, sessionId: row.sessionId, authorSessionId: row.authorSessionId, createdAt: createdAt, card: card
-            )
-        }
         let results = ResultsTab.results(
             now: now.timeIntervalSince1970 * 1000,
             rootId: rootId,
             sessions: rows.sessions.map { ResultsTab.SessionInput(id: $0.id, rootId: $0.rootId, name: $0.title ?? "") },
-            messages: messages
+            messages: rows.resultInputs
         )
-        return (results, cards)
+        return (results, rows.resultCardsById)
     }
 
     var body: some View {
