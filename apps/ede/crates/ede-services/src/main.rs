@@ -20,12 +20,16 @@ fn usage() -> ExitCode {
 }
 
 fn main() -> ExitCode {
+    // #ERR-12: the crash monitor (this binary) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
     let args: Vec<String> = std::env::args().skip(1).collect();
     // #LOGS-2: the daemon reports to Sentry when diagnostics are on (the
     // binary only: ede-shell links this crate as a library and never inits
     // a client). The one-shot commands log to stderr and report nothing.
     let _observability = if args.first().map(String::as_str) == Some("serve") {
-        Some(ede_observability::init("services", "info", ede_observability::Output::Stderr))
+        let guard = ede_observability::init("services", "info", ede_observability::Output::Stderr);
+        ede_observability::watch_native_crashes("services");
+        Some(guard)
     } else {
         tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
         None

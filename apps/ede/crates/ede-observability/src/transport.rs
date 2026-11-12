@@ -57,7 +57,8 @@ impl sentry::Transport for Tunnel {
         if envelope.to_writer(&mut body).is_err() {
             return;
         }
-        let body = with_dsn_header(body, &self.dsn);
+        // #ERR-12: debug images in the shape GlitchTip symbolicates.
+        let body = with_dsn_header(crash_monitor::native_debug_images(body), &self.dsn);
         let guard = self.tx.lock().unwrap_or_else(|e| e.into_inner());
         let Some(tx) = guard.as_ref() else { return };
         let (count, _) = &*self.pending;
