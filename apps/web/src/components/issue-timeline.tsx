@@ -23,6 +23,7 @@ import {
   boardCollection,
 } from "@/lib/collections"
 import { CommentComposer } from "@/components/comment-composer"
+import { useComposerDraftKeys } from "@/hooks/use-composer-draft"
 import {
   issueMemoryOwner,
   readTabMemory,
@@ -183,6 +184,7 @@ export function IssueTimeline({
     [boards]
   )
 
+  const commentTeamId = boardMap.get(issue.boardId)?.teamId
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   // EXP-741: the top-level card whose inline reply composer is open (one at
   // a time, like the edit form).
@@ -200,6 +202,14 @@ export function IssueTimeline({
   // EXP-741: replies ride inside their parent's card, so only top-level
   // comments are timeline entries; the header count still counts every row.
   const nested = useMemo(() => nestComments(list), [list])
+  // #FEED-219 (composer-draft.json): with no reply open, the thread holding
+  // a reply DRAFT opens its reply composer (a reload, another device).
+  const draftKeys = useComposerDraftKeys()
+  const draftReplyId =
+    replyingToId === null
+      ? (list.find((comment) => draftKeys.has(`reply:${comment.id}`))?.id ?? null)
+      : null
+  const openReplyId = replyingToId ?? draftReplyId
 
   // EXP-468: the fold is the default view; "Show all" is per issue and, like
   // the reply state, survives a work-tab switch.
@@ -443,7 +453,7 @@ export function IssueTimeline({
             replies={(nested.repliesByParent.get(comment.id) ?? []).map(
               cardProps
             )}
-            replying={replyingToId === comment.id}
+            replying={openReplyId === comment.id}
             onReply={() => setReplyingToId(comment.id)}
             onCancelReply={() => setReplyingToId(null)}
             onSubmitReply={(text, attachmentIds) =>
@@ -460,7 +470,12 @@ export function IssueTimeline({
             issueId={issue.id}
             users={users}
             onSubmit={handleSubmit}
-            draft={{ owner: memoryOwner, slot: `comment` }}
+            draft={
+              // The issues shape carries no `team_id`: the board names it.
+              commentTeamId
+                ? { target: { kind: `comment`, id: issue.id }, teamId: commentTeamId }
+                : undefined
+            }
             reporter={
               submission?.reporterEmail
                 ? { name: reporterDisplayName(submission.reporterName) }

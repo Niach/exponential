@@ -43,7 +43,8 @@ import { TRPCClientError } from "@trpc/client"
 import { failedAction } from "@/lib/action-error"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
-import { readTabMemory, writeTabMemory } from "@/lib/work-tab-memory"
+import { useComposerDraft } from "@/hooks/use-composer-draft"
+import type { ComposerDraftTarget } from "@exp/domain-contract/composer-draft"
 import {
   REPORTER_REPLY_COPY,
   reporterReplyPlaceholder,
@@ -95,11 +96,12 @@ interface CommentComposerProps {
    */
   onEmptyBlur?: () => void
   /**
-   * EXP-894: where the typed TEXT is remembered across an unmount (a work tab
-   * switch) — `lib/work-tab-memory.ts`. Seeds the field on mount, cleared on
-   * a successful send and on Cancel. Absent (edit mode) = nothing kept.
+   * #FEED-219 (composer-draft.json): the synced DRAFT the typed text lives in
+   * (`comment:<issueId>`, `reply:<commentId>`), kept across a tab switch, a
+   * reload and the person's devices; cleared by a send, deleted by Cancel.
+   * Absent (edit mode) = nothing kept.
    */
-  draft?: { owner: string; slot: string }
+  draft?: { target: ComposerDraftTarget; teamId: string }
   /**
    * SLOP-4 (fixture `reporter-reply.json`): the widget submission's reporter,
    * when the issue has one WITH an email — offers the "Reply to reporter"
@@ -133,17 +135,19 @@ export function CommentComposer({
   const [toReporter, setToReporter] = useState(false)
   const audience: CommentAudience =
     reporter && toReporter ? `reporter` : `team`
-  const [text, setTextState] = useState(
-    () =>
-      (draft ? readTabMemory<string>(draft.owner, draft.slot) : undefined) ??
-      initialText
-  )
-  // EXP-1543: the live field, read when a send settles.
-  const textRef = useRef(text)
-  const setText = (next: string) => {
-    textRef.current = next
-    setTextState(next)
-    if (draft) writeTabMemory(draft.owner, draft.slot, next)
+  // EXP-1543: `textRef` = the live field, read when a send settles.
+  const field = useComposerDraft(draft?.target ?? null, draft?.teamId)
+  const [plainText, setPlainText] = useState(initialText)
+  const plainRef = useRef(plainText)
+  const text = draft ? field.text : plainText
+  const textRef = draft ? field.textRef : plainRef
+  const setText = (next: string, options?: { now?: boolean }) => {
+    if (draft) {
+      field.setText(next, options)
+      return
+    }
+    plainRef.current = next
+    setPlainText(next)
   }
   const [pending, setPending] = useState<PendingCommentAttachment[]>(() =>
     (initialAttachments ?? []).map((row) => ({ key: row.id, existing: row }))
@@ -286,7 +290,7 @@ export function CommentComposer({
           attachments: pendingRef.current.map((item) => item.key),
         },
       })
-      setText(after.text)
+      setText(after.text, { now: true })
       // SLOP-4: every send drops back to a team comment, so an internal
       // follow-up never mails the reporter (iOS and Android do the same).
       setToReporter(false)
@@ -473,7 +477,7 @@ export function CommentComposer({
               mode="action"
               size="sm"
               onClick={() => {
-                setText(``)
+                setText(``, { now: true })
                 onCancel()
               }}
               disabled={submitting}
@@ -515,7 +519,7 @@ export function CommentComposer({
             : placeholder
         }
         value={text}
-        onValueChange={setText}
+        onValueChange={(next) => setText(next)}
         users={users}
         // The card IS the field chrome — the textarea drops its own fill,
         // hairline and focus stroke (`resize-none` is stock since EXP-698).

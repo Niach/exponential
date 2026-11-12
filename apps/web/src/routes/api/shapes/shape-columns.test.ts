@@ -10,6 +10,7 @@ import {
   conversations,
   events,
   issueDrafts,
+  composerDrafts,
   issues,
   messages,
   pins,
@@ -25,6 +26,7 @@ import {
 
 import { ISSUE_COLUMNS } from "./issues"
 import { ISSUE_DRAFT_COLUMNS } from "./issue-drafts"
+import { COMPOSER_DRAFT_COLUMNS } from "./composer-drafts"
 import { SESSION_COLUMNS } from "./sessions"
 import { SESSION_ISSUE_COLUMNS } from "./session-issues"
 import { MESSAGE_COLUMNS } from "./messages"
@@ -51,6 +53,7 @@ import { APP_RECORD_COLUMNS } from "@/routes/api/shapes/app-records"
 const lists = {
   issues: [ISSUE_COLUMNS, issues],
   issue_drafts: [ISSUE_DRAFT_COLUMNS, issueDrafts],
+  composer_drafts: [COMPOSER_DRAFT_COLUMNS, composerDrafts],
   // EXP-1291
   sessions: [SESSION_COLUMNS, sessions],
   session_issues: [SESSION_ISSUE_COLUMNS, sessionIssues],
