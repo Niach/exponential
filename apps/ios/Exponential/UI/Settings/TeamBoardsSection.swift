@@ -257,11 +257,15 @@ private struct PutAwayRow<Pills: View>: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            // Web's put-away row: the caption and the pills keep their
+            // natural width (`shrink-0`); only the name truncates.
             Text(caption)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .lineLimit(1)
-            pills()
+                .fixedSize(horizontal: true, vertical: false)
+            HStack(spacing: 8) { pills() }
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

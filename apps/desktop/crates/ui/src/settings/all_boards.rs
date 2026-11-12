@@ -242,20 +242,24 @@ impl AllBoardsPane {
             })
             .collect();
         let pending = |id: &str| self.pending.as_deref() == Some(id);
+        // The board bands are owners' (the issue trash below is everyone's).
+        let owner = self.owner(team_id, cx);
         let archived: Vec<Value> = self
             .archived
             .iter()
+            .filter(|_| owner)
             .map(|board| json!({"key": board.id, "name": board.name, "icon": glyph_name(board.icon.as_deref(), "code"), "color": tint(board.color.as_deref()),
                 "caption": archived_on(board.archived_at.as_deref()), "action": if pending(&board.id) { "Unarchiving\u{2026}" } else { "Unarchive" }, "pending": pending(&board.id)}))
             .collect();
         let trash: Vec<Value> = self
             .trash
             .iter()
+            .filter(|_| owner)
             .map(|board| json!({"key": board.id, "name": board.name, "icon": glyph_name(board.icon.as_deref(), "code"), "color": tint(board.color.as_deref()),
                 "caption": purge_countdown(board.purge_at.as_deref(), chrono::Utc::now()), "action": "Restore", "pending": pending(&board.id)}))
             .collect();
         // #EXP-1797: the issue trash, every member; Delete forever for owners.
-        let role = if self.owner(team_id, cx) { domain::contract::TEAM_ROLE_OWNER } else { "member" };
+        let role = if owner { domain::contract::TEAM_ROLE_OWNER } else { "member" };
         let purgeable = issue_trash::trash_actions(role).contains(&TrashAction::Purge);
         let boards = Store::global(cx).collections().boards.clone();
         let boards = boards.read(cx);
@@ -299,9 +303,10 @@ impl AllBoardsPane {
             self.trash.clear();
             self.issues.clear();
         }
-        // The board reads are owners' (members only ever see the issue trash).
-        let owner = self.owner(team_id, cx);
-
+        // The board reads are owners' (the server refuses a member's, quietly);
+        // they are fetched for everyone and their bands gated on ownership at
+        // render, so a membership that syncs after the first fetch still
+        // shows them.
         self.loaded = true;
         self.loaded_team = Some(team_id.to_string());
         self.generation += 1;
@@ -312,14 +317,10 @@ impl AllBoardsPane {
             let (archived, trash, issues) = cx
                 .background_executor()
                 .spawn(async move {
-                    let boards = owner.then(|| {
-                        (api::boards::boards_list_archived(&trpc, &team_id), api::boards::boards_list_deleted(&trpc, &team_id))
-                    });
+                    let archived = api::boards::boards_list_archived(&trpc, &team_id);
+                    let trash = api::boards::boards_list_deleted(&trpc, &team_id);
                     let issues = api::issues::issues_list_deleted(&trpc, &team_id);
-                    match boards {
-                        Some((archived, trash)) => (Some(archived), Some(trash), issues),
-                        None => (None, None, issues),
-                    }
+                    (archived, trash, issues)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -329,14 +330,12 @@ impl AllBoardsPane {
                 // FEED-79 (web parity): a failed read is quiet, the band
                 // keeps the rows it last had.
                 match archived {
-                    Some(Ok(rows)) => this.archived = rows,
-                    Some(Err(error)) => log::warn!("[ui] boards.listArchived failed: {error}"),
-                    None => this.archived.clear(),
+                    Ok(rows) => this.archived = rows,
+                    Err(error) => log::debug!("[ui] boards.listArchived failed: {error}"),
                 }
                 match trash {
-                    Some(Ok(rows)) => this.trash = rows,
-                    Some(Err(error)) => log::warn!("[ui] boards.listDeleted failed: {error}"),
-                    None => this.trash.clear(),
+                    Ok(rows) => this.trash = rows,
+                    Err(error) => log::debug!("[ui] boards.listDeleted failed: {error}"),
                 }
                 match issues {
                     Ok(rows) => this.issues = rows,
