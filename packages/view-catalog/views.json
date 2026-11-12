@@ -1997,12 +1997,12 @@
       "id": "settings-mcp",
       "group": "settings",
       "title": "Settings · MCP",
-      "blurb": "#VAPP-185 (fixtures/settings-mcp.json): ONE MCP page. Endpoint (the apps endpoint <instance>/api/mcp/apps + Copy); Servers (one row per team server: name, Default pill, host · Used by <apps>, the viewer's one action and the … menu; owners add / edit / remove); Clients (the OAuth clients members authorized, Mine | Everyone for owners, Revoke); Access (one group per app exposing tools, the members' levels None / Read only / Full, owners pick them) + the Activity row (the mcp_calls log, its own page); Built-in Exponential tools last.",
+      "blurb": "#VAPP-185 (fixtures/settings-mcp.json): ONE MCP page. Owner 2026-11-12: the overview line; Servers = ONE group, the built-ins first (Exponential <instance>/api/mcp, Team apps <instance>/api/mcp/apps when an app exposes tools; Built-in pill, Copy, no menu), then the team servers (name, Default pill, host · Used by <apps>, the viewer's one action and the … menu; owners add / edit / remove); every row unfolds to its tools (Exponential by contract group behind the filter, Team apps by app, a team server flat via mcpServers.tools); Access (one group per app exposing tools, the members' levels) + the Activity row; Clients (Mine | Everyone for owners, Revoke) last.",
       "order": 20,
       "web": {
         "route": "/t/$teamSlug/settings/mcp",
         "anchor": {
-          "text": "Endpoint",
+          "text": "Built-in",
           "timeoutMs": 20000
         },
         "settleMs": 800

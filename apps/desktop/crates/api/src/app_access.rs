@@ -21,6 +21,8 @@
 //! - VAPP-185 (Settings › MCP › Access): `list {teamId}` (query) →
 //!   `{canEdit, apps:[{id, slug, name, icon, color, toolCount}], rows:
 //!   [{userId, name, email, image, role, levels:{[appId]: none|read|write}}]}`
+//!   (each app also carries `tools:[{name, title, blurb}]`, Settings › MCP's
+//!   open Team apps row)
 //!   (owners: every member, a member: their own row); `set {appId, userId,
 //!   level}` (mutation, owners) → `{ok: true}`.
 
@@ -333,6 +335,20 @@ pub struct AccessApp {
     pub color: Option<String>,
     #[serde(default)]
     pub tool_count: u32,
+    /// Settings › MCP: the open Team apps row lists them (package order).
+    #[serde(default)]
+    pub tools: Vec<AccessAppTool>,
+}
+
+/// One tool an app exposes (`appAccess.list` apps' `tools`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessAppTool {
+    pub name: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub blurb: String,
 }
 
 /// VAPP-185: one member's levels, keyed by app id (`none` | `read` |

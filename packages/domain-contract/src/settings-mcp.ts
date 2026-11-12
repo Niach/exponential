@@ -142,3 +142,33 @@ export function builtinToolBands(query: string): BuiltinToolBand[] {
     }))
     .filter((band) => band.tools.length > 0)
 }
+
+// Owner 2026-11-12: ONE Servers group, every row expandable to its tools.
+
+export type McpBuiltinId = keyof typeof fixture.builtins
+export type McpToolsState = `list` | `connect` | `stdio`
+
+/** The Servers group's order: built-ins first (Exponential, then Team apps
+ *  when an app exposes tools), then the team's servers in list order. A
+ *  built-in is `builtin:<id>`, a team server its own key. */
+export function mcpServerOrder<T>(appTools: boolean, servers: readonly T[]): (`builtin:${McpBuiltinId}` | T)[] {
+  return [`builtin:exponential` as const, ...(appTools ? [`builtin:apps` as const] : []), ...servers]
+}
+
+/** What an open team server row shows under it, from the viewer's own
+ *  connection: `list` (tRPC `mcpServers.tools`), `connect` (sign in first)
+ *  or `stdio` (a local command lists its tools where a session runs it). */
+export function mcpToolsState(server: { transport: string; status: string }): McpToolsState {
+  if (server.transport !== `http`) return `stdio`
+  return server.status === `connected` || server.status === `not_needed` ? `list` : `connect`
+}
+
+/** A built-in's URL: the instance origin + its path. */
+export function builtinEndpoint(instance: string, id: McpBuiltinId): string {
+  return `${instance.replace(/\/+$/, ``)}${fixture.builtins[id].path}`
+}
+
+/** "Could not list its tools: <reason>". */
+export function toolsFailedLine(reason: string): string {
+  return fixture.toolsFailed.replace(`{reason}`, reason)
+}
