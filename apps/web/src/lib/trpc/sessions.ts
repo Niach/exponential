@@ -52,6 +52,7 @@ import {
   stampAnsweredCard,
 } from "@/lib/sessions/answer"
 import { BUS_COPY, busAsk, busLine, busListenerTrees, busRelayTurn } from "@/lib/sessions/bus"
+import { lockBusRows } from "@/lib/sessions/locks"
 import { isSealedBody, isSealedCard, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import {
   issueIdentifiers,
@@ -886,6 +887,9 @@ export const sessionsRouter = router({
       let endedHere = false
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
+        // #ERR-5: an ending or a new wall reaches the listeners (the bus);
+        // its subagents' sweep comes after: every row, ancestors first.
+        if (ending || newlyBlocked) await lockBusRows(tx, session)
         if (ending) {
           // The agent process went away = the session ended: like an
           // explicit End of this one row (once: only when THIS report flips
@@ -1079,6 +1083,10 @@ export const sessionsRouter = router({
       }
       const result = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
+        // #ERR-5: its own rows AND its listeners' (the bus copy below) are
+        // locked up front, ancestors first: a parent's End racing this
+        // reply took them in the opposite order and deadlocked.
+        await lockBusRows(tx, session)
         // S-3: an agent conversation keeps ONE text per person message: a
         // later turn's text edits it (its bus copies follow), never a new
         // bubble.

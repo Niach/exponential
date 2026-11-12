@@ -272,7 +272,7 @@ final class AppMarkdownHost: HostPlugin {
         return ProseLinks.chipBareAppLinks(text, origin: origin, team: team) { kind, id in
             switch kind {
             case .issue:
-                return IssueRefChipCache.chip(id.uppercased(), scope: .team(id: teamId), db: db, accountId: accountId)?.title
+                return IssueRefChipCache.peek(id.uppercased(), scope: .team(id: teamId), db: db, accountId: accountId)?.title
             case .board:
                 return cell(#"SELECT "name" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, id)
             case .session:
@@ -327,7 +327,7 @@ final class AppMarkdownHost: HostPlugin {
         }
         if let scope, let deps {
             for match in IssueRefs.matches(in: piece, bare: bareRefs) {
-                guard let chip = IssueRefChipCache.chip(match.identifier, scope: scope, db: deps.db, accountId: accountId) else { continue }
+                guard let chip = IssueRefChipCache.peek(match.identifier, scope: scope, db: deps.db, accountId: accountId) else { continue }
                 let title = IssueRefs.chipTitle(chip.title)
                 let label = title.isEmpty ? match.identifier : "\(match.identifier) \(title)"
                 hits.append(Hit(range: match.range, segment: TextLinkSegment(
@@ -361,7 +361,7 @@ final class AppMarkdownHost: HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? {
         if name.hasPrefix(Self.statusIcon) {
             guard let scope, let deps,
-                  let status = IssueRefChipCache.chip(String(name.dropFirst(Self.statusIcon.count)), scope: scope, db: deps.db, accountId: accountId)?.status
+                  let status = IssueRefChipCache.peek(String(name.dropFirst(Self.statusIcon.count)), scope: scope, db: deps.db, accountId: accountId)?.status
             else { return nil }
             return AnyView(AppIcon(status.iconName, size: size).foregroundStyle(status.color))
         }
