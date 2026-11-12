@@ -40,14 +40,7 @@ pub fn rail_item(index: usize, width: f32, tab_bar: f32) -> (f32, f32, f32, f32)
 /// The badge text of an option's `count` (`99+` above 99); `None` when
 /// unset, not a positive number, or 0 (hidden). Only `bar` items paint it.
 pub fn badge_text(count: Option<&Value>) -> Option<String> {
-    let n = count.and_then(Value::as_f64).filter(|n| n.is_finite())?.floor();
-    if n <= 0.0 {
-        None
-    } else if n > 99.0 {
-        Some("99+".into())
-    } else {
-        Some(format!("{n}"))
-    }
+    Some(crate::count_badge::label(count, None)).filter(|s| !s.is_empty())
 }
 
 /// The badge of an option on a Segmented of `variant` (only `bar` paints one).

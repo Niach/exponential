@@ -1024,6 +1024,7 @@ impl SurfaceView {
             ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
             ("Ring", _) => natives::ring(&lcx),
+            ("CountBadge", _) => natives::count_badge(&lcx),
             ("Skeleton", _) => natives::skeleton(&lcx),
             ("Chart", _) => crate::paint::chart::paint(&lcx, self.chart_hover(index), cx.listener(move |this, hovered: &Option<usize>, _, cx| this.chart_hovered(index, *hovered, cx))),
             ("TreeGuides", _) => natives::tree_guides(&lcx),

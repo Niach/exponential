@@ -404,6 +404,10 @@
       "field",
       "row",
       "code"
+    ],
+    "countBadgeTone": [
+      "attention",
+      "muted"
     ]
   },
   "defs": {
@@ -4070,6 +4074,36 @@
           0.5
         ],
         "size": "lg"
+      }
+    },
+    "CountBadge": {
+      "kind": "native",
+      "group": "feedback",
+      "lite": true,
+      "children": "none",
+      "description": "Count capsule on a nav entry or row; 0 or less shows nothing.",
+      "props": {
+        "count": {
+          "type": "number",
+          "required": true,
+          "bindable": true,
+          "description": "How many; above max reads `max+`."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "countBadgeTone",
+          "default": "muted",
+          "description": "attention = waiting on the viewer."
+        },
+        "max": {
+          "type": "number",
+          "default": 99,
+          "description": "Cap before `+`."
+        }
+      },
+      "example": {
+        "count": 3,
+        "tone": "attention"
       }
     },
     "CallSurface": {

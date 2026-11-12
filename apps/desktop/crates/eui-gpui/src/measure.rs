@@ -1357,6 +1357,13 @@ impl<'a> GpuiMeasure<'a> {
             }
             ("Spinner", _) => plain((20.0, 20.0)),
             ("Ring", _) => plain((32.0, 32.0)),
+            // #FEED-232: one line of the label (the core's `text`, tabular
+            // figures by its style); the recipe adds the padding, height and
+            // minimum width.
+            ("CountBadge", _) => {
+                let label = display_text(props.get("text"));
+                (self.line(&label, ts), ts.line_height, Some(self.line_baseline(ts)))
+            }
             ("Skeleton", _) => plain(self.skeleton(props, inner)),
             ("Chart", _) => plain(self.chart(leaf, inner)),
             ("Composer", _) => plain(self.composer(leaf, inner)),

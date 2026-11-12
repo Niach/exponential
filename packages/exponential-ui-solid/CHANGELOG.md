@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- `CountBadge` (#FEED-232): React's `CountBadgeNative` (feedback natives, DOM parity incl. the cap, `max`, 0, negative and a bound count).
 - `accessibility.selected` / `.expanded` (#EXP-1629), React's mapping; `a11y-states.test.tsx` replays the fixture.
 - Input / Textarea `style.color` colours the typed text (#EXP-1787), React's (the shared node sheet); `field-ink.test.tsx` replays `fieldInk`.
 - Style key `fontVariantNumeric: tabular-nums`: CSS `font-variant-numeric` through the shared node sheet, React's.

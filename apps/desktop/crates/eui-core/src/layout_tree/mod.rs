@@ -1029,6 +1029,13 @@ impl<'a, 'b> Builder<'a, 'b> {
         if node.component == "Form" {
             n.form = Some(node.id.clone());
         }
+        // #FEED-232: a CountBadge shows its label as `text` (what every
+        // measurer and painter reads); `""` = no badge, no box.
+        if node.component == "CountBadge" {
+            let label = crate::count_badge::label(props.get("count"), props.get("max"));
+            n.hidden |= label.is_empty();
+            props.insert("text".into(), Value::String(label));
+        }
         n.props = props;
         let index = self.push(n);
         // VAPP-162: a held `hold` Button carries `pressed` (the core's state).
@@ -1075,6 +1082,8 @@ impl<'a, 'b> Builder<'a, 'b> {
             "Button" if self.nodes[index as usize].kind == NodeKind::Container => {
                 self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("center")), ("justifyContent", json!("center"))])
             }
+            // #FEED-232: one centred line in tabular figures, never squeezed.
+            "CountBadge" => self.style_default(index, &[("flexShrink", json!(0)), ("textAlign", json!("center")), ("fontVariantNumeric", json!("tabular-nums"))]),
             // NEW-77: the one child sits centred in the wave box at its own size.
             "VoiceWave" => self.style_default(index, &[("display", json!("flex")), ("alignItems", json!("center")), ("justifyContent", json!("center"))]),
             // TreeGuides: depth × `treeGuideColumn` wide, stretched to its row.
