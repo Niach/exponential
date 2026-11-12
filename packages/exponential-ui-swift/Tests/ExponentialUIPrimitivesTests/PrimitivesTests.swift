@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import ExponentialUIPrimitives
 
 final class MarkdownParseTests: XCTestCase {
@@ -217,5 +218,44 @@ final class ChoiceTilesStyleTests: XCTestCase {
         XCTAssertEqual(themed.tileFillSelected, .green)
         XCTAssertEqual(themed.tileFillHover, .blue)
         XCTAssertEqual(ChoiceTilesStyle.default(PrimitiveTokens()).radius, style.radius)
+    }
+}
+
+/// The DisclosureHeader content slot matches web's `DisclosureHeader`
+/// (`chevron: leading | trailing`, right when folded, down when open); the
+/// title form keeps its trailing chevron.
+final class DisclosureHeaderTests: XCTestCase {
+    func testChevronSidesMatchTheWebPrimitive() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()   // Tests/
+            .deletingLastPathComponent()   // packages/exponential-ui-swift/
+            .deletingLastPathComponent()   // packages/
+            .appendingPathComponent("exponential-ui-react/src/primitives/disclosure-header.tsx")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(source.contains("chevron?: `leading` | `trailing`"))
+        XCTAssertTrue(source.contains("chevron = `leading`"))
+        XCTAssertEqual(DisclosureChevron.allCases.map(\.rawValue), ["leading", "trailing"])
+    }
+
+    func testContentSlotDefaultsLeadingAndTurnsRightToDown() {
+        var open = false
+        let binding = Binding(get: { open }, set: { open = $0 })
+        let header = DisclosureHeader(isExpanded: binding) { Text("Exponential") }
+        XCTAssertEqual(header.chevron, .leading)
+        XCTAssertFalse(header.titled)
+        XCTAssertEqual(DisclosureHeader(isExpanded: binding, chevron: .trailing) { EmptyView() }.chevron, .trailing)
+        XCTAssertEqual(DisclosureHeader<Text>.glyphPaths, ["M 9 18 L 15 12 L 9 6"], "lucide chevron-right")
+        XCTAssertEqual(DisclosureHeader<Text>.glyphSize, 12)
+        XCTAssertEqual(DisclosureHeader<Text>.rotation(isExpanded: false), 0)
+        XCTAssertEqual(DisclosureHeader<Text>.rotation(isExpanded: true), 90)
+    }
+
+    func testTitleFormIsUnchanged() {
+        let header = DisclosureHeader("Tools", count: 3, isExpanded: .constant(true))
+        XCTAssertTrue(header.titled)
+        XCTAssertEqual(header.chevron, .trailing)
+        XCTAssertEqual(header.label.title, "Tools")
+        XCTAssertEqual(header.label.count, 3)
     }
 }

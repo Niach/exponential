@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+internal import ExponentialUIPrimitives
 import GRDB
 import SwiftUI
 import UIKit
@@ -767,12 +768,11 @@ struct McpSettingsPage: View {
 
 // MARK: - Row disclosure
 
-/// A Servers row's leading part (owner 2026-11-12): the disclosure header,
-/// chevron LEADING (closed = right, open = down), over the glyph, the name
-/// (+ its pill) and the caption; the row's actions stay outside it. The
-/// SDK's Swift `DisclosureHeader` takes a title only (trailing chevron), so
-/// this hosts the row's own content the way web's `DisclosureHeader` +
-/// children and Compose's `DisclosureHeader(leading:)` do.
+/// A Servers row's leading part (owner 2026-11-12): the SDK's
+/// `DisclosureHeader` content slot, chevron LEADING (closed = right, open =
+/// down), over the glyph, the name (+ its pill) and the caption; the row's
+/// actions stay outside it (web `DisclosureHeader` + children, Compose
+/// `DisclosureHeader(leading:)`).
 private struct McpRowDisclosure<Glyph: View>: View {
     @Binding var isExpanded: Bool
     let name: String
@@ -782,41 +782,31 @@ private struct McpRowDisclosure<Glyph: View>: View {
     @ViewBuilder let glyph: () -> Glyph
 
     var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
-        } label: {
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.uiChevronRight, size: 12)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                HStack(spacing: 12) {
-                    glyph()
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(name)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            if let pill {
-                                GlassPill(pill).fixedSize()
-                            }
-                        }
-                        if !caption.isEmpty {
-                            Text(caption)
-                                .font(mono ? .expMono(.caption) : .caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+        DisclosureHeader(isExpanded: $isExpanded) {
+            HStack(spacing: 12) {
+                glyph()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let pill {
+                            GlassPill(pill).fixedSize()
                         }
                     }
+                    if !caption.isEmpty {
+                        Text(caption)
+                            .font(mono ? .expMono(.caption) : .caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
-                Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .primitiveTokens(PrimitiveTokens(mutedForeground: .white.opacity(TextOpacity.tertiary)))
         .accessibilityLabel("\(isExpanded ? "Hide" : "Show") \(name) tools")
-        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
         .accessibilityIdentifier("mcp-server-disclosure")
     }
 }

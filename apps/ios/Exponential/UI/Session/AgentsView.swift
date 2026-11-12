@@ -335,8 +335,7 @@ struct AgentsView: View {
                         title: "Sign out?",
                         message: AgentAccountsRows.signOutConfirmCopy(
                             account: AgentAccountsRows.loginLabel(target.row),
-                            device: confirmDeviceLabel(target.row),
-                            agent: target.row.agent
+                            device: confirmDeviceLabel(target.row)
                         ),
                         actions: [
                             GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
