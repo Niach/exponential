@@ -379,6 +379,30 @@ class SteerEnetTest {
     // ── EXP-1487 SUBSCRIPTIONS / EXP-1531 a lost peer ───────────────────
 
     @Test
+    fun cancellingWhileFramesAreStillQueuedNeverThrows() = runBlocking {
+        // cancel() closes the read side while the pump still drains queued
+        // frames: a plain send then threw ClosedSendChannelException into a
+        // handler-less scope, which on a phone is the process's crash handler.
+        val uncaught = CopyOnWriteArrayList<Throwable>()
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> uncaught += e }
+        try {
+            val burst = Array(2_000) { """{"t":"activity","seq":${it + 1},"event":{"kind":"narration","id":"n$it","text":"x"}}""" }
+            repeat(30) {
+                val node = FakeNode().apply { serve(live = "dev-a") }
+                val socket = dialer(node, listOf("dev-a"))!!.open(SESSION)!!
+                node.deliver("dev-a", SESSION, *burst)
+                delay(1)
+                socket.cancel()
+            }
+            delay(300)
+            assertEquals(emptyList<Throwable>(), uncaught.toList())
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+        }
+    }
+
+    @Test
     fun onlyTheLastSocketOfASessionAndDeviceSendsLeave() = runBlocking {
         // A replaced dial cancelled while the newer one is joined must not
         // end the newer feed: the device keys viewers by endpoint.
