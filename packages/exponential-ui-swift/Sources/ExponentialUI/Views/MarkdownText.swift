@@ -43,7 +43,7 @@ public struct MarkdownText: View {
                     MarkdownView(
                         text: text, width: g.size.width, styles: look.styles, ink: look.ink, model: context, props: look.props,
                         options: options, prepared: (doc.blocks, doc.layout(g.size.width)),
-                        onImageLoaded: { loaded += 1 }
+                        onImageLoaded: { loaded += 1 }, paragraphs: doc
                     )
                 }
             }
@@ -102,6 +102,16 @@ final class MarkdownTextDocument {
         self.blocks = blocks
         self.styles = styles
         shaper = MarkdownShaper(mono: mono, chip: styles.chip)
+    }
+
+    /// Its text blocks as the painter typeset them (`MarkdownView.lines`).
+    private var typeset: [MarkdownParagraphKey: TextLines] = [:]
+
+    func paragraph(_ key: MarkdownParagraphKey) -> TextLines? { typeset[key] }
+
+    func store(_ lines: TextLines, for key: MarkdownParagraphKey) {
+        if typeset.count >= 4 * max(blocks.count, 16) { typeset.removeAll(keepingCapacity: true) }
+        typeset[key] = lines
     }
 
     func layout(_ width: CGFloat) -> MarkdownLayout {

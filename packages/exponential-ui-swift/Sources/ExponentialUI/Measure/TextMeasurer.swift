@@ -751,14 +751,19 @@ extension TextShaper {
     /// Round 9: each inline code span's fill per line it crosses, laid out as
     /// the label lays it out (`baseline` = the block's in its line box).
     static func codeRects(in a: NSAttributedString, lineHeight: CGFloat, baseline: CGFloat, wrap: CGFloat, rtl: Bool = false) -> [(fill: PlatformColor, radius: CGFloat, rect: CGRect)] {
+        codeRects(in: TextLines(a, wrap: wrap), lineHeight: lineHeight, baseline: baseline, rtl: rtl)
+    }
+
+    static func codeRects(in lines: TextLines, lineHeight: CGFloat, baseline: CGFloat, rtl: Bool = false) -> [(fill: PlatformColor, radius: CGFloat, rect: CGRect)] {
+        let a = lines.text, wrap = lines.wrap
         var spans: [(range: NSRange, run: MarkdownCodeRun, fill: PlatformColor)] = []
         a.enumerateAttribute(codeKey, in: NSRange(location: 0, length: a.length)) { v, range, _ in
             if let run = v as? MarkdownCodeRun, let fill = run.fill { spans.append((range, run, fill)) }
         }
         if spans.isEmpty { return [] }
         var out: [(fill: PlatformColor, radius: CGFloat, rect: CGRect)] = []
-        let typesetter = CTTypesetterCreateWithAttributedString(a)
-        for (line, r) in lineRanges(a, wrap: wrap).enumerated() where r.length > 0 {
+        let typesetter = lines.typesetter
+        for (line, r) in lines.ranges.enumerated() where r.length > 0 {
             let ct = CTTypesetterCreateLine(typesetter, CFRange(location: r.location, length: r.length))
             let pen = rtl ? CGFloat(CTLineGetPenOffsetForFlush(ct, 1, Double(wrap))) : 0
             for span in spans {
@@ -787,31 +792,19 @@ extension TextShaper {
     /// TextKit can never break it elsewhere than the measurer and
     /// `chipRects` did.
     static func lineRanges(_ a: NSAttributedString, wrap: CGFloat) -> [NSRange] {
-        let ns = a.string as NSString
-        guard ns.length > 0 else { return [] }
-        let typesetter = CTTypesetterCreateWithAttributedString(a)
-        var out: [NSRange] = []
-        var start = 0
-        while start <= ns.length {
-            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
-            let end = nl.location == NSNotFound ? ns.length : nl.location
-            var pos = start
-            repeat {
-                let n = end > pos ? min(max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1), end - pos) : 0
-                out.append(NSRange(location: pos, length: n))
-                pos += n
-            } while pos < end
-            if nl.location == NSNotFound { break }
-            start = end + 1
-        }
-        return out
+        TextLines(a, wrap: wrap).ranges
     }
 
     /// `a` with a LINE SEPARATOR (U+2028) at each soft break of
     /// `lineRanges` (hard breaks kept): one selectable text that TextKit
     /// lays out on exactly the measurer's lines.
     static func withLineSeparators(_ a: NSAttributedString, wrap: CGFloat) -> NSAttributedString {
-        let ranges = lineRanges(a, wrap: wrap)
+        withLineSeparators(TextLines(a, wrap: wrap))
+    }
+
+    static func withLineSeparators(_ lines: TextLines) -> NSAttributedString {
+        let a = lines.text
+        let ranges = lines.ranges
         guard ranges.count > 1 else { return a }
         let out = NSMutableAttributedString()
         for (i, r) in ranges.enumerated() {
@@ -848,6 +841,11 @@ extension TextShaper {
     /// (CoreText lines at `wrap`, each `lineHeight` tall, flushed right under
     /// rtl): its box, vertically centred in its line.
     static func chipRects(in a: NSAttributedString, lineHeight: CGFloat, wrap: CGFloat, rtl: Bool = false) -> [(run: MarkdownChipRun, rect: CGRect)] {
+        chipRects(in: TextLines(a, wrap: wrap), lineHeight: lineHeight, rtl: rtl)
+    }
+
+    static func chipRects(in lines: TextLines, lineHeight: CGFloat, rtl: Bool = false) -> [(run: MarkdownChipRun, rect: CGRect)] {
+        let a = lines.text, wrap = lines.wrap
         guard a.length > 0 else { return [] }
         var chips: [Int: MarkdownChipRun] = [:]
         a.enumerateAttribute(chipKey, in: NSRange(location: 0, length: a.length)) { v, range, _ in
@@ -855,33 +853,72 @@ extension TextShaper {
         }
         if chips.isEmpty { return [] }
         var out: [(run: MarkdownChipRun, rect: CGRect)] = []
-        let ns = a.string as NSString
-        let typesetter = CTTypesetterCreateWithAttributedString(a)
-        var line = 0
-        var start = 0
-        while start <= ns.length {
-            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
-            let end = nl.location == NSNotFound ? ns.length : nl.location
-            var pos = start
-            repeat {
-                let n = end > pos ? max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1) : 0
-                if n > 0, (pos..<(pos + n)).contains(where: { chips[$0] != nil }) {
-                    let ct = CTTypesetterCreateLine(typesetter, CFRange(location: pos, length: n))
-                    let pen = rtl ? CGFloat(CTLineGetPenOffsetForFlush(ct, 1, Double(wrap))) : 0
-                    for i in pos..<(pos + n) {
-                        guard let run = chips[i] else { continue }
-                        let x = CTLineGetOffsetForStringIndex(ct, i, nil) + pen
-                        let y = CGFloat(line) * lineHeight + (lineHeight - run.height) / 2
-                        out.append((run, CGRect(x: x, y: y, width: run.width, height: run.height)))
-                    }
-                }
-                pos += n
-                line += 1
-            } while pos < end
-            if nl.location == NSNotFound { break }
-            start = end + 1
+        let typesetter = lines.typesetter
+        for (line, r) in lines.ranges.enumerated() {
+            // The typesetter's own break (a line's may take its newline).
+            let pos = r.location, n = lines.breaks[line]
+            guard n > 0, (pos..<(pos + n)).contains(where: { chips[$0] != nil }) else { continue }
+            let ct = CTTypesetterCreateLine(typesetter, CFRange(location: pos, length: n))
+            let pen = rtl ? CGFloat(CTLineGetPenOffsetForFlush(ct, 1, Double(wrap))) : 0
+            for i in pos..<(pos + n) {
+                guard let run = chips[i] else { continue }
+                let x = CTLineGetOffsetForStringIndex(ct, i, nil) + pen
+                let y = CGFloat(line) * lineHeight + (lineHeight - run.height) / 2
+                out.append((run, CGRect(x: x, y: y, width: run.width, height: run.height)))
+            }
         }
         return out
+    }
+}
+
+/// One text block's runs at a wrap width, typeset ONCE: its CoreText lines
+/// (the measurer's, hard breaks honoured) shared by the label, the inline
+/// code fills, the chips and the selectable text, built on first use.
+final class TextLines {
+    let text: NSAttributedString
+    let wrap: CGFloat
+
+    init(_ text: NSAttributedString, wrap: CGFloat) {
+        self.text = text
+        self.wrap = wrap
+    }
+
+    private(set) lazy var typesetter: CTTypesetter = CTTypesetterCreateWithAttributedString(text)
+    private var broken: (ranges: [NSRange], breaks: [Int])?
+
+    /// Each line's range without its newline (`TextShaper.lineRanges`).
+    var ranges: [NSRange] { lineBreaks().ranges }
+    /// Each line's break as the typesetter suggests it (may run past a
+    /// hard break by its newline).
+    var breaks: [Int] { lineBreaks().breaks }
+
+    private(set) lazy var hasLinks: Bool = TextShaper.hasLinks(text)
+    private(set) lazy var hasChips: Bool = TextShaper.hasChips(text)
+
+    private func lineBreaks() -> (ranges: [NSRange], breaks: [Int]) {
+        if let broken { return broken }
+        let ns = text.string as NSString
+        var ranges: [NSRange] = []
+        var breaks: [Int] = []
+        if ns.length > 0 {
+            var start = 0
+            while start <= ns.length {
+                let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+                let end = nl.location == NSNotFound ? ns.length : nl.location
+                var pos = start
+                repeat {
+                    let raw = end > pos ? max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1) : 0
+                    let n = min(raw, end - pos)
+                    ranges.append(NSRange(location: pos, length: n))
+                    breaks.append(raw)
+                    pos += n
+                } while pos < end
+                if nl.location == NSNotFound { break }
+                start = end + 1
+            }
+        }
+        broken = (ranges, breaks)
+        return (ranges, breaks)
     }
 }
 

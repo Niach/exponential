@@ -64,6 +64,9 @@ final class SessionListsModel {
     private(set) var viewerId: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Bumped by every `apply`/`stop`: what `chatList`'s memo is valid for.
+    @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var chatListMemo: [Chats.ChatListView: (key: String, list: Chats.ChatList)] = [:]
     @ObservationIgnored private var boundAccountId: String?
 
     nonisolated init() {}
@@ -90,6 +93,30 @@ final class SessionListsModel {
     /// #EXP-1388 (`dotCases`): an archived chat never lights the dot.
     func chatsUnread(teamId: String?) -> Bool {
         Chats.chatsUnread(groups: teamGroups(teamId), reads: reads)
+    }
+
+    /// The Chats tab's list (`Chats.chatList`) of a team, computed once per
+    /// sync emission, team, view and clock tick (a push over the list
+    /// re-renders it without rebuilding the rows).
+    func chatList(teamId: String?, view: Chats.ChatListView, now: String, utcOffsetMinutes: Int) -> Chats.ChatList {
+        // The inputs are read either way, so the caller observes them.
+        let groups = teamGroups(teamId), messages = chatMessages, reads = reads, prStates = prStates, words = words, sessions = sessions
+        let key = "\(revision)|\(teamId ?? "")|\(view)|\(now)|\(utcOffsetMinutes)"
+        if let memo = chatListMemo[view], memo.key == key { return memo.list }
+        let list = Chats.chatList(
+            groups: groups,
+            messages: messages,
+            reads: reads,
+            prStates: prStates,
+            words: words,
+            view: view,
+            now: now,
+            utcOffsetMinutes: utcOffsetMinutes,
+            // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
+            visible: Set(sessions.map(\.id))
+        )
+        chatListMemo[view] = (key, list)
+        return list
     }
 
     /// `partitionChats` narrowed to one team (empty groups dropped).
@@ -164,6 +191,7 @@ final class SessionListsModel {
     }
 
     func stop() {
+        revision += 1
         task?.cancel()
         task = nil
         boundAccountId = nil
@@ -230,6 +258,7 @@ final class SessionListsModel {
     }
 
     private func apply(_ derived: Derived) {
+        revision += 1
         groups = derived.groups
         agents = derived.agents
         agentConversations = derived.agentConversations
