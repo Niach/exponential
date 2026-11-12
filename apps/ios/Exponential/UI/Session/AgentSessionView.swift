@@ -1646,12 +1646,14 @@ struct AgentSessionView: View {
     private func observeToolAsks() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let id = session.id
+        // Large chats: only the session's card rows, opened off main (a
+        // chat's whole conversation, re-opened per write, held the main
+        // thread ~120 ms on an 8.5k-message chat).
         let observation = ValueObservation.tracking { db in
-            try SessionQueries.messages(db: db, sessionId: id)
+            try SessionQueries.cardRows(db: db, sessionId: id).map(TreeMessage.init(messageRow:))
         }
         do {
-            for try await messages in observation.values(in: pool) {
-                let tree = messages.map(TreeMessage.init(messageRow:))
+            for try await tree in observation.values(in: pool) {
                 let byId = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 let cards = AskDock.sessionCards(tree)
                 var asks: [SessionChatRow] = []

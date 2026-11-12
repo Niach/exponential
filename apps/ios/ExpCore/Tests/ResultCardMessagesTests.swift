@@ -53,4 +53,32 @@ final class ResultCardMessagesTests: XCTestCase {
         )
         XCTAssertEqual(results.map(\.id), ["m0003"])
     }
+
+    /// Large chats: a session's dock cards and composer replies read its
+    /// card rows only (a JSON `null` card is none), never its conversation.
+    func testCardRowsAreTheSessionsOwnCardRowsOnly() throws {
+        let queue = try DatabaseQueue()
+        try queue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, root_id TEXT NOT NULL,
+                  team_id TEXT, author_kind TEXT, author_id TEXT, body TEXT, card TEXT,
+                  answered_at TEXT, consumed_at TEXT, created_at TEXT, updated_at TEXT,
+                  author_session_id TEXT, conversation_id TEXT, attachment_ids TEXT, issue_brief TEXT)
+                """)
+            let rows: [(String, String, String?)] = [
+                ("a", "s", nil), ("b", "s", #"{"kind":"replies","items":[]}"#), ("c", "s", "null"),
+                ("d", "other", #"{"kind":"question"}"#), ("e", "s", #"{"sealed":"v1:1:x"}"#),
+            ]
+            for (index, row) in rows.enumerated() {
+                let stamp = "2026-11-12T10:00:0\(index).000Z"
+                try db.execute(sql: """
+                    INSERT INTO messages (id, session_id, root_id, team_id, author_kind, body, card,
+                      created_at, updated_at, conversation_id)
+                    VALUES (?, ?, 'root', 't', 'agent', 'b', ?, ?, ?, 'c')
+                    """, arguments: [row.0, row.1, row.2, stamp, stamp])
+            }
+        }
+        let cards = try queue.read { db in try SessionQueries.cardRows(db: db, sessionId: "s") }
+        XCTAssertEqual(cards.map(\.id), ["b", "e"])
+    }
 }
