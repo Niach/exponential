@@ -48,7 +48,7 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start root sessions with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else end your turn with no text at all (never \`Noted.\` or \`Nothing new.\`); update your card (exponential_show replace: true) rather than posting again.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start root sessions with exponential_sessions_send (they report back here). Speak only when a person needs to know or decide, else call exponential_session_self {op: "quiet"} and end your turn with no text at all (never \`Noted.\` or \`Nothing new.\`); update your card (exponential_show replace: true) rather than posting again.`
     )
   }
   if (gates.inSession && !gates.agent && gates.unattended) {

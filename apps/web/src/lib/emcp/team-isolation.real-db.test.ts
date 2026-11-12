@@ -454,6 +454,7 @@ const CASES: Record<string, Case> = {
   // session_self: the caller's OWN session only; it must still answer nothing of B.
   [`session_self.suggest`]: r(`session_self.suggest`, () => ({ op: `suggest`, replies: [`ok`] })),
   [`session_self.compact`]: r(`session_self.compact`, () => ({ op: `compact`, reason: `test` })),
+  [`session_self.quiet`]: r(`session_self.quiet`, () => ({ op: `quiet` })),
   [`session_self.report_bug`]: r(`session_self.report_bug`, () => ({ op: `report_bug`, title: `x`, description: `x` })),
   // show (the verb): the caller's own card.
   [`show`]: r(`show`, () => ({ title: `Hello`, result: false, surface: { root: { id: `t`, component: `Text`, props: { text: `hi` } } } })),

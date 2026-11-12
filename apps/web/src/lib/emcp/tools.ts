@@ -2795,6 +2795,25 @@ export function registerExponentialTools(
     )
   }
 
+  // #FEED-227: a turn with nothing to say (a quiet schedule tick, a routine
+  // event). The desktop lists `exponential_session_self` in Claude Code's
+  // CLAUDE_CODE_TERMINAL_MCP_TOOLS, so a turn that called it may end with no
+  // text: no "[Your previous response had no visible output…]" nudge, no
+  // filler reply. It writes nothing.
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_sessions_quiet`,
+      {
+        description: `Nothing to say this turn (a quiet tick or a routine event): call it, then end your turn with no text at all. Writes nothing.`,
+        inputSchema: strictInput({}),
+      },
+      async () => {
+        if (!sessionId) return err(new Error(noSessionMessage(`exponential_sessions_quiet`)))
+        return ok({ ok: true })
+      }
+    )
+  }
+
   // EXP-1328: follow-ups for a person to start, as ONE suggestions card on
   // the caller's own session (1:1 with the card; it wakes nothing). EXP-1211:
   // `replies` = a replies card, quick replies above the caller's composer.
