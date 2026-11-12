@@ -7,7 +7,6 @@ import android.util.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
-import io.sentry.AsyncHttpTransportFactory
 import io.sentry.Breadcrumb
 import io.sentry.RequestDetails
 import io.sentry.Sentry
@@ -135,8 +134,9 @@ object Observability {
         val host = runCatching { URI(base).host }.getOrNull()
         SentryAndroid.init(app) { options ->
             options.dsn = dsn
-            // The envelope goes to our server, which forwards it to GlitchTip.
-            options.setTransportFactory { o, details -> AsyncHttpTransportFactory().create(o, RequestDetails(tunnel, details.headers)) }
+            // The envelope goes to our server, which forwards it to GlitchTip;
+            // a 5xx/429 keeps it for a retry (#ERR-17, TunnelTransport.kt).
+            options.setTransportFactory { o, details -> TunnelTransport(o, RequestDetails(tunnel, details.headers)) }
             BuildConfig.SENTRY_PROGUARD_UUID.takeIf { it.isNotBlank() }?.let { options.proguardUuid = it }
             options.release = "exponential-android@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
             options.environment = cfg.environment ?: if (BuildConfig.DEBUG) "dev" else if (BuildConfig.IS_STAGING) "staging" else "prod"
