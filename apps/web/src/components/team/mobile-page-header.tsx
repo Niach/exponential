@@ -7,8 +7,8 @@ import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 
 // #EXP-1384 (chats.json `shell.header`): the web-mobile wiring of THE phone
 // page header on every top-level page: search opens the team's issue search
-// sheet, the inbox circle pushes the inbox page and wears the sky dot while
-// a notification of the ACTIVE team is unread. `md:hidden` — wide pages keep
+// sheet, the inbox circle pushes the inbox page and wears (#FEED-232) the
+// count badge of the ACTIVE team's unread notifications. `md:hidden` — wide pages keep
 // their own headers.
 export function MobilePageHeader({
   teamSlug,
@@ -29,7 +29,7 @@ export function MobilePageHeader({
     <PageHeader
       title={title}
       leading={leading}
-      inboxUnread={unread > 0}
+      inboxCount={unread}
       onSearch={issueSearch.open}
       onInbox={() => void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug } })}
       className={className}

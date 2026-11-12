@@ -813,7 +813,7 @@ default branch and retry.",
         // a clobber. A `branch` deleted from under its dir is re-cut from
         // `base_ref`, mirroring the fresh `worktree add -b` leg.
         validate_branch_arg(branch, &format!("git checkout {branch}"))?;
-        if branch_exists(clone, branch, url) {
+        if branch_exists(clone, branch, url) || adopt_origin_branch(clone, branch, url) {
             run_git(
                 Some(&worktree),
                 &["checkout", branch],
@@ -833,7 +833,7 @@ default branch and retry.",
     }
 
     let worktree_str = worktree.to_string_lossy().into_owned();
-    if branch_exists(clone, branch, url) {
+    if branch_exists(clone, branch, url) || adopt_origin_branch(clone, branch, url) {
         run_git(
             Some(clone),
             &["worktree", "add", &worktree_str, branch],
@@ -849,6 +849,28 @@ default branch and retry.",
         )?;
     }
     Ok(worktree)
+}
+
+/// #FEED-228: a branch this clone no longer has locally but `origin` does
+/// becomes a local branch at origin's tip (`git branch <branch>
+/// origin/<branch>`), so the worktree checks out the branch's own pushed
+/// work instead of cutting it fresh from the base. The run cleanup deletes a
+/// finished session's local branch with its worktree; a resume then re-cut
+/// `exp/session-<id>` from master, and the agent's next push reset the open
+/// PR's branch to master and closed the PR. Origin is asked first
+/// ([`origin_has_ref`]: a fetch of a missing ref stalls), so a truly new
+/// branch costs one `ls-remote`. `true` = the local branch exists now.
+fn adopt_origin_branch(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
+    if validate_branch_arg(branch, "adopted branch").is_err() || fetch_base_if_on_origin(clone, branch, url).is_err() {
+        return false;
+    }
+    let tracking = format!("refs/remotes/origin/{branch}");
+    let adopted = run_git(Some(clone), &["branch", branch, &tracking], Some(url), &format!("git branch {branch}")).is_ok()
+        || branch_exists(clone, branch, url);
+    if adopted {
+        log::info!("{branch}: not local, checked out from origin/{branch} at its pushed head");
+    }
+    adopted
 }
 
 /// EXP-478: stamp "a launch (re)claimed this worktree now" — the prune's
@@ -2208,6 +2230,44 @@ fatal: couldn't find remote ref nope\n";
         // The pick cuts a real worktree (the incident's `invalid reference`).
         let picked = first_base_on_origin(&clone, &bases(&["verify", "main"]), &url);
         create_worktree(&clone, "exp/session-d724f9a3", &format!("origin/{picked}"), &url).unwrap();
+    }
+
+    /// #FEED-228: an ended session's worktree AND local branch were removed
+    /// by the run cleanup; its resume must check the branch out at its
+    /// pushed head from origin, never re-cut it from the (advanced) base.
+    #[test]
+    fn a_resume_after_cleanup_checks_out_the_pushed_branch_not_the_base() {
+        let dir = temp_dir("resume-origin-branch");
+        let origin = seed_origin(&dir.0);
+        let clone = dir.0.join("clone");
+        git(&dir.0, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let branch = "exp/session-f12ddbe4";
+
+        let worktree = create_worktree(&clone, branch, "origin/main", &url).unwrap();
+        fs::write(worktree.join("work.txt"), "the PR's work\n").unwrap();
+        git(&worktree, &["add", "work.txt"]);
+        git(&worktree, &["commit", "--quiet", "-m", "work"]);
+        git(&worktree, &["push", "--quiet", "origin", branch]);
+        let pushed = rev(&worktree, "HEAD");
+        // The session ends: the cleanup removes the worktree and the branch.
+        git(&clone, &["worktree", "remove", "--force", worktree.to_str().unwrap()]);
+        git(&clone, &["branch", "-D", branch]);
+        // The base moves on meanwhile.
+        fs::write(origin.join("later.txt"), "later\n").unwrap();
+        git(&origin, &["add", "later.txt"]);
+        git(&origin, &["commit", "--quiet", "-m", "later"]);
+        git(&clone, &["fetch", "--quiet", "origin"]);
+
+        // The resume: same branch, base = the current default.
+        let resumed = create_worktree(&clone, branch, "origin/main", &url).unwrap();
+        assert_eq!(rev(&resumed, "HEAD"), pushed, "resumed at the branch's pushed head");
+        assert!(resumed.join("work.txt").exists());
+        assert!(!resumed.join("later.txt").exists(), "never re-cut from the base");
+
+        // A branch origin never had is still cut from the base.
+        let fresh = create_worktree(&clone, "exp/session-new", "origin/main", &url).unwrap();
+        assert_eq!(rev(&fresh, "HEAD"), rev(&clone, "origin/main"));
     }
 
     #[test]

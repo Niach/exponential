@@ -43,6 +43,7 @@ import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
+import { useAppIconBadge } from "@/hooks/use-app-icon-badge"
 import { useWebInstall } from "@/lib/enet/use-web-install"
 import {
   useTeamBySlug,
@@ -157,6 +158,8 @@ function TeamLayout() {
   // under the team app too (`_authenticated` does not wrap /t/$teamSlug).
   useWebInstall(user?.id)
   useKeyHolder(user?.id)
+  // #FEED-232: the OS app icon's count (every team's Needs you rows).
+  useAppIconBadge(user?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (EXP-870: the app's one navigation chord).

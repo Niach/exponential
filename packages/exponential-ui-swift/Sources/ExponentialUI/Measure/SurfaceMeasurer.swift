@@ -357,6 +357,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             content = MeasuredContent(w, track + control("row", Self.audioControlsHeight))
         case ("Spinner", _): content = MeasuredContent(20, 20)
         case ("Ring", _): content = MeasuredContent(32, 32)
+        // #FEED-232: one line of the label (the core's `text`, tabular by its
+        // style); the recipe adds the padding, height and minimum width.
+        case ("CountBadge", _): content = MeasuredContent(line(props.str("text"), ts), ts.lineHeight, Self.baseline(ts))
         // NEW-77: the root recipe's edge (sm 32 · md 56 · lg 160 · xl 200) wins.
         // VAPP-162: `variant: bars` = the meter box (style.json voiceWave.bars).
         case ("VoiceWave", _):

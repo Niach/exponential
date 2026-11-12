@@ -8,7 +8,7 @@ import type { NestedNode } from "@exponential_app/eui"
 import componentsFixture from "@exponential_app/eui/fixtures/catalog-components.json"
 import { expectDomParity } from "../test/parity"
 
-const MINE = new Set([`Ring`, `Spinner`, `Skeleton`, `TreeGuides`, `VoiceWave`])
+const MINE = new Set([`Ring`, `Spinner`, `CountBadge`, `Skeleton`, `TreeGuides`, `VoiceWave`])
 const cases = (componentsFixture as { cases: { name: string; node: NestedNode }[] }).cases.filter((c) => MINE.has(c.node.component))
 
 const guides: NestedNode = {
@@ -44,6 +44,18 @@ const mixed: NestedNode = {
 
 describe(`feedback natives: DOM parity with React`, () => {
   for (const c of cases) it(c.name, async () => expectDomParity({ tree: c.node }))
+  // #FEED-232: the cap, a custom max, nothing at 0 or below, a bound count.
+  it(`CountBadge: 99+, max, zero, negative, bound`, async () =>
+    expectDomParity({
+      tree: { id: `root`, component: `Box`, children: [
+        { id: `c0`, component: `CountBadge`, props: { count: 120 } },
+        { id: `c1`, component: `CountBadge`, props: { count: 12, max: 9, tone: `attention` } },
+        { id: `c2`, component: `CountBadge`, props: { count: 0, tone: `attention` } },
+        { id: `c3`, component: `CountBadge`, props: { count: -2 } },
+        { id: `c4`, component: `CountBadge`, props: { count: { "@path": `/unread` }, tone: `attention` } },
+      ] } as NestedNode,
+      data: { unread: 4 },
+    }))
   it(`TreeGuides: elbow, tee, pass-through, empty`, async () => expectDomParity({ tree: guides }))
   it(`Skeleton rows (dot, no dot, row height)`, async () => expectDomParity({ tree: skeletonRows }))
   it(`VoiceWave bound to the data model (activity, level, bands)`, async () =>

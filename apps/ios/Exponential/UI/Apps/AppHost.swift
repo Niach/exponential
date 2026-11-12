@@ -240,6 +240,8 @@ final class ExpAppHost {
         accountId: String,
         deps: AppDependencies,
         consent: AppConsentGate,
+        teamZone: String? = nil,
+        linkBase: String? = nil,
         grants: Bool = true,
         readOnly: Bool = false,
         migrateFrom: String? = nil,
@@ -261,7 +263,7 @@ final class ExpAppHost {
         let installed = packages
         let hosting = packages.first.map(JSONValue.parse)
         let scope = AppHostStore.RecordsScope(
-            appId: appId, teamId: teamId, me: me, access: readOnly ? "read" : "write", records: hosting?["records"],
+            appId: appId, teamId: teamId, me: me, teamZone: teamZone, access: readOnly ? "read" : "write", records: hosting?["records"],
             migrateFrom: (hosting?["migrations"]?.array?.isEmpty == false) ? migrateFrom : nil,
             migrations: hosting.flatMap { $0["migrations"] }.map { JSONValue.object(["migrations": $0]) }
         )
@@ -430,7 +432,7 @@ final class ExpAppHost {
                     // at call time: a granted typed action runs without the
                     // card (`harness_mcp` always asks).
                     if AppActions.parseActionName(call.name) != nil,
-                       AppActions.grantAllows(grants ? AppHostStore.grantedTools(appId: scope.appId, pool: pool) : [], call.name,
+                       AppActions.grantAllows(grants ? await AppHostStore.grantedTools(appId: scope.appId, pool: pool) : [], call.name,
                                               args: call.args.compactMapValues { CardJSON(any: $0.any) }) {
                         return true
                     }
@@ -442,22 +444,25 @@ final class ExpAppHost {
                 // #EXP-1674: `~/x` = the app's team.
                 urls: UrlPolicy(
                     allowPrivate: ownHost, baseUrl: origin,
-                    linkBase: LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps)
+                    linkBase: linkBase ?? LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps)
                 ),
                 openUrl: { url in
                     // THE opener (#EXP-1674): an instance link opens in-app (one at
                     // another app's screen through that app's `exposed` contract),
                     // anything else in the Safari sheet, never UIApplication.open.
-                    guard let opened = AppHostStore.crossAppURL(
-                        url, sourceAppId: appId, origin: origin ?? "", pool: pool
-                    ) else {
-                        Toaster.shared.error(AppLink.noAccessCopy)
-                        return
-                    }
-                    if let action = LinkOpener.tapAction(
-                        opened, origin: origin ?? "", accountId: accountId, teamId: teamId, deps: deps
-                    ) {
-                        action()
+                    // #PERF-5: the target app's row is read off main.
+                    Task { @MainActor in
+                        guard let opened = await AppHostStore.crossAppURL(
+                            url, sourceAppId: appId, origin: origin ?? "", pool: pool
+                        ) else {
+                            Toaster.shared.error(AppLink.noAccessCopy)
+                            return
+                        }
+                        if let action = LinkOpener.tapAction(
+                            opened, origin: origin ?? "", accountId: accountId, teamId: teamId, deps: deps
+                        ) {
+                            action()
+                        }
                     }
                 },
                 media: MediaOptions(baseUrl: origin, schemes: schemes, allowPrivate: ownHost),
@@ -475,7 +480,7 @@ final class ExpAppHost {
             // nothing = the failed-action toast. VAPP-201 (team-zone.json):
             // dates in the TEAM zone off the synced team row, else the device's.
             me: me,
-            zone: TimeZoneOffset(TeamZone.hostTimeZone(AppHostStore.teamTimeZone(teamId: teamId, pool: pool))),
+            zone: TimeZoneOffset(TeamZone.hostTimeZone(teamZone)),
             onActionFailed: { failure in
                 Toaster.shared.error(
                     FeedbackStates.Errors.title(verb: "save", thing: "the record"),
@@ -923,6 +928,9 @@ enum AppHostStore {
         let appId: String?
         let teamId: String?
         let me: String?
+        /// VAPP-201: the synced team's `time_zone`, read before the host
+        /// builds (`AppHostStore.teamTimeZone`).
+        var teamZone: String? = nil
         /// VAPP-206: the viewer's app access (`exp:me`).
         var access: String? = nil
         /// VAPP-214: the hosting package's `records` (its kinds' `computed`
@@ -978,7 +986,7 @@ enum AppHostStore {
     ) -> (() -> Void)? {
         var last: String?
         // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
-        let zone = TeamZone.hostTimeZone(AppHostStore.teamTimeZone(teamId: scope.teamId, pool: pool))
+        let zone = TeamZone.hostTimeZone(scope.teamZone)
         // VAPP-219 (R5): the hosting app's refs; members expand by name, issues by identifier.
         let refs = query.app == nil ? RecordsQuery.refs(records: scope.records, kind: query.from) : .null
         let expanded = (query.structured["expand"]?.array ?? []).compactMap(\.string)
@@ -1097,14 +1105,15 @@ enum AppHostStore {
     /// VAPP-120: the hosting app's grants off its synced `apps` row (none
     /// without an app or a store).
     /// VAPP-201: the synced team's `time_zone` (nil = none, or not synced).
-    static func teamTimeZone(teamId: String?, pool: DatabasePool?) -> String? {
+    /// #PERF-5: these lookups read off the main thread.
+    static func teamTimeZone(teamId: String?, pool: DatabasePool?) async -> String? {
         guard let pool, let teamId else { return nil }
-        return try? pool.read { db in try TeamEntity.fetchOne(db, key: teamId)?.timeZone }
+        return (try? await pool.read { db in try TeamEntity.fetchOne(db, key: teamId)?.timeZone }) ?? nil
     }
 
-    static func grantedTools(appId: String?, pool: DatabasePool?) -> [String] {
+    static func grantedTools(appId: String?, pool: DatabasePool?) async -> [String] {
         guard let pool, let appId else { return [] }
-        return (try? pool.read { db in try AppEntity.fetchOne(db, key: appId)?.grantedTools }) ?? []
+        return (try? await pool.read { db in try AppEntity.fetchOne(db, key: appId)?.grantedTools }) ?? []
     }
 
     /// #EXP-1674 (host-router.json `crossApp`): the url a link opens when the
@@ -1112,7 +1121,7 @@ enum AppHostStore {
     /// as it is; another app's only through its `exposed` contract, with the
     /// params it declares. nil = the toast `AppLink.noAccessCopy`, the same for a
     /// missing app. A person's URL or an agent's chat link never comes here.
-    static func crossAppURL(_ url: URL, sourceAppId: String?, origin: String, pool: DatabasePool?) -> URL? {
+    static func crossAppURL(_ url: URL, sourceAppId: String?, origin: String, pool: DatabasePool?) async -> URL? {
         guard let sourceAppId else { return url }
         let teamSlug: String
         let appSlug: String
@@ -1133,7 +1142,7 @@ enum AppHostStore {
             return url
         }
         guard let pool else { return nil }
-        let found = try? pool.read { db -> AppEntity? in
+        let found = try? await pool.read { db -> AppEntity? in
             try AppEntity.fetchOne(
                 db,
                 sql: #"SELECT "apps".* FROM "apps" JOIN "teams" ON "teams"."id" = "apps"."team_id" WHERE "teams"."slug" = ? AND "apps"."slug" = ? AND "apps"."deleted_at" IS NULL LIMIT 1"#,

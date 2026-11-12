@@ -101,6 +101,9 @@ pub enum SkipReason {
     NoDefaultBranch,
     /// Younger than [`LAUNCH_GRACE`] — likely a launch in flight (EXP-478).
     RecentlyCreated,
+    /// #EXP-1796: in use right now ([`crate::worktree_lifecycle::in_use`]:
+    /// a process cwd, a held `index.lock`, a recent commit/checkout).
+    InUse(String),
 }
 
 impl SkipReason {
@@ -115,6 +118,7 @@ impl SkipReason {
             Self::RemoveFailed(detail) => detail.clone(),
             Self::NoDefaultBranch => "no default branch to compare against".to_string(),
             Self::RecentlyCreated => "recently created".to_string(),
+            Self::InUse(why) => format!("in use: {why}"),
         }
     }
 }
@@ -513,6 +517,13 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
         {
             continue;
         }
+        // #EXP-1796: only a worktree at the launcher's own path for its
+        // branch is the prune's: a hand-made `git worktree add` dir (a live
+        // session's `rel-3a741b2f` release checkout on a landed
+        // `exp/desktop-0.14.152`) was removed mid-run.
+        if !crate::worktree_lifecycle::launcher_owned(clone, branch, &entry.path) {
+            continue;
+        }
         // EXP-1536 A: the HEAD the landed check vouches for, taken BEFORE
         // it; the removal refuses once it moved.
         let head = crate::leftover::Verified::head_of(&entry.path);
@@ -536,6 +547,10 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                         .push((branch.clone(), SkipReason::RecentlyCreated));
                     continue;
                 }
+                if let Some(why) = crate::worktree_lifecycle::in_use(&entry.path, SystemTime::now()) {
+                    report.skipped.push((branch.clone(), SkipReason::InUse(why)));
+                    continue;
+                }
                 let Some(head) = head else {
                     report
                         .skipped
@@ -557,6 +572,12 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
                     &verified,
                 ) {
                     Ok(_) => {
+                        log::info!(
+                            "auto-prune: removed worktree {} ({branch}): landed in {}, {}, idle",
+                            entry.path.display(),
+                            origin_ref.as_deref().unwrap_or("the default branch"),
+                            if dirty == DirtyState::UntrackedOnly { "untracked files only" } else { "clean" },
+                        );
                         report.removed_worktrees.push(branch.clone());
                         // Landed per git — the branch carries nothing
                         // unpushed anymore, so it goes too.
@@ -800,6 +821,11 @@ pub fn sweep_stale_worktrees(
         {
             continue;
         }
+        // #EXP-1796: a dir in use right now stays, whatever its records say.
+        if let Some(why) = crate::worktree_lifecycle::in_use(&entry.path, now) {
+            log::info!("stale-worktree sweep: kept {} ({branch}): in use: {why}", entry.path.display());
+            continue;
+        }
         let session_id = newest.map(|record| record.session_id.clone());
         let id8 = match &session_id {
             Some(id) => id.chars().take(8).collect(),
@@ -820,6 +846,14 @@ pub fn sweep_stale_worktrees(
                 "no base branch to compare against".to_string(),
             )),
         };
+        if let FinishOutcome::Removed { leftover } = &outcome {
+            log::info!(
+                "stale-worktree sweep: removed {} ({branch}): session {} over, idle since {:?}, leftover {leftover:?}",
+                entry.path.display(),
+                session_id.as_deref().unwrap_or("none (settled open chat)"),
+                last_activity,
+            );
+        }
         report.finished.push(SweptWorktree {
             path: entry.path.clone(),
             branch,
@@ -984,6 +1018,17 @@ mod tests {
             .open(worktree.join(".git"))
             .unwrap();
         file.set_modified(SystemTime::now() - 2 * LAUNCH_GRACE).unwrap();
+        age_head_log(worktree, 2 * LAUNCH_GRACE);
+    }
+
+    /// #EXP-1796: the worktree's last commit/checkout ages with it (else
+    /// the in-use shield keeps it).
+    fn age_head_log(worktree: &Path, by: Duration) {
+        let link = fs::read_to_string(worktree.join(".git")).unwrap();
+        let git_dir = PathBuf::from(link.trim().strip_prefix("gitdir:").unwrap().trim());
+        if let Ok(file) = fs::OpenOptions::new().write(true).open(git_dir.join("logs/HEAD")) {
+            file.set_modified(SystemTime::now() - by).unwrap();
+        }
     }
 
     fn commit_file(worktree: &Path, name: &str, content: &str, message: &str) {
@@ -1266,6 +1311,64 @@ mod tests {
         assert!(wt.exists());
     }
 
+    /// #EXP-1796: a hand-made `git worktree add` dir next to the session
+    /// worktrees (a release checkout on a landed `exp/` branch) is never the
+    /// prune's, however landed and idle it is; the launcher's own one is.
+    #[test]
+    fn a_hand_made_worktree_is_never_pruned() {
+        let dir = temp_dir("hand-made");
+        let (_origin, clone) = seed(&dir.0);
+        let rel = crate::git_worktree::worktrees_dir(&clone).join("rel-3a741b2f");
+        git(&clone, &["worktree", "add", "--quiet", "-b", "exp/desktop-0.14.152", rel.to_str().unwrap(), "origin/main"]);
+        backdate(&rel);
+        let own = worktree(&clone, "exp/EXP-77");
+        backdate(&own);
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-77".to_string()], "{report:?}");
+        assert!(rel.join(".git").exists(), "the hand-made worktree stays");
+        assert!(!own.exists());
+        assert!(crate::worktree_lifecycle::launcher_owned(
+            &clone,
+            "exp/EXP-77",
+            &crate::git_worktree::worktrees_dir(&clone).join("exp-EXP-77-2")
+        ));
+        assert!(!crate::worktree_lifecycle::launcher_owned(&clone, "exp/desktop-0.14.152", &rel));
+    }
+
+    /// #EXP-1796: a landed, idle-by-stamp worktree still in use (a recent
+    /// commit, a process working in it) survives with the reason.
+    #[test]
+    fn an_in_use_worktree_survives_with_its_reason() {
+        let dir = temp_dir("in-use");
+        let (_origin, clone) = seed(&dir.0);
+        let wt = worktree(&clone, "exp/EXP-78");
+        // A checkout just happened: only the `.git` stamp is old.
+        let file = fs::OpenOptions::new().write(true).open(wt.join(".git")).unwrap();
+        file.set_modified(SystemTime::now() - 2 * LAUNCH_GRACE).unwrap();
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert!(
+            matches!(report.skipped.as_slice(), [(b, SkipReason::InUse(why))] if b == "exp/EXP-78" && why.starts_with("written to")),
+            "{report:?}"
+        );
+        assert!(wt.exists());
+
+        backdate(&wt);
+        #[cfg(target_os = "linux")]
+        {
+            let mut child = std::process::Command::new("sleep").arg("30").current_dir(&wt).spawn().unwrap();
+            let report = prune_landed(&clone, &policy(&["exp/"]));
+            let _ = child.kill();
+            let _ = child.wait();
+            assert!(
+                matches!(report.skipped.as_slice(), [(_, SkipReason::InUse(why))] if why.contains("process")),
+                "{report:?}"
+            );
+            assert!(wt.exists());
+        }
+        let report = prune_landed(&clone, &policy(&["exp/"]));
+        assert_eq!(report.removed_worktrees, vec!["exp/EXP-78".to_string()], "{report:?}");
+    }
+
     #[test]
     fn clean_worktree_states() {
         let dir = temp_dir("state");
@@ -1417,6 +1520,7 @@ mod tests {
             .open(worktree.join(".git"))
             .unwrap();
         file.set_modified(SystemTime::now() - by).unwrap();
+        age_head_log(worktree, by);
     }
 
     fn origin_branch_exists(origin: &Path, branch: &str) -> bool {

@@ -235,8 +235,9 @@ struct RowsKey {
     minute: i64,
 }
 
+/// Per team: #FEED-232's team picker asks for every team.
 #[derive(Default)]
-struct RowsMemo(Option<(RowsKey, Rc<NeedsYouRows>)>);
+struct RowsMemo(HashMap<String, (RowsKey, Rc<NeedsYouRows>)>);
 
 impl gpui::Global for RowsMemo {}
 
@@ -261,7 +262,7 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
         owner,
         minute: now / 60_000,
     };
-    if let Some((cached, rows)) = &cx.default_global::<RowsMemo>().0 {
+    if let Some((cached, rows)) = cx.default_global::<RowsMemo>().0.get(team_id) {
         if *cached == key {
             return rows.clone();
         }
@@ -276,8 +277,21 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
     };
     let _span = tracing::trace_span!("needs_you.derive").entered();
     let rows = Rc::new(with_stuck_rows(needs_you(&input), stuck));
-    cx.global_mut::<RowsMemo>().0 = Some((key, rows.clone()));
+    cx.global_mut::<RowsMemo>().0.insert(team_id.to_string(), (key, rows.clone()));
     rows
+}
+
+/// #FEED-232: every synced team's needs-you rows' length (the team picker,
+/// the OS app icon).
+pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
+    let Some(store) = Store::try_global(cx) else {
+        return Default::default();
+    };
+    let teams: Vec<String> = store.collections().teams.read(cx).iter().map(|team| team.id.clone()).collect();
+    teams.into_iter().map(|team| {
+        let count = rows_in_team(&team, cx).rows.len();
+        (team, count)
+    }).collect()
 }
 
 /// What a row's press does (#EXP-1710): an `approval`-mode ready PR row

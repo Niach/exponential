@@ -2017,6 +2017,89 @@ async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
     assert_eq!(steered, StopReason::EndTurn);
 }
 
+/// #FEED-229: a turn plus a steer sent into it (the prod race: a waking
+/// message one second before the turn's `result`), against `scenario`.
+/// Returns both stop reasons (`None` = still open after `budget`) and every
+/// `user` line the adapter wrote to the CLI's stdin.
+async fn turn_and_steer(scenario: &str, budget: Duration) -> (Option<(StopReason, StopReason)>, Vec<String>) {
+    let _session = one_session_at_a_time();
+    let work = workdir(scenario);
+    let adapter = ClaudeAgent::new(spec(scenario, &work.0, false)).expect("the adapter builds");
+    let driven = Client
+        .v1()
+        .name("feed229-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let turn = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Reply with the single word ok."))],
+            ));
+            let steered = cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Make it two words."))],
+            ));
+            let turn = turn.block_task().await?;
+            let steered = steered.block_task().await?;
+            Ok::<_, Error>((turn.stop_reason, steered.stop_reason))
+        });
+    let settled = tokio::time::timeout(budget, driven)
+        .await
+        .ok()
+        .map(|run| run.expect("the connection runs cleanly"));
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["type"] == "user")
+        .map(|line| line["message"]["content"][0]["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    (settled, stdin)
+}
+
+/// #FEED-229 (prod: session 0b59be03, a message at 12:50:55 read only at
+/// 18:42:59): the CLI READ the steer (it replayed it) but its `result` says
+/// nothing about a fold (`queued_turn_count` absent), then goes `idle`. No
+/// further `result` will ever come, so the steer's `session/prompt` hung,
+/// the host's turn stayed open, and the person's message sat unconsumed
+/// until the next one. The idle now settles it — and resends nothing.
+#[tokio::test]
+async fn a_steer_the_cli_read_without_a_fold_count_settles_on_idle() {
+    let (settled, stdin) = turn_and_steer("steer-stranded-read", Duration::from_secs(20)).await;
+    assert_eq!(
+        settled,
+        Some((StopReason::EndTurn, StopReason::EndTurn)),
+        "the steer the CLI read settles once the CLI is idle"
+    );
+    assert_eq!(stdin, vec!["Reply with the single word ok.", "Make it two words."], "a read steer is never resent");
+}
+
+/// #FEED-229: the CLI DROPPED the steer — its `result` and `idle` came with
+/// no replay of it. The idle resends it once; the idle CLI runs it as a turn
+/// of its own, whose `result` settles it.
+#[tokio::test]
+async fn a_steer_the_cli_dropped_is_resent_once_on_idle() {
+    let (settled, stdin) = turn_and_steer("steer-stranded-dropped", Duration::from_secs(20)).await;
+    assert_eq!(settled, Some((StopReason::EndTurn, StopReason::EndTurn)));
+    assert_eq!(
+        stdin,
+        vec!["Reply with the single word ok.", "Make it two words.", "Make it two words."],
+        "the dropped steer goes in exactly once more"
+    );
+}
+
 /// EXP-1280: a prompt asking for a FRESH context (a plan approved "in a
 /// fresh context", `FRESH_CONTEXT_META_KEY`) clears the conversation first:
 /// `/clear` goes in ahead of the prompt, its own zero-token `result` never

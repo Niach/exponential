@@ -3691,6 +3691,16 @@
       ]
     },
     {
+      "name": "CountBadge",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "tone"
+      ]
+    },
+    {
       "name": "CallSurface",
       "kind": "macro",
       "parts": [

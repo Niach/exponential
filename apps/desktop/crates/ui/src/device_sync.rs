@@ -83,6 +83,9 @@ struct DeviceSyncState {
     /// thread cannot touch gpui, so it raises this and the loop's foreground
     /// half runs the refresh.
     doctor_soon: Arc<AtomicBool>,
+    /// #FEED-211: the agent status collector — its passes run on their own
+    /// thread, the beat carries its last payload.
+    usage: coding::usage_worker::UsageWorker,
 }
 
 struct DeviceSyncGlobal(gpui::Entity<DeviceSyncState>);
@@ -284,8 +287,9 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             let took = started.elapsed();
             if took >= SLOW_BEAT {
                 log::warn!(
-                    "[device-sync] a beat took {}s (scan_due: {scan_due})",
-                    took.as_secs()
+                    "[device-sync] a beat took {}s (scan_due: {scan_due}; {})",
+                    took.as_secs(),
+                    outcome.phases
                 );
             }
             last_inventory_fp = outcome.inventory_fp;
@@ -550,6 +554,11 @@ struct BeatSnapshot {
     inflight_logins: Arc<Mutex<HashSet<String>>>,
     /// See [`DeviceSyncState::doctor_soon`].
     doctor_soon: Arc<AtomicBool>,
+    /// #FEED-211: see [`DeviceSyncState::usage`].
+    usage: coding::usage_worker::UsageWorker,
+    /// The beat-now flag: a usage pass or refresh that landed new numbers
+    /// raises it.
+    check_in: Arc<AtomicBool>,
     /// NEW-78 / NEW-55: the voice rows the readiness block carries (the
     /// member's voice device: the microphone while a key is bound or the
     /// wake word is on, speech, and S-3's wake word row).
@@ -630,7 +639,11 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         (hub.settings.clone(), hub.doctor.report.clone())
     };
     let inflight_logins = inflight_logins(cx);
-    let doctor_soon = state(cx).read(cx).doctor_soon.clone();
+    let (doctor_soon, usage, check_in) = {
+        let state = state(cx);
+        let state = state.read(cx);
+        (state.doctor_soon.clone(), state.usage.clone(), state.check_in.clone())
+    };
     Ok(BeatSnapshot {
         trpc,
         device_id,
@@ -647,6 +660,8 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         doctor,
         inflight_logins,
         doctor_soon,
+        usage,
+        check_in,
         voice: crate::device_readiness::voice_rows(cx),
     })
 }
@@ -671,6 +686,8 @@ struct BeatOutcome {
     /// NEW-67: the member's voice settings off this beat (every beat
     /// carries them; `None` = an older server or a failed beat).
     voice: Option<etalk::voice::VoiceSettings>,
+    /// #FEED-211: where this body's time went, for the slow-beat line.
+    phases: String,
 }
 
 impl BeatOutcome {
@@ -685,6 +702,7 @@ impl BeatOutcome {
             deferred: Vec::new(),
             beat_again: false,
             voice: None,
+            phases: String::new(),
         }
     }
 }
@@ -739,6 +757,14 @@ fn beat(
     let mut deferred = Vec::new();
     let mut beat_again = false;
     let mut voice: Option<etalk::voice::VoiceSettings> = None;
+    // #FEED-211: each phase's share of the body, named by the slow-beat line.
+    let mut clock = Instant::now();
+    let mut phases: Vec<(&'static str, Duration)> = Vec::new();
+    let mut lap = |phase: &'static str, phases: &mut Vec<(&'static str, Duration)>| {
+        let now = Instant::now();
+        phases.push((phase, now.saturating_duration_since(clock)));
+        clock = now;
+    };
     let synced_at = coding::read_marker(&snapshot.settings_path, &snapshot.device_id).synced_at;
 
     // EXP-484: refresh whatever the poll policy says is due (keychain reads,
@@ -750,15 +776,24 @@ fn beat(
     // EXP-951: a shots capture (`EXP_DEV_AGENT_ACCOUNT`) never probes at all
     // and reports the demo accounts + usage instead — the capture host's row
     // is photographed on the Agents screen.
+    //
+    // #FEED-211: the pass runs on its OWN thread ([`coding::usage_worker`]):
+    // this beat starts one when none is in flight and carries what the last
+    // one landed (`stale` once it is old), so a slow pass never holds the
+    // heartbeat. A pass that moved something beats again at once.
     let mut agent_status = crate::device_settings::dev_agent_status().or_else(|| {
-        snapshot.doctor.as_ref().map(|report| {
-            coding::agent_usage::collect_if_due(
-                &snapshot.data_dir,
-                &snapshot.settings,
-                report,
-                now_unix_secs(),
-            )
-        })
+        let report = snapshot.doctor.clone()?;
+        let (data_dir, settings) = (snapshot.data_dir.clone(), snapshot.settings.clone());
+        let check_in = Arc::clone(&snapshot.check_in);
+        snapshot.usage.start(
+            move || coding::agent_usage::collect_if_due(&data_dir, &settings, &report, now_unix_secs()),
+            move |changed| {
+                if changed {
+                    check_in.store(true, Ordering::SeqCst);
+                }
+            },
+        );
+        snapshot.usage.latest()
     });
     let mut writes = pending_status_writes(agent_status.as_ref(), sent_status);
     // EXP-1099: after the server refused a beat carrying this optional
@@ -788,6 +823,7 @@ fn beat(
     let carried_optional =
         writes.accounts.is_some() || writes.usage.is_some() || doctor_write.is_some();
 
+    lap("status", &mut phases);
     let sent = api::devices::heartbeat(
         &snapshot.trpc,
         &api::devices::HeartbeatInput {
@@ -806,6 +842,7 @@ fn beat(
             session_activity: Some(&snapshot.session_activity),
         },
     );
+    lap("heartbeat", &mut phases);
     // #FEED-210: presence is current again (sent or failed alike: a failing
     // network fails the keeper's bare beat too, so it waits a full window).
     *lock_recover(last_sent) = Instant::now();
@@ -848,6 +885,7 @@ fn beat(
                         match run_device_command(snapshot, command) {
                             CommandDisposition::Deferred(command) => deferred.push(command),
                             CommandDisposition::Refreshed(status) => {
+                                snapshot.usage.publish(status.clone());
                                 agent_status = Some(status);
                                 beat_again = true;
                             }
@@ -865,11 +903,13 @@ fn beat(
         Err(err) => lock_recover(health).on_err("[device-sync]", &err, carried_optional),
     }
 
+    lap("commands", &mut phases);
     let inventory_fp = if scan_due || last_fp.is_none() {
         report_worktrees(snapshot, last_fp)
     } else {
         last_fp
     };
+    lap("inventory", &mut phases);
     let settings_moved =
         !defaults_changed && coding::Settings::load(&snapshot.settings_path) != snapshot.settings;
     BeatOutcome {
@@ -880,6 +920,11 @@ fn beat(
         deferred,
         beat_again,
         voice,
+        phases: phases
+            .iter()
+            .map(|(phase, took)| format!("{phase} {:.1}s", took.as_secs_f64()))
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -1096,6 +1141,8 @@ pub(crate) fn push_local_defaults_if_changed(
         doctor: None,
         inflight_logins: Arc::new(Mutex::new(HashSet::new())),
         doctor_soon: Arc::new(AtomicBool::new(false)),
+        usage: Default::default(),
+        check_in: Arc::new(AtomicBool::new(false)),
         voice: Default::default(),
     };
     push_defaults(&snapshot, &settings, &marker);
@@ -1213,39 +1260,69 @@ fn run_device_command(
     let (ok, message) = match command.kind.as_str() {
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
+        // #FEED-211: the forced read runs on its OWN thread and completes
+        // the command itself — a refresh that waits out a refresh lock or a
+        // timeout must hold neither this beat nor the commands behind it.
+        // The claim set keeps a redelivered id from starting a second one.
         "agent_usage_refresh" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or_default();
+            let profile = command.payload["profileId"].as_str().unwrap_or_default().to_string();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = match &snapshot.doctor {
-                        Some(report) => report.clone(),
-                        None => coding::run_doctor(&snapshot.settings, &snapshot.data_dir),
-                    };
-                    // EXP-808: every account PROFILE refreshes, not just the
-                    // device's default one.
-                    match coding::force_collect(
-                        &snapshot.data_dir,
-                        &snapshot.settings,
-                        &report,
-                        agent,
-                        profile,
-                        now_unix_secs(),
-                    ) {
-                        Ok(payload) => {
-                            complete(snapshot, &command.id, true, &format!("Refreshed {} usage.", agent.id()));
-                            return CommandDisposition::Refreshed(payload);
+                    if !claim_login(&snapshot.inflight_logins, &command.id) {
+                        return CommandDisposition::AlreadyRunning;
+                    }
+                    let trpc = Arc::clone(&snapshot.trpc);
+                    let settings = snapshot.settings.clone();
+                    let data_dir = snapshot.data_dir.clone();
+                    let doctor = snapshot.doctor.clone();
+                    let usage = snapshot.usage.clone();
+                    let check_in = Arc::clone(&snapshot.check_in);
+                    let claimed = Arc::clone(&snapshot.inflight_logins);
+                    let command_id = command.id.clone();
+                    let spawned = std::thread::Builder::new()
+                        .name("exp-usage-refresh".to_string())
+                        .spawn(move || {
+                            let report = doctor.unwrap_or_else(|| coding::run_doctor(&settings, &data_dir));
+                            // EXP-808: every account PROFILE refreshes, not
+                            // just the device's default one.
+                            let (ok, message) = match coding::force_collect(
+                                &data_dir,
+                                &settings,
+                                &report,
+                                agent,
+                                &profile,
+                                now_unix_secs(),
+                            ) {
+                                Ok(payload) => {
+                                    usage.publish(payload);
+                                    // The numbers ride the next beat, now.
+                                    check_in.store(true, Ordering::SeqCst);
+                                    (true, format!("Refreshed {} usage.", agent.id()))
+                                }
+                                Err(until) => (
+                                    false,
+                                    format!(
+                                        "{} is rate-limited; try again after {}.",
+                                        agent.id(),
+                                        coding::agent_accounts::iso_from_unix_secs(until as i64)
+                                            .unwrap_or_else(|| until.to_string())
+                                    ),
+                                ),
+                            };
+                            complete_with(&trpc, &command_id, ok, &message);
+                            if let Ok(mut guard) = claimed.lock() {
+                                guard.remove(&command_id);
+                            }
+                        });
+                    if spawned.is_err() {
+                        if let Ok(mut guard) = snapshot.inflight_logins.lock() {
+                            guard.remove(&command.id);
                         }
-                        Err(until) => (
-                            false,
-                            format!(
-                                "{} is rate-limited; try again after {}.",
-                                agent.id(),
-                                coding::agent_accounts::iso_from_unix_secs(until as i64)
-                                    .unwrap_or_else(|| until.to_string())
-                            ),
-                        ),
+                        (false, "This machine could not start the usage refresh.".to_string())
+                    } else {
+                        return CommandDisposition::Spawned;
                     }
                 }
             }
@@ -1396,6 +1473,8 @@ pub(crate) fn refresh_agent_usage_here(
             return;
         };
         let _ = cx.update(|cx| {
+            // #FEED-211: the beat ships the worker's payload — this one is newer.
+            state(cx).read(cx).usage.publish(status.clone());
             crate::coding_flow::CodingHub::global(cx).update(cx, |hub, cx| {
                 hub.agent_status = Some(status);
                 cx.notify();
@@ -1464,6 +1543,8 @@ fn change_agent_profile_here(
         &live_accounts,
         now_unix_secs(),
     )?;
+    // #FEED-211: the beat ships the worker's payload — this one is newer.
+    state(cx).read(cx).usage.publish(status.clone());
     hub.update(cx, |hub, cx| {
         hub.agent_status = Some(status);
         cx.notify();
@@ -1473,7 +1554,12 @@ fn change_agent_profile_here(
 }
 
 fn complete(snapshot: &BeatSnapshot, command_id: &str, ok: bool, message: &str) {
-    match api::devices::complete_command(&snapshot.trpc, command_id, ok, Some(message)) {
+    complete_with(&snapshot.trpc, command_id, ok, message);
+}
+
+/// [`complete`] from a thread that holds only the client.
+fn complete_with(trpc: &api::TrpcClient, command_id: &str, ok: bool, message: &str) {
+    match api::devices::complete_command(trpc, command_id, ok, Some(message)) {
         Ok(true) => {}
         Ok(false) => {
             log::warn!("[device-sync] completeCommand {command_id}: the row was no longer pending")

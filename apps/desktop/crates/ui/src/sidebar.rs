@@ -545,6 +545,19 @@ pub(crate) fn rail_dot(color: Hsla) -> gpui::Div {
     uicore_gpui::glyphs::dot(color)
 }
 
+/// #FEED-232: THE count badge's tone for a `nav-badges.json` tone.
+pub(crate) fn badge_tone(tone: domain::nav_badges::CountBadgeTone) -> crate::surface::BadgeTone {
+    match tone {
+        domain::nav_badges::CountBadgeTone::Attention => crate::surface::BadgeTone::Attention,
+        domain::nav_badges::CountBadgeTone::Muted => crate::surface::BadgeTone::Muted,
+    }
+}
+
+/// #FEED-232: a nav count as THE count badge element (nothing at zero).
+pub(crate) fn nav_count(badge: domain::nav_badges::CountBadgeValue, cx: &App) -> Option<gpui::AnyElement> {
+    (badge.count > 0).then(|| rail_badge_element(RailBadge::Count(badge.count, badge_tone(badge.tone)), 12., cx))
+}
+
 /// One badge element at `glyph_px` (dots keep their fixed [`rail_dot`] size
 /// regardless; a count is the 16px capsule).
 pub(crate) fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {

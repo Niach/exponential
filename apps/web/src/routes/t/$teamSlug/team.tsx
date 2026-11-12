@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { CHATS_COPY, teamMeta } from "@exp/domain-contract/chats"
 import {
   SETTINGS_NAV_PHONE_ROWS,
@@ -11,6 +10,7 @@ import {
   type SettingsNavRow,
 } from "@exp/domain-contract/settings-nav"
 import {
+  Badge,
   GlassGroup,
   TeamAvatar,
   UserAvatar,
@@ -32,9 +32,10 @@ import { GETTING_STARTED_TITLE } from "@/components/getting-started/getting-star
 import gettingStartedSpec from "@exp/domain-contract/fixtures/getting-started.json"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useSignOut } from "@/hooks/use-sign-out"
+import { useNeedsYouCounts } from "@/hooks/use-needs-you"
+import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
 import { useTeamBoards, useTeamMemberships } from "@/hooks/use-team-data"
 import { isAdminUser } from "@/lib/auth/app-user"
-import { boardCollection, issueCollection, notificationCollection } from "@/lib/collections"
 import { pageTitle } from "@/lib/page-title"
 import { cn } from "@/lib/utils"
 import {
@@ -48,8 +49,8 @@ import {
 // Chat 58cb32df (#EXP-1373) → #EXP-1384 (chats.json `shell`, ×3 with iOS
 // and Android): the phone's TEAM tab. THE page header titled with the team's
 // name, the active team's avatar (84) + meta, a glass group of the viewer's
-// teams (the active one checked, a team with an unread notification an
-// amber dot; a tap SWITCHES = opens that team's Team tab — the only place a
+// teams (the active one checked, every other team wearing #FEED-232's
+// count badge of its Needs you rows, attention; a tap SWITCHES = opens that team's Team tab — the only place a
 // phone switches team), then the team's settings rows FROM settings-nav.json
 // (`phoneRows` in fixture order, then the web-only rows; each opens its OWN
 // page, Devices pushed), then the account row (the viewer's avatar) and the rest of the old
@@ -77,38 +78,6 @@ const ReportBugIcon = conceptIcon(`nav-report-bug`)
 const SignOutIcon = conceptIcon(`nav-sign-out`)
 
 const ROW = `flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left text-[15px] text-foreground outline-none transition-colors duration-fast active:bg-glass-active/50 focus-visible:bg-glass-active/50`
-
-/** The team ids holding an unread notification: an issue-less row names
- *  its team, an issue row resolves through its issue's board. */
-function useUnreadTeamIds(): Set<string> {
-  const { data: notifications } = useLiveQuery((query) => query.from({ n: notificationCollection }))
-  const unread = (notifications ?? []).filter((n) => !n.readAt)
-  const issueIds = [...new Set(unread.map((n) => n.issueId).filter((id): id is string => Boolean(id)))].sort()
-  const { data: issues } = useLiveQuery(
-    (query) =>
-      issueIds.length > 0
-        ? query
-            .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.id, issueIds))
-            .select(({ issues }) => ({ id: issues.id, boardId: issues.boardId }))
-        : undefined,
-    [issueIds.join(`,`)]
-  )
-  const { data: boards } = useLiveQuery((query) => query.from({ boards: boardCollection }))
-  return useMemo(() => {
-    const boardTeam = new Map((boards ?? []).map((board) => [board.id, board.teamId]))
-    const issueTeam = new Map(
-      (issues ?? []).map((issue) => [issue.id, boardTeam.get(issue.boardId) ?? null])
-    )
-    const ids = new Set<string>()
-    for (const n of unread) {
-      const teamId = n.teamId ?? (n.issueId ? issueTeam.get(n.issueId) : null)
-      if (teamId) ids.add(teamId)
-    }
-    return ids
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unread.map((n) => n.id).join(`,`), issues, boards])
-}
 
 type TeamRowPath =
   | SettingsSectionPath
@@ -218,7 +187,8 @@ function TeamTabPage() {
   const boards = useTeamBoards(team?.id)
   const { agents } = useAgents(team?.id, user?.id)
   const { myTeams } = useTeamMemberships(user?.id)
-  const unreadTeams = useUnreadTeamIds()
+  const myTeamIds = useMemo(() => myTeams.map((row) => row.id), [myTeams])
+  const teamNeedsYou = useNeedsYouCounts(myTeamIds, user?.id)
   const handleSignOut = useSignOut()
   const feedbackAvailable = useFeedbackWidgetAvailable()
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
@@ -285,9 +255,9 @@ function TeamTabPage() {
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
               {row.slug === teamSlug ? (
                 <CheckIcon className="size-5 shrink-0" />
-              ) : unreadTeams.has(row.id) ? (
-                <span aria-label="Unread" className="size-2.5 shrink-0 rounded-full bg-yellow-400" />
-              ) : null}
+              ) : (
+                <Badge count={teamNeedsYou.byTeam.get(row.id) ?? 0} tone="attention" title={NEEDS_YOU_COPY.entry} />
+              )}
             </button>
           ))}
           <RowButton

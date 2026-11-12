@@ -214,7 +214,7 @@ struct ChatAskCard: View {
     /// #EXP-1662: the chat's tab on this plan, from anywhere.
     private func openPlan(_ card: ChatPlanRow) {
         if planOutlet?.open(card.id) == true { return }
-        pushRoute(AppRoute.openingPlan(card.sessionId, messageId: card.id, accountId: accountId, deps: deps))
+        Task { pushRoute(await AppRoute.openingPlan(card.sessionId, messageId: card.id, accountId: accountId, deps: deps)) }
     }
 
     /// #EXP-1561: a WAITING card's ONE × for a reader who may answer it; a

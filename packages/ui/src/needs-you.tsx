@@ -111,7 +111,7 @@ export function NeedsYouEntryRow({
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch border-b border-glass-stroke py-3">
         <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">{NEEDS_YOU_COPY.entry}</span>
-        <Badge count={count} className="bg-yellow-400 text-black" />
+        <Badge count={count} tone="attention" />
       </span>
     </button>
   )

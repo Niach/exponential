@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.icons.ExpIcons
 
@@ -43,8 +44,9 @@ import com.exponential.app.ui.icons.ExpIcons
 data class PageHeaderActions(
     val onSearch: () -> Unit,
     val onInbox: () -> Unit,
-    /** A notification of the active team is unread: the inbox dot. */
-    val inboxUnread: Boolean,
+    /** #FEED-232: the active team's unread notifications: the inbox's
+     *  muted count badge (0 = none). */
+    val inboxUnread: Int,
 )
 
 /** Null outside the nav shell (previews, specimens): the circles no-op. */
@@ -99,17 +101,13 @@ fun PageHeader(
                             .testTag(Chats.TestIds.INBOX_BUTTON)
                             .semantics { contentDescription = Chats.Copy.INBOX },
                     ) { HeaderGlyph(ExpIcons.navInbox) }
-                    if (actions?.inboxUnread == true) {
-                        // Web `PageHeader`'s dot: 10dp, 8dp in from the top-right.
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = (-8).dp, y = 8.dp)
-                                .size(10.dp)
-                                .background(ChatsInboxDot, CircleShape)
-                                .testTag("chats-inbox-dot"),
-                        )
-                    }
+                    // #FEED-232: THE count badge, muted, on the circle's corner.
+                    CountBadge(
+                        actions?.inboxUnread ?: 0,
+                        NavBadges.Tone.Muted,
+                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp),
+                        testTag = "chats-inbox-badge",
+                    )
                 }
             }
         }

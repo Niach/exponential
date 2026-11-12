@@ -31,6 +31,7 @@ mod actions;
 mod agent_screen;
 // THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
 mod dock;
+mod app_badge;
 mod app_title_bar;
 mod attachment_markdown_preview;
 mod attachments_row;
@@ -84,6 +85,7 @@ mod specimen_pictures;
 mod app_outbox;
 mod exponential_ui_host;
 pub use app_outbox::install_record_outbox;
+pub use app_badge::set_app_id as set_app_badge_id;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.
 mod app_export_dialog;
 // VAPP-228: the Data tab's CSV import dialog.

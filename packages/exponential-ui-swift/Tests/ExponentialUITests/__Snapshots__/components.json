@@ -10565,6 +10565,57 @@
       }
     ]
   },
+  "CountBadge\/example" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#facc15",
+        "component" : "CountBadge",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "count_badge",
+        "radius" : 9999
+      }
+    ]
+  },
+  "CountBadge\/tone=attention" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#facc15",
+        "component" : "CountBadge",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "count_badge",
+        "radius" : 9999
+      }
+    ]
+  },
+  "CountBadge\/tone=muted" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "CountBadge",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "count_badge",
+        "radius" : 9999
+      }
+    ]
+  },
   "DatePicker\/example" : {
     "height" : 60,
     "nodes" : [

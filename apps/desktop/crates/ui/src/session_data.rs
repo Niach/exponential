@@ -9,11 +9,11 @@
 //! collection itself (masterplan-v3 §4.1, the `queries.rs` rule).
 //!
 //! The functions taking `&App` are plain reads; the two list reads every rail
-//! render asks for ([`chat_lists`], [`rail_chats_badge`]) memoise per
+//! render asks for ([`chat_lists`], [`rail_chats_count`]) memoise per
 //! store change and take `&mut App`. Pure cores sit next to their `cx`
 //! wrappers and carry the tests.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use domain::pr_stack::PrSet;
@@ -23,7 +23,7 @@ use domain::rows::{
 use domain::session_tree::{
     build_session_chat, list_agents, partition_chats, session_card, tree_order,
     AgentRow, SessionCard, SessionChatInput, SessionChatRow, SessionChatView, ChatsListGroup, ChatsListInput,
-    ChatsListKey, TreeIssue,
+    TreeIssue,
 };
 use gpui::App;
 use sync::Store;
@@ -1526,17 +1526,17 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
     ChatsModel { list, archived, agent_rows, app_rows }
 }
 
-/// EXP-1323: the Chats entry's unread dot — any chat of `team_id` has
-/// an agent reply the viewer has not read (`chats_list_unread`).
-/// #EXP-1388: an archived chat never lights it (`chats_unread`).
-pub(crate) fn rail_chats_unread(team_id: &str, cx: &mut App) -> bool {
+/// #FEED-232: the Chats row's count (`nav_badges::chats_badge`): the chats
+/// that need you or hold an unread reply; an archived chat only while it
+/// needs you.
+pub(crate) fn rail_chats_count(team_id: &str, cx: &mut App) -> domain::nav_badges::CountBadgeValue {
     let groups = chat_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
-        return domain::session_tree::chats_list_unread(&groups);
+        return domain::nav_badges::chats_badge(&groups, &[]);
     };
     let session_reads = store.collections().session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.archived_at.is_some()).collect();
-    domain::chats::chats_unread(&groups, &reads)
+    domain::nav_badges::chats_badge(&groups, &reads)
 }
 
 // ---------------------------------------------------------------------------
@@ -1673,89 +1673,6 @@ pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut A
         .detach();
 }
 
-/// The rail Chats entry's dot: `(needs_you, running)` — some chat of
-/// `team_id` waits on a person / is queued or running.
-pub(crate) fn rail_chats_badge(team_id: &str, cx: &mut App) -> (bool, bool) {
-    chats_badge_of(&chat_lists(team_id, cx))
-}
-
-fn chats_badge_of(groups: &[ChatsListGroup]) -> (bool, bool) {
-    let has = |key: ChatsListKey| groups.iter().any(|group| group.key == key && !group.rows.is_empty());
-    (has(ChatsListKey::NeedsYou), has(ChatsListKey::Running))
-}
-
-/// EXP-1075 / EXP-1294 — one team's tally of MY live chats: how many are
-/// working, and whether any waits on me (the team switcher's dot turns amber).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TeamLiveRuns {
-    pub(crate) count: usize,
-    pub(crate) needs_input: bool,
-}
-
-/// The chat roots whose tree holds a session I started (`user_id` = the
-/// starter) that is working ([`session_is_working`]) or waits on a person,
-/// grouped by root id. The ONE liveness rule the rail's Running section and
-/// the team switcher's dot share.
-fn my_live_trees<'a>(sessions: &[&'a SessionRow], me: &str) -> BTreeMap<&'a str, Vec<&'a SessionRow>> {
-    let chat_roots: HashMap<&str, &SessionRow> = sessions
-        .iter()
-        .copied()
-        // Release train 2026-10-23 (VAPP-110): a working app editor is not a
-        // chat, so it stays out of Running and the switcher's dot.
-        .filter(|session| session.is_root() && session.is_chat() && !session.is_app_editor())
-        .map(|session| (session.id.as_str(), session))
-        .collect();
-    let mut trees: BTreeMap<&str, Vec<&SessionRow>> = BTreeMap::new();
-    for session in sessions.iter().copied() {
-        if session.user_id.as_deref() != Some(me) {
-            continue;
-        }
-        if !session_is_working(session) && !session_needs_you(session) {
-            continue;
-        }
-        let root_id = session.root_id_or_self();
-        if chat_roots.contains_key(root_id) {
-            trees.entry(root_id).or_default().push(session);
-        }
-    }
-    trees
-}
-
-/// Pure core of [`own_live_roots_by_team`]. A root without a `team_id` is
-/// never counted (the column is NOT NULL server-side: `None` = a decode gap).
-pub(crate) fn own_live_roots_by_team_from(sessions: &[&SessionRow], me: &str) -> BTreeMap<String, TeamLiveRuns> {
-    let roots: HashMap<&str, &SessionRow> = sessions
-        .iter()
-        .copied()
-        .map(|session| (session.id.as_str(), session))
-        .collect();
-    let mut by_team: BTreeMap<String, TeamLiveRuns> = BTreeMap::new();
-    for (root_id, live) in my_live_trees(sessions, me) {
-        let Some(team_id) = roots.get(root_id).and_then(|root| root.team_id.as_deref()) else {
-            continue;
-        };
-        let entry = by_team.entry(team_id.to_string()).or_default();
-        entry.count += 1;
-        entry.needs_input |= live.iter().any(|session| session_needs_you(session));
-    }
-    by_team
-}
-
-/// The team switcher's dot: per team, my live chats
-/// ([`own_live_roots_by_team_from`]). Replaces the run-era
-/// `queries::own_live_runs_by_team_now`.
-pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns> {
-    let Some(me) = signed_in_user(cx) else {
-        return BTreeMap::new();
-    };
-    let Some(store) = Store::try_global(cx) else {
-        return BTreeMap::new();
-    };
-    let sessions = store.collections().sessions.read(cx);
-    let rows: Vec<&SessionRow> = sessions.iter().collect();
-    own_live_roots_by_team_from(&rows, &me)
-}
-
 /// One row of the rail's Active band (EXP-1318): a chat the shapes make
 /// visible that needs you, runs, or still asks for a merge — the mark and
 /// the title, no identifier, no caption. #EXP-1461: a ROOT only (its
@@ -1872,6 +1789,7 @@ pub(crate) fn observe_session_rows<V: 'static>(cx: &mut gpui::Context<V>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::session_tree::ChatsListKey;
     use serde_json::json;
 
     /// #LOGS-11: a chat's view and messages after agent replies stream in
@@ -1965,53 +1883,6 @@ mod tests {
         assert!(!session_is_working(&over));
     }
 
-    /// The switcher counts a chat ONCE however many of my sessions run in
-    /// it, only my sessions count, idle and ended never do, and needs-you
-    /// lifts only its own team.
-    #[test]
-    fn live_roots_fold_by_team() {
-        let mut waiting = child("c2", "r2", "t2", "me", "idle", "2026-10-13T10:02:00.000Z");
-        waiting.needs_input = true;
-        let sessions = [
-            root("r1", "t1", "me", "running"),
-            child("c1", "r1", "t1", "me", "running", "2026-10-13T10:02:00.000Z"),
-            root("r2", "t2", "me", "idle"),
-            waiting,
-            root("r3", "t1", "someone", "running"),
-            root("r4", "t1", "me", "idle"),
-            root("r5", "t1", "me", "ended"),
-        ];
-        let refs: Vec<&SessionRow> = sessions.iter().collect();
-        let by_team = own_live_roots_by_team_from(&refs, "me");
-        assert_eq!(
-            by_team.get("t1"),
-            Some(&TeamLiveRuns {
-                count: 1,
-                needs_input: false
-            })
-        );
-        assert_eq!(
-            by_team.get("t2"),
-            Some(&TeamLiveRuns {
-                count: 1,
-                needs_input: true
-            })
-        );
-        assert_eq!(by_team.len(), 2);
-    }
-
-    #[test]
-    fn agent_roots_and_team_less_roots_never_count() {
-        let mut agent = root("a1", "t1", "me", "running");
-        // NEW-2: an agent's conversation is decided by `agent_id`, never `kind`.
-        agent.agent_id = Some("ag-1".into());
-        let mut loose = root("r1", "t1", "me", "running");
-        loose.team_id = None;
-        let sessions = [agent, loose];
-        let refs: Vec<&SessionRow> = sessions.iter().collect();
-        assert!(own_live_roots_by_team_from(&refs, "me").is_empty());
-    }
-
     /// EXP-1318: the Active band = needs you + running + the recent rows
     /// still asking for a merge, every visible chat (not only mine).
     #[test]
@@ -2055,33 +1926,5 @@ mod tests {
         assert_eq!(rows[0].session_ids, vec!["r1".to_string(), "c1".to_string()]);
     }
 
-    #[test]
-    fn the_badge_reads_the_needs_you_and_running_bands() {
-        let band = |key: ChatsListKey| ChatsListGroup {
-            key,
-            title: key.title().to_string(),
-            rows: vec![domain::session_tree::ChatsListRow {
-                session_id: "r".into(),
-                team_id: "t".into(),
-                depth: 0,
-                parent_id: None,
-                root_id: "r".into(),
-                title: "x".into(),
-                device_id: None,
-                busy: false,
-                needs_you: false,
-                unread: false,
-                activity_at: String::new(),
-                offline: false,
-            }],
-        };
-        assert_eq!(chats_badge_of(&[]), (false, false));
-        assert_eq!(chats_badge_of(&[band(ChatsListKey::Recent)]), (false, false));
-        assert_eq!(chats_badge_of(&[band(ChatsListKey::Running)]), (false, true));
-        assert_eq!(
-            chats_badge_of(&[band(ChatsListKey::NeedsYou), band(ChatsListKey::Running)]),
-            (true, true)
-        );
-    }
 
 }

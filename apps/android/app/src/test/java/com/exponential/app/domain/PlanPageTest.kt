@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -86,7 +87,8 @@ class PlanPageTest {
         val layout = fixture.getValue("layout").jsonObject
         assertEquals(num(layout["outlineWidth"]), PlanPage.Layout.OUTLINE_WIDTH)
         assertEquals(num(layout["columnMaxWidth"]), PlanPage.Layout.COLUMN_MAX_WIDTH)
-        assertEquals(setOf("outlineWidth", "columnMaxWidth", "columnPadding", "blockGap", "outlineRowHeight", "outlineActiveBar", "titleSize", "rowHeight", "tabMaxWidth", "railWidth"), layout.keys)
+        assertEquals(setOf("outlineWidth", "columnMaxWidth", "columnPadding", "blockGap", "outlineRowHeight", "outlineActiveBar", "titleSize", "rowHeight", "tabMaxWidth", "railWidth", "documentMinWidth"), layout.keys)
+        assertEquals(num(layout["documentMinWidth"]), PlanPage.Layout.DOCUMENT_MIN_WIDTH)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["wide"]), PlanPage.Layout.COLUMN_PADDING_WIDE)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["phone"]), PlanPage.Layout.COLUMN_PADDING_PHONE)
         assertEquals(num(layout["blockGap"]), PlanPage.Layout.BLOCK_GAP)
@@ -218,6 +220,16 @@ class PlanPageTest {
             val glyph = PlanPage.planTabGlyph(case.str("decision"))
             assertEquals(case.str("decision"), expected.str("icon"), glyph.icon)
             assertEquals(case.str("decision"), expected.str("tone"), glyph.tone)
+        }
+    }
+
+    @Test
+    fun `replays every pane case`() {
+        for (case in cases("paneCases")) {
+            val expected = case.getValue("expected").jsonObject
+            val pane = PlanPage.planPaneLayout(num(case["width"]))
+            assertEquals(case.str("name"), expected.getValue("outline").jsonPrimitive.boolean, pane.outline)
+            assertEquals(case.str("name"), expected.getValue("rail").jsonPrimitive.boolean, pane.rail)
         }
     }
 

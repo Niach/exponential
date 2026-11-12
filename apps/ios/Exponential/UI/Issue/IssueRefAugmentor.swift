@@ -3,8 +3,9 @@ import ExpUI
 import Foundation
 
 /// EXP-892 — the `#` autocomplete's server half, for every host that can go
-/// async. The local half stays instant and synchronous (`IssueRefLookup.search`
-/// ranks the synced rows with the shared `IssueSearch` engine); this debounces
+/// async. The local half (`IssueRefLookup.search` ranks the synced rows with
+/// the shared `IssueSearch` engine) reads off the main thread since #PERF-5
+/// and lands a moment after the keystroke; this debounces
 /// a team-scoped `issues.search` on the same query — full text over titles,
 /// descriptions AND comment bodies, which the local rows cannot answer — and
 /// hands the merged list back to the editor.
@@ -31,6 +32,11 @@ final class IssueRefAugmentor {
     private let accountId: String
     private let issuesApi: IssuesApi
     private var task: Task<Void, Never>?
+    private var localTask: Task<Void, Never>?
+    /// The query whose local rows are loading or shown, and the one whose
+    /// merged rows are shown (local rows never replace those).
+    private var localQuery: String?
+    private var mergedQuery: String?
     private weak var editor: IssueEditorModel?
 
     init(
@@ -52,8 +58,14 @@ final class IssueRefAugmentor {
         let scope = scope
         let db = db
         let accountId = accountId
-        editor.issueRefSearch = { query in
-            IssueRefLookup.search(
+        // #PERF-5: never a read on the main thread; the rows on screen stay
+        // until this query's local rows land.
+        editor.issueRefSearch = { [weak self, weak editor] query in
+            self?.loadLocal(query)
+            return editor?.issueRefCandidates ?? []
+        }
+        editor.issueRefLocalSearch = { query in
+            await IssueRefLookup.search(
                 query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
         }
         editor.onIssueRefQuery = { [weak self] query in self?.queryChanged(query) }
@@ -66,15 +78,30 @@ final class IssueRefAugmentor {
     /// The local ranking spliced with the team's full-text hits for `query`
     /// (the local rows alone when the server has nothing to add).
     func merged(_ query: String) async -> [IssueRefCandidate] {
-        let local = IssueRefLookup.search(
+        let local = await IssueRefLookup.search(
             query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
         guard !IssueSearch.normalizeQuery(query).isEmpty,
-              let teamId = IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
+              let teamId = await IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
               let hits = try? await issuesApi.search(
                   accountId: accountId, teamId: teamId, query: query, limit: Self.limit),
               !hits.isEmpty
         else { return local }
-        return mergeHits(hits, local: local)
+        return await mergeHits(hits, local: local)
+    }
+
+    private func loadLocal(_ query: String) {
+        // A fresh token (no query on screen yet) always loads.
+        guard query != localQuery || editor?.activeIssueRefQuery == nil else { return }
+        localQuery = query
+        mergedQuery = nil
+        localTask?.cancel()
+        let (scope, db, accountId) = (scope, db, accountId)
+        localTask = Task { [weak self] in
+            let local = await IssueRefLookup.search(
+                query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
+            guard !Task.isCancelled, let self, self.mergedQuery != query else { return }
+            self.editor?.offerIssueRefCandidates(local, for: query)
+        }
     }
 
     private func queryChanged(_ query: String) {
@@ -85,24 +112,27 @@ final class IssueRefAugmentor {
         task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.debounce)
             guard !Task.isCancelled, let self else { return }
-            guard let teamId = IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
+            guard let teamId = await IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
                   let hits = try? await issuesApi.search(
                       accountId: accountId, teamId: teamId, query: query, limit: Self.limit)
             else { return }
             guard !Task.isCancelled, !hits.isEmpty else { return }
-            self.apply(hits, for: query)
+            await self.apply(hits, for: query)
         }
     }
 
-    private func apply(_ hits: [SearchIssueHit], for query: String) {
+    private func apply(_ hits: [SearchIssueHit], for query: String) async {
         guard let editor, editor.activeIssueRefQuery == query else { return }
-        let local = IssueRefLookup.search(
+        let local = await IssueRefLookup.search(
             query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
-        editor.offerIssueRefCandidates(mergeHits(hits, local: local), for: query)
+        let merged = await mergeHits(hits, local: local)
+        guard !Task.isCancelled else { return }
+        mergedQuery = query
+        editor.offerIssueRefCandidates(merged, for: query)
     }
 
-    private func mergeHits(_ hits: [SearchIssueHit], local: [IssueRefCandidate]) -> [IssueRefCandidate] {
-        let table = IssueRefLookup.candidates(
+    private func mergeHits(_ hits: [SearchIssueHit], local: [IssueRefCandidate]) async -> [IssueRefCandidate] {
+        let table = await IssueRefLookup.candidates(
             for: hits, scope: scope, db: db, accountId: accountId)
         // The issue being edited never offers itself — on either half.
         let exclude: Set<String> = {

@@ -3,6 +3,7 @@ import Combine
 import ExpUI
 import ExpCore
 import SwiftUI
+import UserNotifications
 import GRDB
 
 enum AppRoute: Hashable {
@@ -118,22 +119,23 @@ extension AppRoute {
     /// naming a session with a waiting plan of its own
     /// (`PlanPage.planPageFor`) opens its chat's plan tab; else
     /// `openingSession`.
-    @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
-        if let messageId = planPageTarget(sessionId, accountId: accountId, deps: deps) {
-            return openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps)
+    /// #PERF-5: these read the store off main (async), never on a tap.
+    @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) async -> AppRoute {
+        if let messageId = await planPageTarget(sessionId, accountId: accountId, deps: deps) {
+            return await openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps)
         }
-        return openingSession(sessionId, accountId: accountId, deps: deps)
+        return await openingSession(sessionId, accountId: accountId, deps: deps)
     }
 
     /// #EXP-1662: a plan opens as a tab of its session's root (a chat or an
     /// agent's conversation); an unsynced session opens by `openingSession`.
     @MainActor static func openingPlan(
         _ sessionId: String, messageId: String, accountId: String, deps: AppDependencies
-    ) -> AppRoute {
-        let session = try? deps.db.pool(forAccountId: accountId).read { db in
+    ) async -> AppRoute {
+        let session = try? await deps.db.pool(forAccountId: accountId).read { db in
             try SessionEntity.fetchOne(db, key: sessionId)
         }
-        guard let session else { return openingSession(sessionId, accountId: accountId, deps: deps) }
+        guard let session else { return await openingSession(sessionId, accountId: accountId, deps: deps) }
         return .chat(
             accountId: accountId,
             chatId: session.rootId.isEmpty ? session.id : session.rootId,
@@ -142,8 +144,8 @@ extension AppRoute {
     }
 
     /// The session's waiting plan message (`PlanPage.planPageFor`), else nil.
-    @MainActor static func planPageTarget(_ sessionId: String, accountId: String, deps: AppDependencies) -> String? {
-        let rows = (try? deps.db.pool(forAccountId: accountId).read { db in
+    @MainActor static func planPageTarget(_ sessionId: String, accountId: String, deps: AppDependencies) async -> String? {
+        let rows = (try? await deps.db.pool(forAccountId: accountId).read { db in
             try SessionMessage.fetchAll(db, sql: """
                 \(SessionQueries.keyedMessagesSQL)
                 AND "messages"."session_id" = ?
@@ -161,19 +163,19 @@ extension AppRoute {
     /// #FEED-191 (needs-you.json): where a row opens, by `opens`: a plan = its
     /// chat's Plan tab on that plan; a card = the Conversation scrolled to
     /// it; results = the Results tab; chat = the agent conversation.
-    @MainActor static func openingNeedsYou(_ row: NeedsYou.Row, accountId: String, deps: AppDependencies) -> AppRoute {
+    @MainActor static func openingNeedsYou(_ row: NeedsYou.Row, accountId: String, deps: AppDependencies) async -> AppRoute {
         switch row.opens {
         case .plan: .chat(accountId: accountId, chatId: row.rootId, child: .plan(row.messageId))
         case .card: .chat(accountId: accountId, chatId: row.rootId, child: .card(row.messageId))
         case .results: .chat(accountId: accountId, chatId: row.rootId, child: .results)
-        case .chat: openingSession(row.rootId, accountId: accountId, deps: deps)
+        case .chat: await openingSession(row.rootId, accountId: accountId, deps: deps)
         }
     }
 
     /// `opening(_:)` for a session id read from the account's store.
-    @MainActor static func openingSession(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
+    @MainActor static func openingSession(_ sessionId: String, accountId: String, deps: AppDependencies) async -> AppRoute {
         let viewerId = deps.auth.accounts.first { $0.id == accountId }?.userId
-        let target = (try? deps.db.pool(forAccountId: accountId).read { db in
+        let target = (try? await deps.db.pool(forAccountId: accountId).read { db in
             try InboxRoute.sessionTarget(db: db, sessionId: sessionId, viewerId: viewerId)
         }) ?? .session(id: sessionId)
         return opening(target, accountId: accountId)
@@ -487,8 +489,8 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     /// EXP-1373: the team of every unread notification the inbox can render
-    /// (nil = a team-less row): the Chats header's inbox dot reads the
-    /// ACTIVE team's, the Team tab's team rows their own amber dots.
+    /// (nil = a team-less row): the page header's Inbox count reads the
+    /// ACTIVE team's (#FEED-232).
     @State private var unreadTeamIds: [String?] = []
     /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
     /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
@@ -579,8 +581,13 @@ struct MainNavigator: View {
         .environment(\.chatLanding, chatLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        // #EXP-1384: every page header's inbox dot.
-        .environment(\.inboxUnread, activeInboxUnread)
+        // #EXP-1384: every page header's inbox count (#FEED-232).
+        .environment(\.inboxUnreadCount, activeInboxUnreadCount)
+        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = every
+        // team's needs-you rows summed; 0 clears it.
+        .onChange(of: appIconBadgeCount, initial: true) { _, count in
+            UNUserNotificationCenter.current().setBadgeCount(count)
+        }
         .sheet(item: $createBoardTarget) { target in
             CreateBoardSheet(
                 accountId: target.accountId,
@@ -670,10 +677,6 @@ struct MainNavigator: View {
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
         }
-        // EXP-1075: the board switcher's per-team dots ride TeamState.
-        .onChange(of: sessionLists.liveByTeam, initial: true) { _, live in
-            teamState.liveRunsByTeam = live
-        }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
             if let issueId {
@@ -713,8 +716,10 @@ struct MainNavigator: View {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
-                    activateTeam(forSession: sessionId, accountId: accountId)
-                    path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                    Task { @MainActor in
+                        await activateTeam(forSession: sessionId, accountId: accountId)
+                        path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                    }
                 }
             }
         }
@@ -764,8 +769,8 @@ struct MainNavigator: View {
             let sessionUserId = deps.deepLinkBus.pendingSessionUserId
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
-                activateTeam(forSession: sessionId, accountId: accountId)
-                path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+                await activateTeam(forSession: sessionId, accountId: accountId)
+                path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
@@ -797,9 +802,7 @@ struct MainNavigator: View {
                     // The Team page itself; a pushed page's tap returns to it.
                     onTeamPage: tab == .team && path.isEmpty,
                     team: teamState.activeTeam,
-                    chatsRunning: sessionLists.chatsRunning(teamId: teamState.activeTeamId),
-                    chatsNeedYou: sessionLists.chatsNeedYou(teamId: teamState.activeTeamId),
-                    chatsUnread: sessionLists.chatsUnread(teamId: teamState.activeTeamId),
+                    chatsBadge: sessionLists.chatsBadge(teamId: teamState.activeTeamId),
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
@@ -881,10 +884,18 @@ struct MainNavigator: View {
         }
     }
 
-    /// The Chats header's inbox dot: an unread row of the ACTIVE team (or a
-    /// team-less one).
-    private var activeInboxUnread: Bool {
-        unreadTeamIds.contains { $0 == nil || $0 == teamState.activeTeamId }
+    /// #FEED-232: the page header's Inbox count: the unread rows of the
+    /// ACTIVE team (or team-less ones).
+    private var activeInboxUnreadCount: Int {
+        unreadTeamIds.filter { $0 == nil || $0 == teamState.activeTeamId }.count
+    }
+
+    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
+    /// team's needs-you rows).
+    private var appIconBadgeCount: Int {
+        NavBadges.appIconBadge(teamState.teams.map {
+            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count
+        })
     }
 
     /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
@@ -972,7 +983,6 @@ struct MainNavigator: View {
             )
         case .team:
             TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             )
                 .environment(\.accountId, accountId)
@@ -1284,7 +1294,6 @@ extension MainNavigator {
             return AnyView(AppsListScreen().environment(\.accountId, accountId))
         case .settings:
             return AnyView(TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             ).environment(\.accountId, accountId))
         case .board:
@@ -1416,7 +1425,6 @@ extension MainNavigator {
                 .environment(\.accountId, accountId)
         case .settings:
             TeamTabView(
-                unreadTeamIds: Set(unreadTeamIds.compactMap { $0 }),
                 onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
             )
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
@@ -1703,12 +1711,15 @@ extension MainNavigator {
         // EXP-1373: ONE active team: a link into another team switches it
         // first, silently.
         // The local `issues` row has no `team_id`: resolve through its board.
-        activateTeam(accountId: accountId) { db in
-            try String.fetchOne(db, sql: """
-                SELECT "b"."team_id" FROM "issues" AS "i"
-                JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
-                WHERE "i"."id" = ?
-                """, arguments: [issueId])
+        // #PERF-5: off main; the switch lands just after the push.
+        Task { @MainActor in
+            await activateTeam(accountId: accountId) { db in
+                try String.fetchOne(db, sql: """
+                    SELECT "b"."team_id" FROM "issues" AS "i"
+                    JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                    WHERE "i"."id" = ?
+                    """, arguments: [issueId])
+            }
         }
         let route: AppRoute = if let commentId {
             .issueComment(accountId: accountId, id: issueId, commentId: commentId)
@@ -1748,15 +1759,18 @@ extension MainNavigator {
             // EXP-1373: the inbox lists the ACTIVE team's rows only, so the
             // tapped row's team becomes active first: the payload's, else
             // the newest unread row's (the one the push announced).
-            activateTeam(accountId: accountId) { db in
-                if let pushTeamId { return pushTeamId }
-                return try String.fetchOne(db, sql: """
-                    SELECT COALESCE("n"."team_id", "b"."team_id") FROM "notifications" AS "n"
-                    LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
-                    LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
-                    WHERE "n"."read_at" IS NULL
-                    ORDER BY "n"."created_at" DESC LIMIT 1
-                    """)
+            // #PERF-5: off main; the switch lands just after the push.
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    if let pushTeamId { return pushTeamId }
+                    return try String.fetchOne(db, sql: """
+                        SELECT COALESCE("n"."team_id", "b"."team_id") FROM "notifications" AS "n"
+                        LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
+                        LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                        WHERE "n"."read_at" IS NULL
+                        ORDER BY "n"."created_at" DESC LIMIT 1
+                        """)
+                }
             }
         }
         // EXP-1373: the Inbox is a page pushed over the Chats tab.
@@ -1820,12 +1834,14 @@ extension MainNavigator {
             path.append(.search)
         case let .chat(sessionId):
             let accountId = deps.auth.activeAccountId ?? ""
-            let exists = (try? deps.db.pool(forAccountId: accountId).read { db in
-                try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \"sessions\" WHERE \"id\" = ?)", arguments: [sessionId])
-            }) ?? nil
-            guard exists == true else { return }
-            activateTeam(forSession: sessionId, accountId: accountId)
-            path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+            Task { @MainActor in
+                let exists = (try? await deps.db.pool(forAccountId: accountId).read { db in
+                    try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \"sessions\" WHERE \"id\" = ?)", arguments: [sessionId])
+                }) ?? nil
+                guard exists == true else { return }
+                await activateTeam(forSession: sessionId, accountId: accountId)
+                path.append(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+            }
         }
     }
 
@@ -1889,18 +1905,19 @@ extension MainNavigator {
     /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a
     /// push or link naming another team of the active account switches it
     /// first, silently (no prompt), re-pointing the board too.
-    private func activateTeam(accountId: String, teamOf query: (Database) throws -> String?) {
+    /// #PERF-5: the team reads off main (async).
+    private func activateTeam(accountId: String, teamOf query: @escaping @Sendable (Database) throws -> String?) async {
         guard accountId == (deps.auth.activeAccountId ?? ""),
               let pool = try? deps.db.pool(forAccountId: accountId),
-              let teamId = (try? pool.read { try query($0) }) ?? nil,
+              let teamId = (try? await pool.read { try query($0) }) ?? nil,
               teamId != teamState.activeTeamId,
               teamState.teams.contains(where: { $0.id == teamId })
         else { return }
         applyTeam(teamId)
     }
 
-    private func activateTeam(forSession sessionId: String, accountId: String) {
-        activateTeam(accountId: accountId) { db in
+    private func activateTeam(forSession sessionId: String, accountId: String) async {
+        await activateTeam(accountId: accountId) { db in
             try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"sessions\" WHERE \"id\" = ?", arguments: [sessionId])
         }
     }

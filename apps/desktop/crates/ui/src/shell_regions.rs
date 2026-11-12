@@ -4,7 +4,8 @@
 //! feeds it to `/shell/ide` and answers the document's events on the IDE's
 //! navigation. A row's glyph stays the IDE's to paint: the data names it
 //! `ide:<kind>:<id>` and [`RegionHost::icon_element`] draws the tinted board,
-//! the agent's animated mark, a status dot or a count.
+//! the agent's animated mark or a count (#FEED-232: THE count badge,
+//! `ide:count:<tone>:<label>`; no dots in the nav).
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -19,7 +20,7 @@ use gpui::{div, prelude::*, AnyElement, AnyWindowHandle, App, Entity, Hsla, Shar
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 use serde_json::{json, Value};
 use sync::Store;
-use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeDot, IdePinInput, IdeSidebarInput};
+use uicore_model::ide::{IdeTabInput, ide_sidebar, IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdePinInput, IdeSidebarInput, IdeTone};
 
 use crate::navigation::{self, active_board_id, active_team_id, navigate, resolved_screen, Navigation, Screen};
 use crate::settings::SettingsSection;
@@ -58,21 +59,34 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
     }
 }
 
-fn chats_dot(team_id: &str, cx: &mut App) -> Option<IdeDot> {
-    let (needs_you, running) = crate::session_data::rail_chats_badge(team_id, cx);
-    uicore_model::ide::agent_dot(needs_you, running).or_else(|| crate::session_data::rail_chats_unread(team_id, cx).then_some(IdeDot::Primary))
+/// The Chats row's count (`nav_badges::chats_badge`).
+fn chats_count(team_id: &str, cx: &mut App) -> IdeCount {
+    let badge = crate::session_data::rail_chats_count(team_id, cx);
+    let tone = match badge.tone {
+        domain::nav_badges::CountBadgeTone::Attention => IdeTone::Attention,
+        domain::nav_badges::CountBadgeTone::Muted => IdeTone::Muted,
+    };
+    IdeCount { count: badge.count, tone }
 }
 
-fn dot_color(dot: IdeDot, cx: &App) -> Hsla {
-    match dot {
-        IdeDot::Amber => cx.theme().warning,
-        IdeDot::Green => cx.theme().success,
-        IdeDot::Primary => theme::tokens::PRIMARY.to_hsla(),
-    }
+/// A count as the glyph name the hosts paint: `ide:count:<tone>:<label>`.
+fn count_icon(label: Option<&str>, tone: &str) -> Value {
+    label.map(|label| json!(format!("ide:count:{tone}:{label}"))).unwrap_or(Value::Null)
 }
 
-fn dot_icon(dot: &Value) -> Value {
-    dot.as_str().map(|tone| json!(format!("ide:dot:{tone}"))).unwrap_or(Value::Null)
+/// `<tone>:<label>` back to THE count badge (`99+` reads as past the cap).
+fn parse_count(rest: &str) -> Option<crate::sidebar::RailBadge> {
+    let (tone, label) = rest.split_once(':')?;
+    let tone = match tone {
+        "attention" => crate::surface::BadgeTone::Attention,
+        "muted" => crate::surface::BadgeTone::Muted,
+        _ => return None,
+    };
+    let count = match label.strip_suffix('+') {
+        Some(cap) => cap.parse::<usize>().ok()? + 1,
+        None => label.parse().ok()?,
+    };
+    Some(crate::sidebar::RailBadge::Count(count, tone))
 }
 
 /// One team's rows as the fixture's input, with the glyphs they name.
@@ -94,9 +108,9 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         let _span = tracing::trace_span!("rail.needs_you").entered();
         crate::needs_you::rows_in_team(&team_id, cx).rows.len()
     };
-    input.chats_dot = {
-        let _span = tracing::trace_span!("rail.chats_dot").entered();
-        chats_dot(&team_id, cx)
+    input.chats = {
+        let _span = tracing::trace_span!("rail.chats").entered();
+        chats_count(&team_id, cx)
     };
     let agents_span = tracing::trace_span!("rail.agents").entered();
     let collections = Store::global(cx).collections().clone();
@@ -105,9 +119,13 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
         let Some(issue) = collections.issues.read(cx).get(target).cloned() else { continue };
         input.pins.push(IdePinInput { id: issue.id, identifier: issue.identifier, title: issue.title });
     }
+    // #FEED-232: an agent row counts its conversation's unread replies.
+    let unread: HashMap<String, usize> =
+        crate::session_data::chats_model(&team_id, cx).agent_rows.iter().map(|row| (row.agent_id.clone(), row.unread_count)).collect();
     for agent in crate::session_data::agents_in_team(&team_id, cx) {
         let icon = format!("ide:agent:{}", agent.agent_id);
-        input.agents.push(IdeAgentInput { id: agent.agent_id.clone(), name: agent.name.clone(), icon: icon.clone(), needs_you: agent.needs_you, busy: agent.busy });
+        let unread = unread.get(&agent.agent_id).copied().unwrap_or(0);
+        input.agents.push(IdeAgentInput { id: agent.agent_id.clone(), name: agent.name.clone(), icon: icon.clone(), needs_you: agent.needs_you, unread });
         glyphs.insert(icon, Glyph::Agent(agent));
     }
     drop(agents_span);
@@ -143,16 +161,13 @@ fn gather(nav: &Entity<Navigation>, cx: &mut App) -> (IdeSidebarInput, HashMap<S
     (input, glyphs)
 }
 
-/// The fixture's output as the document binds it: dots as glyph names, the
+/// The fixture's output as the document binds it: counts as glyph names, the
 /// row under the pointer marked, the active rows' device glyphs.
 fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Option<&str>, assistant: Option<(&str, &str)>) -> Value {
     let mut value = serde_json::to_value(ide_sidebar(input)).expect("the sidebar serializes");
     let mark = |rows: &mut Value| {
         for row in rows.as_array_mut().into_iter().flatten() {
-            row["dotIcon"] = match row["count"].as_str() {
-                Some(count) => json!(format!("ide:count:{count}")),
-                None => dot_icon(&row["dot"]),
-            };
+            row["dotIcon"] = count_icon(row["count"].as_str(), row["tone"].as_str().unwrap_or("muted"));
             row["hover"] = json!(hover == row["id"].as_str());
         }
     };
@@ -167,7 +182,6 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value["boards"]["emptyText"] = json!(crate::empty_state_copy::BOARD_SWITCHER);
     for row in value["active"].as_array_mut().into_iter().flatten() {
         let device = format!("ide:device:{}", row["id"].as_str().unwrap_or_default());
-        row["unreadIcon"] = if row["unread"] == json!(true) { json!("ide:dot:primary") } else { Value::Null };
         row["deviceIcon"] = if glyphs.contains_key(&device) { json!(device) } else { Value::Null };
     }
     value
@@ -406,10 +420,6 @@ impl HostPlugin for RegionHost {
     }
 
     fn icon_element(&self, name: &str, size: f32, color: Hsla, cx: &App) -> Option<AnyElement> {
-        if let Some(tone) = name.strip_prefix("ide:dot:") {
-            let dot = serde_json::from_value::<IdeDot>(json!(tone)).ok()?;
-            return Some(crate::sidebar::rail_dot(dot_color(dot, cx)).into_any_element());
-        }
         if name == "ide:computer" {
             return self.computer.borrow().as_ref().map(|state| crate::sidebar::computer_button(state, cx));
         }
@@ -417,19 +427,15 @@ impl HostPlugin for RegionHost {
             let badge = if state == "error" { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_ERROR, cx.theme().danger) } else { crate::sidebar::RailBadge::Icon(crate::icons::registry::UI_WARNING, cx.theme().warning) };
             return Some(crate::sidebar::rail_badge_element(badge, 12., cx));
         }
-        if let Some(count) = name.strip_prefix("ide:count:") {
-            let badge = crate::sidebar::RailBadge::Count(count.parse().ok()?, crate::surface::BadgeTone::Muted);
-            return Some(crate::sidebar::rail_badge_element(badge, 12., cx));
+        if let Some(rest) = name.strip_prefix("ide:count:") {
+            return Some(crate::sidebar::rail_badge_element(parse_count(rest)?, 12., cx));
         }
         if let Some((badge, glyph)) = name.strip_prefix("ide:badge:").and_then(|rest| rest.split_once('|')) {
             let inner = self.icon_element(glyph, size, color, cx).or_else(|| {
                 let path = crate::exponential_ui_host::icon_path(glyph)?;
                 Some(gpui::svg().path(path).size(gpui::px(size)).text_color(color).into_any_element())
             })?;
-            let corner = match badge.strip_prefix("dot:") {
-                Some(tone) => crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).into_any_element(),
-                None => crate::sidebar::rail_badge_element(crate::sidebar::RailBadge::Count(badge.parse().ok()?, crate::surface::BadgeTone::Muted), 12., cx),
-            };
+            let corner = crate::sidebar::rail_badge_element(parse_count(badge.strip_prefix("count:")?)?, 12., cx);
             return Some(uicore_gpui::glyphs::cornered(inner, corner, size));
         }
         let glyphs = self.glyphs.borrow();
@@ -777,10 +783,10 @@ impl HeaderRegion {
         })
     }
 
-    /// The switcher's sections, the active team's mark, the other teams' live
-    /// dot (EXP-1075: amber wins over green), whether there is a board for New.
-    pub(crate) fn refresh(&mut self, nav: &Entity<Navigation>, live: &std::collections::BTreeMap<String, crate::session_data::TeamLiveRuns>, cx: &mut gpui::Context<Self>) {
-        let dot = |runs: Option<&crate::session_data::TeamLiveRuns>| runs.filter(|r| r.count > 0).map(|r| if r.needs_input { IdeDot::Amber } else { IdeDot::Green });
+    /// The switcher's sections, the active team's mark, the other teams'
+    /// needs-you counts (#FEED-232: attention; the corner sums them), whether
+    /// there is a board for New.
+    pub(crate) fn refresh(&mut self, nav: &Entity<Navigation>, needs_you: &std::collections::BTreeMap<String, usize>, cx: &mut gpui::Context<Self>) {
         let active = active_team_id(nav, cx);
         let locals = crate::local_desktops::entries(cx);
         let on_local = locals.iter().any(|(_, _, current)| *current);
@@ -789,18 +795,18 @@ impl HeaderRegion {
         let current = teams.iter().find(|t| Some(&t.id) == active.as_ref()).cloned();
         let image = crate::user_avatar::team_image(current.as_ref().and_then(|t| t.icon_url.as_deref()), cx);
         *self.team.borrow_mut() = Some(image);
-        let mut elsewhere: Option<IdeDot> = None;
+        let mut others = Vec::new();
         let mut team_rows = Vec::new();
         if !on_local {
             for team in &teams {
                 let is_current = Some(&team.id) == active.as_ref();
-                let tone = if is_current { None } else { dot(live.get(&team.id)) };
-                if tone == Some(IdeDot::Amber) || (tone.is_some() && elsewhere.is_none()) {
-                    elsewhere = tone;
-                }
-                team_rows.push(json!({"kind": "team", "id": team.id, "name": team.name, "current": is_current, "dotIcon": dot_icon(&json!(tone))}));
+                let count = if is_current { 0 } else { needs_you.get(&team.id).copied().unwrap_or(0) };
+                others.push(count as i64);
+                let label = uicore_model::ide::count_label(count);
+                team_rows.push(json!({"kind": "team", "id": team.id, "name": team.name, "current": is_current, "dotIcon": count_icon(label.as_deref(), "attention")}));
             }
         }
+        let elsewhere = uicore_model::ide::count_label(domain::nav_badges::app_icon_badge(others));
         let mut sections = vec![json!({
             "kind": "local", "id": "local", "label": "Local desktops",
             "entries": locals.iter().map(|(id, name, current)| json!({"kind": "local", "id": id, "name": name, "current": current, "dotIcon": Value::Null})).collect::<Vec<_>>(),
@@ -810,7 +816,7 @@ impl HeaderRegion {
         }
         let name = current.map(|t| t.name).unwrap_or_default();
         let chevron = match elsewhere {
-            Some(tone) => format!("ide:badge:dot:{}|nav-team-switcher", serde_json::to_value(tone).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()),
+            Some(label) => format!("ide:badge:count:attention:{label}|nav-team-switcher"),
             None => "nav-team-switcher".to_string(),
         };
         let value = json!({
@@ -873,11 +879,10 @@ impl HostPlugin for HeaderHost {
             "ide:team" => Some(crate::user_avatar::team_avatar_of(self.team.borrow().clone().flatten(), 28.)),
             "ide:inbox" => Some(crate::inbox_popover::InboxButton::new(self.nav.clone()).into_any_element()),
             _ => {
-                let (badge, glyph) = name.strip_prefix("ide:badge:")?.split_once('|')?;
-                let tone = badge.strip_prefix("dot:")?;
+                let (badge, glyph) = name.strip_prefix("ide:badge:count:")?.split_once('|')?;
                 let path = crate::exponential_ui_host::icon_path(glyph)?;
-                let dot = crate::sidebar::rail_dot(dot_color(serde_json::from_value(json!(tone)).ok()?, cx)).border_1().border_color(theme::tokens::BACKGROUND.to_hsla());
-                Some(div().relative().size(gpui::px(size)).child(gpui::svg().path(path).size(gpui::px(size)).text_color(color)).child(dot.absolute().top(gpui::px(-2.)).right(gpui::px(-2.))).into_any_element())
+                let corner = crate::sidebar::rail_badge_element(parse_count(badge)?, 12., cx);
+                Some(uicore_gpui::glyphs::cornered(gpui::svg().path(path).size(gpui::px(size)).text_color(color).into_any_element(), corner, size))
             }
         }
     }
@@ -928,19 +933,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_rows_hover_and_dot_reach_the_document() {
+    fn a_rows_hover_and_count_reach_the_document() {
         let input = IdeSidebarInput {
             screen: "home".into(),
-            chats_dot: Some(IdeDot::Amber),
+            chats: IdeCount { count: 2, tone: IdeTone::Attention },
             boards: vec![IdeBoardInput { id: "b1".into(), name: "Web".into(), icon: "ide:board:b1".into() }],
             ..Default::default()
         };
         let value = shaped(&input, &HashMap::new(), Some("b1"), None);
-        assert_eq!(value["nav"][0]["dotIcon"], "ide:dot:amber");
-        let counted = IdeSidebarInput { needs_you: 5, ..input.clone() };
-        assert_eq!(shaped(&counted, &HashMap::new(), None, None)["nav"][0]["dotIcon"], "ide:count:5");
+        assert_eq!(value["nav"][0]["dotIcon"], "ide:count:attention:2");
+        let counted = IdeSidebarInput { needs_you: 5, drafts: 120, ..input.clone() };
+        let counted = shaped(&counted, &HashMap::new(), None, None);
+        assert_eq!(counted["nav"][0]["dotIcon"], "ide:count:attention:5");
+        assert_eq!(counted["nav"][3]["dotIcon"], "ide:count:muted:99+");
         assert_eq!(value["boards"]["rows"][0]["hover"], true);
 
+    }
+
+    /// #FEED-232: a glyph name reads back as THE count badge.
+    #[test]
+    fn a_count_glyph_parses_back() {
+        assert!(matches!(parse_count("attention:3"), Some(crate::sidebar::RailBadge::Count(3, crate::surface::BadgeTone::Attention))));
+        assert!(matches!(parse_count("muted:99+"), Some(crate::sidebar::RailBadge::Count(100, crate::surface::BadgeTone::Muted))));
+        assert!(parse_count("amber:3").is_none());
     }
 
     #[test]

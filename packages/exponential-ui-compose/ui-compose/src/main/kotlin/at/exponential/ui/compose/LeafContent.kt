@@ -47,6 +47,7 @@ fun LeafContent(context: LeafContext) {
             SpinnerView(min(cx.inner.width, cx.inner.height), cx.ink, Modifier.align(Alignment.Center))
         }
         "Ring" -> RingLeaf(cx)
+        "CountBadge" -> CountBadgeLeaf(cx)
         "Skeleton" -> SkeletonLeaf(cx)
         "Chart" -> ChartLeaf(cx)
         "TreeGuides" -> TreeGuidesLeaf(cx)

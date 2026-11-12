@@ -33,16 +33,6 @@ public final class StoreMemo<Key: Hashable & Sendable, Value: Equatable & Sendab
         return hit?.value ?? nil
     }
 
-    /// A blocking read through the same entries, for a caller that needs the
-    /// answer in this pass (an editor chipping what was just typed). Never
-    /// from a layout pass.
-    public func value(_ key: Key, read: () -> Value?) -> Value? {
-        if let hit = entries[key], now().timeIntervalSince(hit.at) < ttl { return hit.value }
-        let value = read()
-        store(key, value)
-        return value
-    }
-
     private func refresh(_ key: Key, _ load: @escaping @Sendable () async -> Value?) {
         guard loading[key] == nil else { return }
         loading[key] = Task { [weak self] in
@@ -68,11 +58,13 @@ public final class StoreMemo<Key: Hashable & Sendable, Value: Equatable & Sendab
 }
 
 /// #PERF-5: one tick per main-queue turn in which a `StoreMemo` answer
-/// changed; the views that peeked read it, so they render the answer.
+/// changed; the views that peeked read it, so they render the answer, and
+/// the editors (which decorate outside SwiftUI) hear `didLoad`.
 @MainActor
 @Observable
 public final class StoreMemoLoads {
     public static let shared = StoreMemoLoads()
+    public static let didLoad = Notification.Name("StoreMemoLoads.didLoad")
 
     public private(set) var tick = 0
     @ObservationIgnored private var bumped = false
@@ -83,6 +75,10 @@ public final class StoreMemoLoads {
         guard !bumped else { return }
         bumped = true
         tick &+= 1
-        Task { @MainActor [weak self] in self?.bumped = false }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.bumped = false
+            NotificationCenter.default.post(name: Self.didLoad, object: self)
+        }
     }
 }

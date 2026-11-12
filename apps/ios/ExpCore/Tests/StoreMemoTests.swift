@@ -56,16 +56,20 @@ final class StoreMemoTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
-    func testTheBlockingReadSharesTheEntries() async {
+    func testALandedAnswerTellsTheEditors() async {
         let memo = memo()
-        XCTAssertEqual(memo.value("EXP-1") { "Typed" }, "Typed")
-        XCTAssertEqual(memo.peek("EXP-1") { XCTFail("fresh: no load"); return nil }, "Typed")
+        let heard = expectation(forNotification: StoreMemoLoads.didLoad, object: loads)
+        _ = memo.peek("EXP-1") { "Typed" }
+        await memo.settle()
+        await fulfillment(of: [heard], timeout: 1)
     }
 
     func testCapacityStartsOver() async {
         let memo = memo()
-        for key in ["A", "B", "C"] { _ = memo.value(key) { key } }
-        _ = memo.value("D") { "D" }
+        for key in ["A", "B", "C"] { _ = memo.peek(key) { key } }
+        await memo.settle()
+        _ = memo.peek("D") { "D" }
+        await memo.settle()
         XCTAssertNil(memo.peek("A") { nil })
         XCTAssertEqual(memo.peek("D") { nil }, "D")
     }

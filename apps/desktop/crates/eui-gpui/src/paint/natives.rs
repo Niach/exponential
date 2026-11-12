@@ -1626,6 +1626,13 @@ pub fn bool_cell(cx: &LeafCx, value: bool) -> AnyElement {
     d.child(inner).into_any_element()
 }
 
+/// #FEED-232: a CountBadge leaf: its label (the core's `text`; a `""`
+/// badge is hidden by the core) centred in the box the recipe fills and
+/// rounds (`CountBadge/root`, the `count_badge` capsule's numbers).
+pub fn count_badge(cx: &LeafCx) -> AnyElement {
+    cx.row(cx.content()).items_center().justify_center().whitespace_nowrap().child(SharedString::from(cx.str("text").to_string())).into_any_element()
+}
+
 /// A Table cell's badge (the value in a pill).
 pub fn badge_cell(cx: &LeafCx, text: &str) -> AnyElement {
     let muted = cx.theme_color("secondary").or_else(|| cx.theme_color("muted")).unwrap_or(cx.ink.opacity(0.1));

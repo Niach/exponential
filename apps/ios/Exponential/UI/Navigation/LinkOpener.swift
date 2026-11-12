@@ -56,7 +56,21 @@ enum LinkOpener {
         _ tapped: URL, origin: String, accountId: String, teamId: String?, deps: AppDependencies
     ) -> (() -> Void)? {
         let written = tapped.absoluteString
-        let team = written.hasPrefix("~") ? teamSlug(teamId: teamId, accountId: accountId, deps: deps) : nil
+        guard written.hasPrefix("~") else {
+            return action(written, team: nil, origin: origin, accountId: accountId, deps: deps)
+        }
+        // #PERF-5: `~/` names the team; its slug loads off main at tap time.
+        return {
+            Task { @MainActor in
+                let team = await loadTeamSlug(teamId: teamId, accountId: accountId, deps: deps)
+                action(written, team: team, origin: origin, accountId: accountId, deps: deps)?()
+            }
+        }
+    }
+
+    private static func action(
+        _ written: String, team: String?, origin: String, accountId: String, deps: AppDependencies
+    ) -> (() -> Void)? {
         let link = AppLink.classify(written, origin: origin, team: team)
         switch link {
         case .ignore:
@@ -103,23 +117,30 @@ enum LinkOpener {
     /// #EXP-1674 (plan-card.json): a chat card's link, in-app and https only,
     /// with the card's team for `~/` (nil = the active team).
     static func openCardLink(_ url: String, origin: String, accountId: String, teamId: String?, deps: AppDependencies) {
-        let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps)
-        guard AppLink.cardLinkOpens(url, origin: origin, team: team), let tapped = URL(string: url) else { return }
-        tapAction(tapped, origin: origin, accountId: accountId, teamId: teamId, deps: deps)?()
+        Task { @MainActor in
+            let team = await loadTeamSlug(teamId: teamId, accountId: accountId, deps: deps)
+            guard AppLink.cardLinkOpens(url, origin: origin, team: team), let tapped = URL(string: url) else { return }
+            let written = tapped.absoluteString
+            action(written, team: written.hasPrefix("~") ? team : nil, origin: origin, accountId: accountId, deps: deps)?()
+        }
     }
 
     #if canImport(ExponentialUI)
     /// #EXP-1674: a host's `textLinks` for a `hostLinks` Text (the Row subtitle):
     /// the `#IDENT` refs that resolve in the team, on its short issue route; an
-    /// unresolved ref stays text. nil = no link.
+    /// unresolved ref stays text. nil = no link. #PERF-5: memory only (a
+    /// render asks); an unknown slug or ref loads off main and re-renders.
     static func issueTextLinks(_ text: String, accountId: String, teamId: String?, deps: AppDependencies) -> [TextLinkSegment]? {
         let matches = IssueRefs.matches(in: text)
-        guard !matches.isEmpty, let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps) else { return nil }
+        guard !matches.isEmpty, let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps),
+              let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
+        else { return nil }
         let ns = text as NSString
         var segments: [TextLinkSegment] = []
         var at = 0
         for match in matches {
-            guard IssueRefLookup.resolve(identifier: match.identifier, teamSlug: team, db: deps.db, accountId: accountId) != nil,
+            let identifier = match.identifier.uppercased()
+            guard IssueRefChipCache.chip(identifier, scope: .team(id: id), db: deps.db, accountId: accountId) != nil,
                   let href = AppLink.expandTeamLink("~/issues/\(match.identifier)", team: team)
             else { continue }
             if match.range.location > at {
@@ -140,10 +161,32 @@ enum LinkOpener {
         AppLink.expandTeamLink("~/", team: teamSlug(teamId: teamId, accountId: accountId, deps: deps))
     }
 
+    /// #PERF-5: memory only, for a render (`linkBase`, `issueTextLinks`): a
+    /// miss is nil and loads off main (`StoreMemoLoads` re-renders). A tap
+    /// awaits `loadTeamSlug`.
     static func teamSlug(teamId: String?, accountId: String, deps: AppDependencies) -> String? {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
         let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
-        return (try? pool.read { db -> String? in
+        let db = deps.db
+        return slugs.peek(SlugKey(accountId: accountId, teamId: id)) {
+            await fetchTeamSlug(id, accountId: accountId, db: db)
+        }
+    }
+
+    private struct SlugKey: Hashable, Sendable {
+        let accountId: String
+        let teamId: String?
+    }
+
+    /// Slugs barely change: a long TTL keeps renders off the store.
+    private static let slugs = StoreMemo<SlugKey, String>(ttl: 60)
+
+    static func loadTeamSlug(teamId: String?, accountId: String, deps: AppDependencies) async -> String? {
+        await fetchTeamSlug(teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId), accountId: accountId, db: deps.db)
+    }
+
+    private nonisolated static func fetchTeamSlug(_ id: String?, accountId: String, db: DatabaseManager) async -> String? {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? await pool.read { db -> String? in
             if let id, let slug = try String.fetchOne(
                 db, sql: #"SELECT "slug" FROM "teams" WHERE "id" = ? LIMIT 1"#, arguments: [id]
             ) {
@@ -182,22 +225,23 @@ enum LinkOpener {
     /// `waitsForSync`: a cold launch's link may name what has not synced yet:
     /// one sync pass, then (a target with no not-found screen) a bounded poll
     /// before giving up; opening the link has just restarted the pipelines.
+    /// #PERF-5: resolves off main (async reads), then lands.
     private static func open(
         _ link: AppLink, url: URL, accountIds: [String], waitsForSync: Bool, deps: AppDependencies
     ) {
-        let first = bestResolution(link, accountIds: accountIds, deps: deps)
-        let missed = first.outcome == .noAccess || (first.outcome == .notFound && first.landing == nil)
-        guard waitsForSync, missed else {
-            apply(first, url: url, deps: deps)
-            return
-        }
         Task { @MainActor in
+            let first = await bestResolution(link, accountIds: accountIds, deps: deps)
+            let missed = first.outcome == .noAccess || (first.outcome == .notFound && first.landing == nil)
+            guard waitsForSync, missed else {
+                apply(first, url: url, deps: deps)
+                return
+            }
             await deps.syncManager.initialSync()
-            var result = bestResolution(link, accountIds: accountIds, deps: deps)
+            var result = await bestResolution(link, accountIds: accountIds, deps: deps)
             if result.outcome == .notFound, result.landing == nil {
                 for _ in 0..<8 {
                     try? await Task.sleep(for: .milliseconds(500))
-                    result = bestResolution(link, accountIds: accountIds, deps: deps)
+                    result = await bestResolution(link, accountIds: accountIds, deps: deps)
                     if result.outcome != .notFound { break }
                 }
             }
@@ -229,24 +273,24 @@ enum LinkOpener {
 
     private static func bestResolution(
         _ link: AppLink, accountIds: [String], deps: AppDependencies
-    ) -> Resolution {
+    ) async -> Resolution {
         var best: Resolution?
         for accountId in accountIds {
-            let resolution = resolve(link, accountId: accountId, deps: deps)
+            let resolution = await resolve(link, accountId: accountId, deps: deps)
             if let current = best, current.rank >= resolution.rank { continue }
             best = resolution
         }
         return best ?? Resolution(outcome: .noAccess, landing: nil)
     }
 
-    private static func resolve(_ link: AppLink, accountId: String, deps: AppDependencies) -> Resolution {
+    private static func resolve(_ link: AppLink, accountId: String, deps: AppDependencies) async -> Resolution {
         guard let slug = link.teamSlug else {
             // No team to be a member of (`/admin`, the root): a web page.
             let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: true)
             return Resolution(outcome: outcome, landing: nil)
         }
         guard let pool = try? deps.db.pool(forAccountId: accountId),
-              let teamId = (try? pool.read { db -> String? in
+              let teamId = (try? await pool.read { db -> String? in
                   try String.fetchOne(
                       db, sql: #"SELECT "id" FROM "teams" WHERE "slug" = ? LIMIT 1"#, arguments: [slug]
                   )
@@ -255,7 +299,7 @@ enum LinkOpener {
             let outcome = AppLink.linkOpenOutcome(member: false, activeTeam: false, found: false, webOnly: false)
             return Resolution(outcome: outcome, landing: nil)
         }
-        let resolved = target(of: link, teamId: teamId, teamSlug: slug, accountId: accountId, pool: pool, deps: deps)
+        let resolved = await target(of: link, teamId: teamId, teamSlug: slug, accountId: accountId, pool: pool, deps: deps)
         let outcome = AppLink.linkOpenOutcome(
             member: true,
             activeTeam: resolved.teamId == SharedBoardMirror.readActiveTeam(accountId: accountId),
@@ -273,15 +317,15 @@ enum LinkOpener {
     /// plan page, agent page).
     private static func target(
         of link: AppLink, teamId: String, teamSlug: String, accountId: String, pool: DatabasePool, deps: AppDependencies
-    ) -> Target {
+    ) async -> Target {
         switch link {
         case let .issue(_, _, identifier), let .issueRef(_, identifier):
-            guard let id = IssueRefLookup.resolve(
+            guard let id = await IssueRefLookup.resolve(
                 identifier: identifier, teamSlug: teamSlug, db: deps.db, accountId: accountId
             ) else { return Target(found: false, teamId: teamId) }
             return Target(teamId: teamId, destination: .push(.issue(accountId: accountId, id: id), over: nil))
         case let .board(_, boardSlug):
-            let id = rowId(
+            let id = await rowId(
                 #"SELECT "id" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, boardSlug, pool: pool
             )
             guard let id else { return Target(found: false, teamId: teamId) }
@@ -289,23 +333,23 @@ enum LinkOpener {
         case let .session(_, sessionId):
             // EXP-1291: a root (or an id not synced here: the chat screen
             // resolves or says not found) opens its chat, a child its session.
-            let row = session(sessionId, pool: pool)
+            let row = await session(sessionId, pool: pool)
             let route: AppRoute = if let row, !row.isRoot {
-                AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps)
+                await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps)
             } else {
                 AppRoute.chat(accountId: accountId, chatId: sessionId, child: nil)
             }
             return Target(found: row != nil, teamId: row?.teamId ?? teamId, destination: .push(route, over: nil))
         case let .plan(_, sessionId, messageId):
-            let row = session(sessionId, pool: pool)
+            let row = await session(sessionId, pool: pool)
             return Target(
                 found: row != nil, teamId: row?.teamId ?? teamId,
-                destination: .push(AppRoute.openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps), over: nil)
+                destination: .push(await AppRoute.openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps), over: nil)
             )
         case .chats:
             return Target(teamId: teamId, destination: .tab(.chats))
         case let .agent(_, agentId):
-            let id = rowId(
+            let id = await rowId(
                 #"SELECT "id" FROM "agents" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, agentId, pool: pool
             )
             return Target(
@@ -330,7 +374,7 @@ enum LinkOpener {
             // `settings-nav.json` `visible: owner`: not an owner reads as missing.
             if section == "general" || section == "widget" {
                 let userId = deps.auth.accounts.first(where: { $0.id == accountId })?.userId
-                let owner = (try? pool.read { db in
+                let owner = (try? await pool.read { db in
                     try Int.fetchOne(
                         db,
                         sql: #"SELECT COUNT(*) FROM "team_members" WHERE "team_id" = ? AND "user_id" = ? AND "role" = ?"#,
@@ -343,9 +387,9 @@ enum LinkOpener {
                 .teamSettingsSection(accountId: accountId, teamId: teamId, section: page), over: .team
             ))
         case let .appHome(_, appSlug):
-            return appTarget(appSlug, screen: nil, teamId: teamId, accountId: accountId, pool: pool)
+            return await appTarget(appSlug, screen: nil, teamId: teamId, accountId: accountId, pool: pool)
         case let .appScreen(_, appSlug, screen, params):
-            return appTarget(
+            return await appTarget(
                 appSlug, screen: Apps.ScreenRequest(screen: screen, params: params),
                 teamId: teamId, accountId: accountId, pool: pool
             )
@@ -359,8 +403,8 @@ enum LinkOpener {
     /// VAPP-242 (apps.json `screens`): THE RUN VIEW over the Apps tab.
     private static func appTarget(
         _ appSlug: String, screen: Apps.ScreenRequest?, teamId: String, accountId: String, pool: DatabasePool
-    ) -> Target {
-        let id = rowId(
+    ) async -> Target {
+        let id = await rowId(
             #"SELECT "id" FROM "apps" WHERE "team_id" = ? AND "slug" = ? AND "deleted_at" IS NULL LIMIT 1"#,
             teamId, appSlug, pool: pool
         )
@@ -370,14 +414,14 @@ enum LinkOpener {
         ))
     }
 
-    private static func rowId(_ sql: String, _ first: String, _ second: String, pool: DatabasePool) -> String? {
-        (try? pool.read { db -> String? in
+    private static func rowId(_ sql: String, _ first: String, _ second: String, pool: DatabasePool) async -> String? {
+        (try? await pool.read { db -> String? in
             try String.fetchOne(db, sql: sql, arguments: [first, second])
         }) ?? nil
     }
 
-    private static func session(_ id: String, pool: DatabasePool) -> SessionEntity? {
-        (try? pool.read { db in
+    private static func session(_ id: String, pool: DatabasePool) async -> SessionEntity? {
+        (try? await pool.read { db in
             try SessionQueries.session(db: db, id: id)
         }) ?? nil
     }
