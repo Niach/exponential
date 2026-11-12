@@ -27,14 +27,12 @@ export function fitMarkdownTable(scroller: HTMLElement): void {
   // Two layout passes for every cell at once (writes, then reads).
   const measure = (w: string) => {
     for (const { b } of boxes) b.style.width = w
-    const out = boxes.map(({ b }) => b.getBoundingClientRect().width)
-    return out
+    return boxes.map(({ b }) => b.getBoundingClientRect().width)
   }
   const max = measure(`max-content`)
   const min = measure(`min-content`)
   const columns: TableFitColumn[] = Array.from({ length: n }, () => ({ min: 0, max: 0 }))
-  boxes.forEach(({ b, c }, i) => {
-    if (!b.textContent && !b.querySelector(`img,svg`)) return
+  boxes.forEach(({ c }, i) => {
     columns[c]!.min = Math.max(columns[c]!.min, min[i]!)
     columns[c]!.max = Math.max(columns[c]!.max, max[i]!)
   })
@@ -67,7 +65,7 @@ export function watchMarkdownTable(scroller: HTMLElement): () => void {
   resize?.observe(scroller)
   const mutate = typeof MutationObserver === `undefined` ? null : new MutationObserver(() => run(true))
   mutate?.observe(scroller, { childList: true, subtree: true, characterData: true })
-  void (typeof document === `undefined` ? undefined : document.fonts?.ready.then(() => run(true)))
+  void document.fonts?.ready.then(() => run(true))
   return () => {
     live = false
     resize?.disconnect()

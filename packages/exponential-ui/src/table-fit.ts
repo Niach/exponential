@@ -3,10 +3,9 @@
 // Swift `MarkdownTableFit`, Kotlin `MarkdownTableFit`, the web's
 // `web/table-fit.ts` measures the DOM and calls this).
 
-import fixture from "../fixtures/table-fit.json" with { type: "json" }
-
-/** The widest a column's min-content (its longest word or chip) counts. */
-export const TABLE_WORD_CAP: number = fixture.wordCap
+/** The widest a column's min-content (its longest word or chip) counts
+ *  (the fixture's `wordCap`; never import a fixture into the bundles). */
+export const TABLE_WORD_CAP = 160
 
 /** One column's measured content widths: `min` = its widest unbreakable
  *  piece (a word, a chip, inline code), `max` = its widest cell on one line,
