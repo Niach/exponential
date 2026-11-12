@@ -22,7 +22,7 @@
     "burst": "Refused: more than {max} deletes within {window} s by this caller. Delete only ids the user named, one per call; never loop a delete over a list result. Ask the user before deleting more."
   },
   "auditError": "deleteBurst",
-  "descriptionLine": "Deletes: ONE id the user named per call; never act on a list result.",
+  "descriptionLine": "Never delete ids from a list result.",
   "instructionsLine": "Delete only an id the user named, one per call; never act on a list result.",
   "burst": {
     "max": 5,

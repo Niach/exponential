@@ -63,6 +63,10 @@ export interface NounSpec {
   label: string
   /** The first sentence of the description. */
   blurb: string
+  /** #EXP-1798: what only the read half / only the write half needs, after
+   *  the blurb (the always-loaded budget pays for every byte twice). */
+  readNote?: string
+  writeNote?: string
   /** `op` → the recorded (EXP-988) tool it routes to; absent for a verb. */
   ops?: Record<string, string>
   /** A verb tool registered whole under this name. */
@@ -86,7 +90,9 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `issues`,
     label: `issues`,
     group: `work`,
-    blurb: `Issues (id = UUID or identifier: EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
+    blurb: `Issues (id = UUID or identifier: EXP-12).`,
+    readNote: `list = open only unless includeClosed or a status filter; widget = reporter data.`,
+    writeNote: `create links only via sessionId or link: true.`,
     alwaysLoad: true,
     ops: {
       list: `issues_list`,
@@ -437,7 +443,8 @@ export function nounDescription(
   // #EXP-1798: every tool carrying a destructive op says the rule.
   const shown = half ? half.ops : Object.keys(spec.ops ?? {})
   const deletes = !half?.read && shown.some((op) => destructiveKey(spec.name, op)) ? ` ${DELETE_DESCRIPTION_LINE}` : ``
-  return `${spec.blurb}${twin}${deletes} op = ${ops.join(` | `)}`
+  const note = half ? (half.read ? spec.readNote : spec.writeNote) : [spec.readNote, spec.writeNote].filter(Boolean).join(` `)
+  return `${spec.blurb}${note ? ` ${note}` : ``}${twin}${deletes} op = ${ops.join(` | `)}`
 }
 
 // NEW-44: a noun's JSON schema carries only `op`, so a client passes every
