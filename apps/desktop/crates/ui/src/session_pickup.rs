@@ -66,6 +66,8 @@ struct PickupHost {
     /// #LOGS-11: the move records' fingerprint the last events delta saw
     /// ([`move_events_moved`]).
     move_events_at: u64,
+    /// #PERF-9: a pass waits for the boot hydrate ([`run_pass`]).
+    awaiting_hydrate: bool,
 }
 
 impl Global for PickupHost {}
@@ -97,6 +99,7 @@ pub(crate) fn install(cx: &mut App) {
         reclaim_retry: false,
         hosted_messages_at: 0,
         move_events_at: 0,
+        awaiting_hydrate: false,
     });
     cx.spawn(async move |cx| {
         while let Ok((prepared, reply)) = inbox.recv_async().await {
@@ -289,6 +292,23 @@ fn run_pass(cx: &mut App) {
         return;
     };
     let collections = store.collections().clone();
+    // #PERF-9: the heavy shapes hydrate off the main thread at boot: a pass
+    // over sessions without their messages (or move records) would plan
+    // from half a store. One pass runs once every one of them landed.
+    if !["sessions", "messages", "events"].iter().all(|shape| collections.is_hydrated(shape)) {
+        if !cx.global::<PickupHost>().awaiting_hydrate {
+            cx.global_mut::<PickupHost>().awaiting_hydrate = true;
+            cx.spawn(async move |cx| {
+                collections.all_hydrated().await;
+                cx.update(|cx| {
+                    cx.global_mut::<PickupHost>().awaiting_hydrate = false;
+                    schedule(cx);
+                });
+            })
+            .detach();
+        }
+        return;
+    }
     let device_id = queries::own_device_id(cx);
     let live = Arc::clone(&cx.global::<PickupHost>().live);
     // Only this machine's sessions (and their messages) reach the plan —

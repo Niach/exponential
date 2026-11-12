@@ -730,7 +730,8 @@ impl PushToTalk {
         // in the conversation (the earliest after it wins).
         let mut sent_at = None;
         let mut replies: Vec<(i64, String, String)> = Vec::new();
-        host.messages(cx, &mut |row| {
+        // #PERF-9: the conversation's rows only (was every message held).
+        host.session_messages(&sent.session_id, cx, &mut |row| {
             let message = &row.message;
             if sent.message_id.as_deref() == Some(row.id) && sent_at.is_none() {
                 sent_at = Some(message.created_at.and_then(etalk::voice::parse_instant));

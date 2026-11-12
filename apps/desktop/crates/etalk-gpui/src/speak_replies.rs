@@ -210,16 +210,25 @@ struct Gate {
     armed: bool,
     seen: HashSet<String>,
     watermark: Option<String>,
+    /// #PERF-9: the host's cursor after the last look: the next one visits
+    /// only the rows changed since (a 47k-message store was walked, and
+    /// every id re-allocated, per message change).
+    cursor: Option<u64>,
 }
 
 impl Gate {
-    /// One look at the feed: `rows` visits every row and answers whether
-    /// the feed is ready (not ready = the gate starts over).
-    fn observe(&mut self, rows: impl FnOnce(&mut dyn FnMut(&TalkMessage<'_>)) -> bool) -> Vec<Row> {
+    /// One look at the feed: `rows` visits the rows changed since the
+    /// cursor it is given (every row when arming) and answers whether the
+    /// feed is ready (not ready = the gate starts over) and the next cursor.
+    fn observe(&mut self, rows: impl FnOnce(Option<u64>, &mut dyn FnMut(&TalkMessage<'_>)) -> (bool, Option<u64>)) -> Vec<Row> {
         let arming = !self.armed;
+        let since = if arming { None } else { self.cursor };
         let mut newest: Option<(i64, String)> = None;
         let mut fresh = Vec::new();
-        let ready = rows(&mut |row| {
+        let (ready, cursor) = rows(since, &mut |row| {
+            if !arming && self.seen.contains(row.id) {
+                return;
+            }
             let first = self.seen.insert(row.id.to_string());
             if arming {
                 if let Some(created) = row.message.created_at {
@@ -237,6 +246,7 @@ impl Gate {
             *self = Gate::default();
             return Vec::new();
         }
+        self.cursor = cursor;
         if arming {
             self.armed = true;
             self.watermark = newest.map(|(_, text)| text);
@@ -765,7 +775,7 @@ impl SpeakReplies {
 
     fn on_messages(&mut self, cx: &mut Context<Self>) {
         let Some(host) = host::host(cx) else { return };
-        let fresh = self.gate.observe(|visit| host.messages(cx, visit));
+        let fresh = self.gate.observe(|since, visit| host.messages_since(since, cx, visit));
         if fresh.is_empty() {
             return;
         }
@@ -984,13 +994,37 @@ mod tests {
     }
 
     /// The feed of `rows`, `ready` or not.
-    fn feed(rows: &[Row], ready: bool) -> impl FnOnce(&mut dyn FnMut(&TalkMessage<'_>)) -> bool + '_ {
-        move |visit| {
+    fn feed(rows: &[Row], ready: bool) -> impl FnOnce(Option<u64>, &mut dyn FnMut(&TalkMessage<'_>)) -> (bool, Option<u64>) + '_ {
+        move |_, visit| {
             for row in rows {
                 visit(&TalkMessage { id: &row.id, message: row.message() });
             }
-            ready
+            (ready, None)
         }
+    }
+
+    /// #PERF-9: a host's cursor narrows the next look to the rows changed
+    /// since; an update to a row seen before is never fresh.
+    #[test]
+    fn the_gate_reads_only_the_rows_changed_since_its_cursor() {
+        let mut gate = Gate::default();
+        let old = [message("m1", "2026-10-25 10:00:00+00"), message("m2", "2026-10-25 10:00:05+00")];
+        let looks = std::cell::RefCell::new(Vec::new());
+        let changed = |rows: &[Row], cursor: u64| {
+            let rows = rows.to_vec();
+            let looks = &looks;
+            move |since: Option<u64>, visit: &mut dyn FnMut(&TalkMessage<'_>)| {
+                looks.borrow_mut().push(since);
+                for row in &rows {
+                    visit(&TalkMessage { id: &row.id, message: row.message() });
+                }
+                (true, Some(cursor))
+            }
+        };
+        assert!(gate.observe(changed(&old, 2)).is_empty());
+        let fresh = gate.observe(changed(&[old[1].clone(), message("m3", "2026-10-25 10:01:00+00")], 4));
+        assert_eq!(fresh.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m3"]);
+        assert_eq!(*looks.borrow(), [None, Some(2)], "arming reads every row, then from the cursor");
     }
 
     #[test]
