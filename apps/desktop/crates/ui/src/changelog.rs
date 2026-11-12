@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-one-conversation-store",
+    date: "2026-11-12",
+    title: "Every Claude login shares one set of conversations",
+    summary: "All Claude logins on a device now read and write the same conversations, so switching accounts carries the whole chat along and removing a login keeps its history.",
+    body: r##"- **One conversation store per device**: every Claude login on a device keeps its conversations, plans and rewind checkpoints in one place, so a session continues on another account with its full history and its plan.
+- **Removing a login keeps its chats**: "Remove account" deletes the login and its credential from the device; the conversations it ran stay and resume on any other login.
+- **Moved over on its own**: the desktop app or the CLI moves existing conversations over on its next start, skipping any login with a running session until it is idle. Nothing is deleted: a copy that differs between logins is kept aside and shown in the device's readiness list."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_253: ChangelogEntry = ChangelogEntry {
     id: "2026-11-11-accounts-and-slash-menu",
     date: "2026-11-11",
     title: "Accounts, the / menu and long first turns read right",

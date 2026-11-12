@@ -340,7 +340,7 @@ export function useAccountActions({
           onOpenChange={setConfirmRemove}
           busy={busy}
           title={`${ACTION_REMOVE}?`}
-          body={removeAccountConfirmCopy(loginLabel, deviceLabel)}
+          body={removeAccountConfirmCopy(loginLabel, deviceLabel, row.agent)}
           actions={[
             { label: `Cancel`, role: `cancel` },
             {

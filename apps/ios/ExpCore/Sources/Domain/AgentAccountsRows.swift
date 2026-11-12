@@ -362,11 +362,17 @@ public enum AgentAccountsRows {
 
     /// The confirm the destructive entry asks, pinned ×4: it names the login
     /// and the machine, and says in the same breath that the account survives.
+    /// EXP-1794: a claude login's conversations live in the device's one
+    /// store, so the claude sentence says they stay.
     public static func removeAccountConfirmCopy(
         account: String,
-        device: String
+        device: String,
+        agent: String
     ) -> String {
-        "Delete \(account) on \(device)? The login is removed from this device only; the account itself is untouched."
+        let kept = agent == "claude"
+            ? "its conversations stay on this device, and the account itself is untouched."
+            : "the account itself is untouched."
+        return "Delete \(account) on \(device)? The login is removed from this device only; \(kept)"
     }
 
     /// EXP-1137: the sign-out confirm, pinned ×4: the login keeps its row for

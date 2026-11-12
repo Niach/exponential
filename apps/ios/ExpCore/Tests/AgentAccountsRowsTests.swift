@@ -360,9 +360,16 @@ final class AgentAccountsRowsTests: XCTestCase {
     func testRemoveAccountConfirmCopy() throws {
         XCTAssertEqual(
             AgentAccountsRows.removeAccountConfirmCopy(
-                account: "work@example.com", device: "Mac mini"
+                account: "work@example.com", device: "Mac mini", agent: "codex"
             ),
             "Delete work@example.com on Mac mini? The login is removed from this device only; the account itself is untouched."
+        )
+        // EXP-1794: a claude login's conversations stay in the device's store.
+        XCTAssertEqual(
+            AgentAccountsRows.removeAccountConfirmCopy(
+                account: "work@example.com", device: "Mac mini", agent: "claude"
+            ),
+            "Delete work@example.com on Mac mini? The login is removed from this device only; its conversations stay on this device, and the account itself is untouched."
         )
     }
 
