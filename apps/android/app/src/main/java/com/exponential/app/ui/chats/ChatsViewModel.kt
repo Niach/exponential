@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -158,10 +159,29 @@ class ChatsViewModel @Inject constructor(
         ) }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * #PERF-9: the Chats tab's three dots, derived on their own. The nav bar
+     * collects them under an open chat, so off [groups] they kept the whole
+     * list (titles included) recomputing on every sync tick of that chat;
+     * [SessionTree.chatsNavDots] reads the same rule without building it and
+     * emits only on a change.
+     */
+    private val dots: StateFlow<SessionTree.ChatsNavDots> = combine(inputs, activeTeam) { input, team ->
+        com.exponential.app.domain.perfTrace("ChatsViewModel.dots") {
+            SessionTree.chatsNavDots(
+                input.sessions,
+                input.messages,
+                teamId = team,
+                reads = input.reads,
+                now = SessionTree.nowIso(),
+            )
+        }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionTree.ChatsNavDots())
+
     /** #EXP-1388: the Chats nav dot (`chatsUnread`): an unread chat outside
      *  the viewer's archive (one that needs you counts anyway). */
-    val unread: StateFlow<Boolean> = combine(groups, inputs) { g, input -> Chats.chatsUnread(g, input.reads) }
-        .flowOn(Dispatchers.Default)
+    val unread: StateFlow<Boolean> = dots.map { it.unread }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
@@ -532,14 +552,12 @@ class ChatsViewModel @Inject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1327: whether ANY chat runs (the tab's green dot, ×4). */
-    val anyRunning: StateFlow<Boolean> = groups.map { list ->
-        list.any { it.key == SessionTree.ChatsGroupKey.Running && it.rows.isNotEmpty() }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val anyRunning: StateFlow<Boolean> = dots.map { it.running }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Whether ANY chat needs a person (the tab's amber dot). */
-    val needsYou: StateFlow<Boolean> = groups.map { list ->
-        list.any { it.key == SessionTree.ChatsGroupKey.NeedsYou && it.rows.isNotEmpty() }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val needsYou: StateFlow<Boolean> = dots.map { it.needsYou }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
 /** #FEED-191: [NeedsYou.needsYou] over the synced rows of [team] (null = every
