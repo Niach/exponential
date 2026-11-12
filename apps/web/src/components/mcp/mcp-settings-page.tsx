@@ -20,18 +20,18 @@ import {
   SkeletonRows,
   UserAvatar,
   conceptIcon,
-  toast,
 } from "@exp/ui"
-import { BuiltinToolsGroup, TeamMcpServersSection, type McpSettingsRequest } from "@/components/team/mcp-servers-section"
+import { TeamMcpServersSection, type McpSettingsRequest } from "@/components/team/mcp-servers-section"
 import { Empty } from "@/components/empty"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { compactRelativeTime } from "@/lib/relative-time"
 import { promptActions, revokeMcpClientPrompt } from "@/lib/prompts"
 import { trpc } from "@/lib/trpc-client"
 
-// #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP, ONE page ×4:
-// Endpoint · Servers · Clients (Mine | Everyone) · Access (+ Activity) ·
-// Built-in Exponential tools. It replaces the MCP servers page.
+// #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP, ONE page ×4.
+// Owner 2026-11-12: the overview line · Servers (the built-ins Exponential
+// and Team apps, then the team's servers; every row unfolds to its tools) ·
+// Access (+ Activity) · Clients (Mine | Everyone) last.
 
 const McpIcon = conceptIcon(`settings-mcp`)
 const ChevronIcon = conceptIcon(`ui-chevron-right`)
@@ -53,40 +53,30 @@ export function McpSettingsPage({
   request?: McpSettingsRequest
   onRequestConsumed?: () => void
 }) {
+  // ONE read of the apps exposing tools: the Team apps row and Access.
+  const [access, setAccess] = useState<Access | null>(null)
+  useEffect(() => {
+    trpc.appAccess.list
+      .query({ teamId })
+      .then(setAccess)
+      .catch(() => setAccess(null))
+  }, [teamId])
   return (
     <div data-testid={S.testIds.page}>
-      <EndpointSection />
+      <p className="mb-4 px-1 text-sm text-muted-foreground" data-testid={S.testIds.overview}>
+        {S.overview}
+      </p>
       <div data-testid={S.testIds.servers}>
-        <TeamMcpServersSection teamId={teamId} isOwner={isOwner} request={request} onRequestConsumed={onRequestConsumed} />
+        <TeamMcpServersSection
+          teamId={teamId}
+          isOwner={isOwner}
+          request={request}
+          onRequestConsumed={onRequestConsumed}
+          appTools={access?.apps ?? null}
+        />
       </div>
+      <AccessSection data={access} setData={setAccess} teamSlug={teamSlug} />
       <ClientsSection teamId={teamId} isOwner={isOwner} />
-      <AccessSection teamId={teamId} teamSlug={teamSlug} />
-      <div data-testid={S.testIds.builtin}>
-        <BuiltinToolsGroup />
-      </div>
-    </div>
-  )
-}
-
-function EndpointSection() {
-  const url = `${window.location.origin}${S.endpointPath}`
-  return (
-    <div className="mb-6" data-testid={S.testIds.endpoint}>
-      <GlassSectionHeader label={S.labels.endpoint} />
-      <div className={SETTINGS_LIST_CLASS}>
-        <ListRow className="gap-3 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-sm">{url}</span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void navigator.clipboard.writeText(url).then(() => toast.success(S.copied))
-            }}
-          >
-            {S.copy}
-          </Button>
-        </ListRow>
-      </div>
     </div>
   )
 }
@@ -174,14 +164,15 @@ function memberLabel(member: { name: string; email: string }): string {
   return member.name.trim() || member.email
 }
 
-function AccessSection({ teamId, teamSlug }: { teamId: string; teamSlug: string }) {
-  const [data, setData] = useState<Access | null>(null)
-  useEffect(() => {
-    trpc.appAccess.list
-      .query({ teamId })
-      .then(setData)
-      .catch(() => setData(null))
-  }, [teamId])
+function AccessSection({
+  data,
+  setData,
+  teamSlug,
+}: {
+  data: Access | null
+  setData: (next: Access) => void
+  teamSlug: string
+}) {
   if (!data || data.apps.length === 0) return null
 
   const setLevel = async (appId: string, userId: string, level: McpPolicyLevel) => {

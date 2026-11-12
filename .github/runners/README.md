@@ -46,10 +46,42 @@ runner, `pick-runner.yml` sends the run to GitHub-hosted instead (input
 `linux-overflow`; 2026-11-03..07 the Mint queued 16 min at p90).
 
 Disk: `prune.sh` (a weekly user crontab line, see its header) drops images
-and build cache nothing used for a week, never volumes. The caches (sccache, cargo, rustup,
+nothing used for a week and build cache above 20 GB, never volumes. The caches (sccache, cargo, rustup,
 gradle, bun, tool cache) are named volumes (per runner except sccache, the tool
 cache and the read-only Gradle dependency cache); `docker compose down -v`
-drops them and the registration.
+drops them and the registration. sccache is capped at 15 GB
+(`SCCACHE_CACHE_SIZE`, compose + Dockerfile).
+
+Between jobs, a systemd user timer keeps the whole Mint above 60 GB free
+across the runners and every session (2026-11-12: 241 GB free on 11-08, 9.5 GB
+four days later: 107 GB of build cache the weekly prune never matched, ~80 GB
+of per-session cargo targets outside their worktrees, the shared target's test
+binaries, a 43 GB sccache):
+
+```bash
+bash .github/runners/linux/install-disk-keeper.sh              # rerun to upgrade; --uninstall
+bash .github/runners/linux/disk-keeper.sh --dry-run             # what it would delete now
+tail ~/.local/state/exponential/disk-keeper.log                 # every removal + WARN lines
+```
+
+Every 15 minutes, below 80 GB free, it deletes only regenerable build output
+until 80 GB is free: Docker build cache above 20 GB and dangling images (never
+containers or volumes: other projects' data lives there), scratch cargo
+targets outside any worktree (`~/.cache/<x>-target`, `/tmp/<x>/target-*`, the
+ones agents point `CARGO_TARGET_DIR` at; nothing removes them when the session
+ends) whole once nothing wrote to them for two days and no process has them
+open, then cargo `deps` files and `incremental/` dirs older than a day (those
+scratch targets, idle worktrees' `target*`, the shared CARGO_TARGET_DIR; a
+profile only while no build holds its `.cargo-lock`), the runners' work-dir
+targets the same way while the runner runs no job, Gradle build-cache entries
+older than a day and idle worktrees' Android `build/`, the user's top-level
+`/tmp` entries nothing wrote to for a day and no process has open, idle
+worktrees' `node_modules`, lane AVDs (`exp*`) untouched for two days with no
+emulator on them, and cargo git checkouts unused for three days. Worktrees are
+live by the Mac's rule (below); the session's own worktree goes on session end
+(`crates/coding` `run_cleanup`). Still below 60 GB after cleaning = a `WARN`
+line and one desktop notification an hour. The journal (2.4 GB) needs root:
+`SystemMaxUse=1G` in `/etc/systemd/journald.conf` caps it.
 
 ## The MacBook
 

@@ -723,7 +723,7 @@ object Chats {
                     (it.authorKind == DomainContract.messageAuthorKindUser || it.authorKind == DomainContract.messageAuthorKindAgent)
             }
             .filter { m -> m.locked != null || (m.card?.let { it.kind() in PREVIEW_CARDS } ?: m.body.isNotBlank()) }
-            .sortedWith(compareByDescending<SessionTree.Message> { ms(it.createdAt) ?: 0L }.thenByDescending { it.id })
+            .sortedByEpoch(descending = true, tie = compareByDescending { it.id }) { ms(it.createdAt) ?: 0L }
         if (needsYou) {
             val waiting = own.firstOrNull { m ->
                 m.answeredAt == null && m.card?.kind().let {
@@ -853,7 +853,7 @@ object Chats {
                         states.isNotEmpty() && states.all { it == DomainContract.prStateMerged },
                 )
             }
-            .sortedWith(compareByDescending<ChatRow> { ms(it.activityAt) ?: 0L }.thenBy { it.sessionId })
+            .sortedByEpoch(descending = true, tie = compareBy { it.sessionId }) { ms(it.activityAt) ?: 0L }
         return ChatList(
             rows = rows.filter { isArchived(it) == wantArchived },
             archived = rows.count(::isArchived),

@@ -475,8 +475,8 @@ fun AgentConversationScreen(
                     )
                     SessionScreen.Tab.Results -> ChatResultsPage(
                         rootId = "",
-                        sessions = emptyList(),
-                        messages = emptyList(),
+                        results = emptyList(),
+                        cards = emptyList(),
                         onReply = { _, _ -> },
                         pullRequests = emptyList(),
                         teamPullRequests = emptyList(),

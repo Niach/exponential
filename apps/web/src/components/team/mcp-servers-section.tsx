@@ -16,7 +16,7 @@
 // probes it to detect the sign-in kind, so the owner only confirms a name.
 // Everything technical (auth override, transport, header/env names, scopes)
 // hides behind "Advanced".
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react"
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
@@ -92,7 +92,16 @@ import {
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
-import { builtinToolBands, builtinToolMatches, runsOnCaption, SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
+import {
+  builtinEndpoint,
+  builtinToolBands,
+  builtinToolMatches,
+  mcpToolsState,
+  runsOnCaption,
+  SETTINGS_MCP,
+  toolsFailedLine,
+  usedByCaption,
+} from "@exp/domain-contract/settings-mcp"
 import { deviceCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import type { Device } from "@/db/schema"
@@ -128,17 +137,47 @@ export interface McpSettingsRequest {
 
 type Editor = { mode: `add` } | { mode: `edit`; server: McpServerRow }
 
+/** One tool as an open row lists it (the wire name only as a tooltip). */
+export interface McpToolRow {
+  name: string
+  title: string
+  blurb: string
+}
+
+/** An app exposing tools (tRPC `appAccess.list`): the open Team apps row's
+ *  sub-labels. */
+export interface McpAppTools {
+  id: string
+  slug: string
+  name: string
+  tools: readonly McpToolRow[]
+}
+
+/** Owner 2026-11-12 (fixtures/settings-mcp.json): ONE Servers group, the
+ *  built-ins (Exponential, Team apps) first, then the team's servers;
+ *  every row unfolds to its tools. */
 export function TeamMcpServersSection({
   teamId,
   isOwner,
   request,
   onRequestConsumed,
+  appTools = null,
 }: {
   teamId: string
   isOwner: boolean
   request?: McpSettingsRequest
   onRequestConsumed?: () => void
+  /** The apps exposing tools; the Team apps row shows when there is one. */
+  appTools?: readonly McpAppTools[] | null
 }) {
+  const [openRows, setOpenRows] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleRow = (key: string) =>
+    setOpenRows((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   const { servers, reloading, error, refresh, setShared } = useMcpServers(teamId)
   // FEED-79: the list loads on open and re-lists after a write, so a failed
   // load is quiet: the empty state, never a toast.
@@ -401,34 +440,37 @@ export function TeamMcpServersSection({
         }
       />
 
-      {servers === null && !error ? (
-        // The server row: name over its host line.
-        <SkeletonRows rowHeight={52} />
-      ) : !servers || servers.length === 0 ? (
-        <>
-          <Empty id="mcp-servers" />
-          {/* EXP-1274: for an owner the catalog sits right under the empty
-              state — its search-or-paste field IS the next step. */}
-          {isOwner && (
-            <CatalogPicker
-              teamId={teamId}
-              existing={[]}
-              onPicked={(picked) => {
-                setDialogError(null)
-                setSeed(picked)
-                setEditor({ mode: `add` })
-              }}
-            />
-          )}
-        </>
-      ) : (
-        <div className={SETTINGS_LIST_CLASS}>
-          {servers.map((server) => (
+      <div className={SETTINGS_LIST_CLASS}>
+        <BuiltinRow
+          id="exponential"
+          open={openRows.has(`builtin:exponential`)}
+          onToggle={() => toggleRow(`builtin:exponential`)}
+        >
+          <BuiltinToolsList />
+        </BuiltinRow>
+        {appTools && appTools.length > 0 && (
+          <BuiltinRow id="apps" open={openRows.has(`builtin:apps`)} onToggle={() => toggleRow(`builtin:apps`)}>
+            {appTools.map((app) => (
+              <ToolBand key={app.id} label={app.name} band={app.slug}>
+                {app.tools.map((tool) => (
+                  <ToolRow key={tool.name} tool={tool} />
+                ))}
+              </ToolBand>
+            ))}
+          </BuiltinRow>
+        )}
+        {servers === null && !error ? (
+          // The server row: name over its host line.
+          <SkeletonRows rowHeight={52} rows={2} />
+        ) : (
+          (servers ?? []).map((server) => (
             <ServerRow
               key={server.id}
               server={server}
               isOwner={isOwner}
               pending={pending === server.id}
+              open={openRows.has(server.id)}
+              onToggle={() => toggleRow(server.id)}
               onConnect={() => void connect(server)}
               onDisconnect={() => void disconnect(server)}
               onTest={() => void test(server)}
@@ -440,7 +482,22 @@ export function TeamMcpServersSection({
               }}
               onRemove={() => setRemoveTarget(server)}
             />
-          ))}
+          ))
+        )}
+      </div>
+      {/* EXP-1274: an owner with no server of their own gets the catalog
+          right under the list: its search-or-paste field IS the next step. */}
+      {isOwner && servers !== null && servers.length === 0 && (
+        <div className="mt-3">
+          <CatalogPicker
+            teamId={teamId}
+            existing={[]}
+            onPicked={(picked) => {
+              setDialogError(null)
+              setSeed(picked)
+              setEditor({ mode: `add` })
+            }}
+          />
         </div>
       )}
 
@@ -681,6 +738,8 @@ function ServerRow({
   server,
   isOwner,
   pending,
+  open,
+  onToggle,
   onConnect,
   onDisconnect,
   onTest,
@@ -692,6 +751,8 @@ function ServerRow({
   server: McpServerRow
   isOwner: boolean
   pending: boolean
+  open: boolean
+  onToggle: () => void
   onConnect: () => void
   onDisconnect: () => void
   onTest: () => void
@@ -707,28 +768,26 @@ function ServerRow({
   // A stdio server's secret stays on this machine (the server refuses the
   // share); only an already-shared row offers undo.
   const shareOffered = connected && (http || server.connection.shared)
+  const caption = [target, runsOnCaption(server.device?.label), usedByCaption(server.usedBy ?? [])]
+    .filter(Boolean)
+    .join(` · `)
   return (
+    <>
     <ListRow className="gap-3 px-3 py-2" data-testid="mcp-server-row">
-      <Glyph className="size-4 shrink-0 text-foreground/70" />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="min-w-0 truncate text-sm font-medium">
-            {server.name}
-          </span>
-          {server.enabledByDefault && (
+      <RowDisclosure
+        open={open}
+        onToggle={onToggle}
+        glyph={<Glyph className="size-4 shrink-0 text-foreground/70" />}
+        name={server.name}
+        pill={
+          server.enabledByDefault ? (
             <Pill size="sm" title="Pre-selected in new sessions">
               Default
             </Pill>
-          )}
-        </div>
-        <div className="flex min-w-0 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate" title={server.url ?? target}>
-            {target}
-            {runsOnCaption(server.device?.label) && ` · ${runsOnCaption(server.device?.label)}`}
-            {usedByCaption(server.usedBy ?? []) && ` · ${usedByCaption(server.usedBy ?? [])}`}
-          </span>
-        </div>
-      </div>
+          ) : null
+        }
+        caption={<span title={server.url ?? target}>{caption}</span>}
+      />
       <ConnectionAction server={server} pending={pending} onConnect={onConnect} />
       {/* EXP-1285: ONE "…" menu per row. The viewer's connection items sit
           with the owner's Edit, the destructive ones (Disconnect, Remove)
@@ -787,7 +846,169 @@ function ServerRow({
         </DropdownMenu>
       )}
     </ListRow>
+    {open && <ServerTools server={server} />}
+    </>
   )
+}
+
+// ── Expandable rows + their tools ───────────────────────────────────────────
+
+/** A server row's leading part: THE DisclosureHeader (chevron leading) over
+ *  the glyph, the name (+ pill) and the caption; the row's actions stay
+ *  outside it. */
+function RowDisclosure({
+  open,
+  onToggle,
+  glyph,
+  name,
+  pill,
+  caption,
+  mono = false,
+}: {
+  open: boolean
+  onToggle: () => void
+  glyph: ReactNode
+  name: string
+  pill?: ReactNode
+  caption: ReactNode
+  mono?: boolean
+}) {
+  return (
+    <DisclosureHeader
+      open={open}
+      onToggle={onToggle}
+      className="min-w-0 flex-1 gap-3"
+      aria-label={`${open ? `Hide` : `Show`} ${name} tools`}
+      data-testid="mcp-server-disclosure"
+    >
+      {glyph}
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="min-w-0 truncate text-sm font-medium text-foreground">{name}</span>
+          {pill}
+        </span>
+        <span className={cn(`block min-w-0 truncate text-xs text-muted-foreground`, mono && `font-mono`)}>{caption}</span>
+      </span>
+    </DisclosureHeader>
+  )
+}
+
+/** A built-in server (fixtures/settings-mcp.json `builtins`): the
+ *  Exponential mark, the name, the Built-in pill, its URL; its ONE action
+ *  copies the URL (how a client like Claude connects). No menu, no edit. */
+function BuiltinRow({
+  id,
+  open,
+  onToggle,
+  children,
+}: {
+  id: keyof typeof SETTINGS_MCP.builtins
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  const builtin = SETTINGS_MCP.builtins[id]
+  const url = builtinEndpoint(window.location.origin, id)
+  return (
+    <>
+      <ListRow
+        className="gap-3 px-3 py-2"
+        data-testid={id === `exponential` ? SETTINGS_MCP.testIds.builtin : SETTINGS_MCP.testIds.appsServer}
+      >
+        <RowDisclosure
+          open={open}
+          onToggle={onToggle}
+          glyph={<ExponentialLogo variant="light" size={16} className="size-4 shrink-0 text-foreground/70" />}
+          name={builtin.name}
+          pill={<Pill size="sm">{SETTINGS_MCP.builtinPill}</Pill>}
+          caption={url}
+          mono
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void navigator.clipboard.writeText(url).then(() => toast.success(SETTINGS_MCP.copied))
+          }}
+        >
+          {SETTINGS_MCP.copy}
+        </Button>
+      </ListRow>
+      {open && <div data-testid={SETTINGS_MCP.testIds.serverTools}>{children}</div>}
+    </>
+  )
+}
+
+/** A sub-label inside an open row (a tool group, an app). */
+function ToolBand({ label, band, children }: { label: string; band: string; children: ReactNode }) {
+  return (
+    <div data-band={band}>
+      <ListRow className="px-3 pb-0.5 pt-2 pl-10">
+        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">{label}</span>
+      </ListRow>
+      {children}
+    </div>
+  )
+}
+
+/** One tool under an open row: its title and muted blurb, the wire name only
+ *  as a tooltip. */
+function ToolRow({ tool }: { tool: McpToolRow }) {
+  return (
+    <ListRow className="gap-2 py-1.5 pl-10 pr-3" title={tool.name}>
+      <span className="shrink-0 text-sm font-medium">{tool.title}</span>
+      <span className="min-w-0 truncate text-xs text-muted-foreground">{tool.blurb}</span>
+    </ListRow>
+  )
+}
+
+/** A muted line under an open row (connect first, a local command, a
+ *  failure, no tools). */
+function ToolsLine({ children }: { children: ReactNode }) {
+  return (
+    <ListRow className="gap-2 py-1.5 pl-10 pr-3" data-testid="mcp-server-tools-line">
+      <span className="min-w-0 flex-1 text-xs text-muted-foreground">{children}</span>
+    </ListRow>
+  )
+}
+
+type ToolsAnswer = { ok: boolean; tools: McpToolRow[] | null; error: string | null }
+
+/** An open team server's tools (`toolsStateCases`): listed with the viewer's
+ *  own connection on first open (the server caches it 5 minutes). Flat: MCP
+ *  has no categories. */
+function ServerTools({ server }: { server: McpServerRow }) {
+  const state = mcpToolsState({ transport: server.transport, status: server.connection.status })
+  const [answer, setAnswer] = useState<ToolsAnswer | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    if (state !== `list`) return
+    let live = true
+    setAnswer(null)
+    trpc.mcpServers.tools
+      .query({ serverId: server.id }, SKIP_ERROR_TOAST)
+      .then((next) => live && setAnswer(next))
+      .catch((err) => live && setAnswer({ ok: false, tools: null, error: trpcErrorMessage(err, `the request failed`) }))
+    return () => {
+      live = false
+    }
+  }, [server.id, state, attempt])
+  let body: ReactNode
+  if (state === `connect`) body = <ToolsLine>{SETTINGS_MCP.toolsConnect}</ToolsLine>
+  else if (state === `stdio`) body = <ToolsLine>{SETTINGS_MCP.toolsStdio}</ToolsLine>
+  else if (answer === null) body = <SkeletonRows rowHeight={32} rows={3} />
+  else if (!answer.ok || !answer.tools)
+    body = (
+      <ToolsLine>
+        {toolsFailedLine(answer.error ?? `no answer`)}{` `}
+        <Button variant="text" size="inline" onClick={() => setAttempt((n) => n + 1)}>
+          {SETTINGS_MCP.retry}
+        </Button>
+      </ToolsLine>
+    )
+  else if (answer.tools.length === 0) body = <ToolsLine>{SETTINGS_MCP.toolsNone}</ToolsLine>
+  else body = answer.tools.map((tool) => <ToolRow key={tool.name} tool={tool} />)
+  return <div data-testid={SETTINGS_MCP.testIds.serverTools}>{body}</div>
 }
 
 /** The viewer's ONE action on a row, from their own `connection`; a
@@ -976,59 +1197,40 @@ function SecretDialog({
   )
 }
 
-/** EXP-862: what EVERY run already has, next to the servers a team adds —
- * the Exponential MCP tools themselves. One row per contract tool
- * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
- * with the raw wire name only as a tooltip. EXP-1274: always expanded (a
- * plain band, never a fold, no count: bands carry no numbers). EXP-1657
- * (fixtures/settings-mcp.json `builtinCases`): ONE band per contract tool
- * group (Work, Tracker, …); the first visible band carries the filter field,
- * which filters every band; a band with no match hides; none left = the
- * empty state under the section's own label. */
-export function BuiltinToolsGroup() {
+/** EXP-862: what EVERY run already has, next to the servers a team adds:
+ * the Exponential MCP tools themselves, under the open Exponential row. One
+ * row per contract tool (`expToolDisplay`): the title and its blurb, the raw
+ * wire name only as a tooltip. EXP-1657 (fixtures/settings-mcp.json
+ * `builtinCases`): ONE sub-label per contract tool group (Work, Tracker, …);
+ * the filter field leads and filters every band; a band with no match hides;
+ * none left = the empty state under the field. */
+export function BuiltinToolsList() {
   const [query, setQuery] = useState(``)
   const bands = useMemo(() => builtinToolBands(query), [query])
-  const filter = (
-    <SearchField
-      size="sm"
-      value={query}
-      onValueChange={setQuery}
-      placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
-      aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
-      className="w-32 sm:w-48"
-      data-testid="mcp-builtin-tools-filter"
-    />
-  )
-  if (bands.length === 0) {
-    return (
-      <div className="mt-6">
-        <GlassSectionHeader label={SETTINGS_MCP.labels.builtin} trailing={filter} />
-        <Empty id="builtin-tools-no-match" />
-      </div>
-    )
-  }
   return (
     <>
-      {bands.map((band, index) => (
-        <div key={band.id} className="mt-6" data-band={band.id}>
-          <GlassSectionHeader label={band.label} trailing={index === 0 ? filter : undefined} />
-          <div className={SETTINGS_LIST_CLASS}>
+      <ListRow className="py-1.5 pl-10 pr-3">
+        <SearchField
+          size="sm"
+          value={query}
+          onValueChange={setQuery}
+          placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+          aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+          className="w-full sm:w-64"
+          data-testid="mcp-builtin-tools-filter"
+        />
+      </ListRow>
+      {bands.length === 0 ? (
+        <Empty id="builtin-tools-no-match" />
+      ) : (
+        bands.map((band) => (
+          <ToolBand key={band.id} label={band.label} band={band.id}>
             {band.tools.map((tool) => (
-              <ListRow key={tool.name} className="gap-2 px-3 py-2" title={tool.name}>
-                <ExponentialLogo
-                  variant="light"
-                  size={12}
-                  className="size-3 shrink-0 text-muted-foreground/60"
-                />
-                <span className="shrink-0 text-sm font-medium">{tool.title}</span>
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {tool.blurb}
-                </span>
-              </ListRow>
+              <ToolRow key={tool.name} tool={tool} />
             ))}
-          </div>
-        </div>
-      ))}
+          </ToolBand>
+        ))
+      )}
     </>
   )
 }

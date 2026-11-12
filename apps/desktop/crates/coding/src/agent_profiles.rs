@@ -197,6 +197,7 @@ pub fn create(data_dir: &Path, agent: CodingAgent) -> io::Result<AgentProfile> {
     create_private_dir(&root)?;
     let id = fresh_id(&root);
     create_private_dir(&root.join(&id))?;
+    link_conversation_store(agent, &root.join(&id))?;
     let profile = AgentProfile {
         id,
         created_at: crate::agent_accounts::now_iso(),
@@ -213,6 +214,7 @@ pub(crate) fn create_with_id(data_dir: &Path, agent: CodingAgent, id: &str) -> i
     assert!(valid_id(id), "{id}");
     let mut index = read_index(data_dir, agent);
     create_private_dir(&agent_root(data_dir, agent).join(id))?;
+    link_conversation_store(agent, &agent_root(data_dir, agent).join(id))?;
     let profile = AgentProfile {
         id: id.to_string(),
         created_at: crate::agent_accounts::now_iso(),
@@ -255,6 +257,16 @@ pub fn adopt_dir(data_dir: &Path, agent: CodingAgent, staging: &Path) -> io::Res
     create_private_dir(&root)?;
     let id = fresh_id(&root);
     std::fs::rename(staging, root.join(&id))?;
+    if agent == CodingAgent::Claude {
+        // EXP-1794: a sign-in's dir rarely holds a conversation, but whatever
+        // it holds merges into the store by the migration's rules. Best
+        // effort: an unlinked profile works exactly as before, and the next
+        // start's migration retries it.
+        let mut conflicts = Vec::new();
+        if let Err(err) = eagent::claude_store::migrate_profile(&root, &id, &mut conflicts) {
+            log::warn!("agent_profiles: the new login {id} stays unlinked for now: {err}");
+        }
+    }
     let profile = AgentProfile {
         id,
         created_at: crate::agent_accounts::now_iso(),
@@ -266,7 +278,8 @@ pub fn adopt_dir(data_dir: &Path, agent: CodingAgent, staging: &Path) -> io::Res
 }
 
 /// Delete a profile: its dir (credentials included — the CLI's own files,
-/// gone with the login) and its index row. Removing the last used profile
+/// gone with the login) and its index row. A claude profile's conversations
+/// are NOT in its dir but in the device's store (EXP-1794): they stay. Removing the last used profile
 /// clears the pointer.
 pub fn remove(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<()> {
     let mut index = read_index(data_dir, agent);
@@ -280,9 +293,63 @@ pub fn remove(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<()> {
     }
     let dir = agent_root(data_dir, agent).join(id);
     if dir.is_dir() {
+        // EXP-1794: the LINKS into the conversation store go first, so the
+        // delete can never reach what they point at: a removed claude login's
+        // conversations stay on the device.
+        eagent::claude_store::unlink_store(&dir)?;
         std::fs::remove_dir_all(&dir)?;
     }
     write_index(data_dir, agent, &index)
+}
+
+/// EXP-1794 — a fresh claude profile's conversation entries are links into
+/// the device's one store ([`eagent::claude_store`]); codex keeps its own.
+fn link_conversation_store(agent: CodingAgent, dir: &Path) -> io::Result<()> {
+    if agent == CodingAgent::Claude {
+        eagent::claude_store::link_store(dir)?;
+    }
+    Ok(())
+}
+
+/// EXP-1794 — the start-time migration of every claude profile of this data
+/// dir onto the store: whichever host starts first runs it, under the
+/// store's machine-wide lock, skipping a profile a claude process is live
+/// on. A no-op (one `symlink_metadata` per entry) once everything is linked.
+pub fn migrate_claude_store(data_dir: &Path) -> eagent::claude_store::MigrationReport {
+    let agent = CodingAgent::Claude;
+    let ids: Vec<String> = list(data_dir, agent).into_iter().map(|profile| profile.id).collect();
+    let report = eagent::claude_store::migrate(&agent_root(data_dir, agent), &ids, &crate::process::is_alive);
+    if !report.is_noop() {
+        log::info!(
+            "claude store: linked {:?}, live (retry next start) {:?}, unlinked after an error {:?}, {} diverged cop(y/ies) under store/conflicts",
+            report.linked,
+            report.skipped_live,
+            report.failed,
+            report.conflicts.len()
+        );
+    }
+    report
+}
+
+/// EXP-1794 — the diverged copies the migration parked
+/// (`store/conflicts/<id>/…`), for the doctor. Nothing is ever deleted;
+/// this only says where to look.
+pub fn claude_store_conflicts(data_dir: &Path) -> usize {
+    let dir = eagent::claude_store::store_root(&agent_root(data_dir, CodingAgent::Claude))
+        .join(eagent::claude_store::CONFLICTS_DIR);
+    fn count(dir: &Path) -> usize {
+        std::fs::read_dir(dir).map_or(0, |entries| {
+            entries
+                .flatten()
+                .map(|entry| match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => count(&entry.path()),
+                    Ok(_) => 1,
+                    Err(_) => 0,
+                })
+                .sum()
+        })
+    }
+    count(&dir)
 }
 
 /// The config dir behind `id` — `None` for an unknown id.
@@ -609,6 +676,78 @@ mod tests {
         // A path-shaped id never becomes a directory lookup.
         assert_eq!(profile_dir(&dir, CodingAgent::Claude, "../etc"), None);
         assert_eq!(account_dir(&dir, None, Some("0a1b2c3d")), None, "external agent");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1794 — a claude login's conversations live in the device's one
+    /// store: a new profile links into it, and "Remove account" deletes the
+    /// login and never the conversations. Codex keeps its own dir.
+    #[test]
+    fn claude_profiles_share_one_store_that_outlives_a_removed_login() {
+        use eagent::claude_store::{is_linked, STORE_ENTRIES};
+        let dir = temp_dir("store");
+        let a = create(&dir, CodingAgent::Claude).unwrap();
+        let b = create(&dir, CodingAgent::Claude).unwrap();
+        let a_dir = profile_dir(&dir, CodingAgent::Claude, &a.id).unwrap();
+        let b_dir = profile_dir(&dir, CodingAgent::Claude, &b.id).unwrap();
+        for entry in STORE_ENTRIES {
+            assert!(is_linked(&a_dir, entry), "{entry}");
+            assert!(is_linked(&b_dir, entry), "{entry}");
+        }
+        let transcript = a_dir.join("projects").join("-repo").join("s1.jsonl");
+        std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        std::fs::write(&transcript, "{}\n").unwrap();
+        std::fs::write(a_dir.join(".credentials.json"), "secret").unwrap();
+        // B sees A's conversation.
+        assert!(b_dir.join("projects").join("-repo").join("s1.jsonl").is_file());
+
+        remove(&dir, CodingAgent::Claude, &a.id).unwrap();
+        assert!(!a_dir.exists(), "the login is gone, credential included");
+        assert_eq!(
+            std::fs::read_to_string(b_dir.join("projects").join("-repo").join("s1.jsonl")).unwrap(),
+            "{}\n"
+        );
+
+        let codex = create(&dir, CodingAgent::Codex).unwrap();
+        let codex_dir = profile_dir(&dir, CodingAgent::Codex, &codex.id).unwrap();
+        assert!(std::fs::read_dir(&codex_dir).unwrap().next().is_none(), "codex: no links");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1794 — a sign-in's staging dir becomes a LINKED profile; a
+    /// conversation it already holds merges into the store.
+    #[test]
+    fn an_adopted_login_links_and_merges_what_it_holds() {
+        let dir = temp_dir("adopt-store");
+        let staging = staging_dir(&dir, CodingAgent::Claude).unwrap();
+        std::fs::create_dir_all(staging.join("projects").join("-repo")).unwrap();
+        std::fs::write(staging.join("projects").join("-repo").join("s.jsonl"), "x\n").unwrap();
+        std::fs::write(staging.join(".credentials.json"), "secret").unwrap();
+        let adopted = adopt_dir(&dir, CodingAgent::Claude, &staging).unwrap();
+        let adopted_dir = profile_dir(&dir, CodingAgent::Claude, &adopted.id).unwrap();
+        assert!(eagent::claude_store::is_linked(&adopted_dir, "projects"));
+        let store = eagent::claude_store::store_entry(&agent_root(&dir, CodingAgent::Claude), "projects");
+        assert!(store.join("-repo").join("s.jsonl").is_file());
+        assert_eq!(std::fs::read_to_string(adopted_dir.join(".credentials.json")).unwrap(), "secret");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1794 B2 — the start-time migration over real profile rows.
+    #[test]
+    fn the_start_migration_moves_existing_profiles_onto_the_store() {
+        let dir = temp_dir("migrate");
+        let a = create(&dir, CodingAgent::Claude).unwrap();
+        let a_dir = profile_dir(&dir, CodingAgent::Claude, &a.id).unwrap();
+        // An OLD layout: a real projects dir.
+        eagent::claude_store::unlink_store(&a_dir).unwrap();
+        std::fs::create_dir_all(a_dir.join("projects").join("-repo")).unwrap();
+        std::fs::write(a_dir.join("projects").join("-repo").join("s.jsonl"), "x\n").unwrap();
+        assert!(!eagent::claude_store::is_linked(&a_dir, "projects"));
+        let report = migrate_claude_store(&dir);
+        assert_eq!(report.linked, vec![a.id.clone()]);
+        assert!(eagent::claude_store::is_linked(&a_dir, "projects"));
+        assert!(a_dir.join("projects").join("-repo").join("s.jsonl").is_file());
+        assert!(migrate_claude_store(&dir).is_noop());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

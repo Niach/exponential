@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1143 third-party components are distributed as part of this build. They are
+1172 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -282,7 +282,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 114 components:
+Applies to the following 115 components:
 
   adler2 2.0.1
     MIT elected from `0BSD OR MIT OR Apache-2.0`
@@ -344,6 +344,7 @@ Applies to the following 114 components:
     MIT elected from `MIT OR Apache-2.0`
   erased-serde 0.4.10
     MIT elected from `MIT OR Apache-2.0`
+  error-graph 0.1.1
   event-listener 5.4.1
     MIT elected from `Apache-2.0 OR MIT`
   event-listener-strategy 0.5.4
@@ -845,6 +846,102 @@ DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 20 components:
+
+  bitflags 1.3.2
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT/Apache-2.0`
+  bitflags 2.13.2
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  glob 0.3.3
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  log 0.4.33
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num 0.4.3  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-bigint 0.4.6
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-bigint 0.5.1
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-bigint-dig 0.9.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT/Apache-2.0`
+  num-complex 0.4.6
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-derive 0.4.2
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-derive 0.5.1
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-integer 0.1.47
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-iter 0.1.45  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-rational 0.4.2
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  num-traits 0.2.19
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  page_size 0.6.0
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT/Apache-2.0`
+  range-map 0.2.0
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT/Apache-2.0`
+  regex 1.12.4
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  regex-automata 0.4.18
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  regex-syntax 0.8.11
+    Copyright (c) 2014 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
 Apache-2.0
 ------------------------------------------------------------------------------
 
@@ -1185,96 +1282,6 @@ SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 18 components:
-
-  bitflags 1.3.2
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT/Apache-2.0`
-  bitflags 2.13.2
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  glob 0.3.3
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  log 0.4.33
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num 0.4.3  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-bigint 0.4.6
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-bigint 0.5.1
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-bigint-dig 0.9.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT/Apache-2.0`
-  num-complex 0.4.6
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-derive 0.4.2
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-integer 0.1.47
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-iter 0.1.45  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-rational 0.4.2
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  num-traits 0.2.19
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  page_size 0.6.0
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT/Apache-2.0`
-  regex 1.12.4
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  regex-automata 0.4.18
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  regex-syntax 0.8.11
-    Copyright (c) 2014 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2014 The Rust Project Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
 Applies to the following 14 components:
 
   aho-corasick 1.1.4
@@ -1406,6 +1413,78 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT
 ------------------------------------------------------------------------------
 
+Applies to the following 12 components:
+
+  findshlibs 0.10.2
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  gimli 0.32.3  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  gimli 0.33.0
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  heck 0.4.1  [aarch64-apple-darwin; build-time only, not linked]
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  heck 0.5.0
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-bidi 0.3.18
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-id 0.3.6
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-normalization 0.1.25
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-properties 0.1.4
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT/Apache-2.0`
+  unicode-segmentation 1.13.3
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-width 0.2.2
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+  unicode-xid 0.2.6
+    Copyright (c) 2015 The Rust Project Developers
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2015 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
 Applies to the following 11 components:
 
   cocoa 0.26.0  [aarch64-apple-darwin]
@@ -1472,75 +1551,6 @@ DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 11 components:
-
-  findshlibs 0.10.2
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  gimli 0.32.3  [aarch64-apple-darwin, x86_64-unknown-linux-gnu]
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  heck 0.4.1  [aarch64-apple-darwin; build-time only, not linked]
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  heck 0.5.0
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-bidi 0.3.18
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-id 0.3.6
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-normalization 0.1.25
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-properties 0.1.4
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT/Apache-2.0`
-  unicode-segmentation 1.13.3
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-width 0.2.2
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-  unicode-xid 0.2.6
-    Copyright (c) 2015 The Rust Project Developers
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2015 The Rust Project Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
 Apache-2.0
 ------------------------------------------------------------------------------
 
@@ -1549,10 +1559,10 @@ Applies to the following 10 components:
   agent-client-protocol 5.0.0
   agent-client-protocol-derive 5.0.0
   agent-client-protocol-schema 1.15.1
-  ede-observability 0.2.18
-  ede-services 0.2.18
-  ede-theme 0.2.18
-  ede-ui 0.2.18
+  ede-observability 0.2.19
+  ede-services 0.2.19
+  ede-theme 0.2.19
+  ede-ui 0.2.19
   spirv 0.4.0+sdk-1.4.341.0  [x86_64-unknown-linux-gnu]
   stacksafe 1.0.3
   stacksafe-macro 1.0.3
@@ -3049,6 +3059,50 @@ MIT
 
 Applies to the following 6 components:
 
+  breakpad-symbols 0.27.0
+    Copyright (c) 2015-2023 rust-minidump contributors
+  minidump 0.27.0
+    Copyright (c) 2015-2023 rust-minidump contributors
+  minidump-common 0.26.1
+    Copyright (c) 2015-2023 rust-minidump contributors
+  minidump-common 0.27.0
+    Copyright (c) 2015-2023 rust-minidump contributors
+  minidump-processor 0.27.0
+    Copyright (c) 2015-2023 rust-minidump contributors
+  minidump-unwind 0.27.0
+    Copyright (c) 2015-2023 rust-minidump contributors
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2015-2023 rust-minidump contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 6 components:
+
   zbus 5.16.0
     Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
   zbus_macros 5.16.0
@@ -3065,6 +3119,56 @@ Applies to the following 6 components:
 ..............................................................................
 
 Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 5 components:
+
+  cfg-expr 0.20.10  [x86_64-unknown-linux-gnu; build-time only, not linked]
+    Copyright (c) 2019 Embark Studios
+    MIT elected from `MIT OR Apache-2.0`
+  crash-context 0.8.0
+    Copyright (c) 2019 Embark Studios
+  crash-handler 0.8.1
+    Copyright (c) 2019 Embark Studios
+    MIT elected from `MIT OR Apache-2.0`
+  minidumper 0.11.0
+    Copyright (c) 2019 Embark Studios
+    MIT elected from `MIT OR Apache-2.0`
+  presser 0.3.1  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019 Embark Studios
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2019 Embark Studios
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -5022,6 +5126,44 @@ MIT
 
 Applies to the following 3 components:
 
+  minidump-writer 0.13.0
+    Copyright (c) 2020
+  process-backend 0.1.0  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2020
+  process-reader 0.1.0  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2020
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2020
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 3 components:
+
   nix 0.28.0
     Copyright (c) 2015 Carl Lerche + nix-rust Authors
   nix 0.30.1  [x86_64-unknown-linux-gnu]
@@ -6180,48 +6322,6 @@ MIT
 
 Applies to the following 2 components:
 
-  cfg-expr 0.20.10  [x86_64-unknown-linux-gnu; build-time only, not linked]
-    Copyright (c) 2019 Embark Studios
-    MIT elected from `MIT OR Apache-2.0`
-  presser 0.3.1  [x86_64-unknown-linux-gnu]
-    Copyright (c) 2019 Embark Studios
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) 2019 Embark Studios
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 2 components:
-
   cfg_aliases 0.1.1  [build-time only, not linked]
     Copyright (c) 2020 Katharos Technology
   cfg_aliases 0.2.2  [build-time only, not linked]
@@ -6678,6 +6778,48 @@ MIT
 
 Applies to the following 2 components:
 
+  framehop 0.16.0
+    Copyright (c) 2018 Markus Stange <mstange@themasta.com>
+    MIT elected from `MIT OR Apache-2.0`
+  macho-unwind-info 0.5.0
+    Copyright (c) 2018 Markus Stange <mstange@themasta.com>
+    MIT elected from `MIT/Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2018 Markus Stange <mstange@themasta.com>
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
   futf 0.1.5
     Copyright (c) 2015 Keegan McAllister
     MIT elected from `MIT / Apache-2.0`
@@ -6766,6 +6908,42 @@ Applies to the following 2 components:
 ..............................................................................
 
 Copyright (c) 2017 Gilad Naaman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  goblin 0.8.2
+    Copyright (c) m4b 2016-2024
+  goblin 0.9.3
+    Copyright (c) m4b 2016-2024
+
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) m4b 2016-2024
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -7249,6 +7427,48 @@ MIT
 
 Applies to the following 2 components:
 
+  object 0.37.3
+    Copyright (c) 2015 The Gimli Developers
+    MIT elected from `Apache-2.0 OR MIT`
+  object 0.40.0
+    Copyright (c) 2015 The Gimli Developers
+    MIT elected from `Apache-2.0 OR MIT`
+
+..............................................................................
+
+Copyright (c) 2015 The Gimli Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
   png 0.17.16
     Copyright (c) 2015 nwin
     MIT elected from `MIT OR Apache-2.0`
@@ -7553,6 +7773,78 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  scroll 0.12.0
+    Copyright (c) m4b 2016
+  scroll 0.13.0
+    Copyright (c) m4b 2016
+
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) m4b 2016
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following 2 components:
+
+  scroll_derive 0.12.1
+    Copyright (c) 2017
+  scroll_derive 0.13.2
+    Copyright (c) 2017
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2017
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -13338,6 +13630,40 @@ MIT
 
 Applies to the following component:
 
+  cachemap2 0.3.0
+    Copyright (c) 2021 hclarke
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2021 hclarke
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
   calloop 0.14.4  [x86_64-unknown-linux-gnu]
     Copyright (c) 2018 Victor Berger
 
@@ -13838,6 +14164,39 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  circular 0.3.0
+    Copyright (c) 2017 Geoffroy Couprie
+
+..............................................................................
+
+Copyright (c) 2017 Geoffroy Couprie
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -14991,6 +15350,23 @@ MIT
 
 Applies to the following component:
 
+  failspot 0.2.0
+
+..............................................................................
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
   fallible-iterator 0.3.0
     Copyright (c) 2015 The rust-openssl-verify Developers
     MIT elected from `MIT/Apache-2.0`
@@ -15692,40 +16068,6 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  goblin 0.8.2
-    Copyright (c) m4b 2016-2024
-
-..............................................................................
-
-The MIT License (MIT)
-
-Copyright (c) m4b 2016-2024
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -17967,45 +18309,6 @@ MIT
 
 Applies to the following component:
 
-  object 0.37.3
-    Copyright (c) 2015 The Gimli Developers
-    MIT elected from `Apache-2.0 OR MIT`
-
-..............................................................................
-
-Copyright (c) 2015 The Gimli Developers
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
   oo7 0.6.0  [x86_64-unknown-linux-gnu]
     Copyright (c) 2022 Bilal Elmoussaoui, Sophie Herold, Maximiliano Sandoval,
     Dhanuka Warusadura
@@ -18195,6 +18498,44 @@ Applies to the following component:
 
 Copyright (c) 2017 Artyom Pavlov
 Copyright (c) 2018-2023 The RustCrypto Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  pe-unwind-info 0.6.1
+    Copyright (c) 2023 Alex Franchuk <alex.franchuk@gmail.com>
+
+..............................................................................
+
+Copyright (c) 2023 Alex Franchuk <alex.franchuk@gmail.com>
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -18761,6 +19102,39 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  procfs-core 0.18.0
+    Copyright (c) 2015 The procfs Developers
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) 2015 The procfs Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -19539,74 +19913,6 @@ MIT
 
 Applies to the following component:
 
-  scroll 0.12.0
-    Copyright (c) m4b 2016
-
-..............................................................................
-
-The MIT License (MIT)
-
-Copyright (c) m4b 2016
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
-  scroll_derive 0.12.1
-    Copyright (c) 2017
-
-..............................................................................
-
-MIT License
-
-Copyright (c) 2017
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following component:
-
   seize 0.5.1
     Copyright (c) 2022 Ibraheem Ahmed
 
@@ -20092,6 +20398,40 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  smart-default 0.7.1
+    Copyright (c) 2017 Idan Arye
+
+..............................................................................
+
+MIT License
+
+Copyright (c) 2017 Idan Arye
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -21607,6 +21947,40 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
+Applies to the following component:
+
+  uds 0.4.2  [x86_64-unknown-linux-gnu]
+    Copyright (c) 2019-2023 Torbjørn Birch Moltu, 2020 Jon Magnuson, 2022 Jake
+    Shadle, 2022 David Carlier, 2023 Dominik Maier
+    MIT elected from `Apache-2.0 OR MIT`
+
+..............................................................................
+
+Copyright (c) 2019-2023 Torbjørn Birch Moltu, 2020 Jon Magnuson, 2022 Jake Shadle, 2022 David Carlier, 2023 Dominik Maier
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE
 
 
 ------------------------------------------------------------------------------
@@ -23684,6 +24058,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   cpufeatures 0.3.1
     MIT elected from `MIT OR Apache-2.0`
+  crash-handler 0.8.1
+    MIT elected from `MIT OR Apache-2.0`
   crc32fast 1.5.0
     MIT elected from `MIT OR Apache-2.0`
   criterion 0.8.2
@@ -23840,6 +24216,8 @@ Elections made in this build
     MIT elected from `MIT/Apache-2.0`
   form_urlencoded 1.2.2
     MIT elected from `MIT OR Apache-2.0`
+  framehop 0.16.0
+    MIT elected from `MIT OR Apache-2.0`
   fs-err 3.3.2
     MIT elected from `MIT OR Apache-2.0`
   futf 0.1.5
@@ -23883,6 +24261,8 @@ Elections made in this build
   gif 0.14.2
     MIT elected from `MIT OR Apache-2.0`
   gimli 0.32.3
+    MIT elected from `MIT OR Apache-2.0`
+  gimli 0.33.0
     MIT elected from `MIT OR Apache-2.0`
   glob 0.3.3
     MIT elected from `MIT OR Apache-2.0`
@@ -24070,6 +24450,8 @@ Elections made in this build
     MIT elected from `BSD-2-Clause OR MIT OR Apache-2.0`
   mach2 0.6.0
     MIT elected from `BSD-2-Clause OR MIT OR Apache-2.0`
+  macho-unwind-info 0.5.0
+    MIT elected from `MIT/Apache-2.0`
   maplit 1.0.2
     MIT elected from `MIT/Apache-2.0`
   markup5ever 0.12.1
@@ -24085,6 +24467,8 @@ Elections made in this build
   memmap2 0.9.11
     MIT elected from `MIT OR Apache-2.0`
   mime 0.3.17
+    MIT elected from `MIT OR Apache-2.0`
+  minidumper 0.11.0
     MIT elected from `MIT OR Apache-2.0`
   minimal-lexical 0.2.1
     MIT elected from `MIT/Apache-2.0`
@@ -24148,6 +24532,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   num-derive 0.4.2
     MIT elected from `MIT OR Apache-2.0`
+  num-derive 0.5.1
+    MIT elected from `MIT OR Apache-2.0`
   num-integer 0.1.47
     MIT elected from `MIT OR Apache-2.0`
   num-iter 0.1.45
@@ -24209,6 +24595,8 @@ Elections made in this build
   objc2-user-notifications 0.3.2
     MIT elected from `Zlib OR Apache-2.0 OR MIT`
   object 0.37.3
+    MIT elected from `Apache-2.0 OR MIT`
+  object 0.40.0
     MIT elected from `Apache-2.0 OR MIT`
   once_cell 1.21.4
     MIT elected from `MIT OR Apache-2.0`
@@ -24306,6 +24694,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   proc-macro2 1.0.106
     MIT elected from `MIT OR Apache-2.0`
+  procfs-core 0.18.0
+    MIT elected from `MIT OR Apache-2.0`
   profiling 1.0.18
     MIT elected from `MIT OR Apache-2.0`
   profiling-procmacros 1.0.18
@@ -24350,6 +24740,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   range-collections 0.4.6
     MIT elected from `MIT OR Apache-2.0`
+  range-map 0.2.0
+    MIT elected from `MIT/Apache-2.0`
   rangemap 1.7.1
     MIT elected from `MIT/Apache-2.0`
   rapidhash 4.5.1
@@ -24660,6 +25052,8 @@ Elections made in this build
     MIT elected from `MIT OR Apache-2.0`
   ucd-trie 0.1.7
     MIT elected from `MIT OR Apache-2.0`
+  uds 0.4.2
+    MIT elected from `Apache-2.0 OR MIT`
   uname 0.1.1
     MIT elected from `MIT/Apache-2.0`
   unarray 0.1.4

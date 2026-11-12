@@ -383,7 +383,7 @@ object SessionTree {
 
     /** Sessions of one tree in creation order (ties by id). */
     fun treeOrder(sessions: List<Session>): List<Session> =
-        sessions.sortedWith(compareBy<Session>({ ms(it.createdAt) ?: 0L }, { it.id }))
+        sessions.sortedByEpoch(tie = compareBy { it.id }) { ms(it.createdAt) ?: 0L }
 
     data class SessionCard(
         val sessionId: String,
@@ -1015,7 +1015,8 @@ object SessionTree {
         )
     }
 
-    private val messageOrder = compareBy<Message>({ ms(it.createdAt) ?: 0L }, { it.id })
+    // `compareBy({ ms(createdAt) ?: 0 }, { id })`, the time parsed once per row ([sortedByEpoch]).
+    private val messageTie = compareBy<Message> { it.id }
 
     /** Depth-first walk of a forest given each node's FOLD parent (null = a
      *  top-level node), children in the given order. */
@@ -1097,7 +1098,7 @@ object SessionTree {
             val target = id?.let { byId[it] } ?: return null
             return SessionXref(kind, target.id, sessionCard(target, titles[target.id] ?: "", now).name, agentOf(target))
         }
-        val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
+        val own = messages.filter { it.sessionId == root.id }.sortedByEpoch(tie = messageTie) { ms(it.createdAt) ?: 0L }
         val title = titles.getValue(root.id)
         val focused = focus?.let { id -> tree.firstOrNull { it.id == id } }
         // EXP-1334: the conversation IS the dispatcher (no chip of its own);
@@ -1139,7 +1140,7 @@ object SessionTree {
                     it == DomainContract.messageCardKindQuestion || it == DomainContract.messageCardKindPlan
                 }
         }
-        val conversation = (own + asks).sortedWith(messageOrder)
+        val conversation = (own + asks).sortedByEpoch(tie = messageTie) { ms(it.createdAt) ?: 0L }
         val rows = mutableListOf<SessionChatRow>()
         val messagesById = messages.associateBy { it.id }
         val escalated = mutableSetOf<String>()
@@ -1428,19 +1429,21 @@ object SessionTree {
             }
             buckets.getValue(key).add(row)
         }
-        val order = compareByDescending<ChatsListRow> { ms(it.activityAt) ?: 0L }
-            .thenBy { it.sessionId }
+        // Newest activity first, then by session id: the time parsed once per row.
+        val activity = HashMap<String?, Long>()
+        fun activityMs(row: ChatsListRow): Long = activity.getOrPut(row.activityAt) { ms(row.activityAt) ?: 0L }
+        val tie = compareBy<ChatsListRow> { it.sessionId }
         // NEW-1: Recent = every tree active in the last `recent.hours`, filled
         // up to the last `recent.max` by activity. Ended trees stay openable.
         val at = now?.let { ms(it) }
         val windowMs = ListCopy.RECENT_HOURS * 60L * 60L * 1000L
         return buckets.entries
             .map { (key, rows) ->
-                var sorted = rows.sortedWith(order)
+                var sorted = rows.sortedByEpoch(descending = true, tie = tie) { activityMs(it) }
                 if (key == ChatsGroupKey.Recent) {
                     sorted = sorted.filterIndexed { index, row ->
                         index < ListCopy.RECENT_MAX ||
-                            (at != null && at - (ms(row.activityAt) ?: 0L) <= windowMs)
+                            (at != null && at - activityMs(row) <= windowMs)
                     }
                 }
                 ChatsListGroup(key, ListCopy.GROUPS.getValue(key), sorted)
@@ -1815,8 +1818,10 @@ object SessionTree {
      *  or by a DAO query scoped to that session). */
     fun message(row: MessageEntity, sessionId: String): Message {
         // EXP-1459: the DAO already opened what this install can; what stays
-        // sealed is LOCKED (empty body, the card's clear part).
-        val opened = SealedContent.openMessage(row.rootId, row.body, row.card)
+        // sealed is LOCKED (empty body, the card's clear part). Per message
+        // id: an opened row is plain here, a locked one reuses the DAO's
+        // outcome (no second native open).
+        val opened = SealedContent.openMessage(row)
         return Message(
             id = row.id,
             sessionId = sessionId,

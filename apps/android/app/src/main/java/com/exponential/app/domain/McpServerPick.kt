@@ -41,3 +41,65 @@ fun preselectMcpServerIds(servers: List<McpServerOption>, saved: List<String>?):
 
 /** The `MCP servers` row's value: the number picked, none at zero. */
 fun mcpPickValue(count: Int): String? = if (count > 0) count.toString() else null
+
+// EXP-1793: the picker row's caption + glyph, web `mcpServerPickerItems` /
+// `getMcpServerIcon` (packages/ui/src/picker/mcp-server-picker.tsx).
+
+/** A URL's `host` the way web's `new URL(url).host` reads it: lowercased,
+ *  the port kept unless it is the scheme's default; null when unparseable. */
+fun mcpHostOf(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    val uri = runCatching { java.net.URI(url.trim()) }.getOrNull() ?: return null
+    val host = uri.host?.lowercase() ?: return null
+    val defaultPort = when (uri.scheme?.lowercase()) {
+        "http", "ws" -> 80
+        "https", "wss" -> 443
+        else -> -1
+    }
+    return if (uri.port == -1 || uri.port == defaultPort) host else "$host:${uri.port}"
+}
+
+private fun mcpPathOf(url: String): String? =
+    runCatching { java.net.URI(url.trim()).path }.getOrNull()?.ifEmpty { "/" }
+
+/** The contract `mcpCatalog` mark a server's URL belongs to: a hosted entry
+ *  by exact host, else a `{host}` template whose path the URL carries. */
+fun mcpCatalogMarkFor(url: String?): String? {
+    val host = mcpHostOf(url) ?: return null
+    val urls = DomainContract.mcpCatalogUrls
+    val marks = DomainContract.mcpCatalogMarks
+    val isTemplate = { i: Int -> urls[i].contains("{host}") }
+    urls.indices.firstOrNull { !isTemplate(it) && mcpHostOf(urls[it]) == host }
+        ?.let { return marks[it] }
+    val path = mcpPathOf(url!!) ?: return null
+    return urls.indices.firstOrNull {
+        isTemplate(it) && mcpPathOf(urls[it].replace("{host}", "template.invalid")) == path
+    }?.let { marks[it] }
+}
+
+/** What a server row leads with. */
+sealed interface McpServerGlyph {
+    /** A catalog server's real brand mark (contract `mcpCatalog` slug). */
+    data class Brand(val mark: String) : McpServerGlyph
+    /** A stdio command: `session-shell`. */
+    data object Shell : McpServerGlyph
+    /** Anything else: `ui-mcp`. */
+    data object Plug : McpServerGlyph
+}
+
+fun mcpServerGlyph(server: McpServerOption): McpServerGlyph {
+    mcpCatalogMarkFor(server.url)?.let { return McpServerGlyph.Brand(it) }
+    return if (!server.command.isNullOrEmpty() && server.url.isNullOrEmpty()) {
+        McpServerGlyph.Shell
+    } else {
+        McpServerGlyph.Plug
+    }
+}
+
+/** The muted second line: the not-ready note, else the host (or the command). */
+fun mcpServerCaption(server: McpServerOption): String? =
+    mcpNotReadyLabel(server) ?: mcpServerTarget(server)
+
+/** The host (or the command) a row names; also a search keyword. */
+fun mcpServerTarget(server: McpServerOption): String? =
+    mcpHostOf(server.url) ?: server.command?.takeIf { it.isNotEmpty() }

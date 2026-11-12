@@ -1,0 +1,2 @@
+- Large chats open fast on their newest messages and load earlier ones as you scroll up
+- Smoother scrolling in busy sessions

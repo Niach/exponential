@@ -212,41 +212,104 @@ public struct EmptyStateButtonSlot: View {
     }
 }
 
-/// A disclosure header: a chevron that turns, a title and an optional
-/// count, toggling `isExpanded` (the catalog `Collapsible` / `Accordion`
-/// triggers; new on iOS, SLOP-18 GAP-N).
-public struct DisclosureHeader: View {
-    let title: String
-    let count: Int?
-    @Binding var isExpanded: Bool
+/// Where a `DisclosureHeader`'s chevron sits (web `chevron`, Compose's
+/// leading/trailing slots): `leading` before the content, the way a tree
+/// folds; `trailing` at the far edge, for a row whose siblings carry none.
+public enum DisclosureChevron: String, CaseIterable, Sendable {
+    case leading
+    case trailing
+}
 
-    public init(_ title: String, count: Int? = nil, isExpanded: Binding<Bool>) {
-        self.title = title
-        self.count = count
+/// A disclosure header: a chevron that turns and the header's content,
+/// toggling `isExpanded` (the catalog `Collapsible` / `Accordion` triggers;
+/// new on iOS, SLOP-18 GAP-N). The content slot matches web's
+/// `DisclosureHeader` + children: a 12pt chevron pointing right when folded
+/// and down when open, at the side `chevron` picks, the whole line the tap
+/// target. The title form keeps its own look (a trailing chevron-down that
+/// flips, at the row height).
+public struct DisclosureHeader<Label: View>: View {
+    @Binding var isExpanded: Bool
+    let chevron: DisclosureChevron
+    let titled: Bool
+    let label: Label
+
+    /// The content slot: any header content beside the chevron.
+    public init(
+        isExpanded: Binding<Bool>,
+        chevron: DisclosureChevron = .leading,
+        @ViewBuilder label: () -> Label
+    ) {
         self._isExpanded = isExpanded
+        self.chevron = chevron
+        self.titled = false
+        self.label = label()
     }
 
     @Environment(\.primitiveTokens) private var tokens
+
+    /// Chevron-right; open turns it a quarter to point down.
+    static var glyphPaths: [String] { ["M 9 18 L 15 12 L 9 6"] }
+    static var glyphSize: CGFloat { 12 }
+    /// The glyph's turn for a fold state (0 = right, 90 = down).
+    static func rotation(isExpanded: Bool) -> Double { isExpanded ? 90 : 0 }
 
     public var body: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
         } label: {
-            HStack(spacing: 8) {
-                Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(tokens.foreground).lineLimit(1)
-                if let count {
-                    Text("\(count)").font(.system(size: 12)).foregroundStyle(tokens.mutedForeground)
+            if titled {
+                HStack(spacing: 8) {
+                    label
+                    Spacer(minLength: 0)
+                    LucideGlyph(paths: ["M 6 9 L 12 15 L 18 9"], size: 14)
+                        .foregroundStyle(tokens.mutedForeground)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
-                Spacer(minLength: 0)
-                LucideGlyph(paths: ["M 6 9 L 12 15 L 18 9"], size: 14)
-                    .foregroundStyle(tokens.mutedForeground)
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .frame(height: tokens.rowHeight)
+                .contentShape(Rectangle())
+            } else {
+                HStack(spacing: 8) {
+                    if chevron == .leading { glyph }
+                    label
+                    Spacer(minLength: 0)
+                    if chevron == .trailing { glyph }
+                }
+                .contentShape(Rectangle())
             }
-            .frame(height: tokens.rowHeight)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+    }
+
+    private var glyph: some View {
+        LucideGlyph(paths: Self.glyphPaths, size: Self.glyphSize)
+            .foregroundStyle(tokens.mutedForeground)
+            .rotationEffect(.degrees(Self.rotation(isExpanded: isExpanded)))
+    }
+}
+
+extension DisclosureHeader where Label == DisclosureTitle {
+    /// The title form: a title and an optional count, the chevron trailing.
+    public init(_ title: String, count: Int? = nil, isExpanded: Binding<Bool>) {
+        self._isExpanded = isExpanded
+        self.chevron = .trailing
+        self.titled = true
+        self.label = DisclosureTitle(title: title, count: count)
+    }
+}
+
+/// The title form's content: the title and its optional muted count.
+public struct DisclosureTitle: View {
+    let title: String
+    let count: Int?
+
+    @Environment(\.primitiveTokens) private var tokens
+
+    public var body: some View {
+        Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(tokens.foreground).lineLimit(1)
+        if let count {
+            Text("\(count)").font(.system(size: 12)).foregroundStyle(tokens.mutedForeground)
+        }
     }
 }

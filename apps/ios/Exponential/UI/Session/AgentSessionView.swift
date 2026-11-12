@@ -968,6 +968,11 @@ struct AgentSessionView: View {
                 // EXP-1162: no `stickyHeaderFade` — the Work screen's header
                 // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
+                // Large chats: the first layout starts at the bottom (the
+                // initial offset only, never re-anchored on size changes,
+                // EXP-70), so the opening pass sizes the newest rows, not the
+                // oldest before the scroll-to-bottom.
+                .modifier(InitialBottomOffset())
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
                     slack: AgentSessionLayout.followSlack,
@@ -1646,12 +1651,14 @@ struct AgentSessionView: View {
     private func observeToolAsks() async {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let id = session.id
+        // Large chats: only the session's card rows, opened off main (a
+        // chat's whole conversation, re-opened per write, held the main
+        // thread ~120 ms on an 8.5k-message chat).
         let observation = ValueObservation.tracking { db in
-            try SessionQueries.messages(db: db, sessionId: id)
+            try SessionQueries.cardRows(db: db, sessionId: id).map(TreeMessage.init(messageRow:))
         }
         do {
-            for try await messages in observation.values(in: pool) {
-                let tree = messages.map(TreeMessage.init(messageRow:))
+            for try await tree in observation.values(in: pool) {
                 let byId = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 let cards = AskDock.sessionCards(tree)
                 var asks: [SessionChatRow] = []
@@ -4828,5 +4835,16 @@ struct BodySlice<Content: View>: View {
 
     var body: some View {
         content()
+    }
+}
+
+/// iOS 18+: `defaultScrollAnchor(.bottom, for: .initialOffset)`.
+private struct InitialBottomOffset: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+        } else {
+            content
+        }
     }
 }

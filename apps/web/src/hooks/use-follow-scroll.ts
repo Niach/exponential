@@ -40,6 +40,7 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
   // (a Dock band measuring in, rows streaming); only the reader scrolling UP
   // leaves the tail, never a scroll that moved down or stayed.
   const lastTopRef = useRef(0)
+  const scrolledRef = useRef(false)
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
@@ -52,9 +53,15 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
       el.scrollTop = el.scrollHeight
       lastTopRef.current = el.scrollTop
     }
+    // Set state only on a CHANGE: a same-value set still re-rendered the
+    // whole transcript on every scroll event (62 commits per 60 wheels).
+    if (bottom !== atBottomRef.current) setAtBottom(bottom)
     atBottomRef.current = bottom
-    setAtBottom(bottom)
-    setScrolled(el.scrollTop > 0)
+    const scrolledNow = el.scrollTop > 0
+    if (scrolledNow !== scrolledRef.current) {
+      scrolledRef.current = scrolledNow
+      setScrolled(scrolledNow)
+    }
   }, [])
 
   const jumpToBottom = useCallback(() => {

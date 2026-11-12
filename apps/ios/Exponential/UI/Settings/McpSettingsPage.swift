@@ -1,14 +1,17 @@
 import ExpCore
 import ExpUI
+internal import ExponentialUIPrimitives
 import GRDB
 import SwiftUI
 import UIKit
 
 // #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP, ONE page ×4 (web
-// `mcp-settings-page.tsx`): Endpoint · Servers · Clients (Mine | Everyone) ·
-// Access (+ Activity) · Built-in Exponential tools. Phones have no add/edit:
-// the Servers rows carry the member's own Connect (the web page in the
-// browser, `?connect=<id>`) / Disconnect.
+// `mcp-settings-page.tsx`): the Overview line · Servers (owner 2026-11-12:
+// ONE group, the built-ins Exponential + Team apps first, then the team's
+// servers, EVERY row expandable to its tools) · Access (+ Activity) ·
+// Clients (Mine | Everyone). Phones have no add/edit: the team rows carry
+// the member's own Connect (the web page in the browser, `?connect=<id>`) /
+// Disconnect.
 
 /// The page the Team row `mcp` opens.
 struct McpSettingsPage: View {
@@ -23,6 +26,15 @@ struct McpSettingsPage: View {
         var servers: [McpServerRow]
         var clients: [McpClientRow]
         var access: McpAppAccess
+        /// An open team server's tools (no `mcpServers.tools` fetch).
+        var serverTools: [String: [McpToolRow]] = [:]
+    }
+
+    /// An open team server's `mcpServers.tools` answer.
+    enum ToolsLoad: Equatable {
+        case loading
+        case loaded([McpToolRow])
+        case failed(String)
     }
 
     @Environment(AppDependencies.self) private var deps
@@ -42,6 +54,12 @@ struct McpSettingsPage: View {
     @State private var revoking = false
     @State private var access: McpAppAccess?
     @State private var builtinQuery = ""
+    /// The open Servers rows (`builtin:<id>` or a team server's id); closed
+    /// by default, several may be open.
+    @State private var openRows: Set<String> = []
+    /// The team servers' tools, fetched on first open (kept, so reopening a
+    /// row never refetches; the server caches a member's answer 5 minutes).
+    @State private var serverTools: [String: ToolsLoad] = [:]
 
     init(teamId: String, specimen: Specimen? = nil) {
         self.teamId = teamId
@@ -64,11 +82,10 @@ struct McpSettingsPage: View {
     var body: some View {
         TeamSettingsPageChrome(section: .mcp) {
             VStack(alignment: .leading, spacing: 24) {
-                endpointSection
+                overviewLine
                 serversSection
-                clientsSection
                 accessSection
-                builtinSection
+                clientsSection
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(McpSettings.TestId.page)
@@ -90,20 +107,73 @@ struct McpSettingsPage: View {
         }
     }
 
-    // MARK: - Endpoint
+    // MARK: - Overview
 
-    @ViewBuilder
-    private var endpointSection: some View {
-        let url = instanceUrl.map(McpSettings.endpoint(instanceUrl:)) ?? McpSettings.endpointPath
-        section(.endpoint) {
+    /// One muted line above the first group, no label (`overview`).
+    private var overviewLine: some View {
+        Text(McpSettings.overview)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(McpSettings.Section.overview.testId)
+    }
+
+    // MARK: - Servers
+
+    /// ONE group (`serverOrder`): the built-ins first, then the team's
+    /// servers (no team server = the built-ins only). FLAT rows under the
+    /// band (web, desktop): no filled box.
+    private var serversSection: some View {
+        let hasAppTools = !(access?.apps.isEmpty ?? true)
+        return section(.servers, boxed: false) {
+            VStack(spacing: 0) {
+                ForEach(McpSettings.serverOrder(appTools: hasAppTools, servers: servers ?? [])) { entry in
+                    switch entry {
+                    case .builtin(let builtin):
+                        builtinRow(builtin)
+                    case .server(let server):
+                        serverRow(server)
+                    }
+                }
+                if servers == nil {
+                    SkeletonRows(rows: 2, rowHeight: McpSettingsPage.serverRowHeight)
+                }
+            }
+        }
+    }
+
+    private func isOpen(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { openRows.contains(key) },
+            set: { open in
+                if open { openRows.insert(key) } else { openRows.remove(key) }
+            }
+        )
+    }
+
+    private func builtinUrl(_ builtin: McpSettings.Builtin) -> String {
+        guard let instanceUrl else { return builtin.path }
+        return McpSettings.builtinEndpoint(instanceUrl: instanceUrl, builtin)
+    }
+
+    /// A built-in server (`builtins`): the Exponential mark, the name, the
+    /// Built-in pill, its URL in mono; its ONE action copies the URL. No
+    /// menu, no edit.
+    private func builtinRow(_ builtin: McpSettings.Builtin) -> some View {
+        let url = builtinUrl(builtin)
+        return VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(url)
-                    .font(.expMono(.subheadline))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-                GlassPill(McpSettings.copy, icon: AppIcons.uiCopy, mode: .action {
+                McpRowDisclosure(
+                    isExpanded: isOpen(builtin.key),
+                    name: builtin.name,
+                    pill: McpSettings.builtinPill,
+                    caption: url,
+                    mono: true
+                ) {
+                    ExpLogoMark(size: 16, color: .white.opacity(TextOpacity.secondary))
+                }
+                GlassPill(McpSettings.copy, mode: .action {
                     UIPasteboard.general.string = url
                     toaster.success(McpSettings.copied)
                 })
@@ -111,26 +181,19 @@ struct McpSettingsPage: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-        }
-    }
-
-    // MARK: - Servers
-
-    @ViewBuilder
-    private var serversSection: some View {
-        section(.servers) {
-            if let servers {
-                if servers.isEmpty {
-                    EmptyState(.mcpServers)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(servers) { server in
-                            serverRow(server)
-                        }
+            .flatRow()
+            .accessibilityIdentifier(builtin == .exponential ? McpSettings.TestId.builtin : McpSettings.TestId.appsServer)
+            if openRows.contains(builtin.key) {
+                VStack(spacing: 0) {
+                    switch builtin {
+                    case .exponential:
+                        builtinTools
+                    case .apps:
+                        appTools
                     }
                 }
-            } else {
-                SkeletonRows(rows: 2, rowHeight: McpSettingsPage.serverRowHeight)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(McpSettings.TestId.serverTools)
             }
         }
     }
@@ -140,43 +203,215 @@ struct McpSettingsPage: View {
             .compactMap { $0 }
             .joined(separator: " · ")
         let connected = server.connection.status == "connected"
-        return HStack(spacing: 12) {
-            AppIcon(AppIcons.uiMcp, size: AppIcon.Size.small)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(server.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if server.enabledByDefault {
-                        GlassPill("Default").fixedSize()
-                    }
+        return VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                McpRowDisclosure(
+                    isExpanded: isOpen(server.id),
+                    name: server.name,
+                    pill: server.enabledByDefault ? "Default" : nil,
+                    caption: caption
+                ) {
+                    AppIcon(AppIcons.uiMcp, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
-                if !caption.isEmpty {
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
+                connectionAction(server)
+                if connected {
+                    GlassMenu {
+                        GlassMenuItem("Disconnect", icon: AppIcons.uiClear, destructive: true) {
+                            Task { await disconnect(server) }
+                        }
+                    } label: {
+                        GhostIconLabel(AppIcons.uiMore)
+                            .accessibilityLabel("Server menu for \(server.name)")
+                    }
                 }
             }
-            Spacer(minLength: 0)
-            connectionAction(server)
-            if connected {
-                GlassMenu {
-                    GlassMenuItem("Disconnect", icon: AppIcons.uiClear, destructive: true) {
-                        Task { await disconnect(server) }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .flatRow()
+            .accessibilityIdentifier("mcp-server-row")
+            if openRows.contains(server.id) {
+                serverToolsList(server)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(McpSettings.TestId.serverTools)
+            }
+        }
+    }
+
+    // MARK: - Tools under an open row
+
+    /// The open Exponential row: its FIRST line is the one filter field,
+    /// then one sub-label per contract tool group (#EXP-1657); every band
+    /// filtered away = the one empty state under the field.
+    @ViewBuilder
+    private var builtinTools: some View {
+        let bands = McpSettings.builtinToolBands(query: builtinQuery)
+        GlassSheetSearchField(
+            placeholder: McpSettings.builtinFilterPlaceholder,
+            text: $builtinQuery,
+            accessibilityIdentifier: "mcp-builtin-tools-filter"
+        )
+        .padding(.leading, McpSettingsPage.toolInset)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+        if bands.isEmpty {
+            EmptyState(.builtinToolsNoMatch)
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(bands) { band in
+                    toolBand(band.label, id: band.id) {
+                        ForEach(band.tools) { tool in
+                            toolRow(title: tool.title, blurb: tool.blurb)
+                        }
                     }
-                } label: {
-                    GhostIconLabel(AppIcons.uiMore)
-                        .accessibilityLabel("Server menu for \(server.name)")
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .flatRow()
-        .accessibilityIdentifier("mcp-server-row")
+    }
+
+    /// The open Team apps row: one sub-label per app (alphabetical), its
+    /// exposed tools in package order.
+    private var appTools: some View {
+        ForEach(access?.apps ?? []) { app in
+            toolBand(app.name, id: app.slug) {
+                ForEach(app.tools) { tool in
+                    toolRow(title: tool.title, blurb: tool.blurb)
+                }
+            }
+        }
+    }
+
+    /// An open team server (`toolsStateCases`): a FLAT list fetched on first
+    /// open, or the muted line saying why there is none.
+    @ViewBuilder
+    private func serverToolsList(_ server: McpServerRow) -> some View {
+        switch McpSettings.toolsState(transport: server.transport, status: server.connection.status) {
+        case .connect:
+            toolsLine(McpSettings.toolsConnect)
+        case .stdio:
+            toolsLine(McpSettings.toolsStdio)
+        case .list:
+            Group {
+                switch serverTools[server.id] ?? .loading {
+                case .loading:
+                    SkeletonRows(rows: 2, rowHeight: McpSettingsPage.toolRowHeight, dot: false, dividers: false)
+                        .padding(.leading, McpSettingsPage.toolInset)
+                        .padding(.trailing, 12)
+                case .failed(let reason):
+                    toolsLine(McpSettings.toolsFailedLine(reason)) {
+                        Button(McpSettings.retry) {
+                            Task { await loadTools(server) }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                        .fixedSize()
+                        .accessibilityIdentifier("mcp-server-tools-retry")
+                    }
+                case .loaded(let tools):
+                    if tools.isEmpty {
+                        toolsLine(McpSettings.toolsNone)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(tools) { tool in
+                                toolRow(title: tool.title, blurb: tool.blurb)
+                            }
+                        }
+                    }
+                }
+            }
+            .task(id: server.id) {
+                if serverTools[server.id] == nil { await loadTools(server) }
+            }
+        }
+    }
+
+    /// A sub-label inside an open row (a tool group, an app) over its tools.
+    private func toolBand<Content: View>(
+        _ label: String,
+        id: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+                .padding(.leading, McpSettingsPage.toolInset)
+                .padding(.trailing, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            content()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mcp-tool-band-\(id)")
+    }
+
+    /// One tool under an open row: its title (medium) + its muted blurb, no
+    /// per-row mark (web, desktop).
+    private func toolRow(title: String, blurb: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Text(blurb)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, McpSettingsPage.toolInset)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .accessibilityIdentifier("mcp-tool-row")
+    }
+
+    /// A muted line under an open row (connect first, a local command, a
+    /// failure + its Retry, no tools).
+    private func toolsLine(_ text: String) -> some View {
+        toolsLine(text) { EmptyView() }
+    }
+
+    private func toolsLine<Trailing: View>(
+        _ text: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .padding(.leading, McpSettingsPage.toolInset)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .accessibilityIdentifier("mcp-server-tools-line")
+    }
+
+    private func loadTools(_ server: McpServerRow) async {
+        if let specimen {
+            serverTools[server.id] = .loaded(specimen.serverTools[server.id] ?? [])
+            return
+        }
+        serverTools[server.id] = .loading
+        do {
+            let answer = try await api.tools(accountId: accountId, serverId: server.id)
+            serverTools[server.id] = answer.ok
+                ? ToolsLoad.loaded(answer.tools ?? [])
+                : ToolsLoad.failed(answer.error ?? "the request failed")
+        } catch {
+            // Closed before the answer came: the next open fetches again.
+            if Task.isCancelled {
+                serverTools[server.id] = nil
+                return
+            }
+            serverTools[server.id] = .failed(error.localizedDescription)
+        }
     }
 
     /// The viewer's ONE action (web `ConnectionAction`); a connected row
@@ -250,7 +485,7 @@ struct McpSettingsPage: View {
     @ViewBuilder
     private var clientsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand(McpSettings.Section.clients.label)
+            GlassSectionBand(McpSettings.Section.clients.label ?? "")
             if isOwner {
                 GlassSegmentedControl(
                     options: McpSettings.Scope.allCases,
@@ -355,6 +590,11 @@ struct McpSettingsPage: View {
     /// client or activity row (name over caption) 54 pt.
     static let serverRowHeight: CGFloat = 57
     static let rowHeight: CGFloat = 54
+    /// A tool row under an open server row (title over nothing, 8 pt pads).
+    static let toolRowHeight: CGFloat = 34
+    /// The tools' leading inset: under the row's name, past the chevron and
+    /// the glyph (web `pl-10`).
+    static let toolInset: CGFloat = 40
 
     /// #EXP-1788: a member without a name reads as their email (web + IDE).
     nonisolated static func memberLabel(_ name: String, email: String?) -> String {
@@ -368,7 +608,7 @@ struct McpSettingsPage: View {
     private var accessSection: some View {
         if let access, !access.apps.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(McpSettings.Section.access.label)
+                GlassSectionBand(McpSettings.Section.access.label ?? "")
                 VStack(spacing: 12) {
                     ForEach(access.apps) { app in
                         VStack(spacing: 0) {
@@ -467,77 +707,23 @@ struct McpSettingsPage: View {
         }
     }
 
-    // MARK: - Built-in
-
-    /// #EXP-1657: ONE band per contract tool group. The first VISIBLE band's
-    /// header carries the filter (one structural slot, so typing never drops
-    /// its focus); every band filtered away = the one empty state under the
-    /// old "Built-in Exponential tools" label.
-    private var builtinSection: some View {
-        let bands = McpSettings.builtinToolBands(query: builtinQuery)
-        let first = bands.first
-        return VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(first?.label ?? McpSettings.Section.builtin.label)
-                GlassSheetSearchField(
-                    placeholder: McpSettings.builtinFilterPlaceholder,
-                    text: $builtinQuery,
-                    accessibilityIdentifier: "mcp-builtin-tools-filter"
-                )
-                .padding(.bottom, 8)
-                Group {
-                    if let first {
-                        builtinRows(first.tools)
-                    } else {
-                        EmptyState(.builtinToolsNoMatch)
-                    }
-                }
-                .glassSection()
-            }
-            ForEach(bands.dropFirst()) { band in
-                VStack(alignment: .leading, spacing: 0) {
-                    GlassSectionBand(band.label)
-                    builtinRows(band.tools).glassSection()
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(McpSettings.Section.builtin.testId)
-    }
-
-    /// One band's rows, exactly as the built-in rows always were.
-    private func builtinRows(_ tools: [McpSettings.BuiltinTool]) -> some View {
-        LazyVStack(spacing: 0) {
-            ForEach(tools) { tool in
-                HStack(spacing: 8) {
-                    ExpLogoMark(size: 12, color: .white.opacity(TextOpacity.tertiary))
-                    Text(tool.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .fixedSize()
-                    Text(tool.blurb)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-        }
-    }
-
     // MARK: - Chrome + data
 
     /// A section = its label band over one glass group.
     private func section<Content: View>(
         _ section: McpSettings.Section,
+        boxed: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand(section.label)
-            content().glassSection()
+            if let label = section.label {
+                GlassSectionBand(label)
+            }
+            if boxed {
+                content().glassSection()
+            } else {
+                content()
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(section.testId)
@@ -580,6 +766,51 @@ struct McpSettingsPage: View {
     }
 }
 
+// MARK: - Row disclosure
+
+/// A Servers row's leading part (owner 2026-11-12): the SDK's
+/// `DisclosureHeader` content slot, chevron LEADING (closed = right, open =
+/// down), over the glyph, the name (+ its pill) and the caption; the row's
+/// actions stay outside it (web `DisclosureHeader` + children, Compose
+/// `DisclosureHeader(leading:)`).
+private struct McpRowDisclosure<Glyph: View>: View {
+    @Binding var isExpanded: Bool
+    let name: String
+    let pill: String?
+    let caption: String
+    var mono: Bool = false
+    @ViewBuilder let glyph: () -> Glyph
+
+    var body: some View {
+        DisclosureHeader(isExpanded: $isExpanded) {
+            HStack(spacing: 12) {
+                glyph()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let pill {
+                            GlassPill(pill).fixedSize()
+                        }
+                    }
+                    if !caption.isEmpty {
+                        Text(caption)
+                            .font(mono ? .expMono(.caption) : .caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+        }
+        .primitiveTokens(PrimitiveTokens(mutedForeground: .white.opacity(TextOpacity.tertiary)))
+        .accessibilityLabel("\(isExpanded ? "Hide" : "Show") \(name) tools")
+        .accessibilityIdentifier("mcp-server-disclosure")
+    }
+}
+
 // MARK: - Specimen
 
 /// Styleguide capture only (`-uiTestingStyleguide settings-mcp`,
@@ -617,13 +848,29 @@ struct McpSettingsSpecimen: View {
             ],
             access: McpAppAccess(
                 canEdit: true,
-                apps: [McpAppAccess.App(id: "a-admin", slug: "customer-admin", name: "Customer admin", icon: "server", color: "#3b82f6", toolCount: 3)],
+                apps: [
+                    McpAppAccess.App(
+                        id: "a-admin", slug: "customer-admin", name: "Customer admin", icon: "server", color: "#3b82f6",
+                        toolCount: 3,
+                        tools: [
+                            McpToolRow(name: "find_customer", title: "Find customer", blurb: "Look a customer up by name or email"),
+                            McpToolRow(name: "update_plan", title: "Update plan", blurb: "Move a customer to another plan"),
+                            McpToolRow(name: "refund", title: "Refund", blurb: "Refund a customer's last payment"),
+                        ]
+                    ),
+                ],
                 rows: [
                     .init(userId: "u-alex", name: "Alex", levels: [:]),
                     // #EXP-1788: a member without a name reads as their email.
                     .init(userId: "u-mia", name: "", email: "mia@acme.dev", levels: ["a-admin": .read]),
                 ]
-            )
+            ),
+            serverTools: [
+                "linear": [
+                    McpToolRow(name: "list_issues", title: "List issues", blurb: "Issues in a Linear team"),
+                    McpToolRow(name: "create_issue", title: "Create issue", blurb: "File a new Linear issue"),
+                ],
+            ]
         )
     }
 

@@ -1038,7 +1038,9 @@ data class SessionIssueEntity(
 // `messageCardKind`); unknown kinds render nothing.
 @Entity(
     tableName = "messages",
-    indices = [Index("conversation_id"), Index("session_id"), Index("root_id"), Index("team_id")],
+    // v123: (root_id, created_at, id) = a chat's newest page and its
+    // result cards are range reads in transcript order (no sort of the tree).
+    indices = [Index("conversation_id"), Index("session_id"), Index("root_id", "created_at", "id"), Index("team_id")],
 )
 @Serializable
 data class MessageEntity(

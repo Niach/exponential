@@ -249,6 +249,31 @@ class ChatViewModel @Inject constructor(
     val messages: StateFlow<List<SessionTree.Message>> =
         treeMessages.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** results-tab.json: the tree's session-authored card rows (opened), the
+     *  Results tab's and its count's ONE input, older than the window too. */
+    val resultCards: StateFlow<List<SessionTree.Message>> =
+        dbFlow.scopedQuery(emptyList<SessionTree.Message>()) { it.keyedMessages(it.messageDao().observeResultCardsByRoot(rootId)) }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** results-tab.json: THE fold of [resultCards] over the [tree] (the Results
+     *  page and the tab's count read this ONE list), off the main thread:
+     *  hundreds of card rows parse their timestamps and pictures per change.
+     *  The ages follow the clock (a minute). */
+    val results: StateFlow<List<com.exponential.app.domain.ResultsTab.Result>> = combine(
+        tree,
+        resultCards,
+        flow {
+            while (true) {
+                emit(System.currentTimeMillis())
+                delay(60_000)
+            }
+        },
+    ) { sessions, cards, now ->
+        val inputs = resultsTabInputs(sessions, cards)
+        com.exponential.app.domain.ResultsTab.resultsTab(now, rootId, inputs.first, inputs.second)
+    }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** EXP-1341: the sessions the tree's cards name outside the tree (an
      *  agent channel's `thread_started` → another root): their rows + the
      *  card-less messages their titles read, by id. */
@@ -552,8 +577,11 @@ class ChatViewModel @Inject constructor(
      * = the root while it is not ended): the Tasks card + the status line the
      * session view draws. Null = no tail.
      */
-    val liveActivity: StateFlow<ActivityFeedState?> = view
-        .map { it?.liveSessionId }
+    val liveActivity: StateFlow<ActivityFeedState?> = root
+        // The SAME rule as [SessionTree.ChatView.liveSessionId] (the root while
+        // it is not ended), read off the root row alone: the join must not
+        // wait for the whole chat view to build (cold open, large chats).
+        .map { row -> row?.takeIf { it.status != DomainContract.sessionStatusEnded }?.id }
         .distinctUntilChanged()
         .flatMapLatest { id ->
             if (id == null) {

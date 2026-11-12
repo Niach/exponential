@@ -400,7 +400,8 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     // the name = THE shared session title (the tree's links + messages).
     val rootId = row.rootId.ifEmpty { row.id }
     val links by observeScoped(rootId, emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
-    val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeByRoot(rootId)) }
+    // Large chats: the title reads the tree's title rows, never its transcript.
+    val messages by observeScoped(rootId, emptyList()) { it.keyedMessages(it.messageDao().observeTitleRowsByRoot(rootId)) }
     val issues by observeScoped(Unit, emptyList()) { it.issueDao().observeAll() }
     val title = remember(row, links, messages, issues) {
         val ids = links.map { it.issueId }.toSet()

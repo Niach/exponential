@@ -15,6 +15,7 @@ import {
   startClientObservability,
 } from "@/lib/observability/client"
 import { APP_TITLE, appUrl } from "@/lib/page-title"
+import { installStaleBuildRecovery } from "@/lib/stale-build"
 
 import "../styles.css?url"
 
@@ -164,6 +165,8 @@ function ObservabilityBridge() {
   const router = useRouter()
   const userId = useSession().data?.user?.id ?? null
   React.useEffect(() => startClientObservability(router), [router])
+  // #ERR-13: a tab from before a deploy reloads instead of failing.
+  React.useEffect(() => installStaleBuildRecovery(router), [router])
   React.useEffect(() => setObservedUser(userId), [userId])
   return null
 }

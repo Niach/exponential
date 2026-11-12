@@ -313,7 +313,8 @@ struct AgentsView: View {
                         title: "Remove account?",
                         message: AgentAccountsRows.removeAccountConfirmCopy(
                             account: AgentAccountsRows.loginLabel(target.row),
-                            device: confirmDeviceLabel(target.row)
+                            device: confirmDeviceLabel(target.row),
+                            agent: target.row.agent
                         ),
                         actions: [
                             GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},

@@ -138,6 +138,7 @@ fun ChatScreen(
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val resultCards by viewModel.resultCards.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
@@ -367,7 +368,10 @@ fun ChatScreen(
         }
         SessionScreenItems(treeIssues, sessions)
     }
-    val resultsCount = remember(tree, messages, viewModel.rootId) { chatResultsCount(viewModel.rootId, tree, messages) }
+    // results-tab.json: THE fold, built off the main thread in the view model
+    // (the page reads the same list): never re-folded here per change.
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val resultsCount = results.size
     val kind = SessionScreen.kind(
         agentId = if (agent != null) rootRow?.agentId else null,
         // An app's editor session renders as AppEditorScreen (its Preview /
@@ -560,6 +564,8 @@ fun ChatScreen(
         ) {
             ChatContent(
                 view = view,
+                rootLoaded = rootRow != null,
+                rootTitle = rootRow?.title?.trim()?.takeIf { it.isNotEmpty() },
                 agent = agent,
                 screen = screen,
                 items = items,
@@ -625,8 +631,8 @@ fun ChatScreen(
                 resultsPage = { padding ->
                     ChatResultsPage(
                         rootId = viewModel.rootId,
-                        sessions = tree,
-                        messages = messages,
+                        results = results,
+                        cards = resultCards,
                         onReply = viewModel::sendTo,
                         pullRequests = pullRequests,
                         teamPullRequests = teamPullRequests,
@@ -783,6 +789,14 @@ internal fun clockTime(wire: String): String? {
 @Composable
 fun ChatContent(
     view: SessionTree.ChatView?,
+    /** Large chats: the root row is synced. The Chat tab (the root's own
+     *  session view) needs nothing else, so it paints on the root row alone
+     *  while [view] still builds; the other tabs wait for [view]. */
+    rootLoaded: Boolean = false,
+    /** The root's own NAMED title (session-title.json's first rung, what
+     *  [view]'s title is when it is set): the header's title until [view]
+     *  lands. Null = unnamed (the title derives, so it waits for [view]). */
+    rootTitle: String? = null,
     agent: ChatAgent?,
     /** session-screen.json `sessionScreen` (narrow). */
     screen: SessionScreen.Screen,
@@ -950,7 +964,7 @@ fun ChatContent(
         containerColor = Color.Transparent,
         topBar = {
             ChatHeader(
-                title = agent?.name ?: view?.title.orEmpty(),
+                title = agent?.name ?: view?.title ?: rootTitle.orEmpty(),
                 subtitle = headerSubtitle,
                 subtitleColor = headerSubtitleColor,
                 lead = headerLead,
@@ -965,7 +979,7 @@ fun ChatContent(
                 } else {
                     null
                 },
-                tabs = if (view != null) {
+                tabs = if (view != null || rootLoaded) {
                     { SessionScreenTabs(tabs = screen.tabs, active = screen.active, onSelect = onSelectTab) }
                 } else {
                     null
@@ -973,7 +987,11 @@ fun ChatContent(
             )
         },
     ) { padding ->
-        if (view == null) {
+        // Large chats: the Chat tab paints on the root row alone (its session
+        // view reads its own data); every other tab reads [view]. ONE call
+        // site for the session page either way, so it is never remounted
+        // when [view] lands.
+        if (view == null && !(rootLoaded && screen.active == SessionScreen.Tab.Chat)) {
             Box(Modifier.padding(padding).fillMaxSize()) {
                 SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).testTag("chat-skeleton"))
             }

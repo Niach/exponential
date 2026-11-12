@@ -182,6 +182,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        # The job defaults to apps/ios; the script path is repo-relative.
+        working-directory: ${{ github.workspace }}
         run: .github/scripts/glitchtip-debug-files.sh ios "$RUNNER_TEMP/$XC_ARCHIVE/dSYMs"
 
       # The same dSYMs kept with the run, so a release whose upload failed

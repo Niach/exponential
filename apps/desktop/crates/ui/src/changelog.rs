@@ -57,6 +57,54 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_259: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-crash-reports",
+    date: "2026-11-12",
+    title: "Crash reports from the desktop app, the CLI and Exponential Desktop",
+    summary: "When the desktop app, the CLI daemon or Exponential Desktop crashes, the next start sends a crash report if diagnostics are on, and every Claude login on a device now shares one set of conversations.",
+    body: r##"- **Crash reports**: a crash of the desktop app, the CLI daemon or Exponential Desktop is written down on the device and sent at the next start, so it can be fixed. Only with "Send diagnostics" on: when it is off, the report is deleted unsent.
+- **One conversation store per device**: every Claude login shares the same conversations, plans and rewind checkpoints. The desktop app or the CLI moves existing ones over on its next start, and "Remove account" keeps a login's chats.
+- **Exponential Desktop 0.2.19**: carries the same crash reports."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_258: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-large-chats-on-phones",
+    date: "2026-11-12",
+    title: "Large chats open fast on phones",
+    summary: "Long chats on iPhone, iPad and Android open on their newest messages and load earlier ones as you scroll up, and Android sends crash reports from the first start.",
+    body: r##"- **Large chats open fast**: a long chat opens on its newest messages and loads earlier ones as you scroll up, on every app.
+- **Smooth scrolling**: phones read and lay out a chat off the main thread, so a busy session no longer stutters.
+- **Android crash fixes**: the live feed and calls no longer crash, and crash reports are sent even before you pick a server."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_257: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-mcp-servers-one-list",
+    date: "2026-11-12",
+    title: "One list for every MCP server",
+    summary: "Settings › MCP lists the built-in Exponential and Team apps servers with your team's own, each unfolds to its tools, and Clients moved to the bottom.",
+    body: r##"- **One Servers list**: the built-in Exponential server (and Team apps, once an app exposes tools) sits in the same list as the servers your team added, with its URL and a Copy button for clients like Claude. The old Endpoint box is gone.
+- **Tools on every row**: unfold any server to see its tools. Exponential's stay grouped (Work, Tracker, …) behind the filter, Team apps' by app, and a connected server lists its own.
+- **Clients last**: the connected clients moved to the bottom of the page."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_256: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-12-one-conversation-store",
+    date: "2026-11-12",
+    title: "Every Claude login shares one set of conversations",
+    summary: "All Claude logins on a device now read and write the same conversations, so switching accounts carries the whole chat along and removing a login keeps its history.",
+    body: r##"- **One conversation store per device**: every Claude login on a device keeps its conversations, plans and rewind checkpoints in one place, so a session continues on another account with its full history and its plan.
+- **Removing a login keeps its chats**: "Remove account" deletes the login and its credential from the device; the conversations it ran stay and resume on any other login.
+- **Moved over on its own**: the desktop app or the CLI moves existing conversations over on its next start, skipping any login with a running session until it is idle. Nothing is deleted: a copy that differs between logins is kept aside and shown in the device's readiness list."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_255: ChangelogEntry = ChangelogEntry {
     id: "2026-11-12-quiet-scheduled-ticks",
     date: "2026-11-12",
