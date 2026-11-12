@@ -279,6 +279,9 @@ struct MarkdownView: View {
     /// #VAPP-258: an unsized block image decoded (outside a surface: the
     /// host view lays out again); nil = `node` remeasures.
     var onImageLoaded: (() -> Void)? = nil
+    /// The typeset text blocks this document keeps (a `MarkdownText`'s);
+    /// nil = shaped on every pass.
+    var paragraphs: MarkdownTextDocument? = nil
 
     /// #VAPP-258: `selectable` (iOS): text blocks select natively.
     @Environment(\.xuiTextPaint) private var paint
@@ -308,7 +311,7 @@ struct MarkdownView: View {
         ZStack(alignment: .topLeading) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { i, block in
                 let box = layout.blocks[i]
-                blockView(block, box: box, link: link, codeBg: codePart.style.background, codeBlockBg: codeBlockPart.style.background ?? model.color("muted"), quoteBorder: quotePart.style.borderColor ?? border, muted: muted, border: border)
+                blockView(block, index: i, box: box, link: link, codeBg: codePart.style.background, codeBlockBg: codeBlockPart.style.background ?? model.color("muted"), quoteBorder: quotePart.style.borderColor ?? border, muted: muted, border: border)
                     .frame(width: width, height: box.height, alignment: .topLeading)
                     .offset(y: box.y)
             }
@@ -321,12 +324,13 @@ struct MarkdownView: View {
     /// typesetter at the block's wrap width. #VAPP-258: its inline chips
     /// paint over their reserved boxes (each opens its href).
     @ViewBuilder
-    private func linked(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
-        let label = paragraph(runs, spec: spec, width: width)
+    private func linked(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
+        let runs = lines.text, width = lines.wrap
+        let label = paragraph(lines, spec: spec)
         Group {
             if selects {
                 label
-            } else if TextShaper.hasLinks(runs) {
+            } else if lines.hasLinks {
                 label.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { point in
                     if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
                 }
@@ -334,25 +338,27 @@ struct MarkdownView: View {
                 label
             }
         }
-        .background(alignment: .topLeading) { codeFills(runs, spec: spec, width: width) }
-        .overlay(alignment: .topLeading) { chips(runs, spec: spec, width: width) }
+        .background(alignment: .topLeading) { codeFills(lines, spec: spec) }
+        .overlay(alignment: .topLeading) { chips(lines, spec: spec) }
     }
 
     /// Round 9: inline code's `Markdown/code` boxes, under the text.
     @ViewBuilder
-    private func codeFills(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
-        let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
-        let placed = TextShaper.codeRects(in: runs, lineHeight: spec.lineHeight, baseline: baseline, wrap: width, rtl: model.isRTL)
-        if !placed.isEmpty {
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
-                    RoundedRectangle(cornerRadius: p.radius)
-                        .fill(Color(p.fill))
-                        .frame(width: p.rect.width, height: p.rect.height)
-                        .offset(x: p.rect.minX, y: p.rect.minY)
+    private func codeFills(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
+        if lines.hasChips {
+            let baseline = TextShaper.baseline(TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family))
+            let placed = TextShaper.codeRects(in: lines, lineHeight: spec.lineHeight, baseline: baseline, rtl: model.isRTL)
+            if !placed.isEmpty {
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
+                        RoundedRectangle(cornerRadius: p.radius)
+                            .fill(Color(p.fill))
+                            .frame(width: p.rect.width, height: p.rect.height)
+                            .offset(x: p.rect.minX, y: p.rect.minY)
+                    }
                 }
+                .frame(width: lines.wrap, alignment: .topLeading)
             }
-            .frame(width: width, alignment: .topLeading)
         }
     }
 
@@ -360,40 +366,42 @@ struct MarkdownView: View {
     /// line by line at the typesetter's breaks (the measurer's, the chips'),
     /// so TextKit never wraps it differently.
     @ViewBuilder
-    private func paragraph(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+    private func paragraph(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
         #if canImport(UIKit)
         if selects {
             // One selectable view per block; a chip text on the measurer's
             // lines (forced separators, no re-wrap).
-            let chipped = TextShaper.hasChips(runs)
+            let runs = lines.text, width = lines.wrap
+            let chipped = lines.hasChips
             SelectableTextLabel(
-                attributed: chipped ? TextShaper.withLineSeparators(runs, wrap: width) : runs,
+                attributed: chipped ? TextShaper.withLineSeparators(lines) : runs,
                 lineHeight: spec.lineHeight, wraps: !chipped,
-                onTap: TextShaper.hasLinks(runs) ? { point in
+                onTap: lines.hasLinks ? { point in
                     if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
                 } : nil
             )
             .frame(width: width, alignment: .topLeading)
         } else {
-            plainParagraph(runs, spec: spec, width: width)
+            plainParagraph(lines, spec: spec)
         }
         #else
-        plainParagraph(runs, spec: spec, width: width)
+        plainParagraph(lines, spec: spec)
         #endif
     }
 
     @ViewBuilder
-    private func plainParagraph(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
-        if TextShaper.hasChips(runs) {
+    private func plainParagraph(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
+        if lines.hasChips {
+            let runs = lines.text, width = lines.wrap
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(TextShaper.lineRanges(runs, wrap: width).enumerated()), id: \.offset) { _, range in
+                ForEach(Array(lines.ranges.enumerated()), id: \.offset) { _, range in
                     TextLabel(attributed: runs.attributedSubstring(from: range), lineHeight: spec.lineHeight, wraps: false)
                         .frame(width: width, height: spec.lineHeight)
                 }
             }
             .frame(width: width, alignment: .topLeading)
         } else {
-            TextLabel(attributed: runs, lineHeight: spec.lineHeight)
+            TextLabel(attributed: lines.text, lineHeight: spec.lineHeight)
         }
     }
 
@@ -406,19 +414,32 @@ struct MarkdownView: View {
         }
     }
 
-    /// The inline chips of `runs` at the boxes the typesetter laid out.
+    /// The inline chips of a block at the boxes the typesetter laid out.
     @ViewBuilder
-    private func chips(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
-        let placed = TextShaper.chipRects(in: runs, lineHeight: spec.lineHeight, wrap: width, rtl: model.isRTL)
-        if !placed.isEmpty {
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
-                    MarkdownChipView(run: p.run, style: styles.chip, model: model, ink: ink, props: props)
-                        .offset(x: p.rect.minX, y: p.rect.minY)
+    private func chips(_ lines: TextLines, spec: MarkdownTextSpec) -> some View {
+        if lines.hasChips {
+            let placed = TextShaper.chipRects(in: lines, lineHeight: spec.lineHeight, rtl: model.isRTL)
+            if !placed.isEmpty {
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
+                        MarkdownChipView(run: p.run, style: styles.chip, model: model, ink: ink, props: props)
+                            .offset(x: p.rect.minX, y: p.rect.minY)
+                    }
                 }
+                .frame(width: lines.wrap, alignment: .topLeading)
             }
-            .frame(width: width, alignment: .topLeading)
         }
+    }
+
+    /// The runs of a text block (the chips sized for `width`), typeset once:
+    /// a `MarkdownText`'s document keeps them per block (`slot`), so a row
+    /// a lazy list realizes again shapes nothing.
+    private func lines(_ slot: MarkdownParagraphSlot, _ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, ink: Color, link: Color, codeBackground: Color?, width: CGFloat) -> TextLines {
+        let key = MarkdownParagraphKey(slot: slot, width: width, ink: ink, link: link, codeBackground: codeBackground, rtl: model.isRTL, epoch: TextFonts.epoch)
+        if let hit = paragraphs?.paragraph(key) { return hit }
+        let out = TextLines(runs(inlines, spec, ink: ink, link: link, codeBackground: codeBackground, width: width), wrap: width)
+        paragraphs?.store(out, for: key)
+        return out
     }
 
     /// The runs of a text block (the chips sized for `width`).
@@ -458,7 +479,7 @@ struct MarkdownView: View {
     }
 
     @ViewBuilder
-    private func blockView(_ block: MarkdownBlock, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color) -> some View {
+    private func blockView(_ block: MarkdownBlock, index: Int, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color) -> some View {
         let spec = styles.spec(of: block.kind)
         let mono = model.theme?.monoFamily
         let codeBlockPart = model.part("Markdown", "codeBlock", props: props).style
@@ -466,7 +487,7 @@ struct MarkdownView: View {
         let codeBlockBorder = codeBlockPart.borderColor
         switch block.kind {
         case .paragraph, .heading:
-            linked(runs(block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
+            linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: MarkdownPainter.inlineInk(block.kind, props: props, model: model) ?? ink, link: link, codeBackground: codeBg, width: width), spec: spec)
         case let .image(src, alt):
             let boxWidth = box.width ?? width
             let unsized = block.imageSize == nil
@@ -515,7 +536,7 @@ struct MarkdownView: View {
                 }
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
                 let inner = max(width - styles.listInset(block), 1)
-                linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: inner), spec: spec, width: inner)
+                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: inner), spec: spec)
             }
             .padding(.leading, styles.listIndent * CGFloat(block.depth))
         case .quote:
@@ -523,7 +544,7 @@ struct MarkdownView: View {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
                 let inner = max(width - styles.quoteBorder - styles.quotePad, 1)
-                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner), spec: spec, width: inner)
+                linked(lines(MarkdownParagraphSlot(block: index), block.inlines, spec, ink: muted, link: link, codeBackground: codeBg, width: inner), spec: spec)
             }
         case .codeBlock:
             // One non-wrapping label per line (a single-line label would
@@ -564,9 +585,9 @@ struct MarkdownView: View {
                             var cellSpec = spec
                             let _ = { if r == 0 { cellSpec.weight = max(cellSpec.weight, 600) } }()
                             let cellText = max(cellW - 2 * styles.cellPadH, 1)
-                            let cellRuns = runs(cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: cellText)
-                            paragraph(cellRuns, spec: spec, width: cellText)
-                                .overlay(alignment: .topLeading) { chips(cellRuns, spec: spec, width: cellText) }
+                            let cellLines = lines(MarkdownParagraphSlot(block: index, row: r, column: c), cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: cellText)
+                            paragraph(cellLines, spec: spec)
+                                .overlay(alignment: .topLeading) { chips(cellLines, spec: spec) }
                                 .padding(.horizontal, styles.cellPadH)
                                 .padding(.vertical, styles.cellPadV)
                                 .frame(width: cellW, height: box.rows[safe: r].map { $0 - 1 } ?? spec.lineHeight, alignment: .topLeading)
@@ -580,6 +601,25 @@ struct MarkdownView: View {
             .overlay(alignment: .top) { Rectangle().fill(border).frame(height: 1) }
         }
     }
+}
+
+/// A text block's place in its document (a table cell's row and column).
+struct MarkdownParagraphSlot: Hashable {
+    var block: Int
+    var row = -1
+    var column = -1
+}
+
+/// One typeset text block: its slot at a wrap width in its colours (the
+/// document fixes the rest of what its runs depend on).
+struct MarkdownParagraphKey: Hashable {
+    let slot: MarkdownParagraphSlot
+    let width: CGFloat
+    let ink: Color
+    let link: Color
+    let codeBackground: Color?
+    let rtl: Bool
+    let epoch: UInt64
 }
 
 /// A task item's box = the Checkbox `box` + `check` recipe parts (the same
