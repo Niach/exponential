@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-12-trash-desktop`,
+    date: `2026-11-12`,
+    title: `Deleted issues come back in the desktop app`,
+    summary: `The desktop app and the CLI move a deleted issue to the team's trash, Local desktops included, and computer use can work with the clipboard.`,
+    body: `- **Trash on the desktop**: deleting an issue in the desktop app moves it to the team's trash, and team settings › Boards lists it with Restore. A Local desktop keeps its own trash, offline.
+- **Clipboard for computer use**: agents can paste text, copy the selection and read the clipboard on Linux (X11), eDE, macOS and Windows.
+- **Dismissed cards stay dismissed**: a card you dismissed in a chat stays dismissed after the desktop app restarts.
+- **Fable 5.2 everywhere**: every Claude child, Local runs included, runs Fable 5.2.`,
+  },
+  {
     id: `2026-11-12-issue-trash-on-phones`,
     date: `2026-11-12`,
     title: `Deleted issues come back on phones`,
