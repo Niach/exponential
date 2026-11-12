@@ -823,6 +823,8 @@ fun AgentScreen(
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
+                    // #EXP-1793: on launch the MCP pick follows a temporary session.
+                    mcpPick = temporary,
                     skills = skills.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
                     prompts = teamPrompts.isNotEmpty(),

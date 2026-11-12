@@ -240,10 +240,12 @@ export function validateMcpServerDraft(draft: McpServerDraft): string | null {
   if (draft.auth === `oauth` && !http) {
     return `OAuth sign-in works for HTTP servers only.`
   }
-  if (draft.auth === `secret` && names.length !== 1) {
+  // #EXP-1793: one or more (Cloudflare Access's two + a bearer token);
+  // each member sets a value for every name.
+  if (draft.auth === `secret` && names.length === 0) {
     return http
-      ? `An API-key server declares exactly one header name (Advanced): the one that carries the key.`
-      : `An API-key server declares exactly one variable name (Advanced): the one that carries the key.`
+      ? `An API-key server declares at least one header name (Advanced): the ones that carry the keys.`
+      : `An API-key server declares at least one variable name (Advanced): the ones that carry the keys.`
   }
   return null
 }

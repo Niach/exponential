@@ -64,6 +64,7 @@ class AgentSettingsViewModel @Inject constructor(
     holder: DatabaseHolder,
     selection: TeamSelection,
     private val agentsApi: AgentsApi,
+    private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
 ) : ViewModel() {
 
     /** S-3: the viewer (an Assistant is edited by its owner only). */
@@ -254,6 +255,24 @@ class AgentSettingsViewModel @Inject constructor(
                 }
             }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1793 (agent-settings.json `mcpRow`): the agent's team's MCP
+     *  servers (`mcpServers.list`, team list order), the MCP servers row's
+     *  picker; a failed read = none. */
+    val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> =
+        combine(agent, teamId) { row, selected -> row?.teamId?.takeIf { it.isNotEmpty() } ?: selected }
+            .distinctUntilChanged()
+            .mapLatest { team ->
+                val accountId = auth.activeAccountId.value
+                if (team == null || accountId == null) {
+                    emptyList()
+                } else {
+                    runCatching { mcpServersApi.list(accountId, team) }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrDefault(emptyList())
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _instructions = MutableStateFlow<String?>(null)
     /** The server-only instructions (`agents.get`); null = not loaded. */
