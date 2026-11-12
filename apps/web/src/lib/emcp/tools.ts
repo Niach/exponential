@@ -2494,7 +2494,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new root (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = uploads or readable files (Image/File line ids); forwardAttachments = your current message's. Never resend, never wait.`,
+      description: `One call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new root (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = upload/file ids (Image/File lines); forwardAttachments = your current message's. Never resend or wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2524,11 +2524,12 @@ export function registerExponentialTools(
         answer: z.record(z.string(), z.unknown()).optional(),
         wakeOn: z.array(uuidString).optional(),
         // EXP-1458: a device's sealed send (sessionsSendInputSchema checks
-        // them; bare `{}` in the always-loaded schema).
-        mentionUserIds: z.any().optional(),
-        refIssueIds: z.any().optional(),
-        sealedName: z.any().optional(),
-        seal: z.any().optional(),
+        // them). #VAPP-293: typed, loosely (Claude's directory refuses an
+        // untyped parameter); the strict schema still validates each.
+        mentionUserIds: z.array(z.string()).optional(),
+        refIssueIds: z.array(z.string()).optional(),
+        sealedName: z.string().optional(),
+        seal: z.object({}).passthrough().optional(),
         // NEW-4: `stop: true` with sessionId interrupts that session's
         // running turn (it stays, idle; a message resumes it). Nothing else
         // rides along.
@@ -2930,11 +2931,12 @@ export function registerExponentialTools(
     description: z.string().optional(),
     result: z.boolean().optional(),
     // EXP-1458: the device's sealed card (+ an ask's sealed ask text
-    // and per-tree copies); bare `{}`, sealedShowExtrasSchema checks.
-    sealedCard: z.any().optional(),
-    kind: z.any().optional(),
-    askText: z.any().optional(),
-    listenerCopies: z.any().optional(),
+    // and per-tree copies); sealedShowExtrasSchema checks. #VAPP-293:
+    // typed, loosely (Claude's directory refuses an untyped parameter).
+    sealedCard: z.object({}).passthrough().optional(),
+    kind: z.string().optional(),
+    askText: z.string().nullable().optional(),
+    listenerCopies: z.array(z.object({}).passthrough()).optional(),
   })
   if (gates.inSession) {
     server.registerTool(
