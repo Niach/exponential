@@ -6,7 +6,9 @@
 //! Questions row) + THE document (one scroll, a `layout.columnMaxWidth`
 //! column: the big title, THE chat markdown, h2 anchors, picture groups as
 //! THE Mosaic [`crate::mosaic`]). #FEED-191: THE questions = THE RAIL on the
-//! right (`layout.railWidth`, [`crate::plan_card::plan_rail`]). Any picture opens THE
+//! right (`layout.railWidth`, [`crate::plan_card::plan_rail`]). #EXP-1786:
+//! the columns follow the body's OWN width ([`plan_pane_layout`]): beside the
+//! chat the outline yields, then the rail floats as THE panel. Any picture opens THE
 //! lightbox over every picture of the plan
 //! ([`crate::image_preview::open_picture_gallery`]).
 //!
@@ -17,13 +19,14 @@
 //! on the tab returns the chat to its Conversation, the ONE way back besides
 //! the Conversation tab itself.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
-use domain::plan_page::{plan_blocks, plan_outline, PlanBlock, PLAN_PAGE};
+use domain::plan_page::{plan_blocks, plan_outline, plan_pane_layout, PlanBlock, PLAN_PAGE};
 use domain::rows::MessageRow;
 use domain::session_tree::SessionChatRow;
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, relative, AnyElement, App, Entity, FontWeight,
+    canvas, div, img, prelude::FluentBuilder as _, px, relative, AnyElement, App, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window,
 };
@@ -268,10 +271,33 @@ fn spy<'a>(tops: impl IntoIterator<Item = (&'a str, f32)>, scrolled: f32) -> Opt
 // The page
 // ---------------------------------------------------------------------------
 
-/// The body's own state, kept by its host: the document's scroll.
+/// The body's own state, kept by its host: the document's scroll, the body's
+/// measured width (#EXP-1786: the columns it holds) and the floating panel's
+/// height (the document pads by it).
 #[derive(Clone, Default)]
 pub(crate) struct PlanPageState {
     pub scroll: ScrollHandle,
+    width: Rc<Cell<f32>>,
+    panel_height: Rc<Cell<f32>>,
+}
+
+/// A probe filling its parent that stores the parent's last painted
+/// `measure` (width or height) and repaints when it changed.
+fn probe(cell: Rc<Cell<f32>>, measure: fn(gpui::Bounds<gpui::Pixels>) -> f32) -> impl IntoElement {
+    canvas(
+        move |bounds, window, _| {
+            let value = measure(bounds);
+            if (cell.get() - value).abs() > 0.5 {
+                cell.set(value);
+                window.refresh();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 /// What THE plan tab's body paints (the chat's and the styleguide's).
@@ -343,7 +369,11 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         .collect();
     let question_count = facts.questions.len();
     let has_outline = !entries.is_empty() || question_count > 0;
-    let outline_column = has_outline.then(|| {
+    // #EXP-1786: the columns the body's own width holds; unmeasured (the
+    // first frame) = the window's.
+    let measured = props.state.width.get();
+    let pane = plan_pane_layout(if measured > 0. { measured } else { f32::from(window.viewport_size().width) });
+    let outline_column = (has_outline && pane.outline).then(|| {
         let on_select: OnOutlineSelect = {
             let (scroll, sections) = (scroll.clone(), sections.clone());
             Rc::new(move |id: &str, window: &mut Window, _: &mut App| {
@@ -457,9 +487,52 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         document = document.child(column(crate::plan_card::surface_block(message_id, cx)));
     }
 
-    // ── #FEED-191: the questions = THE RAIL on the right (the IDE is always
-    // wide): full height beside the document, sticky, the sidebar ground. ──
-    let rail = crate::plan_card::plan_rail(&facts, props.answer, props.images, window, cx).map(|rail| {
+    // ── #FEED-191: the questions = THE RAIL on the right: full height beside
+    // the document, sticky, the sidebar ground. #EXP-1786: a pane too narrow
+    // for it floats them over the document's foot (THE panel). ──
+    let questions = crate::plan_card::plan_rail(&facts, props.answer, pane.rail, props.images, window, cx);
+    let panel_height = props.state.panel_height.clone();
+    let (questions, floating) = if pane.rail { (questions, None) } else { (None, questions) };
+    if floating.is_none() {
+        panel_height.set(0.);
+    }
+    let floating = floating.map(|rail| {
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .p(px(panel.gap))
+            .flex()
+            .items_end()
+            .justify_center()
+            .child(
+                v_flex()
+                    .id(SharedString::from(format!("plan-questions-panel-{message_id}")))
+                    .relative()
+                    .occlude()
+                    .w_full()
+                    .max_w(px(panel.max_width))
+                    .max_h(relative(panel.max_height_fraction))
+                    .overflow_hidden()
+                    .p(px(panel.padding))
+                    .rounded(px(panel.radius))
+                    .border_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                    .bg(crate::dock::card_fill())
+                    .shadow_lg()
+                    .child(probe(panel_height.clone(), |bounds| f32::from(bounds.size.height)))
+                    .child(rail),
+            )
+    });
+    // The document scrolls clear of the panel (its padding + the block gap
+    // are already under the last block).
+    let clearance = if floating.is_some() { panel_height.get() + 2. * panel.gap } else { 0. };
+    if clearance > 0. {
+        document = document.child(div().flex_shrink_0().h(px((clearance - pad - layout.block_gap).max(0.))));
+    }
+    let rail = questions.map(|rail| {
         v_flex()
             .id(SharedString::from(format!("plan-questions-rail-{message_id}")))
             .flex_shrink_0()
@@ -487,13 +560,16 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                 .right_0()
                 .bottom_0()
                 .child(Scrollbar::new(scroll).axis(ScrollbarAxis::Vertical)),
-        );
+        )
+        .children(floating);
 
     h_flex()
         .id(SharedString::from(format!("{}-{message_id}", ids.page)))
+        .relative()
         .size_full()
         .min_h_0()
         .items_start()
+        .child(probe(props.state.width.clone(), |bounds| f32::from(bounds.size.width)))
         .children(outline_column)
         .child(document)
         .children(rail)
