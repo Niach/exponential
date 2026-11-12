@@ -6,13 +6,17 @@
 // `99+`. PLACEMENT stays at the call site (the rail positions it absolutely
 // at a row's right edge or an icon's corner) — the badge owns only its shape.
 //
-//   tone  muted   — the resting count (drafts you parked), muted fill
-//         primary — the count that wants you (unread), accent fill
-export type BadgeTone = `muted` | `primary`
+//   tone  muted     — plain unread / a resting count, muted fill
+//         attention — the count holds something WAITING ON you (#FEED-232,
+//                     domain-contract nav-badges.json): the needs-you yellow,
+//                     black figures
+//         primary   — legacy accent fill (no nav destination uses it)
+export type BadgeTone = `muted` | `attention` | `primary`
 
 export const BADGE_CLASSES = {
   root: `pointer-events-none inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums`,
   tones: {
+    attention: `bg-yellow-400 text-black`,
     primary: `bg-primary text-primary-foreground`,
     muted: `bg-muted text-muted-foreground`,
   },
@@ -20,5 +24,6 @@ export const BADGE_CLASSES = {
 
 /** What the badge prints for `count` (zero and below render nothing). */
 export function badgeLabel(count: number, max = 99): string {
+  if (count <= 0) return ``
   return count > max ? `${max}+` : String(count)
 }
