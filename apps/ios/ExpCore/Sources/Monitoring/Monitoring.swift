@@ -173,6 +173,101 @@ public enum Monitoring {
     }
 }
 
+// MARK: - Tunnel retry
+
+extension Monitoring {
+    /// #ERR-17: what the tunnel's answer does to an envelope. sentry-cocoa
+    /// deletes an envelope on ANY 4xx/5xx answer (429 included) and keeps it
+    /// only when no answer came, so a crash sent while the tunnel answered
+    /// 5xx was gone. `MonitoringTunnelProtocol` turns a transient answer for
+    /// an error or crash envelope into "no answer" (kept on disk, retried
+    /// after the backoff). Same table as Android's `TunnelRetry`.
+    public enum TunnelRetry {
+        public enum Outcome: Equatable, Sendable {
+            case sent, retry, drop
+        }
+
+        static let baseDelay: TimeInterval = 5
+        static let maxDelay: TimeInterval = 600
+        static let maxRetryAfter: TimeInterval = 3600
+
+        /// nil = no answer at all (offline, timeout). Other 4xx: resending the
+        /// same bytes cannot help.
+        public static func outcome(status: Int?) -> Outcome {
+            guard let status else { return .retry }
+            if (200..<300).contains(status) { return .sent }
+            if status == 408 || status == 429 || (500..<600).contains(status) { return .retry }
+            return .drop
+        }
+
+        /// The wait after the `failures`-th failure in a row: 5 s doubling to
+        /// 10 min, never under the server's ask (at most an hour).
+        public static func delay(failures: Int, retryAfter: TimeInterval?) -> TimeInterval {
+            let doubled = baseDelay * pow(2, Double(min(max(failures - 1, 0), 7)))
+            return max(min(doubled, maxDelay), min(retryAfter ?? 0, maxRetryAfter))
+        }
+
+        /// `Retry-After: 120` (seconds) and `X-Sentry-Rate-Limits: 60:error:key,
+        /// 2700::organization`: the longest ask.
+        public static func retryAfter(_ header: String?, rateLimits: String?) -> TimeInterval? {
+            var seconds = [header.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }].compactMap { $0 }
+            for limit in (rateLimits ?? "").split(separator: ",") {
+                if let value = Int(limit.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false).first ?? "") {
+                    seconds.append(value)
+                }
+            }
+            return seconds.max().flatMap { $0 > 0 ? TimeInterval($0) : nil }
+        }
+
+        /// Only error and crash events (app hangs included) wait for a retry;
+        /// traces, logs and sessions are sampled telemetry that would push a
+        /// crash out of the SDK's oldest-first disk cache.
+        public static func carriesEvent(_ body: Data) -> Bool {
+            itemTypes(gunzip(body) ?? body).contains("event")
+        }
+
+        /// The item types of an envelope (header line, then per item a JSON
+        /// header and its payload: `length` bytes, else up to the newline).
+        static func itemTypes(_ envelope: Data) -> [String] {
+            let bytes = [UInt8](envelope)
+            var at = 0
+            func line() -> ArraySlice<UInt8>? {
+                guard at < bytes.count else { return nil }
+                let start = at
+                while at < bytes.count, bytes[at] != 0x0A { at += 1 }
+                defer { at += 1 }
+                return bytes[start..<at]
+            }
+            _ = line()
+            var types: [String] = []
+            while let header = line() {
+                if header.isEmpty { continue }
+                guard let item = (try? JSONSerialization.jsonObject(with: Data(header))) as? [String: Any] else { break }
+                types.append(item["type"] as? String ?? "")
+                if let length = item["length"] as? Int { at += length + 1 } else { _ = line() }
+            }
+            return types
+        }
+
+        /// A gzip member's bytes, inflated (nil = not gzip).
+        static func gunzip(_ data: Data) -> Data? {
+            let bytes = [UInt8](data)
+            guard bytes.count > 18, bytes[0] == 0x1F, bytes[1] == 0x8B, bytes[2] == 8 else { return nil }
+            let flags = bytes[3]
+            var at = 10
+            if flags & 0x04 != 0 { at += 2 + (Int(bytes[at]) | Int(bytes[at + 1]) << 8) }
+            for flag: UInt8 in [0x08, 0x10] where flags & flag != 0 {
+                while at < bytes.count, bytes[at] != 0 { at += 1 }
+                at += 1
+            }
+            if flags & 0x02 != 0 { at += 2 }
+            guard at < bytes.count - 8 else { return nil }
+            // Compression's zlib = raw DEFLATE, the gzip member's body.
+            return try? (Data(bytes[at..<(bytes.count - 8)]) as NSData).decompressed(using: .zlib) as Data
+        }
+    }
+}
+
 // MARK: - Scrubber
 
 extension Monitoring {
@@ -255,6 +350,9 @@ public final class MonitoringState: Sendable {
     private struct State {
         var origins: [String] = []
         var tunnelUrl: URL?
+        var tunnelFailures = 0
+        var tunnelRetryAt: Date?
+        var tunnelRetryScheduled = false
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -264,4 +362,41 @@ public final class MonitoringState: Sendable {
 
     public func setOrigins(_ origins: [String]) { state.withLock { $0.origins = origins } }
     public func setTunnelUrl(_ url: URL?) { state.withLock { $0.tunnelUrl = url } }
+
+    // #ERR-17: the tunnel's backoff, shared by every envelope request.
+
+    /// Whether the tunnel is not to be asked before a deadline.
+    public func tunnelBackingOff(now: Date = Date()) -> Bool {
+        state.withLock { $0.tunnelRetryAt.map { now < $0 } ?? false }
+    }
+
+    /// A transient failure moves the deadline; the answer is when to send
+    /// the kept envelopes again, nil when that is already planned.
+    public func tunnelFailed(retryAfter: TimeInterval?, now: Date = Date()) -> Date? {
+        state.withLock { s in
+            s.tunnelFailures += 1
+            let at = now.addingTimeInterval(Monitoring.TunnelRetry.delay(failures: s.tunnelFailures, retryAfter: retryAfter))
+            s.tunnelRetryAt = at
+            guard !s.tunnelRetryScheduled else { return nil }
+            s.tunnelRetryScheduled = true
+            return at
+        }
+    }
+
+    /// The planned resend is due: nil = send now (planned no more), else the
+    /// deadline a later failure moved it to (still planned).
+    public func tunnelRetryDue(now: Date = Date()) -> Date? {
+        state.withLock { s in
+            if let at = s.tunnelRetryAt, now < at { return at }
+            s.tunnelRetryScheduled = false
+            return nil
+        }
+    }
+
+    public func tunnelSent() {
+        state.withLock { s in
+            s.tunnelFailures = 0
+            s.tunnelRetryAt = nil
+        }
+    }
 }
